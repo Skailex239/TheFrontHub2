@@ -56,6 +56,7 @@ let recentHistory = [];          // games qui viennent de quitter le lobby
 let prevGameIds = new Set();
 
 let wsStatus = "connecting";     // connecting | connected | reconnecting | error
+let wsDown = false;              // true si WS abandonné après 5 échecs (mode dégradé)
 
 let queueSize1v1 = null;
 let queueSize2v2 = null;
@@ -258,7 +259,19 @@ function closeSocket() {
 function scheduleReconnect(gen) {
   if (gen !== wsGen) return;
   retries++;
-  setStatus("reconnecting", `Reconnexion… (${retries})`);
+
+  // ⚠️ Après 5 tentatives, on abandonne le WS et on bascule en mode dégradé
+  //    (les sections ranked + historique + heatmap continuent via lobby_state.json)
+  if (retries > 5) {
+    setStatus("error", "WS bloqué — mode dégradé");
+    console.warn("[lobby] ⚠️ WS abandonné après 5 échecs (probable bloquage Cloudflare cross-origin)");
+    console.warn("[lobby] ✅ Mode dégradé actif : ranked + historique + heatmap via lobby_state.json");
+    wsDown = true;  // flag global pour afficher message dans les carrousels
+    scheduleRender();
+    return;
+  }
+
+  setStatus("reconnecting", `Reconnexion… (${retries}/5)`);
   const delay = Math.min(1000 * Math.pow(2, retries - 1), 15000);
   if (reconnectTimer) clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(() => { if (gen === wsGen) connect(); }, delay);
@@ -603,7 +616,10 @@ function renderCarousels() {
 
     // Si pas de parties → message vide
     if (!filtered.length) {
-      track.innerHTML = `<div class="lobby-carousel-empty">Aucune partie ${col.label.toLowerCase()} pour le moment…</div>`;
+      const emptyMsg = wsDown
+        ? `📡 WebSocket bloqué — parties temps réel indisponibles. Les sections ranked + historique restent actives.`
+        : `Aucune partie ${col.label.toLowerCase()} pour le moment…`;
+      track.innerHTML = `<div class="lobby-carousel-empty">${emptyMsg}</div>`;
       track.classList.remove("is-scrolling");
       continue;
     }
