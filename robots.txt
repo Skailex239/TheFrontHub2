@@ -1,0 +1,14 @@
+# robots.txt — TheFrontHub.com
+# Autoriser tous les moteurs de recherche à crawler le site
+
+User-agent: *
+Allow: /
+
+# Bloquer les endpoints internes (sécurité)
+Disallow: /_upload.php
+Disallow: /_deploy.php
+Disallow: /_archives/
+Disallow: /api/
+
+# Sitemap (aide Google à trouver toutes les pages)
+Sitemap: https://thefronthub.com/sitemap.xml
