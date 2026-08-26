@@ -67,17 +67,20 @@ for f in "${FILES[@]}"; do
   # Upload via curl multipart/form-data
   # ⚠️ --http1.1 : obligatoire pour les gros fichiers (>10 Mo) car HTTP/2
   #    a des soucis de flux avec LiteSpeed/o2switch (curl error 92)
-  # ⚠️ --retry 3 --retry-delay 10 --retry-all-errors : retry sur toutes les erreurs
-  #    (y compris 92 HTTP/2 stream et erreurs réseau)
+  # ⚠️ --max-time 300 : 5 min pour les gros fichiers (16+ Mo)
+  # ⚠️ --retry 5 --retry-delay 15 : retry 5 fois avec 15s de délai
+  # ⚠️ --retry-all-errors : retry sur TOUTES les erreurs (y compris 56 RECV)
+  # ⚠️ --connect-timeout 30 : timeout connexion spécifique
   RESPONSE=$(curl -sS -X POST \
     --http1.1 \
+    --connect-timeout 30 \
     -H "X-Upload-Secret: $O2SWITCH_SECRET" \
     -F "file=@$f" \
     -F "filename=$RELNAME" \
     -F "mode=$MODE" \
-    --max-time 120 \
-    --retry 3 \
-    --retry-delay 10 \
+    --max-time 300 \
+    --retry 5 \
+    --retry-delay 15 \
     --retry-all-errors \
     "$O2SWITCH_URL" 2>&1) || RESPONSE="curl error: $?"
 
