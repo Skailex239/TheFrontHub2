@@ -26,8 +26,13 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { createRequire } from "module";
 import fetch from "node-fetch";
 import WebSocket from "ws";
+
+// Import lobby-wire.js (CommonJS) pour décoder le zbin binaire d'OpenFront
+const require = createRequire(import.meta.url);
+const { decodeLobbyMessage } = require("./lobby-wire.js");
 
 // ── Paths & constants ──────────────────────────────────────────────────
 const __filename = fileURLToPath(import.meta.url);
@@ -87,7 +92,8 @@ function loadPreviousState() {
 }
 
 // ── 1) Snapshot du lobby via WebSocket ─────────────────────────────────
-// Renvoie { lobbyPlayers, lobbyGames, serverTime }.
+// Renvoie { lobbyPlayers, lobbyGames, serverTime, games }.
+// games = { ffa: [...], team: [...], special: [...] } détaillé (pour polling HTTP)
 // En cas d'échec/timeout, renvoie des zéros (on garde quand même le reste).
 function fetchLobbySnapshot() {
   return new Promise((resolve) => {
@@ -108,7 +114,7 @@ function fetchLobbySnapshot() {
 
     const fallback = (reason) => {
       warn(`WS pas de snapshot — ${reason}`);
-      finish({ lobbyPlayers: 0, lobbyGames: 0, serverTime: Date.now() });
+      finish({ lobbyPlayers: 0, lobbyGames: 0, serverTime: Date.now(), games: { ffa: [], team: [], special: [] } });
     };
 
     try {
@@ -133,11 +139,28 @@ function fetchLobbySnapshot() {
 
     ws.on("message", (raw) => {
       let msg;
-      try {
-        msg = JSON.parse(raw.toString());
-      } catch (e) {
-        return; // message non-JSON, on ignore
+      // Détection du format : ArrayBuffer/Buffer = binaire (zbin), string = JSON
+      const isBinary = raw instanceof Buffer || raw instanceof ArrayBuffer ||
+        (typeof Buffer !== "undefined" && Buffer.isBuffer(raw));
+
+      if (isBinary) {
+        // Format binaire zbin (OpenFront moderne) → utiliser lobby-wire.js
+        try {
+          const bytes = new Uint8Array(raw);
+          msg = decodeLobbyMessage(bytes);
+        } catch (e) {
+          warn(`zbin decode error: ${e.message}`);
+          return;
+        }
+      } else {
+        // Format JSON texte (legacy)
+        try {
+          msg = JSON.parse(raw.toString());
+        } catch (e) {
+          return; // message non-JSON non-binaire, on ignore
+        }
       }
+
       if (!msg || typeof msg !== "object") return;
 
       // Premier snapshot complet (peut arriver avec ou sans `type: "full"`).
@@ -150,8 +173,6 @@ function fetchLobbySnapshot() {
         ];
         const serverTime =
           typeof msg.serverTime === "number" ? msg.serverTime : Date.now();
-        // Le WS lobby ne garde que les games en attente de joueurs
-        // (pas encore démarrées) → toutes comptent comme "en lobby".
         const lobbyGames = all.length;
         const lobbyPlayers = all.reduce(
           (sum, g) => sum + (Number(g && g.numClients) || 0),
@@ -159,9 +180,18 @@ function fetchLobbySnapshot() {
         );
         log(
           `WS full snapshot: ${lobbyGames} games en lobby, ${lobbyPlayers} joueurs` +
-            ` (serverTime=${serverTime})`
+            ` (serverTime=${serverTime}, format=${isBinary ? "zbin" : "JSON"})`
         );
-        finish({ lobbyPlayers, lobbyGames, serverTime });
+        finish({
+          lobbyPlayers,
+          lobbyGames,
+          serverTime,
+          games: {
+            ffa: Array.isArray(games.ffa) ? games.ffa : [],
+            team: Array.isArray(games.team) ? games.team : [],
+            special: Array.isArray(games.special) ? games.special : [],
+          },
+        });
       }
       // Les messages `type: "counts"` sont ignorés (on déconnecte après le full).
     });
@@ -388,6 +418,10 @@ async function main() {
       activePlayers: 0,
       activeGames: 0,
     },
+    // 🎯 V2 : on stocke aussi les games détaillées (pour HTTP polling côté lobby.js)
+    // Format identique au WS OpenFront : { ffa: [...], team: [...], special: [...] }
+    // Chaque game contient : gameID, numClients, startsAt, publicGameType, gameConfig
+    games: lobby.games || { ffa: [], team: [], special: [] },
     ranked,
     recentHistory: recent.recentHistory,
     topMapsToday: [], // V1 : API /public/games ne retourne pas gameMap.

@@ -544,7 +544,14 @@ function render() {
   }
 
   // ── Stats ──
-  const allGames = snapshot?.games ? [...snapshot.games.ffa, ...snapshot.games.team, ...snapshot.games.special] : [];
+  // Récupère les games depuis snapshot (WS) OU sharedState (HTTP polling fallback)
+  let allRawGames = [];
+  if (snapshot?.games) {
+    allRawGames = [...snapshot.games.ffa, ...snapshot.games.team, ...snapshot.games.special];
+  } else if (sharedState?.games) {
+    allRawGames = [...(sharedState.games.ffa || []), ...(sharedState.games.team || []), ...(sharedState.games.special || [])];
+  }
+  const allGames = allRawGames.map(normalizeGame);
   const filtered = allGames.filter(passesFilters);
   const totalGames = filtered.length;
   const totalPlayers = filtered.reduce((s, g) => s + (g.players || 0), 0);
@@ -598,13 +605,35 @@ function renderCarousels() {
     }
   }
 
-  if (!snapshot?.games) return;
+  // 🎯 Source des données :
+  //   - Si WS connecté (snapshot.games) → données temps réel via WS
+  //   - Sinon (wsDown = true) → fallback sur sharedState.games (HTTP polling)
+  let dataSource = null;
+  let dataServerTime = Date.now();
+
+  if (snapshot?.games) {
+    // WS alive → données temps réel
+    dataSource = snapshot.games;
+    dataServerTime = snapshot.serverTime || Date.now();
+  } else if (sharedState?.games) {
+    // Mode dégradé → données via lobby_state.json (polling 15s)
+    dataSource = sharedState.games;
+    dataServerTime = sharedState.serverTime || Date.now();
+  }
+
+  if (!dataSource) {
+    // Ni WS ni sharedState → on ne peut rien afficher
+    return;
+  }
 
   for (const col of COLUMNS) {
     const section = wrap.querySelector(`[data-cat="${col.key}"]`);
     if (!section) continue;
 
-    const allGames = snapshot.games[col.key] || [];
+    // Récupère les games de cette catégorie
+    let rawGames = dataSource[col.key] || [];
+    // Normalise les games (au cas où elles viendraient de sharedState avec un format légèrement différent)
+    const allGames = rawGames.map(normalizeGame);
     const filtered = sortGames(allGames.filter(passesFilters));
 
     // Compteur
@@ -616,7 +645,7 @@ function renderCarousels() {
 
     // Si pas de parties → message vide
     if (!filtered.length) {
-      const emptyMsg = wsDown
+      const emptyMsg = (wsDown && !sharedState?.games)
         ? `📡 WebSocket bloqué — parties temps réel indisponibles. Les sections ranked + historique restent actives.`
         : `Aucune partie ${col.label.toLowerCase()} pour le moment…`;
       track.innerHTML = `<div class="lobby-carousel-empty">${emptyMsg}</div>`;
@@ -628,7 +657,7 @@ function renderCarousels() {
     // On rend N cartes (max 20) + on les duplique pour le scroll seamless
     // (carrousel infini) — voir lobby.css .lobby-carousel-track.
     const cards = filtered.slice(0, 20);
-    const html = cards.map(g => cardHtml(g, snapshot.serverTime)).join("");
+    const html = cards.map(g => cardHtml(g, dataServerTime)).join("");
 
     // Si on a au moins 2 cartes, on duplique pour faire défiler en boucle
     if (cards.length >= 2) {
@@ -687,7 +716,7 @@ function renderNextGame(allGames) {
     return;
   }
 
-  const now = snapshot?.serverTime || Date.now();
+  const now = snapshot?.serverTime || sharedState?.serverTime || Date.now();
   const upcoming = allGames.filter(g => g.startsAt && g.startsAt > now).sort((a, b) => a.startsAt - b.startsAt);
   const next = upcoming[0];
 
@@ -1012,16 +1041,18 @@ connectMatchmaking();
 // Render initial (vide, en attente)
 render();
 
-// Fetch shared state immediately, then every 60s
+// Fetch shared state immediately, then every 15s (polling quasi-temps réel)
+// ⚠️ En mode dégradé (WS down), c'est la SEULE source de données pour les carrousels.
+//    15s = bon compromis entre fraîcheur et charge serveur.
 fetchSharedState().then(() => {
   scheduleRender();
 });
 setInterval(() => {
   fetchSharedState().then(() => scheduleRender());
-}, 60000);
+}, 15000);
 
-// Re-render toutes les 30s pour rafraîchir les countdowns
-setInterval(() => { scheduleRender(); }, 30000);
+// Re-render toutes les 10s pour rafraîchir les countdowns (sans re-fetch)
+setInterval(() => { scheduleRender(); }, 10000);
 
 // Re-build mods buttons quand snapshot change (pour capter les nouveaux mods)
 let lastModSetSize = 0;
