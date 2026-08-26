@@ -430,63 +430,114 @@ ls -la /home/TON-USER/public_html/thefronthub.com/_archives/ 2>/dev/null
 
 ---
 
-## ÉTAPE 11 — Configurer le déploiement automatique du CODE (5 min)
+## ÉTAPE 11 — Déploiement automatique du CODE via Webhook GitHub (Option B)
 
-Pour que chaque `git push` mette à jour automatiquement le code sur o2switch (HTML/CSS/JS, PAS les données — les données sont déjà gérées par la sync HTTP) :
+> ✅ **Option choisie : Option B (Webhook temps réel)**
+>
+> Quand tu fais `git push`, GitHub appelle `https://thefronthub.com/_deploy.php`
+> qui met à jour le code sur o2switch en ~2 secondes.
 
-### 11.1 — Option A : Cron job toutes les 5 min (LE PLUS SIMPLE)
+### 11.1 — Copier le fichier `_deploy.php` sur o2switch
 
-1. cPanel → **Avancé** → **Tâches Cron**
-2. Configure :
-   - **Minute** : `*/5`
-   - **Heure** : `*`
-   - **Jour** : `*`
-   - **Mois** : `*`
-   - **Jour de la semaine** : `*`
-3. **Commande** (remplace `TON-USER` par ton user o2switch) :
-   ```bash
-   cd /home/TON-USER/thefronthub-src && git pull origin main --quiet && rsync -a --delete --exclude='.git' --exclude='.htaccess' --exclude='_upload.php' --exclude='_archives' --exclude='*.json' --exclude='*.json.gz' --exclude='player-data' --exclude='player-stats' ./ /home/TON-USER/public_html/thefronthub.com/
-   ```
-4. Clique **"Ajouter une nouvelle tâche cron"**
+Le fichier `_deploy.php` est déjà dans ton repo GitHub (à la racine). Copie-le dans le document root :
 
-> ⚠️ Le `rsync` exclut les fichiers `.json` et `.json.gz` car ils sont gérés par la sync HTTP (sinon le cron les écraserait avec une version potentiellement obsolète du repo).
-
-✅ **Avantage** : ultra simple, pas de webhook à configurer
-⚠️ **Inconvénient** : latence max 5 min entre le push GitHub et la mise à jour du site
-
-### 11.2 — Option B : Webhook GitHub → script PHP (temps réel)
-
-Pour un déploiement instantané du code, crée le fichier `/home/TON-USER/public_html/thefronthub.com/_deploy.php` :
-
-```php
-<?php
-$SECRET = 'CHANGE_MOI_SECRET_WEBHOOK'; // ⚠️ différent du secret _upload.php !
-$REPO_PATH = '/home/TON-USER/thefronthub-src';
-$WEB_ROOT = '/home/TON-USER/public_html/thefronthub.com';
-
-$signature = $_SERVER['HTTP_X_HUB_SIGNATURE_256'] ?? '';
-$body = file_get_contents('php://input');
-$expected = 'sha256=' . hash_hmac('sha256', $body, $SECRET);
-if (!hash_equals($expected, $signature)) { http_response_code(403); die('Forbidden'); }
-
-$payload = json_decode($body, true);
-if (($payload['ref'] ?? '') !== 'refs/heads/main') { http_response_code(200); die('Ignored'); }
-
-$commands = [
-  "cd $REPO_PATH && git fetch origin main --quiet",
-  "cd $REPO_PATH && git reset --hard origin/main --quiet",
-  "rsync -a --delete --exclude='.git' --exclude='.htaccess' --exclude='_upload.php' --exclude='_archives' --exclude='*.json' --exclude='*.json.gz' --exclude='player-data' --exclude='player-stats' $REPO_PATH/ $WEB_ROOT/",
-];
-foreach ($commands as $cmd) shell_exec($cmd . ' 2>&1');
-http_response_code(200);
-echo "Deployed: " . date('Y-m-d H:i:s');
+```bash
+cp /home/TON-USER/thefronthub-src/_deploy.php /home/TON-USER/public_html/thefronthub.com/_deploy.php
+chmod 644 /home/TON-USER/public_html/thefronthub.com/_deploy.php
 ```
 
-Puis sur GitHub → https://github.com/Skailex239/TheFrontHub2/settings/hooks :
-- **Payload URL** : `https://thefronthub.com/_deploy.php`
-- **Content type** : `application/json`
-- **Secret** : le même que dans `_deploy.php`
-- **Events** : "Just the push event"
+### 11.2 — Générer un secret webhook (DIFFÉRENT du secret _upload.php)
+
+Dans le terminal cPanel :
+```bash
+openssl rand -hex 32
+```
+
+**Copie la sortie** (64 caractères hex). ⚠️ Ce secret doit être **différent** du secret `_upload.php` (sécurité — séparation des préoccupations).
+
+### 11.3 — Modifier `_deploy.php` avec ton secret + chemins
+
+Édite le fichier :
+```bash
+nano /home/TON-USER/public_html/thefronthub.com/_deploy.php
+```
+
+Modifie ces 4 lignes (autour de la ligne 35) :
+```php
+$SECRET = 'CHANGE_MOI_PAR_UN_SECRET_WEBHOOK_DIFFERENT_DE_UPLOAD';  // ← ton secret
+$REPO_PATH = '/home/USER/thefronthub-src';      // ← remplace USER par ton user o2switch
+$WEB_ROOT = '/home/USER/public_html/thefronthub.com';  // ← idem
+$LOG_FILE = '/home/USER/logs/deploy.log';        // ← idem
+```
+
+Sauvegarde : `Ctrl+O`, `Enter`, `Ctrl+X`.
+
+### 11.4 — Créer le dossier logs (pour le debug)
+
+```bash
+mkdir -p /home/TON-USER/logs
+chmod 755 /home/TON-USER/logs
+```
+
+### 11.5 — Configurer le webhook sur GitHub
+
+1. Va sur https://github.com/Skailex239/TheFrontHub2/settings/hooks
+2. Clique **"Add webhook"** (bouton vert)
+3. Remplis :
+   - **Payload URL** : `https://thefronthub.com/_deploy.php`
+   - **Content type** : `application/json`
+   - **Secret** : colle le même secret que dans `_deploy.php`
+   - **SSL verification** : laisse "Enable SSL verification"
+   - **Which events would you like to trigger this webhook?** : choisis **"Just the push event"**
+4. Clique **"Add webhook"** (bouton vert en bas)
+
+### 11.6 — Tester le webhook
+
+1. Sur GitHub, dans la page https://github.com/Skailex239/TheFrontHub2/settings/hooks
+2. Tu vois ton webhook avec une icône ✅ ou ❌
+3. Clique sur le webhook → **"Recent Deliveries"**
+4. Tu dois voir au moins 1 entrée (le webhook envoie un ping auto à la création)
+5. Clique dessus → vérifie que **Response** est `200 OK` et le body contient `{"ok":true,...}`
+
+Si ça échoue :
+- Clique sur la delivery → **"Redeliver"** pour réessayer
+- Vérifie les logs o2switch : `cat /home/TON-USER/logs/deploy.log`
+
+### 11.7 — Tester le workflow complet
+
+1. Sur ton PC, fais un petit changement dans le repo (ex: ajoute un commentaire dans `lobby.html`)
+2. `git add`, `git commit -m "test deploy"`, `git push`
+3. Va sur https://github.com/Skailex239/TheFrontHub2/settings/hooks
+4. Tu dois voir une nouvelle delivery avec ✅ "Last delivery was successful"
+5. Ouvre `https://thefronthub.com/lobby.html` → ta modif est déjà en ligne (~2 sec)
+
+### 11.8 — Sécurité supplémentaire (optionnel)
+
+Pour éviter que quelqu'un ne lise le code PHP de `_deploy.php` (même si c'est impossible car PHP l'exécute et ne l'affiche jamais), ajoute ceci au `.htaccess` :
+
+```apache
+# _deploy.php et _upload.php : seulement en POST (pas de GET)
+<FilesMatch "^_(deploy|upload)\.php$">
+  <If "%{REQUEST_METHOD} != 'POST'">
+    Require all denied
+  </If>
+</Files>
+```
+
+---
+
+## 🎯 AVERTISSEMENT IMPORTANT sur l'Option B
+
+L'Option B déploie **UNIQUEMENT le code** (HTML/CSS/JS/PHP). Les **fichiers de données** (`lobby_state.json`, `ranked.json`, etc.) sont gérés par un système **séparé et automatique** :
+
+- **GitHub Actions `sync.yml`** tourne tout seul toutes les 5 min
+- Elle génère les fichiers JSON en local
+- Elle les upload via `scripts/upload-to-o2switch.sh` vers `_upload.php`
+- `_upload.php` les stocke sur o2switch
+
+✅ Donc tu n'as **RIEN à faire** pour les données — c'est déjà automatique.
+
+Tu n'as à configurer que **l'Option B pour le code** (cette étape 11).
 
 ---
 
