@@ -1,0 +1,97 @@
+/* ads.css — Styles pour les emplacements Google AdSense
+   Palette TheFrontHub (orange) — discret mais visible */
+
+.ad-slot {
+  margin: 16px 0;
+  padding: 8px;
+  background: var(--card, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  text-align: center;
+  overflow: hidden;
+  min-height: 50px;
+}
+
+.ad-slot.ad-horizontal {
+  min-height: 90px;
+  max-width: 728px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.ad-slot.ad-vertical {
+  min-height: 250px;
+  max-width: 300px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.ad-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text3, #9ca3af);
+  margin-bottom: 4px;
+  text-align: left;
+  padding-left: 4px;
+}
+
+.ad-slot ins.adsbygoogle {
+  display: block;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* Dark mode */
+:root.dark .ad-slot {
+  background: var(--card, #1a1f2e);
+  border-color: var(--border, #2a2f3e);
+}
+
+/* Header ad — collé sous le topbar */
+main.content > .ad-slot.ad-horizontal:first-child,
+main > .ad-slot.ad-horizontal:first-child {
+  margin-top: 0;
+  border-radius: 12px;
+}
+
+/* Sidebar ads — prennent toute la largeur de la sidebar */
+aside.sidebar .ad-slot {
+  width: 100%;
+  max-width: none;
+  margin: 12px 0;
+}
+
+/* Footer ad — discret, large */
+footer + .ad-slot,
+.ad-slot.ad-horizontal:last-child {
+  margin-bottom: 0;
+  border-radius: 12px;
+}
+
+/* In-content — ne pas casser le flow */
+.ad-slot.ad-horizontal#ad-in-content {
+  margin: 24px 0;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .ad-slot.ad-horizontal {
+    max-width: 100%;
+    min-height: 60px;
+  }
+  .ad-slot.ad-vertical {
+    max-width: 100%;
+    min-height: 200px;
+  }
+}
+
+/* Masquer les pubs sur les très petits écrans (optionnel) */
+@media (max-width: 480px) {
+  .ad-slot.ad-horizontal#ad-header,
+  .ad-slot.ad-horizontal#ad-footer {
+    /* On les garde mais plus petit */
+    min-height: 50px;
+  }
+}
