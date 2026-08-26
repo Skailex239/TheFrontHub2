@@ -65,14 +65,20 @@ for f in "${FILES[@]}"; do
   echo -n "  📤 $RELNAME (${SIZE} bytes)... "
 
   # Upload via curl multipart/form-data
+  # ⚠️ --http1.1 : obligatoire pour les gros fichiers (>10 Mo) car HTTP/2
+  #    a des soucis de flux avec LiteSpeed/o2switch (curl error 92)
+  # ⚠️ --retry 3 --retry-delay 10 --retry-all-errors : retry sur toutes les erreurs
+  #    (y compris 92 HTTP/2 stream et erreurs réseau)
   RESPONSE=$(curl -sS -X POST \
+    --http1.1 \
     -H "X-Upload-Secret: $O2SWITCH_SECRET" \
     -F "file=@$f" \
     -F "filename=$RELNAME" \
     -F "mode=$MODE" \
-    --max-time 60 \
-    --retry 2 \
-    --retry-delay 5 \
+    --max-time 120 \
+    --retry 3 \
+    --retry-delay 10 \
+    --retry-all-errors \
     "$O2SWITCH_URL" 2>&1) || RESPONSE="curl error: $?"
 
   # Vérifier la réponse JSON
