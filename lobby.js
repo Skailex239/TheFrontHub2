@@ -12,9 +12,15 @@
 //  CONFIG
 // ═══════════════════════════════════════════════════════════
 
-const PROXY_WS_URL = "wss://openfront-proxy.diofortnite3.workers.dev/lobby-ws";
-const PROXY_MM_WS_URL = (mode) =>
-  `wss://openfront-proxy.diofortnite3.workers.dev/matchmaking-ws?mode=${mode}`;
+// 🎯 Connexion WSS directe vers OpenFront (comme minhkarl.github.io)
+// Pas de proxy : le navigateur se connecte directement à OpenFront.
+// Cloudflare laisse passer les WS des vrais navigateurs.
+const LOBBY_WS_POOL = ["w0", "w1", "w2", "w3", "w4"];
+const LOBBY_WS_WORKER = LOBBY_WS_POOL[Math.floor(Math.random() * LOBBY_WS_POOL.length)];
+const LOBBY_WS_URL = `wss://openfront.io/${LOBBY_WS_WORKER}/lobbies`;
+
+const MM_WS_URL = (mode) =>
+  `wss://openfront.io/matchmaking/join?instance_id=tfh-monitor&mode=${mode}`;
 
 const LOBBY_VIEW = document.getElementById("lobby-view");
 if (!LOBBY_VIEW) throw new Error("[lobby] #lobby-view missing");
@@ -209,10 +215,10 @@ function connect() {
   closeSocket();
   const gen = ++wsGen;
   setStatus("connecting", "Connexion…");
-  console.log(`[lobby] Connecting to ${PROXY_WS_URL}…`);
+  console.log(`[lobby] Connecting to ${LOBBY_WS_URL}…`);
 
   let socket;
-  try { socket = new WebSocket(PROXY_WS_URL); } catch (e) {
+  try { socket = new WebSocket(LOBBY_WS_URL); } catch (e) {
     console.error("[lobby] WS ctor failed:", e);
     scheduleReconnect(gen);
     return;
@@ -1006,7 +1012,7 @@ function connectMatchmaking() {
 
 function connectMM(mode) {
   try {
-    const wsMM = new WebSocket(PROXY_MM_WS_URL(mode));
+    const wsMM = new WebSocket(MM_WS_URL(mode));
     wsMM.onmessage = (e) => {
       try {
         let data;
