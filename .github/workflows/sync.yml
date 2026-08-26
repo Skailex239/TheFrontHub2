@@ -54,12 +54,9 @@ jobs:
       - name: Upload vers o2switch
         run: |
           chmod +x scripts/upload-to-o2switch.sh
-          # ⚠️ runs.json.gz (16+ Mo) SKIPPÉ — o2switch coupe la connexion (curl error 56)
-          # Le lobby n'en a PAS besoin — il utilise lobby_state.json + ranked.json
-          # (qui sont des snapshots < 100 Ko).
-          # Si tu veux quand même runs.json.gz plus tard, on utilisera un chunked upload.
-          echo "⏭️  runs.json.gz skip (trop gros pour o2switch, pas critique pour le lobby)"
-          # Petits fichiers en snapshot
+          # Archive (historique + rotation 30j)
+          ./scripts/upload-to-o2switch.sh archive runs.json.gz
+          # Snapshot (écrase)
           ./scripts/upload-to-o2switch.sh snapshot runs_public.json.gz runs_public.json clans.json news.json seen.json checkpoint.json
 
   sync-compact:
@@ -80,8 +77,7 @@ jobs:
       - name: Upload vers o2switch
         run: |
           chmod +x scripts/upload-to-o2switch.sh
-          # ⚠️ runs_compact.json.gz (4+ Mo) SKIPPÉ aussi — même souci
-          echo "⏭️  runs_compact.json.gz skip (trop gros pour o2switch, pas critique pour le lobby)"
+          ./scripts/upload-to-o2switch.sh archive runs_compact.json.gz
           ./scripts/upload-to-o2switch.sh snapshot runs_compact_public.json.gz runs_compact_public.json seen_compact.json checkpoint_compact.json
 
   sync-teams:
