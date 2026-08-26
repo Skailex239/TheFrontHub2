@@ -1,0 +1,31 @@
+name: Auto Sync
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm init -y && npm install node-fetch@2
+      - name: Sync recent games
+        run: |
+          node sync.js recent
+          node sync-ranked.js
+        env:
+          OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
+      - name: Commit and push if changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add runs_public.json.gz runs_compact_public.json.gz ranked.json.gz ranked.json ranked_history.json.gz ranked_2v2_history.json.gz maps_list.json -f
+          git diff --staged --quiet || git commit -m "[auto] sync $(date -u '+%Y-%m-%d %H:%M UTC')"
+          git push

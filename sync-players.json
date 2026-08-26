@@ -1,0 +1,27 @@
+{
+  "players": [
+    {
+      "publicId": "tqMGOI2Q",
+      "username": "Zwiper.2734",
+      "note": "Top 1 global"
+    },
+    {
+      "publicId": "EFqhVYJW",
+      "username": "YellowBiscuit"
+    },
+    {
+      "publicId": "UWetOwlW",
+      "username": "Skailex on YT"
+    },
+    {
+      "publicId": "hWNuSrnS",
+      "username": "Nvr_Kn"
+    },
+    {
+      "publicId": "u0u81Hll",
+      "username": "Anto"
+    }
+  ],
+  "schedule": "every 15 minutes",
+  "notes": "Add players here to sync their games. Each player gets a file in player-data/<publicId>.json. First sync is full (slow), subsequent syncs are incremental (fast)."
+}

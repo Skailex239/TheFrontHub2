@@ -1,0 +1,90 @@
+{
+  "_note": "BARÈME DU POWER RANKING. Points attribués par phase atteinte, multipliés par le tier du tournoi. 'places' = points par placement dans la phase ; 'defaultPoints' = points si le joueur est listé dans la phase sans placement précis (ex : éliminé en qualifications). Modifiez ce fichier (ou envoyez votre grille à l'agent) pour changer le barème. Aucune décroissance : les points se cumulent.",
+  "tiers": {
+    "major": 2.5,
+    "standard": 1.0,
+    "minor": 0.5
+  },
+  "rewards": {
+    "major": {
+      "_note": "Récompenses des tournois tier major, en Plutonium (P). 1er = 750 P, 2e = 400 P, 3e = 250 P, 4e-15e = 100 P.",
+      "name": "Plutonium",
+      "currency": "P",
+      "places": { "1": 750, "2": 400, "3": 250 },
+      "ranges": [{ "min": 4, "max": 15, "points": 100 }]
+    }
+  },
+  "formats": {
+    "ffa": {
+      "phaseOrder": ["qualifications", "demi-finale", "finale", "classement"],
+      "phases": {
+        "qualifications": { "label": "Qualifications", "places": {}, "defaultPoints": 2 },
+        "demi-finale":    { "label": "Demi-finale",    "places": { "1": 26, "2": 22, "3": 18, "4": 15, "5": 12, "6": 10, "7": 8, "8": 6 }, "defaultPoints": 4 },
+        "finale":         { "label": "Finale",         "places": { "1": 100, "2": 80, "3": 65, "4": 52, "5": 42, "6": 34, "7": 28, "8": 24 }, "defaultPoints": 16 },
+        "classement": {
+          "label": "Classement",
+          "_note": "Grille du classement final type Major (même barème que le format minor, mais SANS ignoreTierMultiplier : le multiplicateur du tier s'applique, ex. major ×2.5 → 1er = 1000 × 2.5 = 2500 PR).",
+          "places": {
+            "1": 1000, "2": 750, "3": 600, "4": 500, "5": 430,
+            "6": 380, "7": 340, "8": 310, "9": 285, "10": 260
+          },
+          "ranges": [
+            { "min": 11, "max": 15, "points": 220 },
+            { "min": 16, "max": 20, "points": 180 },
+            { "min": 21, "max": 25, "points": 145 },
+            { "min": 26, "max": 30, "points": 115 },
+            { "min": 31, "max": 40, "points": 85 },
+            { "min": 41, "max": 50, "points": 60 },
+            { "min": 51, "max": 60, "points": 40 },
+            { "min": 61, "max": 70, "points": 25 },
+            { "min": 71, "max": 80, "points": 15 },
+            { "min": 81, "max": 90, "points": 8 },
+            { "min": 91, "max": 99, "points": 5 },
+            { "min": 100, "max": null, "points": 3 }
+          ],
+          "defaultPoints": 1,
+          "countsAsFinal": true
+        }
+      }
+    },
+    "bracket": {
+      "phaseOrder": ["premier-tour", "quart-de-finale", "demi-finale", "finale"],
+      "phases": {
+        "premier-tour":    { "label": "Premier tour",    "places": {}, "defaultPoints": 3 },
+        "quart-de-finale": { "label": "Quart de finale", "places": {}, "defaultPoints": 8 },
+        "demi-finale":     { "label": "Demi-finale",     "places": {}, "defaultPoints": 16 },
+        "finale":          { "label": "Finale",          "places": { "1": 60, "2": 40 }, "defaultPoints": 24 }
+      }
+    },
+    "minor": {
+      "_note": "Format des tournois minors : une seule grande phase de classement (type battle royale géant), points fixes déjà finaux (le multiplicateur ×0.5 du tier 'minor' ne s'applique PAS à cette phase, via ignoreTierMultiplier).",
+      "phaseOrder": ["classement"],
+      "phases": {
+        "classement": {
+          "label": "Classement",
+          "places": {
+            "1": 1000, "2": 750, "3": 600, "4": 500, "5": 430,
+            "6": 380, "7": 340, "8": 310, "9": 285, "10": 260
+          },
+          "ranges": [
+            { "min": 11, "max": 15, "points": 220 },
+            { "min": 16, "max": 20, "points": 180 },
+            { "min": 21, "max": 25, "points": 145 },
+            { "min": 26, "max": 30, "points": 115 },
+            { "min": 31, "max": 40, "points": 85 },
+            { "min": 41, "max": 50, "points": 60 },
+            { "min": 51, "max": 60, "points": 40 },
+            { "min": 61, "max": 70, "points": 25 },
+            { "min": 71, "max": 80, "points": 15 },
+            { "min": 81, "max": 90, "points": 8 },
+            { "min": 91, "max": 99, "points": 5 },
+            { "min": 100, "max": null, "points": 3 }
+          ],
+          "defaultPoints": 1,
+          "ignoreTierMultiplier": true,
+          "countsAsFinal": true
+        }
+      }
+    }
+  }
+}

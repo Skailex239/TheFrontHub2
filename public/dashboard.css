@@ -1,0 +1,688 @@
+/* ════════════════════════════════════════════════════════════════
+   Tableau de bord — Styles spécifiques (v6 — épuré + skins VIP)
+   Design inspiré du mockup envoyé : liste épurée, pas de carte champion,
+   une ligne par joueur avec rang + nom + breakdown + score.
+   Touche personnelle : palette orange du site (pas de bleu), accent
+   doré sur le #1, hover orange subtil, flèche › au survol.
+   v6 : skins VIP (prism, cyberpunk, gold…) sur les pseudos.
+   ════════════════════════════════════════════════════════════════ */
+
+.dash-view {
+  padding: 24px;
+  max-width: 1280px;
+  margin: 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Intro (description au-dessus des classements) ── */
+.dash-intro {
+  margin-bottom: 32px;
+  text-align: center;
+  position: relative;
+}
+.dash-intro-sub {
+  font-size: 15px;
+  color: var(--muted);
+  line-height: 1.6;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+/* ── Bouton aide (point d'interrogation rond) ── */
+.dash-help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: var(--card);
+  color: var(--muted);
+  cursor: pointer;
+  margin-top: 12px;
+  transition: all 0.2s var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
+  vertical-align: middle;
+}
+.dash-help-btn:hover,
+.dash-help-btn.active {
+  border-color: var(--orange);
+  color: var(--orange);
+  background: var(--orange-pale);
+}
+
+/* ── Popover barème ── */
+.dash-help-popover {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(8px);
+  min-width: 280px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12);
+  padding: 16px;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)),
+              transform 0.2s var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
+  z-index: 100;
+  margin-top: 8px;
+}
+.dash-help-popover.open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+.dash-help-popover-header {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+.dash-help-popover-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 10px;
+}
+.dash-help-popover-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 13px;
+}
+.dash-help-popover-list li:last-child {
+  border-bottom: none;
+}
+.dash-help-mode {
+  color: var(--text);
+  font-weight: 500;
+}
+.dash-help-pts {
+  color: var(--orange);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.dash-help-note {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-light);
+}
+
+/* ── Loading / Empty / Error ── */
+.dash-loading,
+.dash-error,
+.dash-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+  gap: 12px;
+  color: #6B7280;
+  text-align: center;
+}
+.dash-empty-state h3,
+.dash-error h3 { color: #111827; margin: 0; font-size: 18px; }
+.dash-empty-icon {
+  width: 56px; height: 56px; border-radius: 50%;
+  background: #FFF7ED;
+  color: var(--orange);
+  display: flex; align-items: center; justify-content: center;
+}
+.spinner {
+  width: 32px; height: 32px;
+  border: 3px solid #F3F4F6;
+  border-top-color: var(--orange);
+  border-radius: 50%;
+  animation: dash-spin 0.8s linear infinite;
+}
+@keyframes dash-spin { to { transform: rotate(360deg); } }
+
+/* ═══ Fallback tag ═══ */
+.dash-fallback-tag {
+  display: block;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  background: #FFF7ED;
+  border: 1px solid rgba(249, 115, 22, 0.25);
+  border-radius: 10px;
+  color: var(--orange-deep);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ═══ Progress bar (chargement live 0-100%) ═══ */
+.dash-progress {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: #FFF7ED;
+  border: 1px solid rgba(249, 115, 22, 0.25);
+  border-radius: 10px;
+}
+.dash-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.dash-progress-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--orange-deep);
+  font-size: 13px;
+  font-weight: 600;
+}
+.dash-progress-label svg,
+.dash-progress-label i {
+  width: 14px;
+  height: 14px;
+  color: var(--orange);
+  display: inline-flex;
+}
+.dash-progress-pct {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--orange-deep);
+  font-variant-numeric: tabular-nums;
+}
+.dash-progress-track {
+  height: 6px;
+  background: rgba(249, 115, 22, 0.15);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.dash-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--orange), var(--orange-deep));
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+/* ═══ Controls row (toggle + scoring hint) ═══ */
+.dash-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.dash-scoring-inline {
+  font-size: 12px;
+  color: #6B7280;
+  font-family: var(--mono, monospace);
+  letter-spacing: 0.01em;
+}
+
+/* ── Toggle (segmented pill, orange on active) ── */
+.dash-toggle {
+  display: inline-flex;
+  background: #F3F4F6;
+  border-radius: 999px;
+  padding: 3px;
+  gap: 2px;
+}
+.dash-toggle-btn {
+  padding: 8px 18px;
+  border: none;
+  background: transparent;
+  color: #6B7280;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out), background var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out);
+  white-space: nowrap;
+}
+.dash-toggle-btn:hover { color: #111827; }
+.dash-toggle-btn.active {
+  background: var(--orange);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(255, 122, 0, 0.25);
+}
+
+/* ═══ Two-column grid ═══ */
+.dash-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+  align-items: start;
+}
+
+/* ═══ Panel (une colonne = un classement) ═══ */
+.dash-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.dash-panel-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 14px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--orange);
+  position: relative;
+}
+.dash-panel-header::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 40px;
+  height: 1px;
+  background: var(--orange-deep);
+}
+.dash-panel-title {
+  font-family: var(--mono, "JetBrains Mono", monospace);
+  font-size: 15px;
+  font-weight: 800;
+  color: #111827;
+  margin: 0;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.dash-panel-sub {
+  font-size: 12px;
+  color: #6B7280;
+  font-weight: 500;
+}
+
+/* ═══ Ranking list — scrollable, épuré ═══ */
+.dash-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 640px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #E5E7EB transparent;
+  -webkit-overflow-scrolling: touch;
+}
+.dash-list::-webkit-scrollbar { width: 6px; }
+.dash-list::-webkit-scrollbar-thumb {
+  background: #E5E7EB;
+  border-radius: 3px;
+}
+.dash-list::-webkit-scrollbar-thumb:hover { background: var(--orange-light); }
+
+.dash-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 52px;
+  padding: 10px 10px;
+  border-bottom: 1px solid #F5F5F5;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
+  text-decoration: none;
+  color: inherit;
+  position: relative;
+  animation: dash-row-in 0.3s var(--ease-out) backwards;
+}
+.dash-row:last-child { border-bottom: none; }
+.dash-row:hover {
+  background: var(--orange-pale);
+}
+.dash-row:active {
+  transform: scale(0.998);
+}
+.dash-row:nth-child(1) { animation-delay: 0.02s; }
+.dash-row:nth-child(2) { animation-delay: 0.04s; }
+.dash-row:nth-child(3) { animation-delay: 0.06s; }
+.dash-row:nth-child(4) { animation-delay: 0.08s; }
+.dash-row:nth-child(5) { animation-delay: 0.10s; }
+@keyframes dash-row-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Podium (rangs 1-3) : accent gauche orange ── */
+.dash-row-podium {
+  padding-left: 14px;
+}
+.dash-row-podium::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--orange);
+  opacity: 0.5;
+  transition: opacity var(--dur) var(--ease-out);
+}
+.dash-row-podium:hover::before { opacity: 1; }
+
+/* ── Rang #1 : subtil fond doré ── */
+.dash-row-gold {
+  background: linear-gradient(90deg, rgba(255, 200, 0, 0.06) 0%, transparent 60%);
+}
+.dash-row-gold::before {
+  background: linear-gradient(180deg, var(--gold), var(--orange));
+  opacity: 0.7;
+}
+.dash-row-gold:hover {
+  background: linear-gradient(90deg, rgba(255, 200, 0, 0.12) 0%, var(--orange-pale) 60%);
+}
+.dash-row-gold:hover::before { opacity: 1; }
+
+/* Rank slot (trophy for 1-3, square badge for 4+) */
+.dash-rank-slot {
+  width: 36px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dash-rank-trophy {
+  font-size: 26px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
+}
+.dash-rank-trophy svg,
+.dash-rank-trophy i {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+}
+/* Couleurs par rang : or / argent / bronze */
+.dash-rank-1 { color: var(--gold); }       /* or */
+.dash-rank-2 { color: var(--silver); }     /* argent */
+.dash-rank-3 { color: var(--bronze); }     /* bronze */
+.dash-rank-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: var(--bg-subtle);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--border);
+  transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
+}
+.dash-row:hover .dash-rank-badge {
+  background: var(--orange);
+  color: #fff;
+  border-color: var(--orange);
+}
+
+/* Player name + breakdown */
+.dash-player {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dash-player-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  transition: color var(--dur) var(--ease-out);
+}
+.dash-row:hover .dash-player-name {
+  color: var(--orange-deep);
+}
+
+/* Mini breakdown des wins : "29 ⚔ · 9 👥" en texte discret */
+.dash-player-breakdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.dash-player-breakdown i,
+.dash-player-breakdown svg {
+  width: 11px;
+  height: 11px;
+  opacity: 0.7;
+  display: inline-flex;
+  vertical-align: -1px;
+  margin-left: 2px;
+}
+.dash-bd-sep {
+  color: var(--border-strong);
+  margin: 0 1px;
+}
+
+/* Score (right-aligned) */
+.dash-score {
+  flex-shrink: 0;
+  text-align: right;
+  min-width: 80px;
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 3px;
+}
+.dash-score-val {
+  font-size: 16px;
+  font-weight: 800;
+  color: #111827;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.dash-row-podium .dash-score-val {
+  color: var(--orange-deep);
+}
+.dash-row-gold .dash-score-val {
+  color: var(--orange-deep);
+}
+.dash-score-suffix {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
+/* Flèche › au survol (touche personnelle) */
+.dash-row-arrow {
+  flex-shrink: 0;
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--orange);
+  opacity: 0;
+  transform: translateX(-6px);
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
+  width: 14px;
+  text-align: center;
+}
+.dash-row:hover .dash-row-arrow {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.dash-empty {
+  text-align: center;
+  padding: 48px 20px;
+  color: #6B7280;
+  font-size: 14px;
+}
+
+/* Scoring info (footer of view) */
+.dash-scoring-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 24px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: #FFF7ED;
+  border: 1px solid rgba(249, 115, 22, 0.2);
+  color: #4B5563;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.dash-scoring-info strong { color: var(--orange); font-weight: 700; }
+.dash-scoring-info svg { flex-shrink: 0; margin-top: 2px; color: var(--orange); }
+
+/* ═══ Sticky footer ═══ */
+.dash-footer {
+  background: #FFFFFF;
+  border-top: 1px solid #F3F4F6;
+  padding: 14px 24px;
+  font-size: 12px;
+  color: #6B7280;
+  flex-shrink: 0;
+}
+.dash-footer-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.dash-footer-legend {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: #9CA3AF;
+}
+
+/* ═══ Skins VIP — pseudo en dégradé animé ═══
+   Les joueurs avec un cosmétique actif (prism, cyberpunk, gold…)
+   voient leur pseudo rendu en texte dégradé animé.
+
+   IMPORTANT : on utilise background-image (PAS background:) car le
+   shorthand `background` reset background-clip à border-box, ce qui
+   ferait apparaître le dégradé comme un rectangle plein au lieu d'être
+   découpé par la forme du texte. background-image ne touche PAS
+   background-clip → le clip:text reste actif. */
+@keyframes dash-prism-slide { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
+
+.dash-player-name.rgb-prism,
+.dash-player-name.rgb-cyberpunk,
+.dash-player-name.rgb-sunset,
+.dash-player-name.rgb-aurore,
+.dash-player-name.rgb-pastel,
+.dash-player-name.rgb-gold,
+.dash-player-name.rgb-volcano,
+.dash-player-name.rgb-ocean,
+.dash-player-name.rgb-miami,
+.dash-player-name.rgb-toxic,
+.dash-player-name.rgb-chroma {
+  display: inline-block;
+  font-weight: 800;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  color: transparent !important;
+  background-size: 200% auto !important;
+  background-repeat: no-repeat !important;
+  animation: dash-prism-slide 4s linear infinite !important;
+}
+
+.dash-player-name.rgb-prism {
+  font-family: 'Orbitron', sans-serif !important;
+  background-image: linear-gradient(90deg, #ff0055, #ff6600, #ffdd00, #00ff88, #00ccff, #6644ff, #cc00ff, #ff0055) !important;
+}
+.dash-player-name.rgb-cyberpunk {
+  font-family: 'Orbitron', sans-serif !important;
+  background-image: linear-gradient(90deg, #ff00ff, #00ffff, #ff00ff) !important;
+  animation-duration: 3s !important;
+  filter: brightness(1.2);
+}
+.dash-player-name.rgb-sunset {
+  background-image: linear-gradient(90deg, #ff4500, #ff8c00, #ffd700, #ff6347) !important;
+}
+.dash-player-name.rgb-aurore {
+  background-image: linear-gradient(90deg, #00ff87, #60efff, #0061ff, #60efff, #00ff87) !important;
+  animation-duration: 5s !important;
+}
+.dash-player-name.rgb-gold {
+  background-image: linear-gradient(90deg, #ffd700, #ffec8b, #daa520, #ffec8b, #ffd700) !important;
+  animation-duration: 3s !important;
+  filter: brightness(1.1);
+}
+.dash-player-name.rgb-volcano {
+  background-image: linear-gradient(90deg, #ff0000, #ff4500, #ff8c00, #ff4500, #ff0000) !important;
+  animation-duration: 2.5s !important;
+}
+.dash-player-name.rgb-ocean {
+  background-image: linear-gradient(90deg, #0077b6, #00b4d8, #90e0ef, #00b4d8, #0077b6) !important;
+}
+.dash-player-name.rgb-miami {
+  background-image: linear-gradient(90deg, #ff6ec7, #7b68ee, #ff6ec7) !important;
+  animation-duration: 3s !important;
+}
+.dash-player-name.rgb-toxic {
+  background-image: linear-gradient(90deg, #39ff14, #7fff00, #adff2f, #7fff00, #39ff14) !important;
+  animation-duration: 2s !important;
+  filter: brightness(1.15);
+}
+.dash-player-name.rgb-chroma {
+  background-image: linear-gradient(90deg, #ff0000, #ff8800, #ffff00, #00ff00, #00aaff, #8800ff, #ff0088, #ff0000) !important;
+}
+.dash-player-name.rgb-pastel {
+  background-image: linear-gradient(90deg, #ff9a9e, #fecfef, #a18cd1, #fbc2eb, #ff9a9e) !important;
+  animation-duration: 6s !important;
+}
+
+/* Les skins VIP ne doivent pas changer de couleur au hover (le dégradé
+   reste intact). On neutralise le hover orange-deep pour ces pseudos. */
+.dash-row:hover .dash-player-name[class*="rgb-"] {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+/* ═══ Responsive ═══ */
+@media (max-width: 900px) {
+  .dash-grid { grid-template-columns: 1fr; gap: 32px; }
+  .dash-list { max-height: 520px; }
+  /* Clear the mobile hamburger button (44px + 14px top = ~58px) */
+  .dash-view { padding: 70px 16px 60px; }
+  .dash-panel-title { font-size: 14px; }
+}
+@media (max-width: 640px) {
+  .dash-view { padding: 70px 14px 60px; }
+  .dash-intro { margin-bottom: 24px; }
+  .dash-intro-sub { font-size: 13px; }
+  .dash-panel-header { padding-bottom: 10px; }
+  .dash-panel-title { font-size: 14px; }
+  .dash-panel-sub { font-size: 11px; }
+
+  .dash-row { min-height: 48px; padding: 8px 8px; gap: 10px; }
+  .dash-rank-slot { width: 30px; }
+  .dash-rank-badge { width: 24px; height: 24px; font-size: 11px; border-radius: 6px; }
+  .dash-rank-trophy { font-size: 22px; width: 24px; height: 24px; }
+  .dash-rank-trophy svg, .dash-rank-trophy i { width: 20px; height: 20px; }
+  .dash-player-name { font-size: 14px; }
+  .dash-player-breakdown { font-size: 10px; }
+  .dash-player-breakdown i, .dash-player-breakdown svg { width: 10px; height: 10px; }
+  .dash-score { min-width: 64px; }
+  .dash-score-val { font-size: 14px; }
+  .dash-score-suffix { font-size: 10px; }
+  .dash-row-arrow { display: none; }
+
+  .dash-footer-inner { flex-direction: column; align-items: flex-start; gap: 4px; }
+}

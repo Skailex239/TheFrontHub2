@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TheFrontHub — OpenFront Leaderboard</title>
+    <link rel="dns-prefetch" href="https://api.openfront.io">
+    <link rel="dns-prefetch" href="https://corsproxy.io">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Orbitron:wght@900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="preload" href="runs_public.json.gz" as="fetch" crossorigin="anonymous">
+  <link rel="preload" href="runs_compact_public.json.gz" as="fetch" crossorigin="anonymous">
+    <link rel="icon" type="image/png" href="favicon-32x32.png">
+    <link rel="stylesheet" href="styles.css?v=31" />
+    <link rel="stylesheet" href="animations.css?v=6" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="animations.css?v=6"></noscript>
+    <link rel="stylesheet" href="toast.css">
+  </head>
+  <body>
+    <div class="container">
+      <div class="site-logo" id="site-logo" style="margin-bottom:16px">
+        <img src="TheFrontHub Logo Text.png" alt="TheFrontHub Logo" class="site-logo-img" id="site-logo-img" style="height:80px;margin-top:0;margin-bottom:0">
+      </div>
+      <div class="content">
+        <div class="content-header">
+          <div>
+            <div class="content-title">Top runs</div>
+            <div class="content-meta" id="meta">Chargement…</div>
+          </div>
+          <div class="runs-controls">
+            <div class="runs-ctrl">
+              <span class="runs-ctrl-label">Fenêtre (jours)</span>
+              <input id="windowDays" type="number" min="1" max="370" step="1" value="30" />
+            </div>
+            <div class="runs-ctrl">
+              <span class="runs-ctrl-label">Limite</span>
+              <input id="limit" type="number" min="1" max="100" step="1" value="20" />
+            </div>
+            <button id="refreshBtn" class="runs-btn" type="button">Actualiser</button>
+          </div>
+        </div>
+
+        <div class="runs-body">
+          <div id="status" class="loading">Recherche des meilleurs runs…</div>
+          <div id="errorBox" class="runs-error" hidden></div>
+
+          <div class="runs-table-wrap" style="overflow-x:auto">
+            <table class="global-table" id="runsTable">
+              <thead>
+                <tr>
+                  <th style="width:70px">#</th>
+                  <th>Joueur</th>
+                  <th>Map</th>
+                  <th style="width:120px">Temps</th>
+                  <th style="width:140px">Difficulté</th>
+                  <th style="width:110px">Joueurs</th>
+                  <th style="width:210px">Date</th>
+                </tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
+          </div>
+
+          <div class="runs-footer" id="generatedMeta"></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="lenis.js?v=2"></script>
+<script src="animations.js?v=10" defer></script>
+    <script src="toast.js"></script>
+    <script src="runs.js?v=2"></script>
+  </body>
+</html>

@@ -1,0 +1,134 @@
+/* atlas.css — Atlas OpenFront (orange TheFrontHub theme)
+   Reprend la structure d'openfront-atlas adaptée en orange */
+
+.atlas-view { padding: 0 0 24px; max-width: 1280px; margin: 0 auto; }
+
+/* Intro */
+.atlas-intro { margin-bottom: 24px; text-align: center; }
+.atlas-intro-sub { font-size: 15px; color: var(--muted); line-height: 1.6; max-width: 720px; margin: 0 auto; }
+
+/* Stats */
+.atlas-stats { display: flex; gap: 16px; justify-content: center; margin-bottom: 28px; flex-wrap: wrap; }
+.atlas-stat { text-align: center; padding: 12px 20px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; min-width: 100px; }
+.atlas-stat-val { display: block; font-size: 24px; font-weight: 800; color: var(--orange); font-variant-numeric: tabular-nums; }
+.atlas-stat-label { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2px; }
+
+/* Filters */
+.atlas-filters { display: flex; gap: 8px; margin-bottom: 28px; flex-wrap: wrap; justify-content: center; }
+.atlas-filter-btn { padding: 8px 16px; border: 1px solid var(--border); border-radius: 999px; background: var(--card); color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s var(--ease-out, cubic-bezier(0.22,1,0.36,1)); font-family: inherit; }
+.atlas-filter-btn:hover { border-color: var(--orange); color: var(--orange); }
+.atlas-filter-btn.active { background: var(--orange); color: #fff; border-color: var(--orange); }
+
+/* ═══ World map ═══ */
+.atlas-map-wrap { margin-bottom: 32px; border-radius: 16px; overflow: hidden; border: 1px solid var(--border); background: #a8d5e8; position: relative; }
+.atlas-map-svg { width: 100%; height: auto; display: block; }
+/* Each country = separate <path>, subtle borders */
+.atlas-countries path {
+  fill: #e8781d;
+  stroke: rgba(180, 100, 30, 0.4);
+  stroke-width: 0.5;
+  stroke-linejoin: round;
+  transition: fill 0.2s ease;
+}
+.atlas-countries path:hover { fill: #f2912e; }
+.atlas-svg-pin circle { transition: fill-opacity 0.2s ease; }
+.atlas-svg-pin:hover circle { fill-opacity: 1; }
+.atlas-svg-pin:hover circle:first-child { fill-opacity: 0.3; }
+.atlas-map-legend { position: absolute; bottom: 8px; left: 8px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: rgba(40, 60, 80, 0.7); background: rgba(168, 213, 232, 0.85); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(40, 80, 120, 0.2); }
+.atlas-legend-item { display: inline-flex; align-items: center; gap: 4px; }
+.atlas-legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+/* Tooltip */
+.atlas-tooltip { position: fixed; z-index: 1000; display: none; min-width: 200px; max-width: 240px; border-radius: 10px; background: rgba(168, 213, 232, 0.97); border: 1px solid rgba(255, 165, 80, 0.3); backdrop-filter: blur(16px); box-shadow: 0 16px 48px rgba(0,0,0,0.5); overflow: hidden; pointer-events: none; }
+.atlas-tooltip img { width: 100%; aspect-ratio: 16/9; object-fit: cover; }
+.atlas-tooltip-name { padding: 8px 10px 2px; font-size: 14px; font-weight: 600; color: #2e4a5c; }
+.atlas-tooltip-stats { padding: 0 10px 10px; display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 11px; color: #5a7080; }
+
+/* ═══ Card grid ═══ */
+.atlas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+.atlas-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; cursor: pointer; transition: transform 0.2s var(--ease-out, cubic-bezier(0.22,1,0.36,1)), border-color 0.2s ease, box-shadow 0.2s ease; }
+.atlas-card:hover { transform: translateY(-3px); border-color: var(--orange); box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
+.atlas-card-thumb { position: relative; aspect-ratio: 3 / 2; background: var(--bg-subtle); overflow: hidden; }
+.atlas-card-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.atlas-card-cat { position: absolute; top: 8px; left: 8px; padding: 2px 8px; border-radius: 5px; font-size: 10px; font-weight: 700; text-transform: uppercase; background: var(--cat-color, var(--orange)); color: #fff; }
+.atlas-card-body { padding: 12px 14px; }
+.atlas-card-name { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.atlas-card-meta { display: flex; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+
+/* ═══ Detail modal (reproduit openfront-atlas) ═══ */
+.atlas-modal-overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px); display: flex; align-items: flex-start; justify-content: center; padding: 20px; overflow-y: auto; animation: atlasFadeIn 0.2s ease; }
+@keyframes atlasFadeIn { from { opacity: 0; } to { opacity: 1; } }
+.atlas-detail { background: var(--card); border-radius: 16px; max-width: 1100px; width: 100%; position: relative; padding: 24px; margin: auto; }
+.atlas-detail-close { position: absolute; top: 16px; right: 16px; width: 36px; height: 36px; border: none; border-radius: 50%; background: var(--bg-subtle); font-size: 22px; cursor: pointer; z-index: 10; color: var(--text); }
+.atlas-detail-close:hover { background: var(--orange-pale); color: var(--orange); }
+.atlas-detail-back { display: inline-block; margin-bottom: 16px; font-size: 14px; color: var(--muted); cursor: pointer; transition: color 0.2s ease; }
+.atlas-detail-back:hover { color: var(--orange); }
+
+.atlas-detail-grid { display: grid; grid-template-columns: 3fr 2fr; gap: 24px; align-items: start; }
+
+/* Map image + nation overlay */
+.atlas-detail-map-wrap { border-radius: 12px; overflow: hidden; border: 1px solid var(--border); background: var(--bg-subtle); }
+.atlas-detail-map-stage { position: relative; overflow: hidden; }
+.atlas-detail-map-img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+/* Nation markers on map */
+.atlas-nation-overlay { position: absolute; inset: 0; pointer-events: none; }
+.atlas-nation-marker { position: absolute; transform: translate(-50%, -50%); pointer-events: auto; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.atlas-nation-flag { width: 20px; height: 14px; object-fit: cover; border-radius: 2px; border: 1px solid rgba(255,255,255,0.3); }
+.atlas-nation-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--orange); border: 1.5px solid #fff; box-shadow: 0 0 4px rgba(0,0,0,0.5); }
+.atlas-nation-label { font-size: 9px; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.8); white-space: nowrap; pointer-events: none; }
+
+/* Info panel */
+.atlas-detail-info { display: flex; flex-direction: column; gap: 16px; }
+.atlas-detail-badges { display: flex; gap: 8px; align-items: center; }
+.atlas-detail-cat { padding: 3px 10px; border-radius: 5px; font-size: 11px; font-weight: 700; text-transform: uppercase; background: var(--cat-color, var(--orange)); color: #fff; }
+.atlas-detail-freq { font-size: 12px; color: var(--muted); }
+.atlas-detail-name { font-size: 28px; font-weight: 800; color: var(--text); margin: 0; line-height: 1.15; }
+.atlas-detail-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.atlas-detail-stat { text-align: center; padding: 12px; background: var(--bg-subtle); border-radius: 8px; border: 1px solid var(--border); }
+.atlas-detail-stat span { display: block; font-size: 18px; font-weight: 700; color: var(--orange); font-variant-numeric: tabular-nums; }
+.atlas-detail-stat label { display: block; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin-top: 2px; }
+
+/* Land/water bar */
+.atlas-detail-landbar { padding: 12px; background: var(--bg-subtle); border-radius: 8px; border: 1px solid var(--border); }
+.atlas-landbar-labels { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px; }
+.atlas-landbar-track { height: 8px; border-radius: 999px; background: var(--border); overflow: hidden; }
+.atlas-landbar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #34d399, #6ee7b7); }
+
+.atlas-detail-play { display: inline-block; padding: 10px 20px; background: var(--orange); color: #fff; border-radius: 8px; font-size: 14px; font-weight: 700; text-decoration: none; transition: background 0.2s ease; text-align: center; }
+.atlas-detail-play:hover { background: var(--orange-hover); }
+
+/* Nations grid */
+.atlas-detail-nations { margin-top: 28px; }
+.atlas-detail-nations h3 { font-size: 18px; font-weight: 700; color: var(--text); margin: 0 0 14px; }
+.atlas-detail-count { font-size: 14px; color: var(--muted); font-weight: 500; }
+.atlas-nations-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.atlas-nation-card { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-subtle); }
+.atlas-nation-flag-wrap { width: 24px; height: 16px; flex-shrink: 0; border-radius: 3px; overflow: hidden; background: rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.06); }
+.atlas-nation-flag-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.atlas-nation-card-name { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Loading / Error */
+.atlas-loading, .atlas-error { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 300px; gap: 12px; color: var(--muted); text-align: center; }
+.atlas-loading .spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--orange); border-radius: 50%; animation: dash-spin 0.8s linear infinite; }
+
+/* Footer */
+.atlas-footer { margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--border); text-align: center; font-size: 12px; color: var(--muted); }
+.atlas-footer a { text-decoration: none; color: var(--orange); }
+
+/* Responsive */
+@media (max-width: 900px) {
+  .atlas-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+  .atlas-detail-grid { grid-template-columns: 1fr; }
+  .atlas-detail-name { font-size: 22px; }
+}
+@media (max-width: 640px) {
+  .atlas-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .atlas-card-name { font-size: 13px; }
+  .atlas-stats { gap: 8px; }
+  .atlas-stat { padding: 8px 12px; min-width: 80px; }
+  .atlas-stat-val { font-size: 20px; }
+  .atlas-detail { padding: 16px; }
+  .atlas-detail-stats { grid-template-columns: 1fr 1fr; }
+  .atlas-nations-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+}

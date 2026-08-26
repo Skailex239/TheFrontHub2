@@ -1,0 +1,195 @@
+name: Auto Sync
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ⚡ UNIFIED SYNC PIPELINE — 7 syncs en série + upload HTTP vers o2switch
+#
+# Chaque sync génère des fichiers DIFFÉRENTS dans le runner (pas de commit git) :
+#   - sync-standard     → runs.json.gz (archive), seen.json, checkpoint.json
+#   - sync-compact      → runs_compact.json.gz (archive), seen_compact.json
+#   - sync-teams        → teams_runs.json, teams_seen.json
+#   - sync-ranked       → ranked.json (snapshot), ranked_history.json.gz (archive)
+#   - sync-dashboard    → dashboard_scores.json
+#   - sync-player-games → player-data/, player-stats/
+#   - sync-lobby-state  → lobby_state.json
+#
+# Au lieu de git commit + push, chaque job UPLOAD les fichiers via HTTP
+# vers https://thefronthub.com/_upload.php (script PHP sécurisé sur o2switch).
+#
+# Stratégie de rétention :
+#   - "snapshot" : écrase le fichier à chaque sync (données temps réel)
+#   - "archive"   : sauvegarde horodatée + rotation auto 30 jours (historique)
+#
+# Le repo GitHub ne contient plus QUE le code (HTML/CSS/JS), pas les données.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: auto-sync-v2
+  cancel-in-progress: true
+
+# Variables d'environnement partagées par tous les jobs
+env:
+  O2SWITCH_URL: ${{ secrets.O2SWITCH_UPLOAD_URL }}
+  O2SWITCH_SECRET: ${{ secrets.O2SWITCH_UPLOAD_SECRET }}
+
+jobs:
+  sync-standard:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1, ref: main }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - run: node sync.js
+        env:
+          OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
+          SYNC_HISTORY_WINDOWS: "500"
+      - name: Upload vers o2switch
+        run: |
+          chmod +x scripts/upload-to-o2switch.sh
+          # Archive (historique + rotation 30j)
+          ./scripts/upload-to-o2switch.sh archive runs.json.gz
+          # Snapshot (écrase)
+          ./scripts/upload-to-o2switch.sh snapshot runs_public.json.gz runs_public.json clans.json news.json seen.json checkpoint.json
+
+  sync-compact:
+    needs: [sync-standard]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1, ref: main }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - run: node sync.js --mode=compact
+        env:
+          OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
+          COMPACT_HISTORY_WINDOWS: "500"
+      - name: Upload vers o2switch
+        run: |
+          chmod +x scripts/upload-to-o2switch.sh
+          ./scripts/upload-to-o2switch.sh archive runs_compact.json.gz
+          ./scripts/upload-to-o2switch.sh snapshot runs_compact_public.json.gz runs_compact_public.json seen_compact.json checkpoint_compact.json
+
+  sync-teams:
+    needs: [sync-compact]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1, ref: main }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - run: node sync-teams.js
+        env:
+          OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
+      - name: Upload vers o2switch
+        run: |
+          chmod +x scripts/upload-to-o2switch.sh
+          ./scripts/upload-to-o2switch.sh snapshot teams_runs.json teams_seen.json teams_checkpoint.json teams_public.json teams_public.json.gz
+
+  sync-ranked:
+    needs: [sync-teams]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1, ref: main }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - run: node sync-ranked.js
+        env:
+          OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
+      - name: Upload vers o2switch
+        run: |
+          chmod +x scripts/upload-to-o2switch.sh
+          # ranked.json = snapshot (écrase), ranked_history = archive (historique + rotation 30j)
+          ./scripts/upload-to-o2switch.sh snapshot ranked.json ranked.json.gz
+          ./scripts/upload-to-o2switch.sh archive ranked_history.json.gz ranked_2v2_history.json.gz
+
+  sync-dashboard:
+    needs: [sync-ranked]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1, ref: main }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - run: node sync-dashboard.js
+        env:
+          OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
+      - name: Upload vers o2switch
+        run: |
+          chmod +x scripts/upload-to-o2switch.sh
+          ./scripts/upload-to-o2switch.sh snapshot dashboard_scores.json dashboard_scores.json.gz dashboard_ranking.json dashboard_player_games.json
+
+  sync-player-games:
+    needs: [sync-dashboard]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1, ref: main }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Detect new players from Firebase
+        run: node detect-new-players.js || true
+        env:
+          OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
+      - name: Sync player games
+        run: node sync-player-games.js
+        env:
+          SKAILEX_ACCESS_TOKEN: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
+      - name: Compute player stats
+        run: node compute-player-stats.js
+      - name: Upload vers o2switch
+        run: |
+          chmod +x scripts/upload-to-o2switch.sh
+          # Upload sync-players.json (snapshot)
+          ./scripts/upload-to-o2switch.sh snapshot sync-players.json
+          # Upload tous les fichiers player-data/*.json (snapshot)
+          if ls player-data/*.json 1> /dev/null 2>&1; then
+            ./scripts/upload-to-o2switch.sh snapshot player-data/*.json
+          fi
+          # Upload tous les fichiers player-stats/*.json (snapshot)
+          if ls player-stats/*.json 1> /dev/null 2>&1; then
+            ./scripts/upload-to-o2switch.sh snapshot player-stats/*.json
+          fi
+
+  sync-lobby-state:
+    needs: [sync-player-games]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1, ref: main }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm init -y --silent && npm install node-fetch@2 ws@8 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - run: node sync-lobby-state.js
+        env:
+          OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
+      - name: Upload vers o2switch
+        run: |
+          chmod +x scripts/upload-to-o2switch.sh
+          ./scripts/upload-to-o2switch.sh snapshot lobby_state.json

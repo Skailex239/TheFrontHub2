@@ -1,0 +1,178 @@
+{
+  "updatedAt": "2026-08-11T13:39:56.849Z",
+  "gamesScanned": 200,
+  "global": {
+    "from": "2026-08-11T12:55:00.838Z",
+    "to": "2026-08-11T13:38:08.568Z",
+    "gamesScanned": 200,
+    "players": [
+      {
+        "publicId": "GaUJ4V0X",
+        "username": "Revenflok",
+        "clan": "EXL",
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 2,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 22
+      },
+      {
+        "publicId": "A7x0szx9",
+        "username": "Mortality",
+        "clan": null,
+        "ffaCasualWins": 1,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 10
+      },
+      {
+        "publicId": "Too6ceIW",
+        "username": "FRANCE",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 1,
+        "teamRankedWins": 0,
+        "points": 5
+      },
+      {
+        "publicId": "U1SFuUd9",
+        "username": "kingdom",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 1,
+        "teamRankedWins": 0,
+        "points": 5
+      },
+      {
+        "publicId": "bx8ZfgO7",
+        "username": "Crusader",
+        "clan": "UN",
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 1,
+        "teamRankedWins": 0,
+        "points": 5
+      },
+      {
+        "publicId": "tCPqPlao",
+        "username": "Noob",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 1,
+        "teamRankedWins": 0,
+        "points": 5
+      },
+      {
+        "publicId": "zCNA4ddx",
+        "username": "Galod",
+        "clan": "JK",
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 1,
+        "teamRankedWins": 0,
+        "points": 5
+      },
+      {
+        "publicId": "zZ5zoZzQ",
+        "username": "NIKAS",
+        "clan": "ASTX",
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 1,
+        "teamRankedWins": 0,
+        "points": 5
+      }
+    ]
+  },
+  "weekly": {
+    "from": "2026-08-11T12:55:00.838Z",
+    "to": "2026-08-11T13:38:08.568Z",
+    "gamesScanned": 200,
+    "players": [
+      {
+        "publicId": "GaUJ4V0X",
+        "username": "Revenflok",
+        "clan": "EXL",
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 2,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 22
+      },
+      {
+        "publicId": "A7x0szx9",
+        "username": "Mortality",
+        "clan": null,
+        "ffaCasualWins": 1,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 10
+      },
+      {
+        "publicId": "Too6ceIW",
+        "username": "FRANCE",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 1,
+        "teamRankedWins": 0,
+        "points": 5
+      },
+      {
+        "publicId": "U1SFuUd9",
+        "username": "kingdom",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 1,
+        "teamRankedWins": 0,
+        "points": 5
+      },
+      {
+        "publicId": "bx8ZfgO7",
+        "username": "Crusader",
+        "clan": "UN",
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 1,
+        "teamRankedWins": 0,
+        "points": 5
+      },
+      {
+        "publicId": "tCPqPlao",
+        "username": "Noob",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 1,
+        "teamRankedWins": 0,
+        "points": 5
+      },
+      {
+        "publicId": "zCNA4ddx",
+        "username": "Galod",
+        "clan": "JK",
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 1,
+        "teamRankedWins": 0,
+        "points": 5
+      },
+      {
+        "publicId": "zZ5zoZzQ",
+        "username": "NIKAS",
+        "clan": "ASTX",
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 1,
+        "teamRankedWins": 0,
+        "points": 5
+      }
+    ]
+  }
+}

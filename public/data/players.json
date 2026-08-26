@@ -1,0 +1,3862 @@
+{
+  "_note": "Joueurs du circuit. Identité principale = 'discordId'. 'openfrontId' est OPTIONNEL (stats live) — non renseigné pour l'instant pour ces joueurs, à ajouter au besoin.",
+  "players": [
+    {
+      "discordId": "775865372745138197",
+      "name": "_Stone",
+      "openfrontId": null,
+      "clan": "END",
+      "country": null
+    },
+    {
+      "discordId": "724894940496134146",
+      "name": "-Gray-",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1219679415768711296",
+      "name": "0 Katamaxis",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "530347369137700875",
+      "name": "0p1",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "337555230897995776",
+      "name": "0vr3uC",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "181356818507890698",
+      "name": "1m2o",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "403264427404689409",
+      "name": "4llu",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "754136606746869913",
+      "name": "AceOfSpades144",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "274289473691582465",
+      "name": "AceShadow",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "367770410852286464",
+      "name": "Ah Non",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "623241193769140224",
+      "name": "ahmad562",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1076777741548003480",
+      "name": "aki",
+      "openfrontId": null,
+      "clan": "Xev",
+      "country": null
+    },
+    {
+      "discordId": "658074449542774788",
+      "name": "Alexx",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "893125156266999878",
+      "name": "AlienMan",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1409676883590905976",
+      "name": "alo.",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1427766971583430766",
+      "name": "ALPHA",
+      "openfrontId": null,
+      "clan": "UN",
+      "country": null
+    },
+    {
+      "discordId": "1270468159765217331",
+      "name": "ALT",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "447381550636597270",
+      "name": "alucard",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "663025493842460672",
+      "name": "Andrey20054",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "466410771166003218",
+      "name": "Andy.",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "396794531938304000",
+      "name": "Anglio",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1305526567690305539",
+      "name": "Animanofficialfr",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1524813214481907776",
+      "name": "Anon1",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1450638549300023460",
+      "name": "AnonSquirrel8",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "615190559543263242",
+      "name": "Anto",
+      "openfrontId": null,
+      "clan": "LBU",
+      "country": null
+    },
+    {
+      "discordId": "1289889441011470431",
+      "name": "Aphra",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "842101022402412625",
+      "name": "apr1l1s",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "854829762861465630",
+      "name": "aprilfools",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "273429679095152651",
+      "name": "Archimedes35",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "619203238004260864",
+      "name": "Arquitav",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "241509190932103169",
+      "name": "Artisum",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "611981942220521485",
+      "name": "Arvigge",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1168531105545211944",
+      "name": "AST Ducky",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1059266579088551986",
+      "name": "Atomic_void_zeta",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1050021439962624050",
+      "name": "ATOS",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "828321420555321355",
+      "name": "atreides",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "644977470310711308",
+      "name": "atronko",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "152337264507092992",
+      "name": "AXIOM",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "845322549700198420",
+      "name": "axol",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "245020637230268428",
+      "name": "Azure",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1075002993017094144",
+      "name": "Bacon",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1469736695581905102",
+      "name": "Bags Azevs Number3",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "907094793602101299",
+      "name": "Bammrie",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "827209418537959434",
+      "name": "Bane",
+      "openfrontId": null,
+      "clan": "CYN",
+      "country": null
+    },
+    {
+      "discordId": "254674906963378177",
+      "name": "Barbosa",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "297465939325222912",
+      "name": "Bard Ward",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1106989734703669318",
+      "name": "BBow",
+      "openfrontId": null,
+      "clan": "DUCK",
+      "country": null
+    },
+    {
+      "discordId": "554309586983714817",
+      "name": "beast",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1393403090001989744",
+      "name": "beersie",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "258985946756808704",
+      "name": "Bembe",
+      "openfrontId": null,
+      "clan": "BAGNO",
+      "country": null
+    },
+    {
+      "discordId": "245027933884776454",
+      "name": "benstiller96",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "707016941256179783",
+      "name": "bibizu",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "464017813095317504",
+      "name": "Big D",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "642818479505801226",
+      "name": "Big_O",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1522733728680640639",
+      "name": "Billy0706",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "713227548619833405",
+      "name": "BlackBoi",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "716622317652017183",
+      "name": "blak",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "678621073193041940",
+      "name": "Blank",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1491519529388609786",
+      "name": "blanko1337",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "718563763560644659",
+      "name": "blurblitz",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "571839966900912128",
+      "name": "BobTheGamer",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "551501271320887316",
+      "name": "BojoJangles",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "334768086282403840",
+      "name": "Borg King",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "879460213210611722",
+      "name": "boris",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1255209032541540403",
+      "name": "BorisTheCat",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "116383389879107588",
+      "name": "Brishton",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1006901884537294858",
+      "name": "Broomsweep",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1133341648898768956",
+      "name": "bruhangela",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "597142137221677085",
+      "name": "Bucket",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "599568171501879316",
+      "name": "Burt Pheonix",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "953064908432482345",
+      "name": "Buzzy",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "228851122683510784",
+      "name": "Camelott",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "210343703116644352",
+      "name": "CapitainHugo",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "469856658915328005",
+      "name": "Captain Price",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1389141997431951411",
+      "name": "CARPATHIAN",
+      "openfrontId": null,
+      "clan": "FISH",
+      "country": null
+    },
+    {
+      "discordId": "1524570369858605066",
+      "name": "Caterpat",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "821445573059149854",
+      "name": "catman",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1438290457737297970",
+      "name": "CAUGHT",
+      "openfrontId": null,
+      "clan": "AST",
+      "country": null
+    },
+    {
+      "discordId": "1144651646148804688",
+      "name": "CCloudsLimited",
+      "openfrontId": null,
+      "clan": "AMX",
+      "country": null
+    },
+    {
+      "discordId": "187691423947161600",
+      "name": "Cerveza City (yoyo)",
+      "openfrontId": null,
+      "clan": "UN",
+      "country": null
+    },
+    {
+      "discordId": "832286969278365706",
+      "name": "Cheesemaxing",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "754675801139707916",
+      "name": "Chicho",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1231132235793694762",
+      "name": "chillguys",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1279966107800703006",
+      "name": "ChooseGod1234",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "211264191707742208",
+      "name": "Chris",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "156796420677042176",
+      "name": "Chulee",
+      "openfrontId": null,
+      "clan": "EU",
+      "country": null
+    },
+    {
+      "discordId": "325671276465094656",
+      "name": "Chuma",
+      "openfrontId": null,
+      "clan": "CYN",
+      "country": null
+    },
+    {
+      "discordId": "737950010922238015",
+      "name": "CMOS",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "477537815580770315",
+      "name": "cogito",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "369623893436268554",
+      "name": "Colio",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "244261012042285056",
+      "name": "colmy",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "735591198122573864",
+      "name": "confused duck",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1412963514775109642",
+      "name": "Cori",
+      "openfrontId": null,
+      "clan": "NSF",
+      "country": null
+    },
+    {
+      "discordId": "1051185075028508783",
+      "name": "couchcushion",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "193633671683506176",
+      "name": "Coz",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "980461563326627911",
+      "name": "cozz",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1104835772873457779",
+      "name": "Crack",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "972400096052412426",
+      "name": "Cryysis",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1519664088148607117",
+      "name": "ct8onvu",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "742899589564203061",
+      "name": "Cthad",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1094540039783977070",
+      "name": "Cuey0h",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1077674864971890688",
+      "name": "Cursed",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "306455054636941322",
+      "name": "Cyanosis",
+      "openfrontId": null,
+      "clan": "FISH",
+      "country": null
+    },
+    {
+      "discordId": "705931352431919127",
+      "name": "czeta",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "962657073634619406",
+      "name": "d1zzydave",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "760857024774406240",
+      "name": "Daddy",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "918318175022616647",
+      "name": "DakinDrago",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "351761707833753601",
+      "name": "dandanua",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "205439893873229824",
+      "name": "Daniel",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "580480940879642663",
+      "name": "Daniel-Moldova93",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "179662036542685185",
+      "name": "dansmudge135",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "487153948546039808",
+      "name": "DAR",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "834691453292773377",
+      "name": "DARKKNIGHT9391",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "512541080739119144",
+      "name": "darnell1337",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "716446301776117761",
+      "name": "daylyrustontt",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "229089937956274176",
+      "name": "Deathwatch",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "262543589278482433",
+      "name": "Deluded",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "639157449588211742",
+      "name": "Dennda39",
+      "openfrontId": null,
+      "clan": "CZSK",
+      "country": null
+    },
+    {
+      "discordId": "392023080320368650",
+      "name": "DetoxMMO",
+      "openfrontId": null,
+      "clan": "CZSK",
+      "country": null
+    },
+    {
+      "discordId": "310004411785019394",
+      "name": "Deventeex",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "326913344969900033",
+      "name": "ditzy_sun",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "953731656471171143",
+      "name": "DJ Dislexia",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1277992429827653682",
+      "name": "Dmq",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "823438753212268544",
+      "name": "DoingAllAsUsually",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "696338969389957171",
+      "name": "DomisPL",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "755175993324470302",
+      "name": "DOOBYDOOBERDOO",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "659845843729383436",
+      "name": "Dopa MINE",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "183935553291419649",
+      "name": "Doppelbemme",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "355158630221479937",
+      "name": "DougyJR",
+      "openfrontId": null,
+      "clan": "JR",
+      "country": null
+    },
+    {
+      "discordId": "941088752942612522",
+      "name": "DP 420",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1003681311287947404",
+      "name": "Duchy of Cornwall",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "901090119967178792",
+      "name": "e.d.d.yyy",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1423335735658024960",
+      "name": "Echo",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1228764491940888667",
+      "name": "ecrms",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "454775365907251210",
+      "name": "eef",
+      "openfrontId": null,
+      "clan": "LUX",
+      "country": null
+    },
+    {
+      "discordId": "300694554645102602",
+      "name": "Egophobic",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "708039117073547376",
+      "name": "Elektrikas",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "887313238583304233",
+      "name": "endubyu",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1477327482431738041",
+      "name": "ErginPvP",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "825716821666693151",
+      "name": "Evan",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1323051472870576181",
+      "name": "factory girl",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "271714967466541057",
+      "name": "FaJa",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "655510279383285783",
+      "name": "Faris R",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "931091619766210600",
+      "name": "Farnam",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1075043948910886982",
+      "name": "FeetOnMySheep",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1474540905284243569",
+      "name": "FFF",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "620693720358191117",
+      "name": "Fidel",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "762236606916198410",
+      "name": "FishDoNotFly",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "210883817051783168",
+      "name": "fishiv",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "589535915563548702",
+      "name": "flash",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1517209732576710918",
+      "name": "Flatscheliho",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "366147634744000512",
+      "name": "Flooo",
+      "openfrontId": null,
+      "clan": "GAL",
+      "country": null
+    },
+    {
+      "discordId": "233626052830822400",
+      "name": "FR V0RTAK",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "782634310066241536",
+      "name": "Franquito",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "332487228263628801",
+      "name": "Fraty",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "490153103073738763",
+      "name": "frogs",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "703509089753235546",
+      "name": "Frost",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1072384518004166696",
+      "name": "fully",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1518308614736056505",
+      "name": "Fusible",
+      "openfrontId": null,
+      "clan": "AA",
+      "country": null
+    },
+    {
+      "discordId": "332623790007648258",
+      "name": "Gabeshi",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1408460846367244438",
+      "name": "Gael",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "377970554646298627",
+      "name": "gamingmausepad",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1388983883189584045",
+      "name": "Gandalf",
+      "openfrontId": null,
+      "clan": "CYN",
+      "country": null
+    },
+    {
+      "discordId": "1391743510637580288",
+      "name": "gangstergustav",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1178020992174534749",
+      "name": "gastbro",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "853344431281405972",
+      "name": "Geda",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "706622355186647040",
+      "name": "Gemi",
+      "openfrontId": null,
+      "clan": "DOG",
+      "country": null
+    },
+    {
+      "discordId": "1281977843210784832",
+      "name": "Geographic Edits",
+      "openfrontId": null,
+      "clan": "UN",
+      "country": null
+    },
+    {
+      "discordId": "249547728730849281",
+      "name": "George",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "257866880402849792",
+      "name": "Gix",
+      "openfrontId": null,
+      "clan": "SPQR",
+      "country": null
+    },
+    {
+      "discordId": "305082654250762240",
+      "name": "Globi",
+      "openfrontId": null,
+      "clan": "LBU",
+      "country": null
+    },
+    {
+      "discordId": "373864958246649867",
+      "name": "glock",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "133749275262713856",
+      "name": "Going2HydroYou",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1173726955779129344",
+      "name": "Goku._.Blackk",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1330255124680933468",
+      "name": "gokz",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "762691216155607091",
+      "name": "Gosh Vibraciite",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "703939743746097163",
+      "name": "guillulu",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "264788415625691148",
+      "name": "Guy293",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "314059437155287040",
+      "name": "H O P E",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "777621114159366154",
+      "name": "halil",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "391315068475670539",
+      "name": "halu",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "370611110535102464",
+      "name": "Heimdall/Eren",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1463614831486566402",
+      "name": "Heliopolis",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1054290235393060884",
+      "name": "here's Tony",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1353085697606549738",
+      "name": "HeyRey",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1369240350316564592",
+      "name": "Hi There",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1411262697856696351",
+      "name": "HiImAcOoLgUySoYeAh",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "588041977363300372",
+      "name": "Hybrid",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1092416766518505473",
+      "name": "I_like_butter",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "481583188989444097",
+      "name": "iampanda2320",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1415314520926195875",
+      "name": "Ignaszolo",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1432038068977930250",
+      "name": "imperium romanum",
+      "openfrontId": null,
+      "clan": "CYN",
+      "country": null
+    },
+    {
+      "discordId": "834424352690274344",
+      "name": "ImSoBad",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "905718819023110175",
+      "name": "Incon",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "838344220359393291",
+      "name": "indrllz",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1319653347107541095",
+      "name": "iNET",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1245186835597103177",
+      "name": "INGSOC",
+      "openfrontId": null,
+      "clan": "NRV",
+      "country": null
+    },
+    {
+      "discordId": "379234430247632897",
+      "name": "InsaneCaterpilla",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1355941020293927134",
+      "name": "Ireleventt3413",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "474194857263497219",
+      "name": "ITZDODO",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "296733264159440897",
+      "name": "Jackifsh12",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "194164322425896960",
+      "name": "Jae",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "252416011633033216",
+      "name": "Jarques",
+      "openfrontId": null,
+      "clan": "LUX",
+      "country": null
+    },
+    {
+      "discordId": "156376569760317441",
+      "name": "Jesterius",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1253364585952444498",
+      "name": "jeuxvideos",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "927625879700516875",
+      "name": "Jindra",
+      "openfrontId": null,
+      "clan": "CZSK",
+      "country": null
+    },
+    {
+      "discordId": "812738511303606273",
+      "name": "Jloud",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1518011841891012648",
+      "name": "john_pn",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "925619343591624764",
+      "name": "Jokes.inc",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "314430229525299202",
+      "name": "Jon",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "747846743923884132",
+      "name": "jsp mange mon paff?",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "204233162555916288",
+      "name": "Julians0",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1250439959064608933",
+      "name": "julica67",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1144280814645940304",
+      "name": "Kabi",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "622431947339202561",
+      "name": "Kale",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "977357589979471933",
+      "name": "keicaldera",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "719377111772561539",
+      "name": "keith",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "925348407135060019",
+      "name": "kevin",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "305346297349537802",
+      "name": "KILROY",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1453800722658230474",
+      "name": "King Eki",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "185334022920994816",
+      "name": "Kirismarna",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "869183755548504105",
+      "name": "kixgud",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "473248860211249152",
+      "name": "Klox",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "240124022438756352",
+      "name": "Konst",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "419252345931563008",
+      "name": "Koruba",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "281084444746579968",
+      "name": "kozjar",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "384023106886303744",
+      "name": "Kpu",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1491805944227696711",
+      "name": "Kraken1as",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1249266644862111757",
+      "name": "krismanis",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "786181970022367253",
+      "name": "ktg",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1515081381636734986",
+      "name": "Kuma",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "399017125911461909",
+      "name": "Kustov",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1212178331802275881",
+      "name": "Kvxlyn",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1518319225704419349",
+      "name": "Kyledoesstuff?",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "515148060213641248",
+      "name": "La Vendee",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "754091360390217749",
+      "name": "LargoSpark",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1188825589075951676",
+      "name": "Le Roi des Glands",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "117103389103357953",
+      "name": "Leon366",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "544277575850000414",
+      "name": "Leszy",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "503250068036517889",
+      "name": "Lex",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "654349365686566934",
+      "name": "Light",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "459419959404134411",
+      "name": "Lil dofy",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "616592067627319306",
+      "name": "LinxAdventura",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "327568849434312706",
+      "name": "Listerin",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1111008782215028776",
+      "name": "LittleHat35",
+      "openfrontId": null,
+      "clan": "LUX",
+      "country": null
+    },
+    {
+      "discordId": "292730970094829580",
+      "name": "lloydy269",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1522235768297492604",
+      "name": "loooolik_dzik",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1410554673974218792",
+      "name": "Lopsa",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1527790744364908625",
+      "name": "Lord Kakozu",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "943945287867707463",
+      "name": "Lorw",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1442582948024160363",
+      "name": "LU123",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "688008318911774743",
+      "name": "Lud0O",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "394433432891031552",
+      "name": "Lukasssss",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "186880198816432128",
+      "name": "Lunace",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1522972406224785541",
+      "name": "M613",
+      "openfrontId": null,
+      "clan": "AST",
+      "country": null
+    },
+    {
+      "discordId": "935732591573741618",
+      "name": "Maesi",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "723924699989409834",
+      "name": "make",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1305124232564441088",
+      "name": "MangoPudding",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "495653159663042571",
+      "name": "Map Gamer",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "397447596588924939",
+      "name": "Marek Harvan",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "662447185308155924",
+      "name": "Marfany",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1080393659188518954",
+      "name": "MarFlash_8",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1101117672843923589",
+      "name": "MarioBro",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "371748162521530368",
+      "name": "Martin Svanda",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "411524462371012630",
+      "name": "Martini",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1498752330886283266",
+      "name": "mastery",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "531184047829942282",
+      "name": "Mateo",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "654116202066739200",
+      "name": "maxii",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "494175357109272576",
+      "name": "Maxime Ndf",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1371443409503654051",
+      "name": "Medzineba",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1272952447123587217",
+      "name": "Meldown1973",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "488899735969726464",
+      "name": "Meowship Meowship",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "177027997516169217",
+      "name": "miau miau cat island",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "877818891886272553",
+      "name": "Michael",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1428096646314725523",
+      "name": "Middle",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1263202450991616122",
+      "name": "Mike",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1272664506182406166",
+      "name": "Mingoman",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "66260738292854784",
+      "name": "MiraCZ",
+      "openfrontId": null,
+      "clan": "CZSK",
+      "country": null
+    },
+    {
+      "discordId": "1202428608380018740",
+      "name": "Mitch",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "751503838158127165",
+      "name": "MIXU",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "918934872209391626",
+      "name": "MJarten",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1095766791587909734",
+      "name": "Mjukpanda",
+      "openfrontId": null,
+      "clan": "EU",
+      "country": null
+    },
+    {
+      "discordId": "373430911615762433",
+      "name": "moineau",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1432308873145876580",
+      "name": "MOL_A_random_gamer",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "297312182939418624",
+      "name": "Mole",
+      "openfrontId": null,
+      "clan": "CZSK",
+      "country": null
+    },
+    {
+      "discordId": "1521129577483866124",
+      "name": "momoking",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "386615925303934976",
+      "name": "Moose",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "363083015272005634",
+      "name": "Mortal Hunger",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1521722112535171143",
+      "name": "Mousekey",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "787373218854862868",
+      "name": "Mr_rim",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "721125461807333486",
+      "name": "MrBusinessGR",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1425968841519005898",
+      "name": "MrDapperNoah",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1522574663895617659",
+      "name": "MrDapperNoah",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "409764647164706817",
+      "name": "mrwn",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1185913827087351860",
+      "name": "Mystic",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "263603891138985984",
+      "name": "Naaga",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "204722469284741120",
+      "name": "Naeshonn",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "760182191421653003",
+      "name": "Natsume",
+      "openfrontId": null,
+      "clan": "LUX",
+      "country": null
+    },
+    {
+      "discordId": "1254164535686987908",
+      "name": "NeedHugs",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1120598988001914980",
+      "name": "Nihau",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "189047232593395712",
+      "name": "niiirawn",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "715983593574367242",
+      "name": "NIKAS",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1324036014548975696",
+      "name": "nittei",
+      "openfrontId": null,
+      "clan": "JP",
+      "country": null
+    },
+    {
+      "discordId": "1435926151968198810",
+      "name": "no war",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1507715187459752048",
+      "name": "NoEasyWayOut",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1257427802097975366",
+      "name": "Nomongossesaround",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "112618126637572096",
+      "name": "Nonex",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1209138796336250921",
+      "name": "Noni_Wesh",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "778354358395076628",
+      "name": "NoPugBurritoForYou",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "324871613373874187",
+      "name": "norinebera",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "186071411830292480",
+      "name": "NoXOuT",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1422831611224916089",
+      "name": "NRV Nagi",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "294092780953796608",
+      "name": "null",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1276404666162221132",
+      "name": "Null",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "574550820306288641",
+      "name": "Nvr_Kn",
+      "openfrontId": null,
+      "clan": "EXL",
+      "country": null
+    },
+    {
+      "discordId": "598227372336087041",
+      "name": "Nymee",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1289153208949669890",
+      "name": "O77",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "418430269612359680",
+      "name": "Ocho",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "722710616434802778",
+      "name": "Odyrion",
+      "openfrontId": null,
+      "clan": "LBU",
+      "country": null
+    },
+    {
+      "discordId": "701461356532203560",
+      "name": "Oli",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1153503516925644801",
+      "name": "opdoppie",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1179495074304892939",
+      "name": "Orange",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "374890803518111744",
+      "name": "Ozhcar",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "716633452748734513",
+      "name": "Pacertace",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "488895787326111745",
+      "name": "Palhaco Le Papillon",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "965922752362057728",
+      "name": "PandaUltraZ",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "404313432469536769",
+      "name": "Papi Nall",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1443233459106746418",
+      "name": "Patanek",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "451386192445964312",
+      "name": "Payfeh",
+      "openfrontId": null,
+      "clan": "FRA",
+      "country": null
+    },
+    {
+      "discordId": "1277658499911909428",
+      "name": "Penguin",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "717364086874046584",
+      "name": "Pentium 4",
+      "openfrontId": null,
+      "clan": "PENEK",
+      "country": null
+    },
+    {
+      "discordId": "840617252054106134",
+      "name": "Petra",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "533367956172963881",
+      "name": "PF",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "352603913691856899",
+      "name": "Physma",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "293458502373081088",
+      "name": "Planetary Realignment",
+      "openfrontId": null,
+      "clan": "UN",
+      "country": null
+    },
+    {
+      "discordId": "1455375250673111198",
+      "name": "Plantres",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "954393455981891584",
+      "name": "Platystine",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "496688935817314305",
+      "name": "Plinko",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1265955548956725251",
+      "name": "Pluto",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1422242244777345046",
+      "name": "Polska Partia Przyjaciol Piwa",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "470769908414677003",
+      "name": "Portatto",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1120410039627305080",
+      "name": "PPZ | VikTheGoat",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "743505830019858462",
+      "name": "pregnar",
+      "openfrontId": null,
+      "clan": "NRV",
+      "country": null
+    },
+    {
+      "discordId": "882193073235443762",
+      "name": "print(bennie[slowed+reverb])",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1411816097572716648",
+      "name": "Professor Sployer",
+      "openfrontId": null,
+      "clan": "EXL-GAL",
+      "country": null
+    },
+    {
+      "discordId": "754702456021057536",
+      "name": "PsychoDucky",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "879943503575146536",
+      "name": "Puck",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "700039961277366344",
+      "name": "Puffer/Ceasar",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1079901799428935710",
+      "name": "Pug man",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "614866545784389642",
+      "name": "pulanjuri",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1259842150787453099",
+      "name": "Purnachander",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1529537091346759748",
+      "name": "Purvik",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "312531882040623105",
+      "name": "puupy",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1433879692506693835",
+      "name": "Pyrrha",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "541320570659143681",
+      "name": "que pasa",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "211681797606473736",
+      "name": "Queqs",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "320821689422315522",
+      "name": "R3RE5",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "764730713718128690",
+      "name": "Raccoon",
+      "openfrontId": null,
+      "clan": "NRV",
+      "country": null
+    },
+    {
+      "discordId": "393512218366443520",
+      "name": "Rakan",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "551655629308035093",
+      "name": "Ralphcat",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1224842820414738472",
+      "name": "Random",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "365737272513134613",
+      "name": "ranthis",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1051995359460724766",
+      "name": "Reet",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "833349121574305792",
+      "name": "remiliod",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "114385262804598789",
+      "name": "Remorse",
+      "openfrontId": null,
+      "clan": "ROYS",
+      "country": null
+    },
+    {
+      "discordId": "1502333958455820349",
+      "name": "Revenflok",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "902157919360020543",
+      "name": "Rimuru_Tempest",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1381575560748335205",
+      "name": "Ripples",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "318794849430274048",
+      "name": "Robo",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1106973224736141434",
+      "name": "RoiDuBouzelouf",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1271972714164523028",
+      "name": "Rookiemstk",
+      "openfrontId": null,
+      "clan": "LUX",
+      "country": null
+    },
+    {
+      "discordId": "499347583752470528",
+      "name": "Royaume Du Rex",
+      "openfrontId": null,
+      "clan": "ATR",
+      "country": null
+    },
+    {
+      "discordId": "1196126664338452612",
+      "name": "RuAWizard",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "703884339338936382",
+      "name": "RUHTRA",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1475466568317145272",
+      "name": "sac de frappe",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "293841189118148619",
+      "name": "Saint Myco",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "371700614314328066",
+      "name": "SBKZ",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "802257276266086411",
+      "name": "sbpw",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "976170961009246229",
+      "name": "Schukop",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1525990743364341850",
+      "name": "Scythe",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1517286914917666903",
+      "name": "SeafightWE",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1265155457589186681",
+      "name": "Setsu_13",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1342875698473340969",
+      "name": "sGdd",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "599539473100832769",
+      "name": "ShabuSushi",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "160123158895132672",
+      "name": "Sharktopus",
+      "openfrontId": null,
+      "clan": "UN",
+      "country": null
+    },
+    {
+      "discordId": "1306333068776177886",
+      "name": "Shasha",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "521272739076505600",
+      "name": "Shoden",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "772384634516406303",
+      "name": "shosho111",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "514851538351685682",
+      "name": "shower",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1454249293396312075",
+      "name": "Shoyo",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "876931434005282866",
+      "name": "sirlauri",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1499839372269322240",
+      "name": "SK",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1043738641018667130",
+      "name": "Sled",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "274099331361931266",
+      "name": "Slimer",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "980274182141132810",
+      "name": "SlouchedSlothTTV",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1359635766665547877",
+      "name": "Slyxezz",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1294627716829806685",
+      "name": "SmartSamuel",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "313745254060916737",
+      "name": "smeerkaas",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1297199020191518812",
+      "name": "smsfun",
+      "openfrontId": null,
+      "clan": "NRV",
+      "country": null
+    },
+    {
+      "discordId": "1507854528534282332",
+      "name": "SMYLO",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "708644613002625094",
+      "name": "Sodium",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1349453197860929546",
+      "name": "Sonuseam",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "915618031508541491",
+      "name": "Sora",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1266887887161393224",
+      "name": "Soren",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "898314658941906975",
+      "name": "sorrow",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "271076896077381633",
+      "name": "Soviet Romanum",
+      "openfrontId": null,
+      "clan": "RLM",
+      "country": null
+    },
+    {
+      "discordId": "742709922915024948",
+      "name": "Space_Sheeep",
+      "openfrontId": null,
+      "clan": "NRV",
+      "country": null
+    },
+    {
+      "discordId": "1234553431931224145",
+      "name": "Spaceman",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1369055572032356494",
+      "name": "Sparkles",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "468540545048903692",
+      "name": "spartoneb",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "402061868656492554",
+      "name": "splinter",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1031621249832591420",
+      "name": "SPoS",
+      "openfrontId": null,
+      "clan": "AST",
+      "country": null
+    },
+    {
+      "discordId": "1208229956748836915",
+      "name": "SS12142023",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "340637572575526912",
+      "name": "stamenkovic4",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1028415610423627877",
+      "name": "StanleyJJ",
+      "openfrontId": null,
+      "clan": "NRV",
+      "country": null
+    },
+    {
+      "discordId": "376432632046551047",
+      "name": "steffguimove",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "698951024462790736",
+      "name": "stefsupercool",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "928364949800108082",
+      "name": "Step",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1286439087510917265",
+      "name": "Stoch",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "708423113259483186",
+      "name": "StrikingSpliff",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "773247251770114059",
+      "name": "STUFF WUFF921",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "685602761118974011",
+      "name": "summit",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "677525092372316171",
+      "name": "sunakle",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "455231267190079498",
+      "name": "sunciy",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "981905393481556048",
+      "name": "SunkaFilip",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "372542371872768003",
+      "name": "Super3",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1098952355296313384",
+      "name": "SuperBear3",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "881796778440151080",
+      "name": "Surmetia",
+      "openfrontId": null,
+      "clan": "EBALO",
+      "country": null
+    },
+    {
+      "discordId": "253498848519913472",
+      "name": "SVMURAI",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "168578811871494154",
+      "name": "Swanbicep",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "409726110406934530",
+      "name": "Sylphn0",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "691993268346421268",
+      "name": "t3non",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1314109860232564801",
+      "name": "tanuki",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "908741823088980010",
+      "name": "tapshibabi",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "706644518631374889",
+      "name": "Tchoupi",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "253408685177438208",
+      "name": "Ted",
+      "openfrontId": null,
+      "clan": "UN",
+      "country": null
+    },
+    {
+      "discordId": "771775584584990771",
+      "name": "TeNa",
+      "openfrontId": null,
+      "clan": "LUX",
+      "country": null
+    },
+    {
+      "discordId": "416676677561614338",
+      "name": "TENET",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "921140221473603624",
+      "name": "Tentacoli",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "507930282590994444",
+      "name": "TGD",
+      "openfrontId": null,
+      "clan": "JUICE",
+      "country": null
+    },
+    {
+      "discordId": "762888044973654036",
+      "name": "ThatOneHog",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "355823252712587267",
+      "name": "TheBigYosh",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "484170090980573185",
+      "name": "TheCopperBard",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "158540124416638976",
+      "name": "Theekan",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "483383051225792552",
+      "name": "thekidwithaplan",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1350263521941782571",
+      "name": "TheStrovik",
+      "openfrontId": null,
+      "clan": "AMA",
+      "country": null
+    },
+    {
+      "discordId": "285793831415185409",
+      "name": "Thomas",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1378723372443238563",
+      "name": "thunder",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1446116381656350782",
+      "name": "Tian",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "792511967868092466",
+      "name": "Titan_Dog",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "237086769944854529",
+      "name": "tITUS",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "399540747717574657",
+      "name": "Toast12Titan",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "677191685180096525",
+      "name": "Tom",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "748222692775428238",
+      "name": "totto",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "200453813579022337",
+      "name": "Trueanon",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "352980512643612672",
+      "name": "trueanon listener",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "623520177082073088",
+      "name": "TudorM5200",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "972530436720967740",
+      "name": "Tulpan",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1087737592872718358",
+      "name": "Turquoise",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "296454138877968385",
+      "name": "Ultimus_Rex",
+      "openfrontId": null,
+      "clan": "UN",
+      "country": null
+    },
+    {
+      "discordId": "861894838109863936",
+      "name": "uni",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "740151587275669584",
+      "name": "unsullied",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "865314210484715530",
+      "name": "Utah_Teapot",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "803976151688019968",
+      "name": "uxxtu",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "273805542710050816",
+      "name": "Vadym",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1434104082934796338",
+      "name": "Vaelor",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "248214333513793539",
+      "name": "vari",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1469000391751630932",
+      "name": "VarXard",
+      "openfrontId": null,
+      "clan": "LBU",
+      "country": null
+    },
+    {
+      "discordId": "1319715403773116490",
+      "name": "Varza",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "493491783641333760",
+      "name": "Vasi",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "702175550688591963",
+      "name": "Vasile",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1246093875190169623",
+      "name": "Vaylushax",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1108069534205747231",
+      "name": "velux_28",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1296574316393271387",
+      "name": "Vlex",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "467446206608572416",
+      "name": "W4lle",
+      "openfrontId": null,
+      "clan": "LUX",
+      "country": null
+    },
+    {
+      "discordId": "853049934881751061",
+      "name": "w7dee",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "618434469032099851",
+      "name": "WHALEFall",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "226869768165130240",
+      "name": "Wicketman2",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1453051689488748648",
+      "name": "wiski",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "685802404486053892",
+      "name": "Wolf",
+      "openfrontId": null,
+      "clan": "GR",
+      "country": null
+    },
+    {
+      "discordId": "1096739589026218124",
+      "name": "Wolfy",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1523020348860268676",
+      "name": "Wolves",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "810159102009147412",
+      "name": "WTJ",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "995444112478191668",
+      "name": "Wurstgitarre",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "477505576822243338",
+      "name": "Xander",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1441577124212375653",
+      "name": "XPS",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "238819095322165258",
+      "name": "xSWDxGaming",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "264760826945208321",
+      "name": "Yakup",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "705844342987817052",
+      "name": "ylan",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "891634237881610241",
+      "name": "yolk",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1432393883157008437",
+      "name": "you_482",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "393943458181677056",
+      "name": "YouBee",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1498472313933529118",
+      "name": "your_average_boi",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1417849694205378580",
+      "name": "Zekromvoid",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1004423570497224744",
+      "name": "ZeroAZ",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "739689282792587295",
+      "name": "zhehank",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "899278024946614344",
+      "name": "zikomode",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "268855437493796874",
+      "name": "Zilka",
+      "openfrontId": null,
+      "clan": "CYN",
+      "country": null
+    },
+    {
+      "discordId": "1042867662692302878",
+      "name": "Ziyad",
+      "openfrontId": null,
+      "clan": "LBU",
+      "country": null
+    },
+    {
+      "discordId": "301424270305918976",
+      "name": "zmess",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "708624453579440218",
+      "name": "Zorbix",
+      "openfrontId": null,
+      "clan": "LBU",
+      "country": null
+    },
+    {
+      "discordId": "570271112987148288",
+      "name": "Zuen",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "825834271276269569",
+      "name": "Zukonius",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1053390182398840902",
+      "name": "Zwiper",
+      "openfrontId": null,
+      "clan": "LBU",
+      "country": null
+    },
+    {
+      "discordId": "1251900133990465596",
+      "name": "ラーメン",
+      "openfrontId": null,
+      "clan": "Xev",
+      "country": null
+    },
+    {
+      "discordId": "1305911918950617119",
+      "name": "わさびようかん",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "641366509071106058",
+      "name": "REX_2000",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "823230383080472628",
+      "name": "Born In Labs",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "341674905932398592",
+      "name": "ibi",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1089607734309163008",
+      "name": "bäääääää",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "446708725068202015",
+      "name": "BRUHBRUHBRUH",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "479294867097255937",
+      "name": "kazz",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "381299176199290880",
+      "name": "Fleug",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "975499838265368606",
+      "name": "La_samupuerca",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1036576726760820777",
+      "name": "balmykhol",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "714973856829538357",
+      "name": "iARX",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1034562165480357999",
+      "name": "Skaïlex",
+      "openfrontId": null,
+      "clan": "LBU",
+      "country": null
+    },
+    {
+      "discordId": "998793995847217172",
+      "name": "Hotdogman287",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "821264729603309598",
+      "name": "noname",
+      "openfrontId": null,
+      "clan": "LUX",
+      "country": null
+    },
+    {
+      "discordId": "1285577780897251462",
+      "name": "maor",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "553697882763690004",
+      "name": "Toto.",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "225372305411407872",
+      "name": "Vaulk",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "889983998456107089",
+      "name": "Cabel Morgan",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "725159859200327700",
+      "name": "Harry!!",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1042968425456214016",
+      "name": "Daredevell2",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "559449843530072085",
+      "name": "Crow",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1135169972268699678",
+      "name": "MarcusGuessr",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "625725151173935104",
+      "name": "kubrt22",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "972169285331980368",
+      "name": "Shimbino",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "582554442398957599",
+      "name": "DOGERIS",
+      "openfrontId": null,
+      "clan": "69",
+      "country": null
+    },
+    {
+      "discordId": "262971540721762304",
+      "name": "marfusios",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "368680945181655041",
+      "name": "Nitrogen",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "320465996270010368",
+      "name": "Hurdan",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1200547933880336396",
+      "name": "MrGame2023",
+      "openfrontId": null,
+      "clan": "CZSK",
+      "country": null
+    },
+    {
+      "discordId": "526441649060970511",
+      "name": "Boh Mingle",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1183885492270416063",
+      "name": "ongoingk9",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "708739921812389981",
+      "name": "Az",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "912365379605659739",
+      "name": "d1recto_r",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "513358727617708045",
+      "name": "Cams",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "446871015486914561",
+      "name": "ຮ𝔥𝔢𝔢𝔭",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "588774210998894618",
+      "name": "Yeah Jack",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1386573219246379038",
+      "name": "Luki5309",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1188808861092683826",
+      "name": "Duescreen",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1255922241972080737",
+      "name": "Mateus",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1451979476081840322",
+      "name": "Greasy",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1188616933092884690",
+      "name": "VaimX ✝",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1091868001109803080",
+      "name": "Supbro",
+      "openfrontId": null,
+      "clan": "MOON",
+      "country": null
+    },
+    {
+      "discordId": "1473474664347992298",
+      "name": "deivi",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1362476251503132852",
+      "name": "hamburgeri",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1146472948568440892",
+      "name": "cracky",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    },
+    {
+      "discordId": "1530805063717621810",
+      "name": "Sandiss",
+      "openfrontId": null,
+      "clan": null,
+      "country": null
+    }
+  ]
+}

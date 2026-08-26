@@ -1,0 +1,35 @@
+{
+  "computedAt": "2026-08-26T12:14:53.788Z",
+  "results": [
+    {
+      "publicId": "EFqhVYJW",
+      "ok": true,
+      "totalGames": 337,
+      "playtime": "2j 16h"
+    },
+    {
+      "publicId": "UWetOwlW",
+      "ok": true,
+      "totalGames": 3119,
+      "playtime": "31j 7h"
+    },
+    {
+      "publicId": "hWNuSrnS",
+      "ok": true,
+      "totalGames": 3877,
+      "playtime": "32j 0h"
+    },
+    {
+      "publicId": "tqMGOI2Q",
+      "ok": true,
+      "totalGames": 1995,
+      "playtime": "19j 7h"
+    },
+    {
+      "publicId": "u0u81Hll",
+      "ok": true,
+      "totalGames": 2280,
+      "playtime": "23j 12h"
+    }
+  ]
+}

@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="openfront-api-proxy" content="https://openfront-proxy.diofortnite3.workers.dev">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>TheFrontHub — OpenFront Leaderboard</title>
+<meta name="description" content="Le leaderboard ultime pour OpenFront.io — Classements FFA, stats par carte et par joueur.">
+<meta property="og:title" content="TheFrontHub — OpenFront Leaderboard">
+<meta property="og:description" content="Le leaderboard ultime pour OpenFront.io">
+<meta property="og:image" content="https://skailex239.github.io/TheFrontHub/TheFrontHub%20Logo%20Text.png">
+<meta property="og:url" content="https://skailex239.github.io/TheFrontHub/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="TheFrontHub — OpenFront Leaderboard">
+<meta name="twitter:description" content="Le leaderboard ultime pour OpenFront.io">
+<meta name="twitter:image" content="https://skailex239.github.io/TheFrontHub/TheFrontHub%20Logo%20Text.png">
+<!-- Performance: dns-prefetch only (no preconnect to avoid blocking) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="dns-prefetch" href="https://api.openfront.io">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Orbitron:wght@900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="dns-prefetch" href="https://corsproxy.io">
+<link rel="dns-prefetch" href="https://www.gstatic.com" crossorigin>
+
+<!-- Performance: Preload critical data -->
+<link rel="preload" href="runs_public.json.gz" as="fetch" crossorigin>
+<link rel="icon" type="image/png" href="favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="128x128" href="favicon-180x180.png">
+<link rel="apple-touch-icon" sizes="180x180" href="favicon-180x180.png">
+<link rel="stylesheet" href="styles.css?v=63">
+<link rel="stylesheet" href="auth.css?v=17">
+<link rel="stylesheet" href="animations.css?v=6" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="animations.css?v=6"></noscript>
+<link rel="stylesheet" href="toast.css">
+<style>.skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}</style>
+  <script type="module" src="dist/icons.min.js?v=2"></script>
+</head>
+<body>
+<a href="#topbar-title" class="skip-link">Aller au contenu principal</a>
+<div class="loading-bar-track"><div class="loading-bar-fill" id="loading-bar"></div></div>
+
+<div class="app">
+
+  <!-- ═══ SIDEBAR ═══ -->
+  <aside class="sidebar">
+
+    <div class="logo" onclick="logoClickAnim(event)" role="link" aria-label="Aller au tableau de bord" tabindex="0">
+      <img src="TheFrontHub Logo Text.png" alt="TheFrontHub" loading="eager">
+
+    </div>
+
+    <nav role="tablist">
+      <a class="nav-item tab-btn" id="tab-btn-dashboard" href="dashboard.html" role="tab" aria-selected="false" tabindex="0">
+        <i data-icon="home"></i> Tableau de bord
+      </a>
+      <a class="nav-item tab-btn active" id="tab-btn-maps" role="tab" aria-selected="true" tabindex="0" onclick="switchTab('maps',this);document.getElementById('topbar-title').textContent='Speedruns'">
+        <i data-icon="trophy"></i> Speedruns
+      </a>
+      <a class="nav-item tab-btn" id="tab-btn-ranked" role="tab" aria-selected="false" tabindex="0" onclick="switchTab('ranked',this);document.getElementById('topbar-title').textContent='Classé'">
+        <i data-icon="swords"></i> Classé
+      </a>
+      <a class="nav-item tab-btn" id="tab-btn-lobby" href="lobby.html" role="tab" aria-selected="false" tabindex="0">
+        <i data-icon="bolt"></i> Lobby
+      </a>
+      <a class="nav-item tab-btn" id="tab-btn-atlas" href="atlas.html" role="tab" aria-selected="false" tabindex="0">
+        <i data-icon="map"></i> Atlas
+      </a>
+      <a class="nav-item tab-btn" id="tab-btn-tournois" href="tournois.html">
+        <i data-icon="medal"></i> Tournois
+      </a>
+      <a class="nav-item tab-btn" id="tab-btn-profile" href="profile.html">
+        <i data-icon="user"></i> Mon Profil
+      </a>
+    </nav>
+
+
+    <!-- Theme toggle (light/dark/auto) -->
+    <button class="theme-toggle" onclick="toggleTheme()" title="Changer de thème" aria-label="Basculer thème clair/sombre">
+      <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="5"/>
+        <line x1="12" y1="1" x2="12" y2="3"/>
+        <line x1="12" y1="21" x2="12" y2="23"/>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+        <line x1="1" y1="12" x2="3" y2="12"/>
+        <line x1="21" y1="12" x2="23" y2="12"/>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+      </svg>
+      <svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
+
+        <!-- Profile / Auth -->
+    <div class="sidebar-profile">
+
+      <!-- Logged out -->
+      <div class="auth-zone" id="auth-zone">
+        <button class="login-btn login-btn-sidebar" onclick="toggleAuthModal()" id="login-btn-main">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <span>Connexion</span>
+        </button>
+      </div>
+
+      <!-- Logged in (hidden by default) -->
+      <div class="user-container" id="user-container" style="display: none;">
+        <div class="user-badge" id="user-badge-btn" aria-expanded="false" aria-haspopup="true" aria-controls="user-dropdown-menu" onclick="toggleUserDropdown(event)">
+          <div class="profile-avatar" id="sidebar-avatar">—</div>
+          <div class="profile-info">
+            <h4 id="user-display-name">—</h4>
+            <span>En ligne</span>
+          </div>
+          <svg class="chevron-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left:auto;color:var(--muted);flex-shrink:0"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="user-dropdown-menu" id="user-dropdown-menu">
+          <div class="dropdown-header">
+            <div class="dropdown-avatar" id="dropdown-avatar"></div>
+            <div class="dropdown-user-info">
+              <div class="dropdown-username" id="dropdown-username-display">—</div>
+              <div class="dropdown-publicid" id="dropdown-publicid-display">—</div>
+            </div>
+          </div>
+          <div class="dropdown-divider"></div>
+          <button class="dropdown-item" onclick="goToProfilePage(event)">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span>Mon profil</span>
+          </button>
+          <button class="dropdown-item logout" onclick="handleLogout(event)">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            <span>Se déconnecter</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </aside>
+
+  <!-- ═══ MAIN CONTENT ═══ -->
+  <main class="content">
+
+    <!-- Topbar -->
+    <header class="topbar">
+      <div>
+        <h1 id="topbar-title">Speedruns</h1>
+        <p id="topbar-subtitle">OpenFront Leaderboard</p>
+      </div>
+      <div class="topbar-right" style="overflow:hidden;max-width:300px;display:flex;align-items:center;gap:10px">
+        <button id="share-topbar-btn" onclick="shareCurrentView()" title="Partager cette page" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:var(--card);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text2);font-size:12px;font-family:var(--f);transition:all .15s ease;flex-shrink:0">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          <span>Partager</span>
+        </button>
+        <div id="game-version" class="game-version"></div>
+        <div id="last-update" class="last-update-inline" style="margin:0;padding:0;font-size:12px"></div>
+      </div>
+    </header>
+
+    <!-- Server Info -->
+    <section class="server-info">
+      <h3 id="header-subtitle">Leaderboard FFA · 10+ joueurs · 400 bots · Standard</h3>
+      <div class="mode-selector-wrapper" id="mode-selector">
+        <!-- Map size selector -->
+        <div class="mode-group">
+          <span class="mode-group-label">Map</span>
+          <button class="mode-btn active" id="mapsize-normal" onclick="switchMapSize('normal')">
+            <span class="mode-icon"><i data-icon="map"></i></span> Normal
+          </button>
+          <button class="mode-btn" id="mapsize-compact" onclick="switchMapSize('compact')">
+            <span class="mode-icon"><i data-icon="bolt"></i></span> Compact
+          </button>
+        </div>
+        <!-- Game mode selector (dropdown) -->
+        <div class="mode-group">
+          <span class="mode-group-label">Mode</span>
+          <div class="mode-dropdown" id="gamemode-dropdown">
+            <button class="mode-btn active mode-dropdown-toggle" id="gamemode-toggle" aria-expanded="false" onclick="toggleGameModeDropdown(event)">
+              <span class="mode-icon"><i data-icon="user"></i></span> <span id="gamemode-label">Solo</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="margin-left:4px"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="mode-dropdown-menu" id="gamemode-menu" role="listbox">
+              <button class="mode-dropdown-item active" data-mode="solo" role="option" onclick="switchGameMode('solo')">
+                <span class="mode-icon"><i data-icon="user"></i></span> Solo (FFA)
+              </button>
+              <button class="mode-dropdown-item" data-mode="duos" role="option" onclick="switchGameMode('duos')">
+                <span class="mode-icon"><i data-icon="users"></i></span> Duos
+              </button>
+              <button class="mode-dropdown-item" data-mode="trios" role="option" onclick="switchGameMode('trios')">
+                <span class="mode-icon"><i data-icon="users"></i></span> Trios
+              </button>
+              <button class="mode-dropdown-item" data-mode="quads" role="option" onclick="switchGameMode('quads')">
+                <span class="mode-icon"><i data-icon="users"></i></span> Quads
+              </button>
+              <button class="mode-dropdown-item" data-mode="team_custom" role="option" onclick="switchGameMode('team_custom')">
+                <span class="mode-icon"><i data-icon="users"></i></span> Team Custom (5+)
+              </button>
+              <button class="mode-dropdown-item" data-mode="hvn" role="option" onclick="switchGameMode('hvn')">
+                <span class="mode-icon"><i data-icon="swords"></i></span> Humans Vs Nations
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Stats Cards -->
+    <section class="stats-grid" id="ffa-stats-grid">
+      <div class="card">
+        <h2 id="stat-runs">—</h2>
+        <p>Parties</p>
+        <div class="stat-icon"><i data-icon="trophy"></i></div>
+      </div>
+      <div class="card">
+        <h2 id="stat-maps">—</h2>
+        <p>Cartes</p>
+        <div class="stat-icon"><i data-icon="map"></i></div>
+      </div>
+      <div class="card">
+        <h2 id="stat-players">—</h2>
+        <p>Joueurs</p>
+        <div class="stat-icon"><i data-icon="users"></i></div>
+      </div>
+      <div class="card">
+        <h2 id="stat-best">—</h2>
+        <p>Meilleur temps</p>
+        <div class="stat-icon"><i data-icon="bolt"></i></div>
+      </div>
+    </section>
+
+    <!-- ═══ TAB: Speedruns ═══ -->
+    <div class="tab-content active" id="tab-maps" role="tabpanel">
+      <div class="hof-cards" id="hof-list"></div>
+
+      <div class="search-bar">
+        <input type="text" id="player-search" class="search-input" placeholder="Rechercher un joueur..." aria-label="Rechercher un joueur" oninput="searchPlayer()">
+      </div>
+      <div id="search-results"></div>
+
+      <section class="leaderboard">
+        <div class="maps">
+          <div class="panel-title">
+            Cartes
+            <span id="map-count-badge">—</span>
+          </div>
+          <input type="text" id="map-search" placeholder="Rechercher..." aria-label="Rechercher une carte" oninput="filterMaps()">
+          <div class="map-list" id="map-list">
+            <div class="loading">Chargement...</div>
+          </div>
+        </div>
+        <div class="records">
+          <div class="record-header">
+            <div>
+              <h2 id="content-title">Sélectionnez une carte</h2>
+              <span id="content-meta">—</span>
+            </div>
+            <button class="share-btn" id="share-btn" onclick="shareMap()" style="display:none">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              Partager
+            </button>
+          </div>
+          <div class="leaderboard-body" id="leaderboard">
+            <div class="empty-state">
+              <h3>Bienvenue</h3>
+              <p>Sélectionnez une carte dans la liste pour voir le classement des runs les plus rapides.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="chart-grid" style="margin-bottom:20px">
+        <div class="feed-card">
+          <div class="feed-header"><i data-icon="globe"></i> Classement mondial — 1er = 3pts · 2e = 2pts · 3e = 1pt</div>
+          <div id="global-list" style="max-height: 500px; overflow-y: auto;"><div class="loading">Chargement...</div></div>
+        </div>
+        <div class="feed-card">
+          <div class="feed-header"><i data-icon="bolt"></i> Dernières victoires</div>
+          <div id="feed-list" style="max-height: 500px; overflow-y: auto;"><div class="loading">Chargement...</div></div>
+        </div>
+      </div>
+
+      <div class="feed-card">
+        <div class="feed-header"><i data-icon="swords"></i> Comparer deux joueurs</div>
+        <div style="padding:16px 20px">
+          <div class="cmp-row">
+            <div class="cmp-input">
+              <input type="text" id="cmp1" placeholder="Joueur 1..." aria-label="Joueur 1 à comparer" oninput="searchCompare('cmp1')">
+              <div class="cmp-results" id="cmp1-results"></div>
+            </div>
+            <div class="cmp-input">
+              <input type="text" id="cmp2" placeholder="Joueur 2..." aria-label="Joueur 2 à comparer" oninput="searchCompare('cmp2')">
+              <div class="cmp-results" id="cmp2-results"></div>
+            </div>
+          </div>
+          <div id="compare-list">
+            <div class="empty-state" style="padding:20px">
+              <p>Recherchez 2 joueurs ci-dessus pour les comparer</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ TAB: Ranked ═══ -->
+    <div class="tab-content" id="tab-ranked" role="tabpanel">
+      <!-- Stats Cards Ranked -->
+      <section class="stats-grid" id="ranked-stats-grid">
+        <div class="card">
+          <h2 id="ranked-stat-players">—</h2>
+          <p>Joueurs classés</p>
+          <div class="stat-icon"><i data-icon="users"></i></div>
+        </div>
+        <div class="card">
+          <h2 id="ranked-stat-avgelo">—</h2>
+          <p>Elo moyen</p>
+          <div class="stat-icon"><i data-icon="chart"></i></div>
+        </div>
+        <div class="card">
+          <h2 id="ranked-stat-peakelo">—</h2>
+          <p>Peak Elo</p>
+          <div class="stat-icon"><i data-icon="fire"></i></div>
+        </div>
+        <div class="card">
+          <h2 id="ranked-stat-games">—</h2>
+          <p>Parties</p>
+          <div class="stat-icon"><i data-icon="swords"></i></div>
+        </div>
+      </section>
+
+      <!-- Search + Filters -->
+      <div class="search-bar">
+        <input type="text" id="ranked-search" class="search-input" placeholder="Rechercher un joueur classé..." aria-label="Rechercher un joueur classé" oninput="filterRanked(this.value)">
+      </div>
+
+      <!-- Mode toggle 1v1 / 2v2 -->
+      <div class="ranked-mode-toggle" id="ranked-mode-toggle" role="radiogroup" aria-label="Mode classé">
+        <button class="mode-toggle-btn active" data-mode="1v1" role="radio" aria-checked="true" onclick="switchRankedMode('1v1')">
+          <span class="mode-icon"><i data-icon="user"></i></span> 1v1
+        </button>
+        <button class="mode-toggle-btn" data-mode="2v2" role="radio" aria-checked="false" onclick="switchRankedMode('2v2')">
+          <span class="mode-icon"><i data-icon="users"></i></span> 2v2
+        </button>
+      </div>
+
+      <div class="ranked-toolbar" id="ranked-toolbar">
+        <div class="filter-group" role="group" aria-label="Filtre nombre de joueurs">
+          <button class="filter-btn" data-top="10" onclick="setTopFilter(10)">Top 10</button>
+          <button class="filter-btn" data-top="25" onclick="setTopFilter(25)">Top 25</button>
+          <button class="filter-btn" data-top="50" onclick="setTopFilter(50)">Top 50</button>
+          <button class="filter-btn active" data-top="all" onclick="setTopFilter('all')">Tous</button>
+        </div>
+        <button class="filter-btn fav-toggle" id="fav-toggle" onclick="toggleFavFilter()" title="Afficher uniquement mes favoris">
+          <span class="fav-star"><i data-icon="starOutline"></i></span> <span class="fav-label">Favoris</span> <span class="fav-count" id="fav-count" style="display:none">0</span>
+        </button>
+      </div>
+
+      <!-- Newcomers / Dropouts -->
+      <div class="chart-grid" id="ranked-movers-grid" style="margin-bottom:12px">
+        <div class="chart-card" style="display:none" id="newcomers-card">
+          <div class="chart-head"><i data-icon="sparkle"></i> Nouveaux dans le top 100</div>
+          <div class="chart-body" id="ranked-newcomers"></div>
+        </div>
+        <div class="chart-card" style="display:none" id="dropouts-card">
+          <div class="chart-head"><i data-icon="chartDown"></i> Sortis du top 100</div>
+          <div class="chart-body" id="ranked-dropouts"></div>
+        </div>
+      </div>
+
+      <!-- My Position -->
+      <div id="my-ranked-position" style="margin-bottom:12px"></div>
+
+      <!-- Tableau Ranked -->
+      <div class="feed-card" style="margin-bottom:20px">
+        <div class="feed-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <span><i data-icon="swords"></i> Classement Classé (<span id="ranked-mode-label">1v1</span>) — Top 100 Officiel</span>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span id="ranked-last-update" style="font-size:12px;color:var(--muted)"></span>
+            <button onclick="loadRankedLeaderboard(true)" style="background: var(--bg2); border: 1px solid var(--border); color: var(--text2); padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;">Actualiser</button>
+          </div>
+        </div>
+        <div class="table-container">
+          <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; table-layout: fixed;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--border); color: var(--text3);">
+                <th scope="col" style="padding: 12px 8px; width: 6%;">Rang</th>
+                <th scope="col" style="padding: 12px 8px; width: 30%;">Joueur</th>
+                <th scope="col" style="padding: 12px 8px; width: 10%;">Elo</th>
+                <th scope="col" class="rk-mobile-hide" style="padding: 12px 8px; width: 10%;">Peak</th>
+                <th scope="col" style="padding: 12px 8px; width: 10%;">Winrate</th>
+                <th scope="col" style="padding: 12px 8px; width: 12%;">V - D</th>
+                <th scope="col" class="rk-mobile-hide" style="padding: 12px 8px; width: 8%;">Total</th>
+                <th scope="col" class="rk-mobile-hide" style="padding: 12px 8px; width: 8%;">MV</th>
+                <th scope="col" class="rk-mobile-hide" style="padding: 12px 8px; width: 8%;">Streak</th>
+              </tr>
+            </thead>
+            <tbody id="ranked-list">
+              <tr><td colspan="9" style="padding: 20px; text-align: center; color: var(--text3);">Chargement du classement...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Distribution Elo + Clans -->
+      <div class="chart-grid" style="margin-bottom:20px">
+        <div class="chart-card">
+          <div class="chart-head"><i data-icon="chart"></i> Distribution des Elo</div>
+          <div class="chart-body" id="ranked-elo-dist"></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-head"><i data-icon="castle"></i> Classement des Clans</div>
+          <div class="chart-body" id="ranked-clan-list">
+            <div class="loading">Chargement...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+
+  </main>
+
+</div>
+
+<!-- ═══ MODALS (outside .app) ═══ -->
+
+<!-- Player Modal -->
+<div class="modal-overlay" id="player-modal" onclick="closeModal(event)">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-player-name" onclick="event.stopPropagation()">
+    <button class="modal-close" aria-label="Fermer" onclick="closeModal()">&times;</button>
+    <div class="modal-header">
+      <div class="modal-title" id="modal-player-name">Joueur</div>
+      <div class="modal-subtitle" id="modal-player-stats">0 runs · 0 cartes</div>
+    </div>
+    <div class="modal-stats">
+      <div class="modal-stat"><div class="modal-stat-value" id="modal-wins">0</div><div class="modal-stat-label">Victoires</div></div>
+      <div class="modal-stat"><div class="modal-stat-value" id="modal-maps">0</div><div class="modal-stat-label">Cartes</div></div>
+      <div class="modal-stat"><div class="modal-stat-value" id="modal-avg">—</div><div class="modal-stat-label">Temps moyen</div></div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-section-title">Performances par carte</div>
+      <div class="player-runs" id="modal-runs"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Ranked Player Modal (Match History) -->
+<div class="modal-overlay" id="ranked-player-modal" onclick="closeRankedModal(event)">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ranked-modal-player-name" onclick="event.stopPropagation()">
+    <button class="modal-close" aria-label="Fermer" onclick="closeRankedModal()">&times;</button>
+    <div class="modal-header">
+      <div class="modal-title" id="ranked-modal-player-name">Joueur</div>
+      <div class="modal-subtitle" id="ranked-modal-player-stats">Elo: — · 0 wins · 0 losses</div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-section-title">Historique <span id="ranked-modal-mode-label">1v1</span> récent</div>
+      <div id="ranked-modal-games" style="max-height:400px;overflow-y:auto"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Auth Modal -->
+<div class="modal-overlay" id="auth-modal" onclick="toggleAuthModal()">
+  <div class="modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" onclick="event.stopPropagation()">
+    <button class="modal-close" aria-label="Fermer" onclick="toggleAuthModal()">&times;</button>
+    <div class="auth-modal-logo">
+      <img src="TheFrontHub Logo Text.png" alt="TheFrontHub Logo" class="auth-modal-logo-img">
+    </div>
+    <div class="modal-header">
+      <div class="modal-title" id="auth-modal-title">Connexion</div>
+      <div class="modal-subtitle">Connectez-vous pour lier votre compte OpenFront et accéder à votre profil.</div>
+    </div>
+    <div class="auth-options" style="padding:0 28px">
+      <button class="auth-btn google" onclick="handleLogin('google')">
+        <svg width="20" height="20" viewBox="0 0 24 24" aria-label="Google"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+        Continuer avec Google
+      </button>
+      <button class="auth-btn discord" onclick="handleLogin('discord')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.095 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.095 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+        Continuer avec Discord
+      </button>
+    </div>
+    <p style="font-size:12px;color:var(--muted);text-align:center;padding:0 28px 24px">En vous connectant, vous acceptez les conditions d'utilisation.</p>
+  </div>
+</div>
+
+<!-- Profile Modal -->
+<div class="modal-overlay" id="profile-modal" onclick="closeProfileModal()">
+  <div class="modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="profile-modal-title" onclick="event.stopPropagation()">
+    <button class="modal-close" aria-label="Fermer" onclick="closeProfileModal()" style="position:absolute;top:12px;right:12px">&times;</button>
+    <div class="modal-header">
+      <div class="modal-title" id="profile-modal-title">Finaliser votre profil</div>
+      <div class="modal-subtitle">Liez votre compte OpenFront pour fusionner vos stats.</div>
+    </div>
+    <div class="auth-form">
+      <!-- Step 1: username + publicId -->
+      <div id="profile-setup-step1">
+        <div class="form-group">
+          <label for="profile-username">Nom d'utilisateur OpenFront</label>
+          <input type="text" id="profile-username" placeholder="Ex: Skailex">
+        </div>
+        <div class="form-group">
+          <label for="profile-public-id">Public ID OpenFront (8 caractères)</label>
+          <input type="text" id="profile-public-id" placeholder="Ex: HabCsQYR" maxlength="8">
+        </div>
+        <button class="auth-btn" onclick="startOwnershipVerification()" style="width:100%;justify-content:center;background:var(--orange);color:#fff;border-color:var(--orange)">Vérifier mon compte</button>
+      </div>
+      <!-- Step 2: ownership challenge -->
+      <div id="profile-setup-step2" style="display:none">
+        <div style="background:var(--orange-pale);border:1px solid var(--orange);border-radius:8px;padding:14px;margin-bottom:14px">
+          <div style="font-weight:600;color:var(--orange);margin-bottom:6px"><i data-icon="key"></i> Code de vérification : <span id="ownership-code" style="font-family:var(--mono);font-size:16px"></span></div>
+          <div style="font-size:13px;color:var(--text)">
+            Pour prouver que vous êtes bien ce joueur :
+          </div>
+          <ol style="font-size:13px;color:var(--text);padding-left:20px;margin:8px 0">
+            <li>Modifiez votre pseudo OpenFront dans les paramètres du jeu</li>
+            <li>Ajoutez le code ci-dessus à votre pseudo (ex: <strong id="ownership-example"></strong>)</li>
+            <li>Jouez au moins une partie (ou utilisez un pseudo déjà utilisé récemment)</li>
+            <li>Cliquez sur "Confirmer" ci-dessous</li>
+          </ol>
+        </div>
+        <button class="auth-btn" onclick="confirmOwnershipVerification()" id="confirm-ownership-btn" style="width:100%;justify-content:center;background:var(--orange);color:#fff;border-color:var(--orange)">Confirmer</button>
+        <button class="auth-btn" onclick="cancelOwnershipVerification()" style="width:100%;justify-content:center;margin-top:8px;background:transparent;color:var(--muted)">Retour</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="dist/i18n.min.js?v=1"></script>
+<script src="dist/toast.min.js?v=1" defer></script>
+<script src="dist/lenis.min.js?v=1"></script>
+<script src="dist/animations.min.js?v=1" defer></script>
+<script src="dist/app.min.js?v=1" type="module"></script>
+
+<script>
+  // Register Service Worker for offline support + Stale-While-Revalidate caching
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js?v=16').catch(e => console.warn('[SW] Registration failed:', e));
+    });
+  }
+</script>
+<!-- ═══ FOOTER (commun à toutes les pages) ═══ -->
+<footer class="tfh-footer">
+  <div class="tfh-footer-container">
+    <div class="tfh-footer-col tfh-footer-brand">
+      <a href="index.html" class="tfh-footer-logo">
+        <img src="TheFrontHub Logo Text.png" alt="TheFrontHub" loading="lazy">
+      </a>
+      <p class="tfh-footer-tagline">Le hub ultime pour OpenFront.io — speedruns, classements, tournois et stats joueurs.</p>
+      <a href="https://discord.gg/AZhmqRvbNh" target="_blank" rel="noreferrer" class="tfh-footer-discord">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028 14.09 14.09 0 001.226-1.994.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+        <span>Rejoindre le Discord</span>
+      </a>
+    </div>
+
+    <div class="tfh-footer-col">
+      <h4 class="tfh-footer-title">Navigation</h4>
+      <ul class="tfh-footer-links">
+        <li><a href="index.html">Speedruns</a></li>
+        <li><a href="index.html?tab=ranked">Classé</a></li>
+        <li><a href="dashboard.html">Tableau de bord</a></li>
+        <li><a href="tournois.html">Tournois</a></li>
+        <li><a href="atlas.html">Atlas</a></li>
+        <li><a href="lobby.html">Lobby</a></li>
+      </ul>
+    </div>
+
+    <div class="tfh-footer-col">
+      <h4 class="tfh-footer-title">Joueur</h4>
+      <ul class="tfh-footer-links">
+        <li><a href="profile.html">Mon profil</a></li>
+        <li><a href="https://openfront.io" target="_blank" rel="noreferrer">Jouer à OpenFront ↗</a></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="tfh-footer-bottom">
+    <p>© <span id="tfh-current-year">2026</span> TheFrontHub. Non affilié à OpenFront.io.</p>
+    <p class="tfh-footer-made">Fait avec <span class="tfh-heart">♥</span> par la communauté</p>
+  </div>
+</footer>
+
+<script>
+  // Update copyright year automatically
+  (function(){
+    var y = new Date().getFullYear();
+    var el = document.getElementById('tfh-current-year');
+    if (el) el.textContent = y;
+  })();
+</script>
+<script type="module" src="dist/tutorial.min.js?v=2"></script>
+
+
+
+
+</body>
+</html>

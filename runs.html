@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="openfront-api-proxy" content="https://openfront-proxy.diofortnite3.workers.dev">
+    <title>TheFrontHub — OpenFront Leaderboard</title>
+    <link rel="dns-prefetch" href="https://api.openfront.io">
+    <link rel="dns-prefetch" href="https://corsproxy.io">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Orbitron:wght@900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="preload" href="runs_public.json.gz" as="fetch" crossorigin="anonymous">
+  <link rel="preload" href="runs_compact_public.json.gz" as="fetch" crossorigin="anonymous">
+    <link rel="icon" type="image/png" href="favicon-32x32.png">
+    <link rel="stylesheet" href="styles.css?v=63" />
+    <link rel="stylesheet" href="animations.css?v=6" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="animations.css?v=6"></noscript>
+    <link rel="stylesheet" href="toast.css">
+  </head>
+  <body>
+    <div class="container">
+      <div class="site-logo" id="site-logo" style="margin-bottom:16px">
+        <img src="TheFrontHub Logo Text.png" alt="TheFrontHub Logo" class="site-logo-img" id="site-logo-img" style="height:80px;margin-top:0;margin-bottom:0">
+      </div>
+      <div class="content">
+        <div class="content-header">
+          <div>
+            <div class="content-title">Top runs</div>
+            <div class="content-meta" id="meta">Chargement…</div>
+          </div>
+          <div class="runs-controls">
+            <div class="runs-ctrl">
+              <span class="runs-ctrl-label">Fenêtre (jours)</span>
+              <input id="windowDays" type="number" min="1" max="370" step="1" value="30" />
+            </div>
+            <div class="runs-ctrl">
+              <span class="runs-ctrl-label">Limite</span>
+              <input id="limit" type="number" min="1" max="100" step="1" value="20" />
+            </div>
+            <button id="refreshBtn" class="runs-btn" type="button">Actualiser</button>
+          </div>
+        </div>
+
+        <div class="runs-body">
+          <div id="status" class="loading">Recherche des meilleurs runs…</div>
+          <div id="errorBox" class="runs-error" hidden></div>
+
+          <div class="runs-table-wrap" style="overflow-x:auto">
+            <table class="global-table" id="runsTable">
+              <thead>
+                <tr>
+                  <th style="width:70px">#</th>
+                  <th>Joueur</th>
+                  <th>Map</th>
+                  <th style="width:120px">Temps</th>
+                  <th style="width:140px">Difficulté</th>
+                  <th style="width:110px">Joueurs</th>
+                  <th style="width:210px">Date</th>
+                </tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
+          </div>
+
+          <div class="runs-footer" id="generatedMeta"></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="dist/lenis.min.js?v=1"></script>
+<script src="dist/animations.min.js?v=1" defer></script>
+    <script src="dist/toast.min.js?v=1"></script>
+    <script src="dist/runs.min.js?v=1"></script>
+    <script type="module" src="dist/tutorial.min.js?v=2"></script>
+<script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js?v=16').catch(e => console.warn('[SW] Registration failed:', e));
+        });
+      }
+    </script>
+<!-- ═══ FOOTER (commun à toutes les pages) ═══ -->
+<footer class="tfh-footer">
+  <div class="tfh-footer-container">
+    <div class="tfh-footer-col tfh-footer-brand">
+      <a href="index.html" class="tfh-footer-logo">
+        <img src="TheFrontHub Logo Text.png" alt="TheFrontHub" loading="lazy">
+      </a>
+      <p class="tfh-footer-tagline">Le hub ultime pour OpenFront.io — speedruns, classements, tournois et stats joueurs.</p>
+      <a href="https://discord.gg/AZhmqRvbNh" target="_blank" rel="noreferrer" class="tfh-footer-discord">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028 14.09 14.09 0 001.226-1.994.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+        <span>Rejoindre le Discord</span>
+      </a>
+    </div>
+
+    <div class="tfh-footer-col">
+      <h4 class="tfh-footer-title">Navigation</h4>
+      <ul class="tfh-footer-links">
+        <li><a href="index.html">Speedruns</a></li>
+        <li><a href="index.html?tab=ranked">Classé</a></li>
+        <li><a href="dashboard.html">Tableau de bord</a></li>
+        <li><a href="tournois.html">Tournois</a></li>
+        <li><a href="atlas.html">Atlas</a></li>
+        <li><a href="lobby.html">Lobby</a></li>
+      </ul>
+    </div>
+
+    <div class="tfh-footer-col">
+      <h4 class="tfh-footer-title">Joueur</h4>
+      <ul class="tfh-footer-links">
+        <li><a href="profile.html">Mon profil</a></li>
+        <li><a href="https://openfront.io" target="_blank" rel="noreferrer">Jouer à OpenFront ↗</a></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="tfh-footer-bottom">
+    <p>© <span id="tfh-current-year">2026</span> TheFrontHub. Non affilié à OpenFront.io.</p>
+    <p class="tfh-footer-made">Fait avec <span class="tfh-heart">♥</span> par la communauté</p>
+  </div>
+</footer>
+
+<script>
+  // Update copyright year automatically
+  (function(){
+    var y = new Date().getFullYear();
+    var el = document.getElementById('tfh-current-year');
+    if (el) el.textContent = y;
+  })();
+</script>
+
+
+  </body>
+</html>
