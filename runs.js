@@ -27,7 +27,15 @@ function makeRankBadge(rank) {
 // Load connected usernames from Firebase public-rewards and public-aliases
 async function loadConnectedUsernames() {
   try {
-    var mod = await import('./dist/auth.min.js');
+    // Fix double chemin (audit 2026-08-27) : depuis dist/runs.min.js, l'import
+    // relatif './dist/auth.min.js' résolvait vers /dist/dist/auth.min.js (404).
+    // On essaie les deux chemins pour que ça marche depuis la racine ET dist/.
+    var mod;
+    try {
+      mod = await import('./dist/auth.min.js');
+    } catch (e1) {
+      mod = await import('./auth.min.js');
+    }
     var db = mod.db;
     var collection = mod.collection;
     var onSnapshot = mod.onSnapshot;

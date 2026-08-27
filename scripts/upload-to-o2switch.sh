@@ -86,6 +86,9 @@ for f in "${FILES[@]}"; do
   # Upload via curl multipart/form-data
   # ⚠️ --http1.1 : obligatoire pour les gros fichiers (>10 Mo) car HTTP/2
   #    a des soucis de flux avec LiteSpeed/o2switch (curl error 92)
+  # ⚠️ -H "Expect:" : désactive le handshake 100-continue — LiteSpeed coupe
+  #    la connexion pendant l'attente sur les gros corps (curl error 56,
+  #    vu en prod depuis le 26/08/2026 sur runs.json.gz 16 Mo)
   # ⚠️ --max-time 300 : 5 min pour les gros fichiers (16+ Mo)
   # ⚠️ --retry 5 --retry-delay 15 : retry 5 fois avec 15s de délai
   # ⚠️ --retry-all-errors : retry sur TOUTES les erreurs (y compris 56 RECV)
@@ -93,6 +96,7 @@ for f in "${FILES[@]}"; do
   RESPONSE=$(curl -sS -X POST \
     --http1.1 \
     --connect-timeout 30 \
+    -H "Expect:" \
     -H "X-Upload-Secret: $O2SWITCH_SECRET" \
     ${SIG_ARGS[@]+"${SIG_ARGS[@]}"} \
     -F "file=@$f" \

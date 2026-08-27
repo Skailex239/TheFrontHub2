@@ -54,10 +54,16 @@ jobs:
       - name: Upload vers o2switch
         run: |
           chmod +x scripts/upload-to-o2switch.sh
-          # Archive (historique + rotation 30j)
-          ./scripts/upload-to-o2switch.sh archive runs.json.gz
-          # Snapshot (écrase)
+          # ⚠️ Ordre critique (fix 2026-08-27) : les SNAPSHOTS d'abord.
+          # Avant, l'archive (runs.json.gz, 16 Mo) était uploadée en premier et
+          # son échec (curl error 56 sur LiteSpeed) faisait échouer tout le job
+          # → runs_public.json.gz (107 Ko) n'était JAMAIS déployé → le site
+          # retombait sur runs.json.gz (16 Mo) à chaque visite.
+          # Snapshot (écrase) — critiques pour le site
           ./scripts/upload-to-o2switch.sh snapshot runs_public.json.gz runs_public.json clans.json news.json seen.json checkpoint.json
+          # Archive (historique + rotation 30j) — non bloquant : si l'upload
+          # du gros fichier échoue, le site reste fonctionnel (snapshots OK)
+          ./scripts/upload-to-o2switch.sh archive runs.json.gz || echo "⚠️ Archive runs.json.gz non uploadée (non bloquant — snapshots déjà déployés)"
 
   sync-compact:
     needs: [sync-standard]
@@ -77,8 +83,9 @@ jobs:
       - name: Upload vers o2switch
         run: |
           chmod +x scripts/upload-to-o2switch.sh
-          ./scripts/upload-to-o2switch.sh archive runs_compact.json.gz
+          # Snapshots d'abord (critiques), archive ensuite (non bloquant)
           ./scripts/upload-to-o2switch.sh snapshot runs_compact_public.json.gz runs_compact_public.json seen_compact.json checkpoint_compact.json
+          ./scripts/upload-to-o2switch.sh archive runs_compact.json.gz || echo "⚠️ Archive runs_compact.json.gz non uploadée (non bloquant)"
 
   sync-teams:
     needs: [sync-compact]
@@ -117,8 +124,9 @@ jobs:
         run: |
           chmod +x scripts/upload-to-o2switch.sh
           # ranked.json = snapshot (écrase), ranked_history = archive (historique + rotation 30j)
+          # Snapshots d'abord (critiques), archives ensuite (non bloquantes)
           ./scripts/upload-to-o2switch.sh snapshot ranked.json ranked.json.gz
-          ./scripts/upload-to-o2switch.sh archive ranked_history.json.gz ranked_2v2_history.json.gz
+          ./scripts/upload-to-o2switch.sh archive ranked_history.json.gz ranked_2v2_history.json.gz || echo "⚠️ Archives ranked_history non uploadées (non bloquant)"
 
   sync-dashboard:
     needs: [sync-ranked]
