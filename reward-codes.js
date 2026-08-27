@@ -1,24 +1,28 @@
 /**
  * reward-codes.js — Système de codes de récompense pour TheFrontStats.
  *
- * Depuis la migration o2switch (MySQL/PHP) :
- *   - reward-codes/{code}  → table reward_codes
- *   - user-skins/{pid}     → table user_skins
- *   - users/{uid}.activeSkinId → géré via api/rewards.php (action=activate)
+ * Utilise Firestore (même Firebase que le reste du site) pour stocker :
+ *   - reward-codes/{code}     : { skinId, maxUses, uses, note, createdAt, expiresAt }
+ *   - user-skins/{pid_skinId} : { publicId, skinId, codeUsed, redeemedAt }
+ *   - users/{uid}             : doc existant, on ajoute activeSkinId
  *
- * Le rachat et l'activation sont atomiques côté serveur
- * (api/rewards.php — SELECT … FOR UPDATE) : plus besoin de runTransaction.
- * L'admin est géré par la colonne is_admin en base (isolation des rôles
- * côté serveur, aucun token côté client).
+ * Le rachat est atomique via runTransaction (incrément uses + créer user-skin).
+ *
+ * ⚠️ SÉCURITÉ (audit 2026) :
+ *   - L'ancien ADMIN_TOKEN codé en dur dans le JS public a été SUPPRIMÉ :
+ *     visible par tout visiteur, il permettait à n'importe qui de créer des
+ *     codes. La création de codes est désormais réservée au custom claim
+ *     Firebase `admin == true` (voir firestore.rules) ou au SDK Admin.
+ *   - Les règles Firestore durcies (firestore.rules) font respecter :
+ *     création de user-skins uniquement pour SON publicId lié, update limité
+ *     au champ `active`, écriture de reward-codes réservée aux admins.
+ *   - La création programmatique de codes passe par scripts/generate-code.js
+ *     (SDK Admin + compte de service, jamais exposé au navigateur).
  */
 
 import {
-  redeemRewardCode,
-  activateRewardSkin,
-  fetchActiveSkin,
-  fetchOwnedRewardSkins,
-  createRewardCodeRequest,
-  listRewardCodes,
+  db, doc, getDoc, setDoc, getDocs, collection, query, where,
+  runTransaction, increment,
 } from "./auth.js";
 import { getSkin, getUnlockableSkins, DEFAULT_SKIN_ID, normalizeCode, VALID_SKIN_IDS } from "./skins.js";
 
@@ -49,11 +53,21 @@ export async function fetchActiveSkinId(publicId) {
 
   const p = (async () => {
     try {
-      // Lecture publique : api/rewards.php?action=active&publicId=…
-      const skinId = await fetchActiveSkin(publicId);
-      activeSkinCache.set(publicId, skinId);
+      // Query user-skins where publicId == pid AND active == true
+      // Since we store active skin in users/{uid}, we need the uid.
+      // Simpler: query user-skins collection for this publicId, then
+      // check which one has active=true.
+      const q = query(collection(db, "user-skins"), where("publicId", "==", publicId), where("active", "==", true));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const skinId = snap.docs[0].data().skinId;
+        activeSkinCache.set(publicId, skinId);
+        cacheTimestamps.set(publicId, Date.now());
+        return skinId;
+      }
+      activeSkinCache.set(publicId, null);
       cacheTimestamps.set(publicId, Date.now());
-      return skinId;
+      return null;
     } catch (e) {
       console.warn("[reward-codes] fetchActiveSkinId failed:", e);
       return null;
@@ -93,8 +107,21 @@ export function invalidateActiveSkinCache(publicId) {
 export async function fetchOwnedSkins(publicId) {
   if (!publicId) return { ownedSkins: [], activeSkinId: null };
   try {
-    // Lecture publique : api/rewards.php?action=owned&publicId=…
-    return await fetchOwnedRewardSkins(publicId);
+    const q = query(collection(db, "user-skins"), where("publicId", "==", publicId));
+    const snap = await getDocs(q);
+    const owned = [];
+    let activeSkinId = null;
+    snap.forEach((d) => {
+      const data = d.data();
+      owned.push({
+        skinId: data.skinId,
+        codeUsed: data.codeUsed || "",
+        redeemedAt: data.redeemedAt || "",
+        active: !!data.active,
+      });
+      if (data.active) activeSkinId = data.skinId;
+    });
+    return { ownedSkins: owned, activeSkinId };
   } catch (e) {
     console.warn("[reward-codes] fetchOwnedSkins failed:", e);
     return { ownedSkins: [], activeSkinId: null };
@@ -108,9 +135,11 @@ export async function fetchOwnedSkins(publicId) {
 /**
  * Valide un code de récompense pour un joueur.
  *
- * Toute la logique (existence, expiration, maxUses, unicité du rachat)
- * est vérifiée et appliquée ATOMIQUEMENT côté serveur
- * (api/rewards.php → transaction SQL avec verrou pessimiste).
+ * Étapes (atomiques via transaction) :
+ *   1. Lire reward-codes/{code}
+ *   2. Vérifier : existe, non expiré, uses < maxUses
+ *   3. Lire user-skins/{pid_skinId} — si existe, déjà possédé
+ *   4. Sinon : incrémenter uses + créer user-skins/{pid_skinId}
  *
  * @returns { ok, alreadyOwned?, skinId, skinName, message }
  */
@@ -119,19 +148,63 @@ export async function redeemCode(rawCode, publicId) {
   if (!code) throw new Error("Code manquant");
   if (!/^[A-Za-z0-9]{8}$/.test(publicId)) throw new Error("Public ID invalide");
 
-  const result = await redeemRewardCode(code, publicId);
-  const skinId = result.skinId;
+  const codeRef = doc(db, "reward-codes", code);
+  const skinDocId = `${publicId}_${getSkinFromCode(code) || "x"}`;
 
-  if (result.alreadyOwned) {
+  // 1. Read the code first (outside transaction — Firestore limitation)
+  const codeSnap = await getDoc(codeRef);
+  if (!codeSnap.exists()) {
+    throw new Error(`Code "${code}" introuvable`);
+  }
+  const codeData = codeSnap.data();
+  const skinId = codeData.skinId;
+
+  if (!VALID_SKIN_IDS.includes(skinId) || skinId === DEFAULT_SKIN_ID) {
+    throw new Error("Code invalide (skin inconnu)");
+  }
+
+  // Check expiry
+  if (codeData.expiresAt) {
+    const exp = codeData.expiresAt.toDate ? codeData.expiresAt.toDate() : new Date(codeData.expiresAt);
+    if (exp.getTime() < Date.now()) throw new Error("Ce code a expiré");
+  }
+
+  // Check max uses
+  if (codeData.maxUses != null && (codeData.uses || 0) >= codeData.maxUses) {
+    throw new Error("Ce code a atteint sa limite d'utilisations");
+  }
+
+  // 2. Check if already owned
+  const userSkinRef = doc(db, "user-skins", `${publicId}_${skinId}`);
+  const existingSnap = await getDoc(userSkinRef);
+  if (existingSnap.exists()) {
     const skin = getSkin(skinId);
     return {
       ok: true,
       alreadyOwned: true,
       skinId,
-      skinName: skin ? skin.name : skinId,
-      message: `Tu possèdes déjà le skin "${skin ? skin.name : skinId}"`,
+      skinName: skin.name,
+      message: `Tu possèdes déjà le skin "${skin.name}"`,
     };
   }
+
+  // 3. Atomic: increment uses + create user-skin
+  await runTransaction(db, async (tx) => {
+    const codeDoc = await tx.get(codeRef);
+    if (!codeDoc.exists()) throw new Error("Code introuvable (transaction)");
+    const d = codeDoc.data();
+    if (d.maxUses != null && (d.uses || 0) >= d.maxUses) {
+      throw new Error("Ce code a atteint sa limite d'utilisations");
+    }
+    tx.update(codeRef, { uses: increment(1) });
+    tx.set(userSkinRef, {
+      publicId,
+      skinId,
+      codeUsed: code,
+      redeemedAt: new Date().toISOString(),
+      active: false,
+    });
+  });
 
   const skin = getSkin(skinId);
   invalidateActiveSkinCache(publicId);
@@ -139,10 +212,19 @@ export async function redeemCode(rawCode, publicId) {
     ok: true,
     alreadyOwned: false,
     skinId,
-    skinName: skin ? skin.name : skinId,
-    rarity: skin ? skin.rarity : undefined,
-    message: `Skin "${skin ? skin.name : skinId}" débloqué !`,
+    skinName: skin.name,
+    rarity: skin.rarity,
+    message: `Skin "${skin.name}" débloqué !`,
   };
+}
+
+/** Helper: read skinId from a code without full redeem (for doc ID). */
+async function getSkinFromCode(code) {
+  try {
+    const snap = await getDoc(doc(db, "reward-codes", code));
+    if (snap.exists()) return snap.data().skinId;
+  } catch { /* ignore */ }
+  return null;
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -151,16 +233,40 @@ export async function redeemCode(rawCode, publicId) {
 
 /**
  * Active un skin pour un joueur (le met comme skin affiché).
- * Atomique côté serveur : désactive l'ancien + active le nouveau dans une
- * même transaction SQL. Le serveur vérifie la propriété du skin.
+ * Désactive l'ancien skin actif (si différent).
  */
 export async function activateSkin(publicId, skinId) {
   if (!/^[A-Za-z0-9]{8}$/.test(publicId)) throw new Error("Public ID invalide");
   if (!VALID_SKIN_IDS.includes(skinId)) throw new Error("skinId invalide");
 
-  const result = await activateRewardSkin(publicId, skinId);
+  // "default" = désactiver tous les skins
+  // D'abord : désactiver l'ancien skin actif
+  const q = query(collection(db, "user-skins"), where("publicId", "==", publicId), where("active", "==", true));
+  const snap = await getDocs(q);
+
+  if (skinId === DEFAULT_SKIN_ID) {
+    // Just deactivate everything
+    const updates = snap.docs.map((d) => setDoc(d.ref, { active: false }, { merge: true }));
+    await Promise.all(updates);
+    invalidateActiveSkinCache(publicId);
+    return { ok: true, activeSkinId: DEFAULT_SKIN_ID };
+  }
+
+  // Check ownership
+  const targetRef = doc(db, "user-skins", `${publicId}_${skinId}`);
+  const targetSnap = await getDoc(targetRef);
+  if (!targetSnap.exists()) {
+    throw new Error("Tu ne possèdes pas ce skin");
+  }
+
+  // Deactivate old + activate new
+  const batch = [
+    ...snap.docs.map((d) => setDoc(d.ref, { active: false }, { merge: true })),
+    setDoc(targetRef, { active: true }, { merge: true }),
+  ];
+  await Promise.all(batch);
   invalidateActiveSkinCache(publicId);
-  return { ok: true, activeSkinId: result.activeSkinId };
+  return { ok: true, activeSkinId: skinId };
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -214,10 +320,13 @@ export function createSkinnedName(publicId, username) {
 /**
  * Crée un code de récompense (admin only).
  *
- * ⚠️ SÉCURITÉ : aucun token côté client. Le serveur (api/rewards.php)
- * refuse la requête si le compte connecté n'a pas is_admin = 1 en base.
- * Pour créer des codes sans navigateur : voir GUIDE_MIGRATION_O2SWITCH.md
- * (page admin ou requête curl authentifiée).
+ * ⚠️ SÉCURITÉ : plus AUCUN token magique côté client. L'appel réussit
+ * uniquement si le compte connecté porte le custom claim `admin == true`
+ * (posé via le SDK Admin Firebase). Sinon Firestore refuse l'écriture
+ * (voir firestore.rules → reward-codes : create/update si isAdmin()).
+ *
+ * Pour créer des codes depuis ton terminal, utilise plutôt
+ * scripts/generate-code.js (SDK Admin + compte de service).
  */
 export async function createRewardCode({ code, skinId, maxUses, note, createdBy, expiresAt }) {
   const normalized = normalizeCode(code);
@@ -225,23 +334,39 @@ export async function createRewardCode({ code, skinId, maxUses, note, createdBy,
   if (!VALID_SKIN_IDS.includes(skinId)) throw new Error("skinId invalide");
   if (skinId === DEFAULT_SKIN_ID) throw new Error("Impossible de créer un code pour le skin par défaut");
 
-  await createRewardCodeRequest({
-    code: normalized,
+  const data = {
     skinId,
-    maxUses,
-    note,
-    createdBy,
-    expiresAt,
-  });
+    maxUses: maxUses == null ? null : Math.max(1, parseInt(maxUses, 10) || 1),
+    uses: 0,
+    note: note || null,
+    createdBy: createdBy || null,
+    createdAt: new Date().toISOString(),
+    expiresAt: expiresAt || null,
+  };
+
+  const ref = doc(db, "reward-codes", normalized);
+  const existing = await getDoc(ref);
+  if (existing.exists()) throw new Error(`Code "${normalized}" existe déjà`);
+
+  // Refusé par les règles Firestore si le compte n'est pas admin.
+  await setDoc(ref, data);
   return { ok: true, code: normalized, skinId };
 }
 
 /**
- * Liste tous les codes (admin only — validé côté serveur).
+ * Liste tous les codes (admin only — la lecture reste publique dans les
+ * règles pour permettre la validation du rachat ; seuls les admins ont
+ * besoin de cette vue d'ensemble). Ne retourne plus aucun champ sensible.
  */
 export async function listAllCodes() {
-  const codes = await listRewardCodes();
-  return codes.map((c) => ({ id: c.id, ...c }));
+  const snap = await getDocs(collection(db, "reward-codes"));
+  const codes = [];
+  snap.forEach((d) => {
+    const data = d.data();
+    delete data.adminToken; // champ obsolète (anciennes données), jamais renvoyé
+    codes.push({ id: d.id, ...data });
+  });
+  return codes;
 }
 
 // Export pour compatibilité

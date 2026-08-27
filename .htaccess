@@ -23,8 +23,23 @@ RewriteRule ^sync[a-z-]*\.js$ - [F,L]
 # ── 2. Page par défaut ──
 DirectoryIndex index.html
 
-# ── 3. Compression GZIP (tous types textuels + SVG + JSON) ──
+# ── 3. Compression (tous types textuels + SVG + JSON) ──
+# ⚠️ Perf (audit 2026-08-27) : les .json étaient servis NON compressés (350 Ko
+# pour un JSON tournoi !). o2switch compresse html/css/js via brotli au niveau
+# serveur mais PAS application/json. On force donc :
+#   1. mod_brotli (prioritaire — o2switch/Apache 2.4 le propose)
+#   2. mod_deflate en repli (gzip)
+# Les fichiers .json.gz existants passent à travers (déjà compressés, le filtre
+# ne s'applique pas aux types application/gzip).
+<IfModule mod_brotli.c>
+  AddOutputFilterByType BROTLI_COMPRESS application/json application/ld+json text/json
+  AddOutputFilterByType BROTLI_COMPRESS text/html text/plain text/xml text/css
+  AddOutputFilterByType BROTLI_COMPRESS text/javascript application/javascript application/x-javascript
+  AddOutputFilterByType BROTLI_COMPRESS image/svg+xml
+  AddOutputFilterByType BROTLI_COMPRESS font/ttf font/otf font/woff font/woff2
+</IfModule>
 <IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE application/json application/ld+json text/json
   AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css
   AddOutputFilterByType DEFLATE text/javascript application/javascript application/x-javascript
   AddOutputFilterByType DEFLATE application/json image/svg+xml

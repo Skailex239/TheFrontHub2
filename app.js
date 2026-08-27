@@ -84,7 +84,7 @@ window.toggleAuthModal = function() {
 };
 
 // Écouter les changements d'état d'auth au chargement
-import { auth, db, doc, getDoc, getDocs, setDoc, collection, query, where, onSnapshot, updateDoc, increment, onAuthStateChanged, toggleLike } from "./auth.js";
+import { auth, db, doc, getDoc, getDocs, setDoc, collection, query, where, onSnapshot, updateDoc, increment, onAuthStateChanged } from "./auth.js";
 
 // ====== FIRESTORE REAL-TIME LIKES ======
 let globalLikes = {};
@@ -1015,13 +1015,16 @@ async function autoRefresh(){
     const fallbackGz = getDataFileGzFallback();
     const fallbackPlain = getDataFileFallback();
     let data, d;
+    const headers = {};
+    if (_lastETag) headers['If-None-Match'] = _lastETag;
     try {
-      const headers = {};
-      if (_lastETag) headers['If-None-Match'] = _lastETag;
       let r = await fetch(autoFileGz, { headers, cache: 'no-store' });
       // Fallback to full files if public payload doesn't exist
+      // ⚠️ Perf (audit 2026-08-27) : on transmet AUSSI les headers conditionnels
+      // (If-None-Match) au fallback — avant, runs.json.gz (15,6 Mo) était
+      // re-téléchargé INTÉGRALEMENT à chaque cycle d'autoRefresh (toutes les 3 min).
       if (!r.ok && r.status === 404) {
-        r = await fetch(fallbackGz, { cache: 'no-store' });
+        r = await fetch(fallbackGz, { headers, cache: 'no-store' });
       }
       if (r.status === 304) {
         return; // Pas de changement — silent
@@ -1034,9 +1037,9 @@ async function autoRefresh(){
       data = await new Response(decompressed).json();
     } catch(e) {
       // Fallback sur fichier non compressé
-      let r = await fetch(autoFilePlain, { cache: 'no-store' });
+      let r = await fetch(autoFilePlain, { headers, cache: 'no-store' });
       if (!r.ok) {
-        r = await fetch(fallbackPlain, { cache: 'no-store' });
+        r = await fetch(fallbackPlain, { headers, cache: 'no-store' });
       }
       if(!r.ok) return;
       data = await r.json();
@@ -1512,6 +1515,7 @@ async function toggleGG(runId, event) {
   }
   
   const userId = currentUser.uid;
+  const likeRef = doc(db, "likes", runId);
   
   // Lire l'état actuel de globalLikes pour savoir si l'utilisateur a déjà liké
   const ggData = globalLikes[runId] || { count: 0, users: {} };
@@ -1538,20 +1542,29 @@ async function toggleGG(runId, event) {
     }
   }
   
-  // Mise à jour via l'API o2switch (likes.php — atomique côté serveur :
-  // count + vote insérés/mis à jour dans une transaction SQL).
+  // Mise à jour de la base de données Firestore
   try {
-    const result = await toggleLike(runId);
-    if (result && typeof result.count === 'number') {
-      // État de vérité renvoyé par le serveur
-      const users = { ...(globalLikes[runId]?.users || {}) };
-      if (result.liked) users[userId] = true; else delete users[userId];
-      globalLikes[runId] = { count: result.count, users };
-      if (countSpan) countSpan.textContent = result.count > 0 ? String(result.count) : '';
-      if (btn) btn.classList.toggle('active', !!result.liked);
+    if (hasLiked) {
+      // Atomic unlike: decrement count + remove user in a single updateDoc call
+      // updateDoc supports increment() and deleteField() atomically, no race condition
+      const { deleteField } = await import('./auth.js');
+      await updateDoc(likeRef, {
+        count: increment(-1),
+        ['users.' + userId]: deleteField()
+      });
+      // Update local cache
+      const updatedData = { ...(globalLikes[runId] || { count: 0, users: {} }) };
+      delete updatedData.users[userId];
+      updatedData.count = Math.max(0, (updatedData.count || 1) - 1);
+      globalLikes[runId] = updatedData;
+    } else {
+      await setDoc(likeRef, {
+        count: increment(1),
+        users: { [userId]: true }
+      }, { merge: true });
     }
   } catch (error) {
-    console.error("Erreur lors de l'envoi du like:", error);
+    console.error("Erreur lors de l'envoi du like sur Firestore:", error);
     // En cas d'erreur, restaurer l'état réel de globalLikes
     if (activeMap) {
       const d = allMaps.find(m => m.map === activeMap);
@@ -2018,7 +2031,7 @@ async function loadRankedLeaderboard(force = false) {
     
     let data;
     try {
-      const gzRes = await fetch('ranked.json.gz', { cache: 'no-store' });
+      const gzRes = await fetch('ranked.json.gz', { cache: 'no-cache' });
       if (gzRes.ok) {
         const ds = new DecompressionStream('gzip');
         const decompressed = gzRes.body.pipeThrough(ds);
@@ -2027,7 +2040,7 @@ async function loadRankedLeaderboard(force = false) {
         throw new Error('gz not available');
       }
     } catch (e) {
-      const plainRes = await fetch('ranked.json', { cache: 'no-store' });
+      const plainRes = await fetch('ranked.json', { cache: 'no-cache' });
       if (!plainRes.ok) throw new Error('Impossible de charger le classement');
       data = await plainRes.json();
     }

@@ -1226,11 +1226,20 @@ breadcrumbBack?.addEventListener("click", () => {
 
 // Route au chargement et au changement de hash
 window.addEventListener("hashchange", router);
-window.addEventListener("DOMContentLoaded", router);
 
-// Si pas de hash au démarrage, aller à l'accueil
-if (!window.location.hash) {
-  window.location.hash = "#/home";
+// ⚠️ Perf (audit 2026-08-27) : l'ancien code appelait router() DEUX fois au
+// premier chargement (DOMContentLoaded + hashchange issu de la redirection
+// #/home), ce qui doublait tous les téléchargements de données. Désormais :
+// sans hash → on en pose un et SEUL le hashchange déclenche le rendu.
+function boot() {
+  if (!window.location.hash) {
+    window.location.hash = "#/home"; // déclenche hashchange → router()
+  } else {
+    router();
+  }
+}
+if (document.readyState === "loading") {
+  window.addEventListener("DOMContentLoaded", boot);
 } else {
-  router();
+  boot();
 }

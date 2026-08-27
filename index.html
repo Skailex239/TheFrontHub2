@@ -63,7 +63,7 @@
 
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=63" as="style">
-<link rel="preload" href="dist/app.min.js?v=2" as="script" crossorigin>
+<link rel="preload" href="dist/app.min.js?v=3" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=2" as="script" crossorigin>
 <link rel="preload" href="runs_public.json.gz" as="fetch" crossorigin>
 
@@ -574,13 +574,13 @@
 <script src="dist/toast.min.js?v=1" defer></script>
 <script src="dist/lenis.min.js?v=2"></script>
 <script src="dist/animations.min.js?v=1" defer></script>
-<script src="dist/app.min.js?v=2" type="module"></script>
+<script src="dist/app.min.js?v=3" type="module"></script>
 
 <script>
   // Register Service Worker for offline support + Stale-While-Revalidate caching
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=16').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=17').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>

@@ -15,7 +15,7 @@
 //   - On next visit: user sees fresh data, still instantly
 //   - Works even on flaky 3G
 
-const CACHE_NAME = 'thefronthub-v33';
+const CACHE_NAME = 'thefronthub-v34';
 const CACHE_IMMUTABLE = 'thefronthub-imm-v10';
 const SWR_MAX_AGE_MS = 30 * 60 * 1000;  // 30 min — consider cache fresh this long
 
@@ -57,16 +57,21 @@ const STATIC_ASSETS = [
   '/shared/maps.js',
   '/shared/firebase-config.js',
   // Favicons + logo
-  '/favicon.ico',
+  // ⚠️ Perf (audit 2026-08-27) : '/favicon.ico' retiré — le fichier n'existe
+  // pas dans le repo (404 à chaque installation du SW).
   '/favicon-32x32.png',
   '/favicon-180x180.png',
   '/TheFrontHub Logo Text.png',
-  // Optimized public data files (small, cacheable)
-  '/runs_public.json.gz',
-  '/runs_compact_public.json.gz',
-  '/teams_public.json.gz',
-  '/ranked.json',
-  '/ranked.json.gz',
+  // ⚠️ Perf (audit 2026-08-27) : fichiers de DONNÉES retirés du précachage.
+  // Raisons :
+  //   1. Ils sont mis à jour toutes les 5 min par la sync → toute copie précachée
+  //      est immédiatement périmée, et le handler fetch (network-first pour les
+  //      données) les re-télécharge quand même → double téléchargement.
+  //   2. runs_public.json.gz / teams_public.json.gz peuvent peser plusieurs Mo :
+  //      les précacher ralentit la 1re visite et double la bande passante.
+  //   3. runs_public.json.gz & co sont actuellement 404 (sync cassée) : chaque
+  //      installation du SW spam autant de requêtes 404 inutiles.
+  // Ils sont mis en cache à la demande (lazy) par la stratégie network-first.
 ];
 
 // ── Install: pre-cache static assets ────────────────────────────────────────

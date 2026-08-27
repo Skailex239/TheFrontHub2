@@ -439,17 +439,34 @@ export function placeLabel(place) {
  * ════════════════════════════════════════════════════════════════════ */
 
 let _dataCache = null;
+// ⚠️ Perf (audit 2026-08-27) : on mémoïse la PROMESSE, pas le résultat.
+// Avant, deux appels concurrents (DOMContentLoaded + hashchange déclenché par
+// la redirection #/home au 1er chargement) voyaient tous deux _dataCache=null
+// et téléchargeaient CHAQUE fichier de données 2 fois (~3,4 Mo doublés).
+let _dataPromise = null;
 
 /**
  * Charge et cache toutes les données tournoi.
  * Retourne { players, scoring, tournaments, calendar, leaderboard }.
+ * Les appels concurrents partagent le même chargement (dédupliqué).
  */
-export async function loadData() {
-  if (_dataCache) return _dataCache;
+export function loadData() {
+  if (_dataCache) return Promise.resolve(_dataCache);
+  if (!_dataPromise) {
+    _dataPromise = loadDataInternal().catch((e) => {
+      // Ne pas garder l'échec en cache : un retry pourra relancer le chargement.
+      _dataPromise = null;
+      throw e;
+    });
+  }
+  return _dataPromise;
+}
+
+async function loadDataInternal() {
   const [playersRes, scoringRes, calendarRes] = await Promise.all([
-    fetch("data/players.json", { cache: "no-store" }),
-    fetch("data/scoring.config.json", { cache: "no-store" }),
-    fetch("data/calendar.json", { cache: "no-store" }),
+    fetch("data/players.json", { cache: "no-cache" }),
+    fetch("data/scoring.config.json", { cache: "no-cache" }),
+    fetch("data/calendar.json", { cache: "no-cache" }),
   ]);
   if (!playersRes.ok || !scoringRes.ok) {
     throw new Error("Impossible de charger les données tournoi.");
@@ -465,7 +482,7 @@ export async function loadData() {
   // Liste des fichiers de tournois — on découvre le dossier via une liste
   // générée côté serveur, ou on hardcode la liste connue.
   // Pour rester statique, on utilise un manifeste.
-  const manifestRes = await fetch("data/tournaments/manifest.json", { cache: "no-store" }).catch(() => null);
+  const manifestRes = await fetch("data/tournaments/manifest.json", { cache: "no-cache" }).catch(() => null);
   let slugs = [];
   if (manifestRes && manifestRes.ok) {
     slugs = await manifestRes.json();
@@ -484,7 +501,7 @@ export async function loadData() {
 
   const tournamentResults = await Promise.all(
     slugs.map((slug) =>
-      fetch(`data/tournaments/${slug}.json`, { cache: "no-store" })
+      fetch(`data/tournaments/${slug}.json`, { cache: "no-cache" })
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null)
     )
