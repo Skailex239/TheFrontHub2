@@ -1,0 +1,156 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# .htaccess — TheFrontHub.com — Optimisation performance + sécurité
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── 1. Forcer HTTPS ──
+RewriteEngine On
+RewriteCond %{HTTPS} !=on
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# ── 2. Page par défaut ──
+DirectoryIndex index.html
+
+# ── 3. Compression GZIP (tous types textuels + SVG + JSON) ──
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css
+  AddOutputFilterByType DEFLATE text/javascript application/javascript application/x-javascript
+  AddOutputFilterByType DEFLATE application/json image/svg+xml
+  AddOutputFilterByType DEFLATE application/xml application/rss+xml
+  AddOutputFilterByType DEFLATE font/ttf font/otf font/woff font/woff2 application/font-woff
+</IfModule>
+
+# ── 4. Cache navigateur longue durée (assets statiques) ──
+<IfModule mod_expires.c>
+  ExpiresActive On
+
+  # Assets versionnés (cache 1 an) — ne changent jamais car "?v=N" change quand on update
+  ExpiresByType text/css "access plus 1 year"
+  ExpiresByType application/javascript "access plus 1 year"
+  ExpiresByType text/javascript "access plus 1 year"
+
+  # Images (cache 1 an)
+  ExpiresByType image/png "access plus 1 year"
+  ExpiresByType image/jpeg "access plus 1 year"
+  ExpiresByType image/jpg "access plus 1 year"
+  ExpiresByType image/webp "access plus 1 year"
+  ExpiresByType image/gif "access plus 1 year"
+  ExpiresByType image/svg+xml "access plus 1 year"
+  ExpiresByType image/x-icon "access plus 1 year"
+
+  # Fonts (cache 1 an)
+  ExpiresByType font/ttf "access plus 1 year"
+  ExpiresByType font/otf "access plus 1 year"
+  ExpiresByType font/woff "access plus 1 year"
+  ExpiresByType font/woff2 "access plus 1 year"
+  ExpiresByType application/font-woff "access plus 1 year"
+  ExpiresByType application/font-woff2 "access plus 1 year"
+  ExpiresByType application/vnd.ms-fontobject "access plus 1 year"
+
+  # Fichiers JSON (cache 5 min — changent souvent via sync)
+  ExpiresByType application/json "access plus 5 minutes"
+
+  # HTML (cache 5 min — peu de changements)
+  ExpiresByType text/html "access plus 5 minutes"
+
+  # Fichiers spéciaux (pas de cache)
+  ExpiresByType text/xml "access plus 0 seconds"
+  ExpiresByType application/xml "access plus 0 seconds"
+</IfModule>
+
+# ── 5. Cache-Control headers (complément d'Expires) ──
+<IfModule mod_headers.c>
+  # Assets statiques versionnés : immutable (le navigateur ne re-valide jamais)
+  <FilesMatch "\.(css|js|png|jpe?g|webp|gif|svg|ico|ttf|otf|woff2?|eot)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+
+  # HTML : must-revalidate (vérifie si modifié)
+  <FilesMatch "\.html$">
+    Header set Cache-Control "public, max-age=300, must-revalidate"
+  </FilesMatch>
+
+  # JSON : must-revalidate (changements fréquents via sync)
+  <FilesMatch "\.json$">
+    Header set Cache-Control "public, max-age=300, must-revalidate"
+  </FilesMatch>
+
+  # JSON.gz : must-revalidate
+  <FilesMatch "\.json\.gz$">
+    Header set Cache-Control "public, max-age=300, must-revalidate"
+  </FilesMatch>
+
+  # Désactiver le cache pour les endpoints PHP dynamiques
+  <FilesMatch "^_(upload|deploy)\.php$">
+    Header set Cache-Control "no-store, no-cache, must-revalidate"
+  </FilesMatch>
+
+  # X-Content-Type-Options (sécurité)
+  Header set X-Content-Type-Options "nosniff"
+
+  # X-Frame-Options (sécurité — empêche le clickjacking)
+  Header set X-Frame-Options "SAMEORIGIN"
+
+  # Referrer-Policy (sécurité)
+  Header set Referrer-Policy "strict-origin-when-cross-origin"
+
+  # HSTS (force HTTPS pour 1 an)
+  Header set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+</IfModule>
+
+# ── 6. UTF-8 par défaut ──
+AddDefaultCharset UTF-8
+AddCharset UTF-8 .html .css .js .json .xml .svg
+
+# ── 7. ETag désactivé (utilise Cache-Control à la place, plus efficace) ──
+FileETag None
+
+# ── 8. Sécurité : bloquer accès aux fichiers sensibles ──
+<FilesMatch "(^\.|\.(env|md|yml|yaml|lock|sh|ps1|ini)$)">
+  Require all denied
+</FilesMatch>
+
+# ⚠️ Sauf .user.ini (que PHP lit mais Apache doit pas servir publiquement)
+# En fait .user.ini est déjà bloqué par la regex ci-dessus (.ini$)
+
+# ── 9. Bloquer accès aux endpoints PHP en GET (POST only) ──
+<Files "_upload.php">
+  <Limit GET HEAD OPTIONS>
+    Require all denied
+  </Limit>
+</Files>
+<Files "_deploy.php">
+  <Limit GET HEAD OPTIONS>
+    Require all denied
+  </Limit>
+</Files>
+
+# ── 10. PageSpeed (o2switch PowerBoost) — désactiver pour éviter les weird URLs ──
+# PowerBoost ajoute des URLs bizarres comme lobby.js,qv=25.pagespeed.ce.xxx.js
+# qui cassent le cache navigateur et ralentissent le site
+<IfModule mod_pagespeed.c>
+  ModPagespeed off
+</IfModule>
+<IfModule pagespeed_module>
+  ModPagespeed off
+</IfModule>
+
+# ── 11. Précharger les ressources critiques (preload hints) ──
+# Le HTML ajoute déjà des <link rel="preload"> dans le <head>,
+# mais on peut aussi ajouter des HTTP/2 Server Push ici si besoin
+# (mais ça peut ralentir si abusé, donc on laisse désactivé par défaut)
+
+# ── 12. Charset pour les JSON ──
+<FilesMatch "\.json$">
+  ForceType application/json
+  AddCharset UTF-8 .json
+</FilesMatch>
+
+# ── 13. MIME types pour les fichiers modernes ──
+<IfModule mod_mime.c>
+  AddType image/webp .webp
+  AddType font/woff2 .woff2
+  AddType application/manifest+json .webmanifest
+</IfModule>
+
+# ── 14. Désactiver le suivi des répertoires (sécurité) ──
+Options -Indexes
