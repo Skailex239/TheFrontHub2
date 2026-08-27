@@ -1,25 +1,26 @@
 name: Auto Sync
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ⚡ UNIFIED SYNC PIPELINE — 7 syncs en série + upload HTTP vers o2switch
+# ⚡ UNIFIED SYNC PIPELINE — 7 syncs en série → publication via GitHub Release
 #
-# Chaque sync génère des fichiers DIFFÉRENTS dans le runner (pas de commit git) :
-#   - sync-standard     → runs.json.gz (archive), seen.json, checkpoint.json
-#   - sync-compact      → runs_compact.json.gz (archive), seen_compact.json
-#   - sync-teams        → teams_runs.json, teams_seen.json
-#   - sync-ranked       → ranked.json (snapshot), ranked_history.json.gz (archive)
-#   - sync-dashboard    → dashboard_scores.json
-#   - sync-player-games → player-data/, player-stats/
+# Chaque sync génère des fichiers DIFFÉRENTS dans le runner :
+#   - sync-standard     → runs_public.json.gz (payload optimisé), runs.json.gz
+#   - sync-compact      → runs_compact_public.json.gz, runs_compact.json.gz
+#   - sync-teams        → teams_public.json.gz, teams_runs.json
+#   - sync-ranked       → ranked.json, ranked_history.json.gz
+#   - sync-dashboard    → dashboard_scores.json, dashboard_ranking.json
+#   - sync-player-games → player-data/, player-stats/ (tarball)
 #   - sync-lobby-state  → lobby_state.json
 #
-# Au lieu de git commit + push, chaque job UPLOAD les fichiers via HTTP
-# vers https://thefronthub.com/_upload.php (script PHP sécurisé sur o2switch).
+# 🔄 TRANSPORT (v3 — audit 2026-08-27) : le PUSH HTTP vers _upload.php est
+# impossible depuis GitHub Actions (le WAF o2switch coupe les POST des IP
+# Azure : curl error 56, même sur 118 octets, même en raw-body). Les fichiers
+# sont donc publiés en ASSETS de la release publique « data-latest », et le
+# serveur o2switch les PULL via son cron (pull-data.sh, GET publics).
 #
-# Stratégie de rétention :
-#   - "snapshot" : écrase le fichier à chaque sync (données temps réel)
-#   - "archive"   : sauvegarde horodatée + rotation auto 30 jours (historique)
-#
-# Le repo GitHub ne contient plus QUE le code (HTML/CSS/JS), pas les données.
+# Boucle d'état : chaque job RETÉLÉCHARGE ses fichiers d'état depuis la
+# release au démarrage (seen.json, checkpoint.json, historiques…) — ils ne
+# sont plus commités dans git (pas de gonflement du repo).
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
@@ -31,133 +32,157 @@ concurrency:
   group: auto-sync-v2
   cancel-in-progress: true
 
-# Variables d'environnement partagées par tous les jobs
-env:
-  O2SWITCH_URL: ${{ secrets.O2SWITCH_UPLOAD_URL }}
-  O2SWITCH_SECRET: ${{ secrets.O2SWITCH_UPLOAD_SECRET }}
-
 jobs:
   sync-standard:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 1, ref: main }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
       - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - name: État depuis la release
+        run: |
+          chmod +x scripts/data-release.sh
+          ./scripts/data-release.sh pull runs.json.gz seen.json checkpoint.json
       - run: node sync.js
         env:
           OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
           SYNC_HISTORY_WINDOWS: "500"
-      - name: Upload vers o2switch
+      - name: Publier les données (release data-latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          chmod +x scripts/upload-to-o2switch.sh
-          # ⚠️ Ordre critique (fix 2026-08-27) : les SNAPSHOTS d'abord.
-          # Avant, l'archive (runs.json.gz, 16 Mo) était uploadée en premier et
-          # son échec (curl error 56 sur LiteSpeed) faisait échouer tout le job
-          # → runs_public.json.gz (107 Ko) n'était JAMAIS déployé → le site
-          # retombait sur runs.json.gz (16 Mo) à chaque visite.
-          # Snapshot (écrase) — critiques pour le site
-          ./scripts/upload-to-o2switch.sh snapshot runs_public.json.gz runs_public.json clans.json news.json seen.json checkpoint.json
-          # Archive (historique + rotation 30j) — non bloquant : si l'upload
-          # du gros fichier échoue, le site reste fonctionnel (snapshots OK)
-          ./scripts/upload-to-o2switch.sh archive runs.json.gz || echo "⚠️ Archive runs.json.gz non uploadée (non bloquant — snapshots déjà déployés)"
+          chmod +x scripts/data-release.sh
+          ./scripts/data-release.sh push runs_public.json.gz runs_public.json clans.json news.json seen.json checkpoint.json runs.json.gz
 
   sync-compact:
     needs: [sync-standard]
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 1, ref: main }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
       - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - name: État depuis la release
+        run: |
+          chmod +x scripts/data-release.sh
+          ./scripts/data-release.sh pull runs_compact.json.gz seen_compact.json checkpoint_compact.json
       - run: node sync.js --mode=compact
         env:
           OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
           COMPACT_HISTORY_WINDOWS: "500"
-      - name: Upload vers o2switch
+      - name: Publier les données (release data-latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          chmod +x scripts/upload-to-o2switch.sh
-          # Snapshots d'abord (critiques), archive ensuite (non bloquant)
-          ./scripts/upload-to-o2switch.sh snapshot runs_compact_public.json.gz runs_compact_public.json seen_compact.json checkpoint_compact.json
-          ./scripts/upload-to-o2switch.sh archive runs_compact.json.gz || echo "⚠️ Archive runs_compact.json.gz non uploadée (non bloquant)"
+          chmod +x scripts/data-release.sh
+          ./scripts/data-release.sh push runs_compact_public.json.gz runs_compact_public.json seen_compact.json checkpoint_compact.json runs_compact.json.gz
 
   sync-teams:
     needs: [sync-compact]
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 1, ref: main }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
       - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - name: État depuis la release
+        run: |
+          chmod +x scripts/data-release.sh
+          ./scripts/data-release.sh pull teams_runs.json teams_seen.json teams_checkpoint.json
       - run: node sync-teams.js
         env:
           OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
-      - name: Upload vers o2switch
+      - name: Publier les données (release data-latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          chmod +x scripts/upload-to-o2switch.sh
-          ./scripts/upload-to-o2switch.sh snapshot teams_runs.json teams_seen.json teams_checkpoint.json teams_public.json teams_public.json.gz
+          chmod +x scripts/data-release.sh
+          ./scripts/data-release.sh push teams_runs.json teams_seen.json teams_checkpoint.json teams_public.json teams_public.json.gz
 
   sync-ranked:
     needs: [sync-teams]
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 1, ref: main }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
       - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - name: État depuis la release
+        run: |
+          chmod +x scripts/data-release.sh
+          ./scripts/data-release.sh pull ranked.json ranked_history.json.gz ranked_2v2_history.json.gz
+          # sync-ranked.js lit les historiques NON compressés
+          for f in ranked_history ranked_2v2_history; do
+            if [[ -f "$f.json.gz" && ! -f "$f.json" ]]; then gunzip -k "$f.json.gz"; fi
+          done
       - run: node sync-ranked.js
         env:
           OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
-      - name: Upload vers o2switch
+      - name: Publier les données (release data-latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          chmod +x scripts/upload-to-o2switch.sh
-          # ranked.json = snapshot (écrase), ranked_history = archive (historique + rotation 30j)
-          # Snapshots d'abord (critiques), archives ensuite (non bloquantes)
-          ./scripts/upload-to-o2switch.sh snapshot ranked.json ranked.json.gz
-          ./scripts/upload-to-o2switch.sh archive ranked_history.json.gz ranked_2v2_history.json.gz || echo "⚠️ Archives ranked_history non uploadées (non bloquant)"
+          chmod +x scripts/data-release.sh
+          ./scripts/data-release.sh push ranked.json ranked.json.gz ranked_history.json.gz ranked_2v2_history.json.gz
 
   sync-dashboard:
     needs: [sync-ranked]
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 1, ref: main }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
       - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - name: Entrées depuis la release
+        run: |
+          chmod +x scripts/data-release.sh
+          # sync-dashboard.js consomme le ranked.json produit par le job précédent
+          ./scripts/data-release.sh pull ranked.json
       - run: node sync-dashboard.js
         env:
           OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
-      - name: Upload vers o2switch
+      - name: Publier les données (release data-latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          chmod +x scripts/upload-to-o2switch.sh
-          ./scripts/upload-to-o2switch.sh snapshot dashboard_scores.json dashboard_scores.json.gz dashboard_ranking.json dashboard_player_games.json
+          chmod +x scripts/data-release.sh
+          ./scripts/data-release.sh push dashboard_scores.json dashboard_scores.json.gz dashboard_ranking.json dashboard_player_games.json
 
   sync-player-games:
     needs: [sync-dashboard]
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 1, ref: main }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
+      - name: État depuis la release
+        run: |
+          chmod +x scripts/data-release.sh
+          ./scripts/data-release.sh pull player-files.tar.gz sync-players.json
+          if [[ -f player-files.tar.gz ]]; then
+            tar xzf player-files.tar.gz
+            echo "  📦 player-data/ et player-stats/ restaurés"
+          fi
       - name: Detect new players from Firebase
         run: node detect-new-players.js || true
         env:
@@ -168,25 +193,19 @@ jobs:
           SKAILEX_ACCESS_TOKEN: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
       - name: Compute player stats
         run: node compute-player-stats.js
-      - name: Upload vers o2switch
+      - name: Publier les données (release data-latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          chmod +x scripts/upload-to-o2switch.sh
-          # Upload sync-players.json (snapshot)
-          ./scripts/upload-to-o2switch.sh snapshot sync-players.json
-          # Upload tous les fichiers player-data/*.json (snapshot)
-          if ls player-data/*.json 1> /dev/null 2>&1; then
-            ./scripts/upload-to-o2switch.sh snapshot player-data/*.json
-          fi
-          # Upload tous les fichiers player-stats/*.json (snapshot)
-          if ls player-stats/*.json 1> /dev/null 2>&1; then
-            ./scripts/upload-to-o2switch.sh snapshot player-stats/*.json
-          fi
+          chmod +x scripts/data-release.sh
+          tar czf player-files.tar.gz player-data player-stats
+          ./scripts/data-release.sh push player-files.tar.gz sync-players.json
 
   sync-lobby-state:
     needs: [sync-player-games]
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -197,7 +216,9 @@ jobs:
       - run: node sync-lobby-state.js
         env:
           OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
-      - name: Upload vers o2switch
+      - name: Publier les données (release data-latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          chmod +x scripts/upload-to-o2switch.sh
-          ./scripts/upload-to-o2switch.sh snapshot lobby_state.json
+          chmod +x scripts/data-release.sh
+          ./scripts/data-release.sh push lobby_state.json

@@ -128,34 +128,44 @@ TheFrontHub2/
 2 mécanismes en parallèle :
 
 #### 1. Cron job o2switch (toutes les 5 min — RECOMMANDÉ)
-Commande cron dans cPanel :
+Commande cron dans cPanel (déploiement du code **ET** des données) :
 ```bash
-cd /home2/mask6607/thefronthub-src && git fetch origin main --quiet && git reset --hard origin/main --quiet && rsync -a --delete --exclude='.git' --exclude='.htaccess' --exclude='_upload.php' --exclude='_deploy.php' --exclude='_archives' --exclude='*.json' --exclude='*.json.gz' --exclude='player-data' --exclude='player-stats' --exclude='src' --exclude='tests' --exclude='scripts' --exclude='.github' --exclude='.trae' --exclude='.windsurf' --exclude='.zscripts' --exclude='prisma' --exclude='db' --exclude='examples' --exclude='mini-services' --exclude='cloudflare-worker' --exclude='agent-ctx' --exclude='worklog.md' --exclude='GUIDE_*.md' --exclude='public' --exclude='node_modules' --exclude='package.json' --exclude='package-lock.json' --exclude='bun.lock' --exclude='tsconfig.json' --exclude='next.config.ts' --exclude='tailwind.config.ts' --exclude='postcss.config.mjs' --exclude='eslint.config.mjs' ./ /home2/mask6607/public_html/thefronthub.com/ && find /home2/mask6607/public_html/thefronthub.com/ -type d -exec chmod 755 {} \; && find /home2/mask6607/public_html/thefronthub.com/ -type f -exec chmod 644 {} \;
+cd /home2/mask6607/thefronthub-src && git fetch origin main --quiet && git reset --hard origin/main --quiet && rsync -a --delete --exclude='.git' --exclude='.htaccess' --exclude='_upload.php' --exclude='_deploy.php' --exclude='_archives' --exclude='*.json' --exclude='*.json.gz' --exclude='player-data' --exclude='player-stats' --exclude='src' --exclude='tests' --exclude='scripts' --exclude='.github' --exclude='.trae' --exclude='.windsurf' --exclude='.zscripts' --exclude='prisma' --exclude='db' --exclude='examples' --exclude='mini-services' --exclude='cloudflare-worker' --exclude='agent-ctx' --exclude='worklog.md' --exclude='GUIDE_*.md' --exclude='public' --exclude='node_modules' --exclude='package.json' --exclude='package-lock.json' --exclude='bun.lock' --exclude='tsconfig.json' --exclude='next.config.ts' --exclude='tailwind.config.ts' --exclude='postcss.config.mjs' --exclude='eslint.config.mjs' --exclude='pull-data.sh' ./ /home2/mask6607/public_html/thefronthub.com/ && find /home2/mask6607/public_html/thefronthub.com/ -type d -exec chmod 755 {} \; && find /home2/mask6607/public_html/thefronthub.com/ -type f -exec chmod 644 {} \; && bash /home2/mask6607/pull-data.sh >> /home2/mask6607/logs/pull-data.log 2>&1
 ```
 
 > ⚠️ **Correctif du cron (2026-08-27) — à appliquer dans cPanel si votre cron actuel diffère** :
 > - `--exclude='dist'` **retiré** : les 6 pages (index/dashboard/tournois/atlas/profile/auth) chargent `dist/*.min.js` — l'exclusion empêchait tout déploiement de bundle (le fix `lenis.min.js` et les correctifs XSS n'atteignaient jamais la prod). `dist/` ne contient que 15 fichiers `.min.js` (364 Ko), sans risque.
 > - `--exclude='worklog.md'` et `--exclude='GUIDE_*.md'` **ajoutés** : docs internes, ne doivent pas être servis publiquement.
+> - `--exclude='pull-data.sh'` **ajouté** et `&& bash /home2/mask6607/pull-data.sh …` **ajouté en fin de commande** : déploiement des DONNÉES (voir section « Données » ci-dessous). Prérequis : copier `pull-data.sh` du repo vers `/home2/mask6607/pull-data.sh` sur le serveur (une seule fois).
 >
 > ⚠️ **Rappel** : `.htaccess`, `_upload.php` et `_deploy.php` sont volontairement exclus du rsync — leurs mises à jour doivent être copiées **manuellement** sur le serveur (voir `SECURITE_CORRECTIONS.md` pour la procédure et l'ordre des étapes).
 
 #### 2. Webhook GitHub → `_deploy.php` (BLOQUÉ par Tiger Protect WAF)
 Le WAF d'o2switch bloque les POST de GitHub. À débloquer via cPanel → Tiger Protect → Whitelist `/_deploy.php`.
 
-### Données (JSON)
+### Données (JSON) — transport par GitHub Release (v3)
+
+> 🔴 **Pourquoi ce changement (audit 2026-08-27)** : le WAF o2switch (Tiger
+> Protect / ModSecurity) coupe TOUT POST depuis les IP GitHub Actions / Azure
+> — même de 118 octets, même en raw-body (curl error 56) — y compris vers
+> `_upload.php`. Résultat : aucune donnée n'atteignait le serveur depuis le
+> 26/08, le site retombait sur `runs.json.gz` (16 Mo) à chaque visite
+> (chargement 12-14 s au lieu de 164 ms). Le flux est donc INVERSÉ :
+> GitHub **publie**, le serveur **télécharge** (GET publics, jamais bloqués).
 
 Workflow GitHub Actions `sync.yml` (toutes les 5 min) :
-1. Récupère les données via WebSocket OpenFront (depuis datacenter GitHub)
-2. Décode le binaire zbin via `lobby-wire.js`
-3. Upload via `scripts/upload-to-o2switch.sh` → `_upload.php` (HTTP POST + secret HMAC)
-4. Stocke sur o2switch dans `public_html/thefronthub.com/`
+1. Récupère les données via l'API OpenFront + ses fichiers d'état (depuis la release)
+2. Génère les payloads (`runs_public.json.gz` 107 Ko, `lobby_state.json`, etc.)
+3. Publie tout en ASSETS de la release publique [`data-latest`](https://github.com/Skailex239/TheFrontHub2/releases/tag/data-latest)
+4. Le cron o2switch exécute `pull-data.sh` qui télécharge ces assets dans le webroot (atomique, `runs.json.gz` 16 Mo max 1×/24 h)
+
+Installation serveur (UNE fois) : copier `pull-data.sh` du repo vers `/home2/mask6607/pull-data.sh` puis `chmod +x`. Le cron (commande ci-dessus) l'appelle automatiquement. Logs : `/home2/mask6607/logs/pull-data.log`.
 
 ### Variables d'environnement GitHub Actions
 
 Dans Settings → Secrets → Actions :
-- `O2SWITCH_UPLOAD_URL` : `https://thefronthub.com/_upload.php`
-- `O2SWITCH_UPLOAD_SECRET` : secret partagé avec `_upload.php`
-- `OPENFRONT_SKAILEX_ACCESS` : token API OpenFront
+- `OPENFRONT_SKAILEX_ACCESS` : token API OpenFront (requis)
+- `O2SWITCH_UPLOAD_URL` / `O2SWITCH_UPLOAD_SECRET` : **obsolètes** (le push HTTP est bloqué par le WAF ; conservés pour si Tiger Protect whiteliste un jour `_upload.php`)
 
 ---
 
@@ -163,20 +173,18 @@ Dans Settings → Secrets → Actions :
 
 ### Workflow `sync.yml` (7 jobs en série)
 
-| Job | Rôle | Fichiers générés |
+| Job | Rôle | Fichiers publiés (assets release) |
 |---|---|---|
-| `sync-standard` | Historique complet des parties | `runs.json.gz` (archive), `seen.json`, `checkpoint.json` |
-| `sync-compact` | Version compacte | `runs_compact.json.gz` (archive) |
-| `sync-teams` | Stats par équipe | `teams_runs.json`, `teams_seen.json` |
-| `sync-ranked` | Classements 1v1/2v2 | `ranked.json` (snapshot), `ranked_history.json.gz` (archive) |
-| `sync-dashboard` | Scores dashboard | `dashboard_scores.json` |
-| `sync-player-games` | Données par joueur | `player-data/*.json`, `player-stats/*.json` |
+| `sync-standard` | Historique complet des parties | `runs_public.json.gz` (payload accueil), `runs.json.gz` (fallback), `seen.json`, `checkpoint.json` |
+| `sync-compact` | Version compacte | `runs_compact_public.json.gz`, `runs_compact.json.gz`, `seen_compact.json` |
+| `sync-teams` | Stats par équipe | `teams_public.json.gz`, `teams_runs.json`, état teams |
+| `sync-ranked` | Classements 1v1/2v2 | `ranked.json`, `ranked_history.json.gz`, `ranked_2v2_history.json.gz` |
+| `sync-dashboard` | Scores dashboard | `dashboard_scores.json`, `dashboard_ranking.json` |
+| `sync-player-games` | Données par joueur | `player-files.tar.gz` (player-data + player-stats) |
 | `sync-lobby-state` | État lobby temps réel | `lobby_state.json` |
 
-### Modes de stockage
-
-- **Snapshot** : écrase le fichier à chaque sync (données temps réel)
-- **Archive** : sauvegarde horodatée + rotation auto 30 jours (historique)
+Chaque job retire son état du cycle précédent depuis la release au démarrage
+(boucle d'état sans commit git — le repo ne gonfle pas).
 
 ---
 
