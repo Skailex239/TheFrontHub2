@@ -269,12 +269,58 @@ if ($providedSecret === '' || !hash_equals($SECRET, $providedSecret)) {
 }
 clear_auth_failures($ip);
 
+// ── Détection du transport : raw-body (v3, WAF-safe) ou multipart ──
+// ⚠️ Depuis le 26/08/2026, le WAF o2switch bloque en 406 (ModSecurity) tout
+// POST multipart CONTENANT un fichier — même de 118 octets — ce qui cassait
+// tout le pipeline de données (curl error 56 côté GitHub Actions).
+// Le body brut (Content-Type: application/octet-stream + filename en query)
+// passe le WAF : on l'accepte comme transport principal.
+$contentType = strtolower(trim((string) ($_SERVER['CONTENT_TYPE'] ?? '')));
+$rawBodyMode = (isset($_GET['filename']) && strpos($contentType, 'application/octet-stream') === 0);
+
+$tmpPath = '';
+$uploadSize = 0;
+$isUploadedFile = false;
+
+if ($rawBodyMode) {
+    $filename = (string) ($_GET['filename'] ?? '');
+    $mode = (string) ($_GET['mode'] ?? 'snapshot');
+    // Materialiser le corps de la requête dans un fichier temporaire
+    $tmpPath = (string) tempnam(sys_get_temp_dir(), 'upraw_');
+    if ($tmpPath === '') {
+        json_response(500, ['ok' => false, 'error' => 'Cannot create temp file']);
+    }
+    // Nettoyage garanti du temp file (même en cas d'erreur fatale/die)
+    register_shutdown_function(function () use (&$tmpPath) {
+        if (is_string($tmpPath) && $tmpPath !== '' && is_file($tmpPath)) {
+            @unlink($tmpPath);
+        }
+    });
+    $in = fopen('php://input', 'rb');
+    $out = fopen($tmpPath, 'wb');
+    if ($in === false || $out === false) {
+        json_response(500, ['ok' => false, 'error' => 'Cannot read body']);
+    }
+    $copied = stream_copy_to_stream($in, $out);
+    fclose($in);
+    fclose($out);
+    if ($copied === false || $copied < 0) {
+        json_response(500, ['ok' => false, 'error' => 'Cannot read body']);
+    }
+    $uploadSize = (int) $copied;
+} else {
+    $filename = (string) ($_POST['filename'] ?? '');
+    $mode = (string) ($_POST['mode'] ?? 'snapshot');
+    $tmpPath = (string) ($_FILES['file']['tmp_name'] ?? '');
+    $uploadSize = (int) ($_FILES['file']['size'] ?? 0);
+    $isUploadedFile = true;
+}
+
 // ── Vérifier la signature HMAC-SHA256 du contenu (si fournie) ──
 $signatureHeader = trim((string) ($_SERVER['HTTP_X_UPLOAD_SIGNATURE'] ?? ''));
-$tmpPathEarly = $_FILES['file']['tmp_name'] ?? '';
 
 if ($signatureHeader !== '' || $REQUIRE_SIGNATURE) {
-    if ($signatureHeader === '' || $tmpPathEarly === '' || !is_uploaded_file($tmpPathEarly)) {
+    if ($signatureHeader === '' || $tmpPath === '' || !is_file($tmpPath)) {
         json_response(403, ['ok' => false, 'error' => 'Missing signature']);
     }
     $providedSig = strtolower($signatureHeader);
@@ -284,7 +330,7 @@ if ($signatureHeader !== '' || $REQUIRE_SIGNATURE) {
     if (!preg_match('/^[a-f0-9]{64}$/', $providedSig)) {
         json_response(403, ['ok' => false, 'error' => 'Malformed signature']);
     }
-    $expectedSig = hash_hmac('sha256', (string) file_get_contents($tmpPathEarly), $SECRET);
+    $expectedSig = hash_hmac('sha256', (string) file_get_contents($tmpPath), $SECRET);
     if (!hash_equals($expectedSig, $providedSig)) {
         register_auth_failure($ip, $AUTH_FAIL_LIMIT, $AUTH_FAIL_WINDOW);
         error_log("[_upload.php] Forbidden: bad HMAC signature from IP $ip");
@@ -292,16 +338,11 @@ if ($signatureHeader !== '' || $REQUIRE_SIGNATURE) {
     }
 }
 
-// ── Récupérer les paramètres ──
-$filename = (string) ($_POST['filename'] ?? '');
-$mode = (string) ($_POST['mode'] ?? 'snapshot');
-$tmpPath = (string) ($_FILES['file']['tmp_name'] ?? '');
-
 // ── Validations ──
 if ($filename === '') {
     json_response(400, ['ok' => false, 'error' => 'Missing filename']);
 }
-if ($tmpPath === '' || !is_uploaded_file($tmpPath)) {
+if ($tmpPath === '' || !is_file($tmpPath) || ($isUploadedFile && !is_uploaded_file($tmpPath))) {
     json_response(400, ['ok' => false, 'error' => 'Missing file']);
 }
 if (!in_array($mode, ['snapshot', 'archive'], true)) {
@@ -336,7 +377,9 @@ if (strpos($filename, '..') !== false
 }
 
 // ── Limite de taille ──
-$uploadSize = (int) ($_FILES['file']['size'] ?? 0);
+if ($rawBodyMode) {
+    $uploadSize = (int) filesize($tmpPath); // taille réelle du body materialisé
+}
 if ($uploadSize < 0 || $uploadSize > $MAX_UPLOAD_BYTES) {
     json_response(413, ['ok' => false, 'error' => 'File too large']);
 }
@@ -368,8 +411,11 @@ if ($mode === 'snapshot') {
     // Écriture atomique : tmp + rename pour éviter qu'un visiteur lise un
     // fichier à moitié écrit pendant la sync.
     $atomicTmp = $targetPath . '.tmp' . getmypid();
-    if (!move_uploaded_file($tmpPath, $atomicTmp)) {
-        error_log("[_upload.php] move_uploaded_file failed: $targetPath");
+    $moved = $isUploadedFile
+        ? move_uploaded_file($tmpPath, $atomicTmp)
+        : rename($tmpPath, $atomicTmp);
+    if (!$moved) {
+        error_log("[_upload.php] move failed: $targetPath");
         json_response(500, ['ok' => false, 'error' => 'Upload failed']);
     }
     chmod($atomicTmp, 0644);
@@ -420,8 +466,8 @@ if ($realArchiveDir === false || strpos($realArchiveDir, $WEB_ROOT . DIRECTORY_S
     json_response(400, ['ok' => false, 'error' => 'Invalid path']);
 }
 
-if (!move_uploaded_file($tmpPath, $archivePath)) {
-    error_log("[_upload.php] move_uploaded_file (archive) failed: $archivePath");
+if (!($isUploadedFile ? move_uploaded_file($tmpPath, $archivePath) : rename($tmpPath, $archivePath))) {
+    error_log("[_upload.php] move failed (archive): $archivePath");
     json_response(500, ['ok' => false, 'error' => 'Upload failed']);
 }
 chmod($archivePath, 0644);

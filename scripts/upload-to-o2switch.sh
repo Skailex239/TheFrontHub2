@@ -83,30 +83,59 @@ for f in "${FILES[@]}"; do
 
   echo -n "  📤 $RELNAME (${SIZE} bytes)... "
 
-  # Upload via curl multipart/form-data
+  # URL-encoder le nom de fichier pour la query string (sous-dossiers inclus)
+  ENC_NAME=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$RELNAME" 2>/dev/null || echo "$RELNAME")
+
+  # ── Transport principal : BODY BRUT (raw-body) ──
+  # ⚠️ Depuis le 26/08/2026, le WAF o2switch (ModSecurity) bloque en 406 tout
+  #    POST multipart CONTENANT un fichier — même de 118 octets — ce qui
+  #    cassait tout le pipeline (curl error 56 côté GitHub Actions).
+  #    Le body brut (Content-Type: application/octet-stream, filename dans
+  #    la query string) passe le WAF. Nécessite _upload.php v3+.
   # ⚠️ --http1.1 : obligatoire pour les gros fichiers (>10 Mo) car HTTP/2
   #    a des soucis de flux avec LiteSpeed/o2switch (curl error 92)
-  # ⚠️ -H "Expect:" : désactive le handshake 100-continue — LiteSpeed coupe
-  #    la connexion pendant l'attente sur les gros corps (curl error 56,
-  #    vu en prod depuis le 26/08/2026 sur runs.json.gz 16 Mo)
+  # ⚠️ -H "Expect:" : désactive le handshake 100-continue (LiteSpeed coupe
+  #    la connexion pendant l'attente sur les gros corps)
   # ⚠️ --max-time 300 : 5 min pour les gros fichiers (16+ Mo)
-  # ⚠️ --retry 5 --retry-delay 15 : retry 5 fois avec 15s de délai
-  # ⚠️ --retry-all-errors : retry sur TOUTES les erreurs (y compris 56 RECV)
-  # ⚠️ --connect-timeout 30 : timeout connexion spécifique
+  # ⚠️ --retry 5 --retry-delay 15 --retry-all-errors : retries robustes
   RESPONSE=$(curl -sS -X POST \
     --http1.1 \
     --connect-timeout 30 \
     -H "Expect:" \
     -H "X-Upload-Secret: $O2SWITCH_SECRET" \
     ${SIG_ARGS[@]+"${SIG_ARGS[@]}"} \
-    -F "file=@$f" \
-    -F "filename=$RELNAME" \
-    -F "mode=$MODE" \
+    -H "Content-Type: application/octet-stream" \
+    --data-binary @"$f" \
     --max-time 300 \
     --retry 5 \
     --retry-delay 15 \
     --retry-all-errors \
-    "$O2SWITCH_URL" 2>&1) || RESPONSE="curl error: $?"
+    "${O2SWITCH_URL}?filename=${ENC_NAME}&mode=${MODE}" 2>&1) || RESPONSE="curl error: $?"
+
+  # ── Fallback multipart (compatibilité ancienne version de _upload.php) ──
+  # Si le serveur renvoie "Missing filename"/"Missing file" (400), c'est que
+  # _upload.php v3 n'est pas encore déployé → on retente en multipart.
+  # (Sur o2switch, le multipart est bloqué par le WAF — ce fallback ne
+  #  réussira pas là-bas, mais garde le script portable sur d'autres hosts.)
+  if ! echo "$RESPONSE" | grep -q '"ok":true'; then
+    if echo "$RESPONSE" | grep -qE '"error":"Missing (file|filename)"'; then
+      echo "↪️  Raw-body non supporté (_upload.php < v3) → tentative multipart…"
+      RESPONSE=$(curl -sS -X POST \
+        --http1.1 \
+        --connect-timeout 30 \
+        -H "Expect:" \
+        -H "X-Upload-Secret: $O2SWITCH_SECRET" \
+        ${SIG_ARGS[@]+"${SIG_ARGS[@]}"} \
+        -F "file=@$f" \
+        -F "filename=$RELNAME" \
+        -F "mode=$MODE" \
+        --max-time 300 \
+        --retry 2 \
+        --retry-delay 10 \
+        --retry-all-errors \
+        "$O2SWITCH_URL" 2>&1) || RESPONSE="curl error: $?"
+    fi
+  fi
 
   # Vérifier la réponse JSON
   if echo "$RESPONSE" | grep -q '"ok":true'; then
