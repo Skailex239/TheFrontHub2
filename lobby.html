@@ -10,6 +10,22 @@
 <link rel="icon" type="image/png" href="favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="128x128" href="favicon-180x180.png">
 <link rel="apple-touch-icon" sizes="180x180" href="favicon-180x180.png">
+
+<!-- Performance: preconnect + dns-prefetch -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://pagead2.googlesyndication.com" crossorigin>
+<link rel="dns-prefetch" href="https://api.openfront.io">
+
+<!-- Performance: Preload critical assets -->
+<link rel="preload" href="styles.css?v=34" as="style">
+<link rel="preload" href="lobby.css?v=11" as="style">
+<link rel="preload" href="lobby-wire.js?v=2" as="script" crossorigin>
+<link rel="preload" href="lobby.js?v=26" as="script" crossorigin>
+
+<!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Orbitron:wght@900&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+
 <link rel="stylesheet" href="styles.css?v=34">
 <link rel="stylesheet" href="auth.css?v=17">
 <link rel="stylesheet" href="toast.css">
