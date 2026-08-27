@@ -7,6 +7,19 @@ RewriteEngine On
 RewriteCond %{HTTPS} !=on
 RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
+# ── 1bis. Zones internes interdites d'accès public (audit sécurité) ──
+# Archives horodatées des données (backups internes, jamais servies au navigateur)
+RewriteRule ^_archives(/|$) - [F,L]
+# Dossier interne de travail agents/IA
+RewriteRule ^agent-ctx(/|$) - [F,L]
+# Work-in-progress : migration auth MySQL (jamais servi au navigateur)
+RewriteRule ^_wip-auth-mysql(/|$) - [F,L]
+# Dossiers de développement (jamais servis : le site ne charge que dist/ + shared/)
+RewriteRule ^(scripts|src|tests|prisma|db|screenshots|public|cloudflare-worker|mini-services|examples|download|agent-ctx)(/|$) - [F,L]
+# Fichiers internes de sync Node.js (contiennent des patterns d'appel API privilégiés)
+RewriteRule ^(server|openfront-api|generate-code|detect-new-players|compute-player-stats|validate-sync|investigate-sync|backfill-teams|find-bug-games|check-game-detail|quantify-bug|test-extract-team|build)\.js$ - [F,L]
+RewriteRule ^sync[a-z-]*\.js$ - [F,L]
+
 # ── 2. Page par défaut ──
 DirectoryIndex index.html
 
@@ -93,6 +106,9 @@ DirectoryIndex index.html
   # Referrer-Policy (sécurité)
   Header set Referrer-Policy "strict-origin-when-cross-origin"
 
+  # Permissions-Policy (sécurité — désactive les API navigateur inutilisées)
+  Header set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+
   # HSTS (force HTTPS pour 1 an)
   Header set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
 </IfModule>
@@ -105,12 +121,11 @@ AddCharset UTF-8 .html .css .js .json .xml .svg
 FileETag None
 
 # ── 8. Sécurité : bloquer accès aux fichiers sensibles ──
-<FilesMatch "(^\.|\.(env|md|yml|yaml|lock|sh|ps1|ini)$)">
+# Dotfiles (.env, .git, .htaccess…), docs internes, scripts, config,
+# fichiers Node de dev (sync*, server.js, generate-code.js…), Caddyfile
+<FilesMatch "(^\.|\.(env|md|yml|yaml|lock|sh|ps1|py|ini|log|pem|key|sql|db)$|^Caddyfile$|^package(-build)?\.json$|^(server|openfront-api|generate-code|detect-new-players|compute-player-stats|validate-sync|investigate-sync|backfill-teams|find-bug-games|check-game-detail|quantify-bug|test-extract-team)\.js$|^sync[a-z-]*\.js$|\.map$)">
   Require all denied
 </FilesMatch>
-
-# ⚠️ Sauf .user.ini (que PHP lit mais Apache doit pas servir publiquement)
-# En fait .user.ini est déjà bloqué par la regex ci-dessus (.ini$)
 
 # ── 9. Bloquer accès aux endpoints PHP en GET (POST only) ──
 <Files "_upload.php">

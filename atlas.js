@@ -27,6 +27,12 @@ function escapeHtml(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
+// Échappement pour attribut HTML contenant du JS (onerror="this.src='…'") :
+// le navigateur décode les entités AVANT d'exécuter le JS — escapeHtml seul
+// ne suffit donc pas. Sérialisation JSON + échappement HTML = round-trip sûr.
+function jsq(v) {
+  return escapeHtml(JSON.stringify(String(v ?? "")));
+}
 function getThumbUrl(slug) { return `atlas-data/thumbnails/${slug}.webp`; }
 function getMapUrl(slug) { return `atlas-data/maps/${slug}.webp`; }
 function getFlagUrl(flag) { return `atlas-data/flags/${flag}.svg`; }
@@ -259,7 +265,7 @@ function showMapDetail(slug) {
       <div class="atlas-detail-grid">
         <div class="atlas-detail-map-wrap">
           <div class="atlas-detail-map-stage" style="aspect-ratio:${aspectRatio}">
-            <img src="${escapeHtml(mapImg)}" alt="${escapeHtml(name)}" class="atlas-detail-map-img" onerror="this.src='${escapeHtml(getThumbUrl(slug))}'">
+            <img src="${escapeHtml(mapImg)}" alt="${escapeHtml(name)}" class="atlas-detail-map-img" onerror="this.src=${jsq(getThumbUrl(slug))}">
             ${nations.length > 0 ? `
             <div class="atlas-nation-overlay">
               ${nations.map(n => `

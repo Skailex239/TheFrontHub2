@@ -33,6 +33,11 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# Docs internes / WIP — ne jamais pousser sur le repo public
+# (le cron o2switch rsync le repo vers le webroot : ces fichiers seraient servibles)
+_wip-auth-mysql/
+SECURITE_CORRECTIONS.md
+
 # vercel
 .vercel
 

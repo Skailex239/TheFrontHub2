@@ -12,6 +12,17 @@ on:
       - 'push_via_api.py'
   workflow_dispatch:
 
+# ─────────────────────────────────────────────────────────────────────────────
+# ⚠️ SÉCURITÉ (audit 2026) : ce workflow publiait TOUT le repo sur GitHub
+# Pages (path: '.') — y compris _upload.php (config de l'endpoint d'upload),
+# .user.ini, les guides serveur, worklog.md et les scripts de sync Node.
+# GitHub Pages ne lit pas .htaccess : ces protections étaient contournées.
+#
+# On publie désormais UNIQUEMENT les fichiers du site (HTML/CSS/JS dist/,
+# data/, atlas-data/, images, polices) via une étape de préparation rsync
+# avec exclusions strictes. Le miroir Pages continue de fonctionner.
+# ─────────────────────────────────────────────────────────────────────────────
+
 permissions:
   contents: read
   pages: write
@@ -31,12 +42,69 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
+      - name: Prepare site (exclut fichiers sensibles et de dev)
+        run: |
+          mkdir -p /tmp/pages-site
+          rsync -a ./ /tmp/pages-site/ \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.gitignore' \
+            --exclude='.htaccess' \
+            --exclude='.user.ini' \
+            --exclude='_upload.php' \
+            --exclude='_deploy.php' \
+            --exclude='_archives' \
+            --exclude='_wip-auth-mysql' \
+            --exclude='*.md' \
+            --exclude='*.sh' \
+            --exclude='*.ps1' \
+            --exclude='*.py' \
+            --exclude='*.log' \
+            --exclude='*.yml' \
+            --exclude='*.yaml' \
+            --exclude='*.rules' \
+            --exclude='Caddyfile' \
+            --exclude='package*.json' \
+            --exclude='agent-ctx' \
+            --exclude='scripts' \
+            --exclude='src' \
+            --exclude='tests' \
+            --exclude='prisma' \
+            --exclude='db' \
+            --exclude='public' \
+            --exclude='cloudflare-worker' \
+            --exclude='mini-services' \
+            --exclude='examples' \
+            --exclude='download' \
+            --exclude='node_modules' \
+            --exclude='server.js' \
+            --exclude='openfront-api.js' \
+            --exclude='generate-code.js' \
+            --exclude='detect-new-players.js' \
+            --exclude='compute-player-stats.js' \
+            --exclude='validate-sync.js' \
+            --exclude='investigate-sync.js' \
+            --exclude='sync*.js' \
+            --exclude='backfill-teams.js' \
+            --exclude='find-bug-games.js' \
+            --exclude='check-game-detail.js' \
+            --exclude='quantify-bug.js' \
+            --exclude='test-extract-team.js' \
+            --exclude='perf-test.js'
+          echo "── Contenu publié (taille) :"
+          du -sh /tmp/pages-site
+          echo "── Vérification : aucun fichier sensible inclus"
+          if find /tmp/pages-site -name '_upload.php' -o -name '_deploy.php' -o -name '.user.ini' -o -name '*.md' | grep -q .; then
+            echo "❌ Fichiers sensibles détectés — déploiement annulé"
+            exit 1
+          fi
+          echo "✓ Aucun fichier sensible"
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'
+          path: '/tmp/pages-site'
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5

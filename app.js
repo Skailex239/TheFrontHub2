@@ -49,6 +49,12 @@ function formatDate(iso){return new Date(iso).toLocaleDateString("fr-FR",{day:"2
 function getRunUrl(r){return r.url||("https://openfront.io/game/"+r.id)}
 // Échappement XSS-safe : convertit les caractères dangereux en entités HTML
 function esc(s){return String(s ?? "").replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
+// Échappement pour attribut HTML contenant du JS (onclick="fn('…')") :
+// le navigateur décode les entités AVANT d'exécuter le JS, donc esc() seul
+// ne suffit pas (l'apostrophe reviendrait casser la chaîne). On sérialise
+// en littéral JSON (guillemets échappés par \) puis on échappe pour
+// l'attribut HTML : esc(JSON.stringify(v)) round-trip parfaitement.
+function jsq(v){return esc(JSON.stringify(String(v ?? "")))}
 function playSound(){}
 function notifyNewRecord(msg){if(Notification.permission==='granted'){new Notification('TheFrontHub',{body:msg,icon:'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23f0c060" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8v4a4 4 0 01-8 0V4z"/><path d="M5 4H3v3a3 3 0 003 3M19 4h2v3a3 3 0 01-3 3M9 14h6M10 14v3h4v-3M8 20h8"/></svg>'});playSound()}}
 function requestNotifs(){if('Notification' in window)Notification.requestPermission()}
@@ -78,7 +84,7 @@ window.toggleAuthModal = function() {
 };
 
 // Écouter les changements d'état d'auth au chargement
-import { auth, db, doc, getDoc, getDocs, setDoc, collection, query, where, onSnapshot, updateDoc, increment, onAuthStateChanged } from "./auth.js";
+import { auth, db, doc, getDoc, getDocs, setDoc, collection, query, where, onSnapshot, updateDoc, increment, onAuthStateChanged, toggleLike } from "./auth.js";
 
 // ====== FIRESTORE REAL-TIME LIKES ======
 let globalLikes = {};
@@ -1404,7 +1410,7 @@ function renderMaps(){
   if(!f.length){c.innerHTML='<div class="empty-state"><p>Aucune carte</p></div>';return}
   
   c.innerHTML=f.map(m=>`
-      <div class="map-item ${activeMap===m.map?"active":""}" onclick="selectMap('${esc(m.map)}')">
+      <div class="map-item ${activeMap===m.map?"active":""}" onclick="selectMap(${jsq(m.map)})">
         <span class="map-name">${getMapDisplayName(m.map)}</span>
         <span class="map-count">${m.total}</span>
       </div>
@@ -1475,9 +1481,9 @@ function renderLeaderboard(d){
     const isLiked = currentUser && !!usersMap[currentUser.uid];
     const activeClass = isLiked ? 'active' : '';
     
-    const ggBtn = `<button class="gg-btn ${activeClass}" onclick="toggleGG('${r.id}', event)" id="gg-btn-${r.id}" title="GG!">
+    const ggBtn = `<button class="gg-btn ${activeClass}" onclick="toggleGG(${jsq(r.id)}, event)" id="gg-btn-${esc(r.id)}" title="GG!">
       <svg viewBox="0 0 24 24"><path d="M1 21h4V9H1v12zm22-9c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
-      <span id="gg-count-${r.id}">${ggCount > 0 ? ggCount : ''}</span>
+      <span id="gg-count-${esc(r.id)}">${ggCount > 0 ? ggCount : ''}</span>
     </button>`;
 
     const overlayImg = getPlayerOverlay(r.player, "speedruns");
@@ -1506,7 +1512,6 @@ async function toggleGG(runId, event) {
   }
   
   const userId = currentUser.uid;
-  const likeRef = doc(db, "likes", runId);
   
   // Lire l'état actuel de globalLikes pour savoir si l'utilisateur a déjà liké
   const ggData = globalLikes[runId] || { count: 0, users: {} };
@@ -1533,29 +1538,20 @@ async function toggleGG(runId, event) {
     }
   }
   
-  // Mise à jour de la base de données Firestore
+  // Mise à jour via l'API o2switch (likes.php — atomique côté serveur :
+  // count + vote insérés/mis à jour dans une transaction SQL).
   try {
-    if (hasLiked) {
-      // Atomic unlike: decrement count + remove user in a single updateDoc call
-      // updateDoc supports increment() and deleteField() atomically, no race condition
-      const { deleteField } = await import('./auth.js');
-      await updateDoc(likeRef, {
-        count: increment(-1),
-        ['users.' + userId]: deleteField()
-      });
-      // Update local cache
-      const updatedData = { ...(globalLikes[runId] || { count: 0, users: {} }) };
-      delete updatedData.users[userId];
-      updatedData.count = Math.max(0, (updatedData.count || 1) - 1);
-      globalLikes[runId] = updatedData;
-    } else {
-      await setDoc(likeRef, {
-        count: increment(1),
-        users: { [userId]: true }
-      }, { merge: true });
+    const result = await toggleLike(runId);
+    if (result && typeof result.count === 'number') {
+      // État de vérité renvoyé par le serveur
+      const users = { ...(globalLikes[runId]?.users || {}) };
+      if (result.liked) users[userId] = true; else delete users[userId];
+      globalLikes[runId] = { count: result.count, users };
+      if (countSpan) countSpan.textContent = result.count > 0 ? String(result.count) : '';
+      if (btn) btn.classList.toggle('active', !!result.liked);
     }
   } catch (error) {
-    console.error("Erreur lors de l'envoi du like sur Firestore:", error);
+    console.error("Erreur lors de l'envoi du like:", error);
     // En cas d'erreur, restaurer l'état réel de globalLikes
     if (activeMap) {
       const d = allMaps.find(m => m.map === activeMap);
@@ -2183,7 +2179,7 @@ function renderRankedTable(players) {
     const favStar = isFav ? icon('star',{size:14}) : icon('starOutline',{size:14});
     const favClass = isFav ? 'fav-star active' : 'fav-star';
     const favBtn = p.public_id
-      ? `<button class="${favClass}" onclick="event.stopPropagation();toggleFavorite('${esc(p.public_id)}','${esc(p.username)}')" title="${isFav ? 'Retirer des favoris' : 'Ajouter aux favoris'}" aria-label="${isFav ? 'Retirer des favoris' : 'Ajouter aux favoris'}">${favStar}</button>`
+      ? `<button class="${favClass}" onclick="event.stopPropagation();toggleFavorite(${jsq(p.public_id)},${jsq(p.username)})" title="${isFav ? 'Retirer des favoris' : 'Ajouter aux favoris'}" aria-label="${isFav ? 'Retirer des favoris' : 'Ajouter aux favoris'}">${favStar}</button>`
       : '';
 
     // Cosmetic/VIP styling — matching par PUBLIC ID (prioritaire), fallback username
@@ -2202,7 +2198,7 @@ function renderRankedTable(players) {
       <tr data-pid="${esc(p.public_id)}" class="${cosmeticRowClass}" style="border-bottom: 1px solid var(--border); transition: background 0.2s; cursor:pointer;"
           onmouseover="this.style.background='var(--bg2)'"
           onmouseout="this.style.background='transparent'"
-          onclick="viewRankedProfile('${esc(p.public_id)}', '${esc(p.username)}')">
+          onclick="viewRankedProfile(${jsq(p.public_id)}, ${jsq(p.username)})">
         <td style="padding: 12px 8px; font-weight: bold; color: ${p.rank <= 3 ? 'var(--accent)' : 'var(--text)'};">#${p.rank}</td>
         <td style="padding: 12px 8px;">
           <div style="display:flex;align-items:center;gap:6px">
@@ -2331,7 +2327,7 @@ function renderMyRank(players) {
           </div>
         </div>
       </div>
-      <button onclick="scrollToMyRank('${esc(myPid)}')" style="background:var(--accent);color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;transition:opacity 0.2s;white-space:nowrap" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+      <button onclick="scrollToMyRank(${jsq(myPid)})" style="background:var(--accent);color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;transition:opacity 0.2s;white-space:nowrap" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
         ${icon('target',{size:14})} Me trouver
       </button>
     </div>
@@ -2680,7 +2676,7 @@ async function showRankedPlayerModal(publicId, username) {
               <div style="font-weight:600;font-size:14px;color:var(--text)">vs ${esc(opponent?.username || opponent?.displayName || 'Inconnu')}</div>
               <div style="font-size:12px;color:var(--muted)">${esc(g.map || '—')} · ${g.start ? new Date(g.start).toLocaleDateString('fr-FR') : '—'}</div>
             </div>
-            <a href="https://openfront.io/game/${g.gameId}" target="_blank" style="width:28px;height:28px;border-radius:8px;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--muted);text-decoration:none;font-size:10px;transition:all 0.25s" onmouseover="this.style.background='var(--orange)';this.style.color='#fff'" onmouseout="this.style.background='var(--bg)';this.style.color='var(--muted)'">▶</a>
+            <a href="https://openfront.io/game/${encodeURIComponent(g.gameId)}" target="_blank" rel="noopener" style="width:28px;height:28px;border-radius:8px;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--muted);text-decoration:none;font-size:10px;transition:all 0.25s" onmouseover="this.style.background='var(--orange)';this.style.color='#fff'" onmouseout="this.style.background='var(--bg)';this.style.color='var(--muted)'">▶</a>
           </div>
         `;
       } catch (e) {

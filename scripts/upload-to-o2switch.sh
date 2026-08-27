@@ -13,7 +13,13 @@
 #
 # Variables d'environnement requises :
 #   O2SWITCH_URL     — URL complète de _upload.php
-#   O2SWITCH_SECRET  — Secret partagé (même valeur que $SECRET dans _upload.php)
+#   O2SWITCH_SECRET  — Secret partagé (même valeur que le secret résolu par _upload.php)
+#
+# Sécurité (v2) :
+#   Chaque upload est signé en HMAC-SHA256 (header X-Upload-Signature) calculé
+#   sur le contenu exact du fichier. _upload.php v2 vérifie la signature.
+#   Si openssl est indisponible, on envoie sans signature (le serveur en
+#   REQUIRE_SIGNATURE=false l'accepte — compatibilité ascendante).
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -62,6 +68,19 @@ for f in "${FILES[@]}"; do
 
   SIZE=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f" 2>/dev/null || echo "?")
 
+  # Signature HMAC-SHA256 du contenu du fichier (authentifie ET intègre les données)
+  SIG_ARGS=()
+  if command -v openssl >/dev/null 2>&1; then
+    SIG_HEX=$(openssl dgst -sha256 -hmac "$O2SWITCH_SECRET" -r "$f" 2>/dev/null | awk '{print $1}')
+    if [[ -n "$SIG_HEX" ]]; then
+      SIG_ARGS=(-H "X-Upload-Signature: sha256=$SIG_HEX")
+    else
+      echo "⚠️  Signature HMAC non calculée pour $f (envoi non signé)"
+    fi
+  else
+    echo "⚠️  openssl absent — envoi non signé pour $f"
+  fi
+
   echo -n "  📤 $RELNAME (${SIZE} bytes)... "
 
   # Upload via curl multipart/form-data
@@ -75,6 +94,7 @@ for f in "${FILES[@]}"; do
     --http1.1 \
     --connect-timeout 30 \
     -H "X-Upload-Secret: $O2SWITCH_SECRET" \
+    ${SIG_ARGS[@]+"${SIG_ARGS[@]}"} \
     -F "file=@$f" \
     -F "filename=$RELNAME" \
     -F "mode=$MODE" \

@@ -97,7 +97,26 @@ function escapeHtml(s) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Échappement pour attribut HTML contenant du JS (onclick="fn('…')") :
+// le navigateur décode les entités AVANT d'exécuter le JS — escapeHtml seul
+// ne suffit donc pas. On sérialise en littéral JSON puis on échappe pour
+// l'attribut HTML : escapeHtml(JSON.stringify(v)) round-trip parfaitement.
+function jsq(v) {
+  return escapeHtml(JSON.stringify(String(v ?? "")));
+}
+
+// Valide un URL externe (http/https uniquement) avant insertion dans un href.
+function safeExternalUrl(u) {
+  try {
+    const url = new URL(String(u));
+    return (url.protocol === "https:" || url.protocol === "http:") ? url.href : null;
+  } catch {
+    return null;
+  }
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -303,7 +322,7 @@ async function renderDashboard() {
                 const name = e.player?.name || e.playerId;
                 const clan = e.player?.clan || "";
                 return `
-                <tr class="prf-row-link" onclick="location.hash='#/player/${encodeURIComponent(e.playerId)}'">
+                <tr class="prf-row-link" onclick="location.hash=${jsq('#/player/' + encodeURIComponent(e.playerId))}">
                   <td class="prf-td-rank">${rankCircleHtml(e.rank)}</td>
                   <td class="prf-td-player">
                     ${avatarHtml(name, "sm")}
@@ -574,7 +593,7 @@ async function renderRanking(params = {}) {
       </tr>
     `;
     tableEl.querySelector("tbody").innerHTML = out.length ? out.map((r) => `
-      <tr class="prf-row-link" onclick="location.hash='#/player/${encodeURIComponent(r.id)}'">
+      <tr class="prf-row-link" onclick="location.hash=${jsq('#/player/' + encodeURIComponent(r.id))}">
         <td>${rankCircleHtml(r.rank)}</td>
         <td>
           <div class="prf-player-cell">
@@ -702,7 +721,7 @@ async function renderTournamentDetail(slug) {
       const entry = _data.leaderboard.find(e => e.playerId === p.player);
       const reward = rewardPoints(scoring, t, p.place);
       return `
-        <tr class="prf-row-link" onclick="location.hash='#/player/${encodeURIComponent(p.player)}'">
+        <tr class="prf-row-link" onclick="location.hash=${jsq('#/player/' + encodeURIComponent(p.player))}">
           <td>${rankCircleHtml(p.place)}</td>
           <td>
             <div class="prf-player-cell">
@@ -767,7 +786,7 @@ async function renderTournamentDetail(slug) {
               <tbody>
                 ${statsArr.map(s => {
                   const name = getPlayer(_data.players, s.playerId)?.name || s.playerId;
-                  return `<tr class="prf-row-link" onclick="location.hash='#/player/${encodeURIComponent(s.playerId)}'">
+                  return `<tr class="prf-row-link" onclick="location.hash=${jsq('#/player/' + encodeURIComponent(s.playerId))}">
                     <td><strong>${escapeHtml(name)}</strong></td>
                     <td>${s.gamesPlayed}</td>
                     <td>${s.wins}</td>
@@ -1049,7 +1068,7 @@ async function renderPlayerProfile(discordId) {
   }
 
   const awardsHtml = tournaments.length ? tournaments.map((grp) => `
-    <div class="prf-award" onclick="location.hash='#/tournament/${encodeURIComponent(grp.slug)}'">
+    <div class="prf-award" onclick="location.hash=${jsq('#/tournament/' + encodeURIComponent(grp.slug))}">
       <div class="prf-award-place">${grp.tier === "major" ? "★" : "•"}</div>
       <div class="prf-award-info">
         <div class="prf-award-tournament">
@@ -1139,7 +1158,7 @@ async function renderCalendar() {
                 ${ev.participants ? ` · ${ev.participants} inscrits` : ""}
               </div>
             </div>
-            ${ev.registrationUrl ? `<a class="prf-cal-register" href="${escapeHtml(ev.registrationUrl)}" target="_blank" rel="noreferrer">S'inscrire</a>` : ""}
+            ${ev.registrationUrl && safeExternalUrl(ev.registrationUrl) ? `<a class="prf-cal-register" href="${escapeHtml(safeExternalUrl(ev.registrationUrl))}" target="_blank" rel="noreferrer noopener">S'inscrire</a>` : ""}
           </div>
         `;
       }).join("")}
