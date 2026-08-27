@@ -130,13 +130,13 @@ TheFrontHub2/
 #### 1. Cron job o2switch (toutes les 5 min — RECOMMANDÉ)
 Commande cron dans cPanel (déploiement du code **ET** des données) :
 ```bash
-cd /home2/mask6607/thefronthub-src && git fetch origin main --quiet && git reset --hard origin/main --quiet && rsync -a --delete --exclude='.git' --exclude='.htaccess' --exclude='_upload.php' --exclude='_deploy.php' --exclude='_archives' --exclude='*.json' --exclude='*.json.gz' --exclude='player-data' --exclude='player-stats' --exclude='src' --exclude='tests' --exclude='scripts' --exclude='.github' --exclude='.trae' --exclude='.windsurf' --exclude='.zscripts' --exclude='prisma' --exclude='db' --exclude='examples' --exclude='mini-services' --exclude='cloudflare-worker' --exclude='agent-ctx' --exclude='worklog.md' --exclude='GUIDE_*.md' --exclude='public' --exclude='node_modules' --exclude='package.json' --exclude='package-lock.json' --exclude='bun.lock' --exclude='tsconfig.json' --exclude='next.config.ts' --exclude='tailwind.config.ts' --exclude='postcss.config.mjs' --exclude='eslint.config.mjs' --exclude='pull-data.sh' ./ /home2/mask6607/public_html/thefronthub.com/ && find /home2/mask6607/public_html/thefronthub.com/ -type d -exec chmod 755 {} \; && find /home2/mask6607/public_html/thefronthub.com/ -type f -exec chmod 644 {} \; && bash /home2/mask6607/pull-data.sh >> /home2/mask6607/logs/pull-data.log 2>&1
+cd /home2/mask6607/thefronthub-src && git fetch origin main --quiet && git reset --hard origin/main --quiet && rsync -a --delete --exclude='.git' --exclude='.htaccess' --exclude='_upload.php' --exclude='_deploy.php' --exclude='_archives' --exclude='*.json' --exclude='*.json.gz' --exclude='player-data' --exclude='player-stats' --exclude='src' --exclude='tests' --exclude='scripts' --exclude='.github' --exclude='.trae' --exclude='.windsurf' --exclude='.zscripts' --exclude='prisma' --exclude='db' --exclude='examples' --exclude='mini-services' --exclude='cloudflare-worker' --exclude='agent-ctx' --exclude='worklog.md' --exclude='GUIDE_*.md' --exclude='public' --exclude='node_modules' --exclude='package.json' --exclude='package-lock.json' --exclude='bun.lock' --exclude='tsconfig.json' --exclude='next.config.ts' --exclude='tailwind.config.ts' --exclude='postcss.config.mjs' --exclude='eslint.config.mjs' --exclude='pull-data.sh' ./ /home2/mask6607/public_html/thefronthub.com/ && find /home2/mask6607/public_html/thefronthub.com/ -type d -exec chmod 755 {} \; && find /home2/mask6607/public_html/thefronthub.com/ -type f -exec chmod 644 {} \; && mkdir -p /home2/mask6607/logs && bash /home2/mask6607/thefronthub-src/pull-data.sh >> /home2/mask6607/logs/pull-data.log 2>&1
 ```
 
 > ⚠️ **Correctif du cron (2026-08-27) — à appliquer dans cPanel si votre cron actuel diffère** :
 > - `--exclude='dist'` **retiré** : les 6 pages (index/dashboard/tournois/atlas/profile/auth) chargent `dist/*.min.js` — l'exclusion empêchait tout déploiement de bundle (le fix `lenis.min.js` et les correctifs XSS n'atteignaient jamais la prod). `dist/` ne contient que 15 fichiers `.min.js` (364 Ko), sans risque.
 > - `--exclude='worklog.md'` et `--exclude='GUIDE_*.md'` **ajoutés** : docs internes, ne doivent pas être servis publiquement.
-> - `--exclude='pull-data.sh'` **ajouté** et `&& bash /home2/mask6607/pull-data.sh …` **ajouté en fin de commande** : déploiement des DONNÉES (voir section « Données » ci-dessous). Prérequis : copier `pull-data.sh` du repo vers `/home2/mask6607/pull-data.sh` sur le serveur (une seule fois).
+> - `--exclude='pull-data.sh'` **ajouté** et `&& bash /home2/mask6607/thefronthub-src/pull-data.sh …` **ajouté en fin de commande** : déploiement des DONNÉES (voir section « Données » ci-dessous). Le script est lu directement dans le clone git (auto-mis-à-jour par le `git reset`), aucune copie manuelle à faire.
 >
 > ⚠️ **Rappel** : `.htaccess`, `_upload.php` et `_deploy.php` sont volontairement exclus du rsync — leurs mises à jour doivent être copiées **manuellement** sur le serveur (voir `SECURITE_CORRECTIONS.md` pour la procédure et l'ordre des étapes).
 
@@ -159,7 +159,7 @@ Workflow GitHub Actions `sync.yml` (toutes les 5 min) :
 3. Publie tout en ASSETS de la release publique [`data-latest`](https://github.com/Skailex239/TheFrontHub2/releases/tag/data-latest)
 4. Le cron o2switch exécute `pull-data.sh` qui télécharge ces assets dans le webroot (atomique, `runs.json.gz` 16 Mo max 1×/24 h)
 
-Installation serveur (UNE fois) : copier `pull-data.sh` du repo vers `/home2/mask6607/pull-data.sh` puis `chmod +x`. Le cron (commande ci-dessus) l'appelle automatiquement. Logs : `/home2/mask6607/logs/pull-data.log`.
+Installation serveur : **RIEN à copier** — le script est dans le repo et le cron (commande ci-dessus) l'exécute depuis `/home2/mask6607/thefronthub-src/pull-data.sh` (auto-mis-à-jour par le git reset du cron). Logs : `/home2/mask6607/logs/pull-data.log`.
 
 ### Variables d'environnement GitHub Actions
 
