@@ -38,13 +38,19 @@ cmd="$1"; shift
 case "$cmd" in
   pull)
     # Télécharge chaque asset demandé dans le répertoire courant.
-    # 404 = asset pas encore publié (première exécution) → ignoré.
+    # 404 = asset pas encore publié → on CONSERVE la copie locale (le repo
+    # contient des copies de l'état : mieux que rien au premier cycle).
     for f in "$@"; do
-      if curl -fsSL --retry 3 --retry-delay 5 -o "$f" "${BASE_URL}/${f}"; then
+      if curl -fsSL --retry 3 --retry-delay 5 -o "${f}.dl" "${BASE_URL}/${f}"; then
+        mv -f "${f}.dl" "$f"
         echo "  ⬇️  ${f} ($(stat -c%s "$f" 2>/dev/null || echo '?') bytes)"
       else
-        rm -f "$f"
-        echo "  ⏭️  ${f} absent de la release (premier cycle ?)"
+        rm -f "${f}.dl"
+        if [[ -f "$f" ]]; then
+          echo "  ⏭️  ${f} absent de la release — copie locale conservée ($(stat -c%s "$f") bytes)"
+        else
+          echo "  ⏭️  ${f} absent (premier cycle, pas de copie locale)"
+        fi
       fi
     done
     ;;
