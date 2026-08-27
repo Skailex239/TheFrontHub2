@@ -10,7 +10,7 @@
  * côté serveur (depuis le Worker, qui est same-origin pour OpenFront).
  */
 
-const SKAILEX_ACCESS_TOKEN = "6e477cdeeea36386e4061dd89450a66c";
+const SKAILEX_ACCESS_TOKEN = process.env.SKAILEX_ACCESS_TOKEN || "";
 const API_BASE = "https://api.openfront.io";
 
 // On pick un worker aléatoire parmi w0..w4 (load balancing côté OpenFront)

@@ -42,7 +42,7 @@ const STATE_FILE = path.join(__dirname, "lobby_state.json");
 const WS_URL = "wss://openfront.io/w0/lobbies";
 const API_BASE = "https://api.openfront.io";
 const SKAILEX_TOKEN =
-  process.env.OPENFRONT_SKAILEX_ACCESS || "6e477cdeeea36386e4061dd89450a66c";
+  process.env.OPENFRONT_SKAILEX_ACCESS || "";
 
 const SCRIPT_TIMEOUT_MS = 28_000; // garde < 30s (limite GitHub Action)
 const WS_TIMEOUT_MS = 8_000;

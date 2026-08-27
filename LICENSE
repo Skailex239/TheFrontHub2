@@ -1,0 +1,37 @@
+© 2026 TheFrontHub. Tous droits réservés.
+
+Aucune partie de ce dépôt ne peut être reproduite, distribuée ou transmise
+sous quelque forme ou par quelque moyen que ce soit, y compris photocopies,
+enregistrements ou autres méthodes électroniques ou mécaniques, sans
+l'autorisation écrite préalable du propriétaire, sauf dans le cas de
+courtes citations utilisées dans des critiques ou des revues.
+
+────────────────────────────────────────────────────────────────────────
+
+© 2026 TheFrontHub. All rights reserved.
+
+No part of this repository may be reproduced, distributed, or transmitted
+in any form or by any means, including photocopying, recording, or other
+electronic or mechanical methods, without the prior written permission of
+the owner, except in the case of brief quotations used in reviews or
+critiques.
+
+────────────────────────────────────────────────────────────────────────
+
+⚠️ AVERTISSEMENT DE SÉCURITÉ / SECURITY WARNING
+
+Ce dépôt contient des scripts de déploiement et de synchronisation
+pour le site https://thefronthub.com. Toute utilisation non autorisée
+de ce code, des configurations, ou des structures de données à des
+fins de contrefaçon, d'usurpation, ou pour contourner les mesures de
+sécurité est strictement interdite et pourra faire l'objet de poursuites
+judiciaires.
+
+Les tokens, clés API, et secrets d'authentification doivent être
+configurés via des variables d'environnement et ne doivent JAMAIS être
+commités dans le code source.
+
+────────────────────────────────────────────────────────────────────────
+
+Contact : Pour toute demande d'autorisation, contacter le propriétaire
+via GitHub : https://github.com/Skailex239

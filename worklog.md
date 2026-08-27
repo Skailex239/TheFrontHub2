@@ -1590,7 +1590,7 @@ Agent: main (Z.ai Code)
 Task: Réécrire le dashboard en Next.js (src/app/page.tsx) — requêtes API directement depuis le navigateur via l'exemption x-skailex-access, sans sync runtime ni GitHub Actions. Layout 2 colonnes "Top players all Time" + "Top players this Week" reproduisant le CSS des maquettes fournies (badges carrés orange, trophées top 3, liens orange, boutons "Voir plus" full-width).
 
 Work Log:
-- Test de l'exemption x-skailex-access : curl direct sur https://api.openfront.io/public/player/hWNuSrnS/games avec header `x-skailex-access: 6e477cdeeea36386e4061dd89450a66c` → HTTP 200, réponse JSON `{results: [...], nextCursor: "..."}` avec 10 games/page. L'exemption fonctionne (pas de rate-limit).
+- Test de l'exemption x-skailex-access : curl direct sur https://api.openfront.io/public/player/hWNuSrnS/games avec header `x-skailex-access: ***REDACTED***` → HTTP 200, réponse JSON `{results: [...], nextCursor: "..."}` avec 10 games/page. L'exemption fonctionne (pas de rate-limit).
 - Analyse des 2 maquettes fournies (VLM) :
   * Capture d'écran 2026-08-11 152426.png : 2 colonnes côte à côte (Top clans / Top players), cards blanches épurées, badges carrés bleus pour rangs 4+, trophées 🏆🥈🥉 pour top 3, boutons "View more" full-width.
   * pasted_image_1786464776332.png : 1 colonne "Top players all time by total wins", lignes avec "X wins" bold + "WR: xx% (Y games)" gris, badges carrés bleus pour rangs 4+.

@@ -21,7 +21,7 @@ import fs from "fs";
 import https from "https";
 
 const API_BASE = "https://api.openfront.io";
-const SKAILEX_TOKEN = "6e477cdeeea36386e4061dd89450a66c";
+const SKAILEX_TOKEN = process.env.OPENFRONT_SKAILEX_ACCESS || "";
 
 // Must match sync-teams.js
 const MODES = {

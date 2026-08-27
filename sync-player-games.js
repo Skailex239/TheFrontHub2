@@ -33,7 +33,7 @@ const fs = require("fs");
 const path = require("path");
 const https = require("https");
 
-const SKAILEX_ACCESS_TOKEN = process.env.SKAILEX_ACCESS_TOKEN || "6e477cdeeea36386e4061dd89450a66c";
+const SKAILEX_ACCESS_TOKEN = process.env.SKAILEX_ACCESS_TOKEN || "";
 const API_BASE = "https://api.openfront.io";
 const DATA_DIR = path.join(__dirname, "player-data");
 const CONFIG_FILE = path.join(__dirname, "sync-players.json");

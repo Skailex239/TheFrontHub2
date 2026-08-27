@@ -16,7 +16,7 @@ import { NextResponse } from "next/server";
  */
 
 const OPENFRONT_API_BASE = "https://api.openfront.io";
-const SKAILEX_ACCESS_TOKEN = "6e477cdeeea36386e4061dd89450a66c";
+const SKAILEX_ACCESS_TOKEN = process.env.SKAILEX_ACCESS_TOKEN || "";
 
 export async function GET(
   request: Request,
