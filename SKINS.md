@@ -17,10 +17,16 @@
 
 Règles :
 - `skin_id` doit matcher `^[a-z0-9_-]{1,32}$` (validé côté serveur ET frontend).
-- Le pseudo skinné s'affiche sur le **profil** (hero). Les ids hérités de
-  l'ancien catalogue (`gold`, `rainbow`, `fire`, … lignes `tfh_user_skins`
-  antérieures à la refonte) sont **ignorés** par le frontend : fallback
-  Standard, aucune erreur.
+- Le pseudo skinné s'affiche **partout** où un pseudo de compte apparaît :
+  profil (hero + profil public), index (leaderboards speedruns, classement
+  global, feed, Hall of Fame, ranked 1v1/2v2, modal joueur, carte « mon
+  rang »), dashboard (leaderboard) et page speedruns (runs). Les classes
+  `.skin-*` vivent dans `styles.css` (chargé sur toutes les pages) ; la
+  map publique `publicId/username → skin actif` est chargée en UNE
+  requête via `GET /api/skins.php?activeMap=1` (cache 60 s côté client,
+  poll 60 s sur l'index). Les ids hérités de l'ancien catalogue (`gold`,
+  `rainbow`, `fire`, … lignes `tfh_user_skins` antérieures à la refonte)
+  sont **ignorés** par le frontend : fallback Standard, aucune erreur.
 - Les animations respectent `prefers-reduced-motion` (arrêt du dégradé).
 
 ## Flux utilisateur (page profil)
@@ -88,10 +94,13 @@ locale = les mêmes, simulés par le harnais mock, pas d'effet en base.
 
 1. `skins.js` → entrée dans `SKINS` (`id`, `name`, `description`, `rarity`,
    `cssClass`).
-2. `skins.css` → classe `.skin-<id>` + `@keyframes` dédiées (penser à
-   `prefers-reduced-motion`).
-3. Rebuild : `node scripts/build.js` + bump `dist/profile.min.js?v=N` dans
-   `profile.html`, bump `skins.css?v=N`, bump `CACHE_NAME` dans `sw.js`.
+2. `skins.css` n'héberge PLUS les classes `.skin-*` : elles vivent dans
+   `styles.css` (fin de fichier, section « Skins de pseudo ») pour être
+   chargées sur toutes les pages. Penser à `prefers-reduced-motion`.
+3. Rebuild : `node scripts/build.js` + bump les versions référencées :
+   `styles.css?v=N` (toutes les pages), `dist/profile.min.js?v=N` et
+   `dist/app.min.js?v=N` / `dist/dashboard.min.js?v=N` (catalogue bundlé),
+   `CACHE_NAME` dans `sw.js`.
 4. Créer au moins un code (Option A ou B ci-dessus).
 5. Aucune migration SQL : le catalogue vit côté frontend, la DB ne stocke
    que les ids référencés par les tables ci-dessus.

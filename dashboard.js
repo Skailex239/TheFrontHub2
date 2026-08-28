@@ -56,6 +56,8 @@ import {
   onAuthStateChanged, signOut,
 } from "./auth.js";
 import { fetchOpenFront } from "./openfront-client.js?v=25";
+import { fetchActiveSkinMap } from "./reward-codes.js";
+import { getSkin } from "./skins.js";
 
 /* ════════════════════════════════════════════════════════════════
    Constantes (barème)
@@ -82,10 +84,12 @@ let _liveFetchDone = false;    // true quand toutes les stats live sont chargée
 let _liveFetchProgress = 0;    // nombre de joueurs connectés traités
 // _dashMode conservé pour compat (plus utilisé par render() — layout 2 panneaux)
 let _dashMode = "global";      // "global" | "weekly"
-// Skins VIP : publicId → rewardType (ex: "prism", "cyberpunk", "gold"…)
-// Chargé depuis Firestore (collection public-rewards). Permet d'afficher le
-// pseudo en dégradé animé pour les joueurs qui ont un cosmétique actif.
-let _vipSkins = new Map();
+// Skins actifs : publicId → skinId + username → skinId
+// Chargé depuis /api/skins.php?activeMap=1 (nouveau système tfh_user_skins).
+// Permet d'afficher le pseudo en dégradé animé sur le leaderboard
+// pour les joueurs qui ont un cosmétique ACTIF.
+let _vipSkins = new Map();      // publicId → skinId
+let _vipSkinsByName = new Map(); // username → skinId
 let currentUser = null;     // { name, publicId, avatar, uid, email }
 let _ownershipCode = null;
 let _ownershipPublicId = null;
@@ -265,47 +269,31 @@ async function loadConnectedPlayers() {
 }
 
 /**
- * Charge les skins VIP depuis l'API MySQL (tfh_public_rewards).
- * Mappe publicId → rewardType pour appliquer la classe .rgb-{type} sur
- * les pseudos du classement. Les définitions CSS (.rgb-prism, .rgb-gold,
- * etc.) vivent dans styles.css et sont déjà chargées sur la page.
- *
- * Champs utilisés: publicId, username, activeType, type, activated
+ * Charge la carte des skins ACTIFS depuis l'API MySQL (tfh_user_skins,
+ * via /api/skins.php?activeMap=1) en UNE requête pour toute la page.
+ * Mappe publicId → skinId ET username → skinId pour appliquer la classe
+ * .skin-{id} (définie dans styles.css) sur les pseudos du classement.
+ * Remplace l'ancien chargement Firestore public-rewards (legacy désactivé).
  */
 async function loadVipSkins() {
   try {
-    const res = await fetch("/api/public-rewards.php", { cache: "no-store" });
-    if (!res.ok) {
-      console.warn(`[dashboard] API public-rewards: HTTP ${res.status}`);
-      return;
-    }
-    const data = await res.json();
-    const docs = data.rewards || [];
-    _vipSkins = new Map();
-    for (const doc of docs) {
-      const publicId = doc.publicId || "";
-      const username = doc.username || "";
-      // activeType = nouveau format, type = ancien format (rétrocompat)
-      const rewardType = doc.activeType || doc.type || "";
-      const activated = doc.activated !== false;
-      if (!rewardType || !activated) continue;
-      // Priorité : publicId (stable), fallback username
-      if (publicId) _vipSkins.set(publicId, rewardType);
-      else if (username) _vipSkins.set(`@${username}`, rewardType);
-    }
-    console.log(`[dashboard] Skins VIP: ${_vipSkins.size} joueurs cosmétiques`);
+    const { byPid, byUser } = await fetchActiveSkinMap();
+    _vipSkins = new Map(byPid);
+    _vipSkinsByName = new Map(byUser);
+    console.log(`[dashboard] Skins actifs: ${_vipSkins.size} joueurs cosmétiques`);
   } catch (e) {
-    console.warn("[dashboard] Skins VIP indisponibles:", e.message);
+    console.warn("[dashboard] Skins indisponibles:", e.message);
   }
 }
 
 /**
- * Résout le rewardType (skin) d'un joueur du classement.
- * Priorité: publicId direct → username (fallback legacy).
+ * Résout le skin actif d'un joueur du classement.
+ * Priorité: publicId direct → username.
+ * Retourne un skinId du nouveau catalogue (lagon, aurora, …) ou null.
  */
 function getSkinForPlayer(publicId, username) {
   if (publicId && _vipSkins.has(publicId)) return _vipSkins.get(publicId);
-  if (username && _vipSkins.has(`@${username}`)) return _vipSkins.get(`@${username}`);
+  if (username && _vipSkinsByName.has(username)) return _vipSkinsByName.get(username);
   return null;
 }
 
@@ -812,10 +800,10 @@ function renderRanking(topN) {
          </span>`
       : "";
 
-    // Skin VIP : applique la classe .rgb-{type} (prism, cyberpunk, gold…)
-    // sur le span du pseudo. Les définitions CSS sont dans styles.css.
+    // Skin actif : applique la classe .skin-{id} (styles.css, chargé sur
+    // toutes les pages) sur le span du pseudo.
     const skinType = getSkinForPlayer(p.publicId, name);
-    const skinClass = skinType ? ` rgb-${skinType}` : "";
+    const skinClass = skinType ? " " + getSkin(skinType).cssClass : "";
 
     return `
       <a class="dash-row${p.rank <= 3 ? " dash-row-podium" : ""}${p.rank === 1 ? " dash-row-gold" : ""}" href="${profileUrl}">

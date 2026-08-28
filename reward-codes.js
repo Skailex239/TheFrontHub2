@@ -103,6 +103,55 @@ export function invalidateActiveSkinCache(publicId) {
 }
 
 /* ══════════════════════════════════════════════════════════════════
+   Carte publique des skins actifs (bulk — pour les classements)
+   ══════════════════════════════════════════════════════════════════ */
+
+/**
+ * Cache partagé de la carte des skins actifs (toutes les pages d'une
+ * session partagent le module si importé, sinon chaque bundle a le
+ * sien — dans tous les cas 1 seule requête par page et par TTL).
+ */
+const activeMapCache = { at: 0, byPid: null, byUser: null };
+const ACTIVE_MAP_TTL = 60 * 1000; // 1 min
+
+/**
+ * Charge en UNE requête la map publique publicId/username → skin actif.
+ *
+ * Utilisé par les leaderboards (index, dashboard, runs) pour skinner
+ * les pseudos sans faire une requête API par ligne de classement.
+ * Retourne { byPid: Map<publicId, skinId>,
+ *            byUser: Map<usernameExact, skinId> }.
+ */
+export async function fetchActiveSkinMap(force = false) {
+  const now = Date.now();
+  if (!force && activeMapCache.byPid && now - activeMapCache.at < ACTIVE_MAP_TTL) {
+    return activeMapCache;
+  }
+  try {
+    const data = await apiGet("/api/skins.php?activeMap=1");
+    const byPid = new Map();
+    const byUser = new Map();
+    for (const row of data.active || []) {
+      if (!row.publicId || !row.skinId) continue;
+      byPid.set(row.publicId, row.skinId);
+      if (row.username) byUser.set(row.username, row.skinId);
+    }
+    activeMapCache.byPid = byPid;
+    activeMapCache.byUser = byUser;
+    activeMapCache.at = now;
+    return activeMapCache;
+  } catch (e) {
+    console.warn("[reward-codes] fetchActiveSkinMap failed:", e);
+    if (!activeMapCache.byPid) {
+      activeMapCache.byPid = new Map();
+      activeMapCache.byUser = new Map();
+      activeMapCache.at = now;
+    }
+    return activeMapCache;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════
    Récupérer les skins possédés par un joueur
    ══════════════════════════════════════════════════════════════════ */
 

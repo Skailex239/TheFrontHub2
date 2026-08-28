@@ -2,6 +2,38 @@ const $ = (id) => document.getElementById(id);
 
 const connectedUsernames = new Set();
 
+// Skins actifs (username → skinId) — nouveau système tfh_user_skins.
+// Self-contained : runs.min.js est un script autonome (pas d'import ES).
+const activeSkinsByName = new Map();
+
+// Charge en 1 requête la map publique des skins actifs puis patche le
+// tableau si déjà rendu (non bloquant). Les classes .skin-* sont définies
+// dans styles.css, chargé sur toutes les pages.
+async function loadActiveSkins() {
+  try {
+    const res = await fetch('/api/skins.php?activeMap=1', { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    (data.active || []).forEach(function(row) {
+      if (row.username && row.skinId) activeSkinsByName.set(row.username, row.skinId);
+    });
+    applySkinsToDom();
+  } catch (e) {
+    /* non critique — les pseudos restent sans skin */
+  }
+}
+
+// Patch DOM : ajoute la classe .skin-* aux pseudos du tableau déjà rendu
+// (utile quand la map arrive APRÈS le premier rendu).
+function applySkinsToDom() {
+  if (activeSkinsByName.size === 0) return;
+  document.querySelectorAll('td.global-player a').forEach(function(a) {
+    const name = (a.textContent || '').trim();
+    const skinId = activeSkinsByName.get(name);
+    if (skinId) a.classList.add('skin-' + skinId);
+  });
+}
+
 function formatTime(durationSeconds) {
   if (typeof durationSeconds !== 'number' || !Number.isFinite(durationSeconds)) return '\u2014';
   const m = Math.floor(durationSeconds / 60);
@@ -133,10 +165,13 @@ async function loadTopRuns({ limit, windowDays }) {
       var rawName = r.player || '\u2014';
       var playerName = String(rawName).replace(/[\x00-\x1F\x7F-\x9F]/g, '').trim() || '\u2014';
       if (playerName.length > 28) playerName = playerName.slice(0, 25) + '...';
+      // Skin actif du joueur (si possédé ET activé) → classe .skin-*
+      var skinId = activeSkinsByName.get(playerName) || '';
+      var skinAttr = skinId ? ' class="skin-' + skinId + '"' : '';
       if (connectedUsernames.has(playerName)) {
-        tdPlayer.innerHTML = '<a href="#" onclick="handlePlayerClick(\'' + escapeHtml(playerName).replace(/'/g, "\\'") + "');return false\" style=\"cursor:pointer;text-decoration:underline;color:var(--orange)\">" + escapeHtml(playerName) + '</a>';
+        tdPlayer.innerHTML = '<a' + skinAttr + ' href="#" onclick="handlePlayerClick(\'' + escapeHtml(playerName).replace(/'/g, "\\'") + "');return false\" style=\"cursor:pointer;text-decoration:underline;color:var(--orange)\">" + escapeHtml(playerName) + '</a>';
       } else {
-        tdPlayer.innerHTML = '<a href="#" onclick="handlePlayerClick(\'' + escapeHtml(playerName).replace(/'/g, "\\'") + "');return false\" style=\"cursor:pointer;text-decoration:none\">" + escapeHtml(playerName) + '</a>';
+        tdPlayer.innerHTML = '<a' + skinAttr + ' href="#" onclick="handlePlayerClick(\'' + escapeHtml(playerName).replace(/'/g, "\\'") + "');return false\" style=\"cursor:pointer;text-decoration:none\">" + escapeHtml(playerName) + '</a>';
       }
 
       const tdMap = document.createElement('td');
@@ -190,8 +225,9 @@ function readControls() {
 }
 
 async function bootstrapRunsPage() {
-  // Start loading connected usernames in background
+  // Start loading connected usernames + skins actifs in background
   loadConnectedUsernames();
+  loadActiveSkins();
 
   const { limit, windowDays } = readControls();
   await loadTopRuns({ limit, windowDays });

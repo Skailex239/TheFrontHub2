@@ -1,5 +1,7 @@
 import { MAP_NORMALIZATION } from "./shared/maps.js";
 import { icon } from "./icons.js";
+import { fetchActiveSkinMap } from "./reward-codes.js";
+import { getSkin } from "./skins.js";
 
 function getMapDisplayName(mapName) {
   const key = "map." + mapName;
@@ -209,82 +211,61 @@ async function fetchPlayerClientIds(publicId, cachedSessions) {
 }
 
 /**
- * Charge les joueurs VIP depuis Firestore (collection public-rewards)
- * Ces données sont publiques et servent à afficher le style VIP sur le leaderboard
+ * Charge la carte publique des skins ACTIFS (nouveau système tfh_user_skins,
+ * via /api/skins.php?activeMap=1) et alimente vipPlayers / vipPlayersByPid.
+ * Ces données sont publiques et servent à afficher le skin sur tous les
+ * classements. Poll toutes les 60 s : un skin activé chez soi apparaît
+ * chez tout le monde en ~1 min (l'ancien listener Firestore temps réel
+ * sur public-rewards a été retiré — table legacy désactivée).
  */
 async function loadVipPlayers() {
-  try {
-    // Listener temps réel sur public-rewards pour que les toggles cosmétiques
-    // se reflètent instantanément sur le leaderboard de tout le monde
-    onSnapshot(collection(db, "public-rewards"), (snap) => {
-      vipPlayers = new Map();
-      vipRewardsRaw = [];
-      snap.forEach((docSnap) => {
-        const data = docSnap.data();
-        // Nouveau format: activeType (cosmétique sélectionné)
-        // Ancien format: type (rétrocompatibilité)
-        const rewardType = data.activeType || data.type || null;
-        // Seulement les joueurs dont le cosmétique est activé et ont un type actif
-        if (data.username && rewardType && data.activated !== false) {
-          vipPlayers.set(data.username, rewardType);
-          connectedUsernames.add(data.username);
-        }
-        // Stocke le doc brut pour le matching par publicId (résolu via bridges)
-        if (rewardType && data.activated !== false) {
-          vipRewardsRaw.push({
-            uid: docSnap.id,
-            username: data.username || null,
-            publicId: data.publicId || null,
-            rewardType,
-          });
-        }
-      });
-      // Reconstruit la map publicId → rewardType à partir des bridges disponibles
-      rebuildVipByPid();
-      // Re-render si on a déjà des données (debounced)
-      if (_rawRuns.length > 0) {
-        debouncedRender();
-      }
-      // Re-render du leaderboard ranked si déjà chargé (le skin peut venir d'arriver)
-      if (window._rankedPlayers) {
-        renderRankedTable(window._rankedPlayers);
-        renderMyRank(window._rankedPlayers);
-      }
-    }, (error) => {
-      console.warn("[app] Firestore VIP listener error (non-critique):", error.message);
-      vipPlayers = new Map();
-      vipRewardsRaw = [];
-      rebuildVipByPid();
-    });
-  } catch (e) {
-    console.warn("[app] Erreur chargement VIP:", e);
-    vipPlayers = new Map();
+  const applyMap = () => {
+    const { byPid, byUser } = activeMapCacheRef;
+    vipPlayers = new Map(byUser);       // username → skinId (classements speedruns)
+    vipPlayersByPid = new Map(byPid);   // publicId → skinId (ranked — matching stable)
     vipRewardsRaw = [];
-    rebuildVipByPid();
+    for (const [name] of byUser) connectedUsernames.add(name);
+    // Re-render si on a déjà des données (debounced)
+    if (_rawRuns.length > 0) {
+      debouncedRender();
+    }
+    // Re-render du leaderboard ranked si déjà chargé (le skin peut venir d'arriver)
+    if (window._rankedPlayers) {
+      renderRankedTable(window._rankedPlayers);
+      renderMyRank(window._rankedPlayers);
+    }
+  };
+
+  try {
+    const map = await fetchActiveSkinMap();
+    activeMapCacheRef = map;
+    applyMap();
+    // Poll léger : garde les classements à jour sans listener temps réel.
+    setInterval(async () => {
+      try {
+        const m = await fetchActiveSkinMap(true);
+        activeMapCacheRef = m;
+        applyMap();
+      } catch (e) { /* silencieux — on garde la dernière map */ }
+    }, 60 * 1000);
+  } catch (e) {
+    console.warn("[app] Erreur chargement skins actifs:", e);
   }
 }
 
+// Référence à la map renvoyée par fetchActiveSkinMap (byPid/byUser).
+let activeMapCacheRef = { byPid: new Map(), byUser: new Map() };
+
 /**
- * Reconstruit vipPlayersByPid (publicId → rewardType) à partir des docs public-rewards
- * bruts et des bridges username→publicId / uid→publicId disponibles.
- *
- * Priorité de résolution du publicId pour chaque reward:
- *   1. data.publicId (champ direct dans public-rewards — le plus fiable)
- *   2. uid → publicId (depuis public-aliases si le doc contient publicId)
- *   3. username → publicId (depuis public-aliases ou ranked.json)
- *
- * Ainsi le skin suit le PUBLIC ID (identité stable) plutôt que l'alias (changeant).
+ * ⚠️ OBSOLÈTE (no-op conservé pour les 2 sites d'appel restants) :
+ * l'ancienne reconstruction publicId→rewardType depuis les docs
+ * public-rewards legacy. Depuis la migration vers
+ * /api/skins.php?activeMap=1, vipPlayersByPid est alimentée
+ * directement par loadVipPlayers() — ne rien reconstruire ici au
+ * risque d'écraser la map avec des données vides.
  */
 function rebuildVipByPid() {
-  vipPlayersByPid = new Map();
-  for (const r of vipRewardsRaw) {
-    if (!r.rewardType) continue;
-    const pid = r.publicId
-      || (r.uid ? uidToPid.get(r.uid) : null)
-      || (r.username ? usernameToPid.get(r.username) : null)
-      || null;
-    if (pid) vipPlayersByPid.set(pid, r.rewardType);
-  }
+  /* no-op volontaire */
 }
 
 /**
@@ -297,6 +278,18 @@ function getRankedRewardType(publicId, username, accountUsername) {
     || (username && vipPlayers.get(username))
     || (accountUsername && vipPlayers.get(accountUsername))
     || null;
+}
+
+/**
+ * Retourne la classe CSS du skin d'un joueur (" skin-lagon" ou "").
+ * Résolution : publicId (ranked, stable) puis username/accountUsername
+ * (speedruns). Centralise la logique autrefois dupliquée en 6 endroits
+ * avec les anciennes classes rgb et player (catalogue retiré).
+ */
+function skinClassFor(username, publicId, accountUsername) {
+  const skinId = getRankedRewardType(publicId || null, username || null, accountUsername || null);
+  if (!skinId) return "";
+  return " " + getSkin(skinId).cssClass;
 }
 
 /**
@@ -1472,12 +1465,8 @@ function renderLeaderboard(d){
     const age=now-new Date(r.timestamp).getTime();
     const isNew=age<3600000?'<span class="badge-new" data-i18n="run.new">NEW</span>':'';
     const isMeClass = r._isMe ? 'is-me' : '';
-    const rewardType = vipPlayers.get(r.player) || null;
-    const isVip = !!rewardType;
-    // Nouveaux skins utilisent la classe rgb-{type} au lieu de player-{type}
-    const isNewSkinType = ['cyberpunk','sunset','aurore','pastel','gold','volcano','ocean','miami','toxic','chroma','prism'].includes(rewardType);
-    const cosmeticClass = isVip ? ` is-${rewardType}` : '';
-    const cosmeticNameClass = isVip ? (isNewSkinType ? ` rgb-${rewardType}` : ` player-${rewardType}`) : '';
+    // Skin actif du joueur → classe .skin-* (définie dans styles.css)
+    const cosmeticNameClass = skinClassFor(r.player);
     // Pas de tag/badge rectangle — juste le dégradé sur le pseudo
     
     // GG Button Logic
@@ -1497,7 +1486,7 @@ function renderLeaderboard(d){
     const overlayImg = getPlayerOverlay(r.player, "speedruns");
     const overlayClass = overlayImg ? ' has-overlay' : '';
     const overlayStyle = overlayImg ? ` style="--overlay-img:url('${overlayImg.replace(/'/g,"%27")}')"` : '';
-    return '<div class="run-row '+isMeClass+cosmeticClass+'"><div class="run-rank '+rc+'">'+(i+1)+'</div><div class="run-player'+cosmeticNameClass+overlayClass+'"'+overlayStyle+' onclick="showPlayer(\''+esc(r.player)+'\')">'+r.player+diff+isNew+'</div><a class="run-replay" href="'+getRunUrl(r)+'" target="_blank" title="Voir le replay">&#9654;</a><div class="run-time">'+formatTime(r.duration_s)+'</div><div class="run-gap">'+gap+'</div>'+ggBtn+'</div>';
+    return '<div class="run-row '+isMeClass+'"><div class="run-rank '+rc+'">'+(i+1)+'</div><div class="run-player'+cosmeticNameClass+overlayClass+'"'+overlayStyle+' onclick="showPlayer(\''+esc(r.player)+'\')">'+r.player+diff+isNew+'</div><a class="run-replay" href="'+getRunUrl(r)+'" target="_blank" title="Voir le replay">&#9654;</a><div class="run-time">'+formatTime(r.duration_s)+'</div><div class="run-gap">'+gap+'</div>'+ggBtn+'</div>';
   }).join("");
   if(d.runs.length>show)html+='<button class="see-more-btn" onclick="seeMore(\''+esc(d.map)+'\')">Voir plus ('+(d.runs.length-show)+' restants)</button>';
   document.getElementById("leaderboard").innerHTML=html;
@@ -1597,7 +1586,7 @@ function renderFeed(){
     const rankBadge=isTop3?'<span class="feed-rank-badge rank-'+rank+'">#'+rank+'</span>':'';
     const age=Date.now()-new Date(r.timestamp).getTime();
     const isNew=age<3600000?'<span class="badge-new">NEW</span>':'';
-    return '<div class="feed-item"><div class="feed-rank">'+(i+1)+'</div><div class="feed-info"><div class="feed-player" onclick="showPlayer(\''+esc(r.player)+'\')">'+r.player+isNew+rankBadge+'</div><div class="feed-map">'+getMapDisplayName(r.map)+' · '+timeAgo(r.timestamp)+'</div></div><div class="feed-time">'+formatTime(r.duration_s)+'</div><a class="feed-replay" href="'+getRunUrl(r)+'" target="_blank" title="Voir le replay">&#9654;</a></div>';
+    return '<div class="feed-item"><div class="feed-rank">'+(i+1)+'</div><div class="feed-info"><div class="feed-player'+skinClassFor(r.player)+'" onclick="showPlayer(\''+esc(r.player)+'\')">'+r.player+isNew+rankBadge+'</div><div class="feed-map">'+getMapDisplayName(r.map)+' · '+timeAgo(r.timestamp)+'</div></div><div class="feed-time">'+formatTime(r.duration_s)+'</div><a class="feed-replay" href="'+getRunUrl(r)+'" target="_blank" title="Voir le replay">&#9654;</a></div>';
   }).join("");
 }
 function renderGlobal(){
@@ -1617,16 +1606,12 @@ function renderGlobal(){
     globalLeaderboard.slice(0,50).map((p,i)=>{
       const rc = i===0?'gold':i===1?'silver':i===2?'bronze':'';
       const isMeClass = p._isMe ? 'is-me' : '';
-      const rewardType = vipPlayers.get(p.player) || null;
-      const isVip = !!rewardType;
-      const isNewSkinType = ['cyberpunk','sunset','aurore','pastel','gold','volcano','ocean','miami','toxic','chroma','prism'].includes(rewardType);
-      const cosmeticClass = isVip ? ` is-${rewardType}` : '';
-      const cosmeticNameClass = isVip ? (isNewSkinType ? ` rgb-${rewardType}` : ` player-${rewardType}`) : '';
+      const cosmeticNameClass = skinClassFor(p.player);
       const overlayImg = getPlayerOverlay(p.player, "dashboard");
       const overlayClass = overlayImg ? ' has-overlay' : '';
       const overlayStyle = overlayImg ? ` style="--overlay-img:url('${overlayImg.replace(/'/g,"%27")}')"` : '';
       const playerInner = '<span class="global-player'+cosmeticNameClass+overlayClass+'"'+overlayStyle+' onclick="showPlayer(\''+esc(p.player)+'\')">'+p.player+'</span>';
-      return '<tr class="'+isMeClass+cosmeticClass+'"><td class="global-rank '+rc+'">'+(i+1)+'</td><td class="global-player-cell" onclick="showPlayer(\''+esc(p.player)+'\')">'+playerInner+'</td><td class="global-points">'+p.points+'</td><td class="global-wins">'+p.wins+'</td></tr>';
+      return '<tr class="'+isMeClass+'"><td class="global-rank '+rc+'">'+(i+1)+'</td><td class="global-player-cell" onclick="showPlayer(\''+esc(p.player)+'\')">'+playerInner+'</td><td class="global-points">'+p.points+'</td><td class="global-wins">'+p.wins+'</td></tr>';
     }).join("")+'</tbody></table>';
 }
 function renderHof(){
@@ -1634,7 +1619,7 @@ function renderHof(){
   if(globalLeaderboard.length<1){c.innerHTML='<div class="empty-state"><p>Pas encore de joueurs</p></div>';return}
   c.innerHTML=globalLeaderboard.slice(0,3).map((p,i)=>{
     const rank=getRank(p.points);
-    return '<div class="hof-card hof-'+(i+1)+'"><div class="hof-name" onclick="showPlayer(\''+esc(p.player)+'\')">'+p.player+'</div><div class="hof-rank" style="color:'+rank.color+'">'+rank.name+'</div><div class="hof-pts">'+p.points+' pts</div><div class="hof-detail">'+p.golds+' 1er · '+p.silvers+' 2e · '+p.bronzes+' 3e</div></div>';
+    return '<div class="hof-card hof-'+(i+1)+'"><div class="hof-name'+skinClassFor(p.player)+'" onclick="showPlayer(\''+esc(p.player)+'\')">'+p.player+'</div><div class="hof-rank" style="color:'+rank.color+'">'+rank.name+'</div><div class="hof-pts">'+p.points+' pts</div><div class="hof-detail">'+p.golds+' 1er · '+p.silvers+' 2e · '+p.bronzes+' 3e</div></div>';
   }).join("");
 }
 function renderCompare(){
@@ -2200,12 +2185,8 @@ function renderRankedTable(players) {
       ? `<button class="${favClass}" onclick="event.stopPropagation();toggleFavorite(${jsq(p.public_id)},${jsq(p.username)})" title="${isFav ? 'Retirer des favoris' : 'Ajouter aux favoris'}" aria-label="${isFav ? 'Retirer des favoris' : 'Ajouter aux favoris'}">${favStar}</button>`
       : '';
 
-    // Cosmetic/VIP styling — matching par PUBLIC ID (prioritaire), fallback username
-    const rewardType = getRankedRewardType(p.public_id, p.username, p.accountUsername);
-    const isVip = !!rewardType;
-    const isNewSkinType = ['cyberpunk','sunset','aurore','pastel','gold','volcano','ocean','miami','toxic','chroma','prism'].includes(rewardType);
-    const cosmeticRowClass = isVip ? ` is-${rewardType}` : '';
-    const cosmeticNameClass = isVip ? (isNewSkinType ? ` rgb-${rewardType}` : ` player-${rewardType}`) : '';
+    // Skin actif — matching par PUBLIC ID (prioritaire), fallback username
+    const cosmeticNameClass = skinClassFor(p.username, p.public_id, p.accountUsername);
 
     // Player overlay (plaque nominative)
     const overlayImg = getPlayerOverlay(p.username, "ranked");
@@ -2213,7 +2194,7 @@ function renderRankedTable(players) {
     const overlayStyle = overlayImg ? ` style="--overlay-img:url('${overlayImg.replace(/'/g,"%27")}')"` : '';
 
     html += `
-      <tr data-pid="${esc(p.public_id)}" class="${cosmeticRowClass}" style="border-bottom: 1px solid var(--border); transition: background 0.2s; cursor:pointer;"
+      <tr data-pid="${esc(p.public_id)}" style="border-bottom: 1px solid var(--border); transition: background 0.2s; cursor:pointer;"
           onmouseover="this.style.background='var(--bg2)'"
           onmouseout="this.style.background='transparent'"
           onclick="viewRankedProfile(${jsq(p.public_id)}, ${jsq(p.username)})">
@@ -2262,9 +2243,7 @@ function renderNewcomersDropouts(data, mode = '1v1') {
     if (newcomers.length === 0) newEl.innerHTML = '<div class="empty-state" style="padding:12px"><p style="font-size:12px;color:var(--muted)">Aucun nouveau cette fois</p></div>';
     else {
       newEl.innerHTML = newcomers.map(n => {
-        const rt = getRankedRewardType(n.public_id, n.username, n.accountUsername);
-        const isNew = rt && ['cyberpunk','sunset','aurore','pastel','gold','volcano','ocean','miami','toxic','chroma','prism'].includes(rt);
-        const nameClass = rt ? (isNew ? `rgb-${rt}` : `player-${rt}`) : '';
+        const nameClass = skinClassFor(n.username, n.public_id, n.accountUsername).trim();
         return `
         <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-light)">
           <span style="font-weight:700;color:var(--accent);min-width:32px">#${n.rank}</span>
@@ -2279,9 +2258,7 @@ function renderNewcomersDropouts(data, mode = '1v1') {
     if (dropouts.length === 0) dropEl.innerHTML = '<div class="empty-state" style="padding:12px"><p style="font-size:12px;color:var(--muted)">Aucun sortant cette fois</p></div>';
     else {
       dropEl.innerHTML = dropouts.map(d => {
-        const rt = getRankedRewardType(d.public_id, d.username, d.accountUsername);
-        const isNew = rt && ['cyberpunk','sunset','aurore','pastel','gold','volcano','ocean','miami','toxic','chroma','prism'].includes(rt);
-        const nameClass = rt ? (isNew ? `rgb-${rt}` : `player-${rt}`) : '';
+        const nameClass = skinClassFor(d.username, d.public_id, d.accountUsername).trim();
         return `
         <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-light)">
           <span style="font-weight:700;color:var(--text3);min-width:32px">#${d.rank}</span>
@@ -2327,9 +2304,7 @@ function renderMyRank(players) {
   const moveColor = me.movement > 0 ? '#10b981' : me.movement < 0 ? '#ef4444' : 'var(--muted)';
   
   // Skin VIP résolu par publicId (le même skin que sur le leaderboard)
-  const myRewardType = getRankedRewardType(myPid, me.username, me.accountUsername);
-  const myIsNewSkin = myRewardType && ['cyberpunk','sunset','aurore','pastel','gold','volcano','ocean','miami','toxic','chroma','prism'].includes(myRewardType);
-  const myNameClass = myRewardType ? (myIsNewSkin ? `rgb-${myRewardType}` : `player-${myRewardType}`) : '';
+  const myNameClass = skinClassFor(me.username, myPid, me.accountUsername).trim();
   
   container.innerHTML = `
     <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
@@ -2596,16 +2571,9 @@ async function showRankedPlayerModal(publicId, username) {
   const gamesEl = document.getElementById('ranked-modal-games');
   
   if (nameEl) nameEl.textContent = username;
-  // Apply cosmetic styling — matching par PUBLIC ID (prioritaire), fallback username
+  // Skin actif — matching par PUBLIC ID (prioritaire), fallback username
   const rewardType = getRankedRewardType(publicId, username, null);
-  const isNewSkinType = ['cyberpunk','sunset','aurore','pastel','gold','volcano','ocean','miami','toxic','chroma','prism'].includes(rewardType);
-  if (rewardType && isNewSkinType) {
-    nameEl.className = `rgb-${rewardType}`;
-  } else if (rewardType) {
-    nameEl.className = `player-${rewardType}`;
-  } else {
-    nameEl.className = '';
-  }
+  nameEl.className = rewardType ? getSkin(rewardType).cssClass : '';
   if (statsEl) statsEl.textContent = 'Chargement...';
   if (gamesEl) gamesEl.innerHTML = '<div class="loading" style="padding:20px">Chargement...</div>';
   if (modal) modal.classList.add('active');

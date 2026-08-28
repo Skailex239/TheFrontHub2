@@ -6,6 +6,7 @@ declare(strict_types=1);
  * (remplace les collections Firestore user-skins et reward-codes).
  *
  * GET  ?publicId=XXXX          → { ok, ownedSkins: [...], activeSkinId }  (public)
+ * GET  ?activeMap=1            → { ok, count, active: [{publicId, username, skinId}] } (bulk leaderboards)
  * GET  ?codes=1                → liste des codes (admin uniquement)
  * POST { action:'redeem', code, publicId }       → rachat d'un code (session requise)
  * POST { action:'activate', skinId, publicId }   → active un skin possédé (session requise)
@@ -50,6 +51,28 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
             'createdAt' => $r['created_at'],
         ], $rows);
         json_out(['ok' => true, 'codes' => $codes]);
+    }
+
+    /* Carte publique des skins ACTIFS — bulk pour les leaderboards.
+     * Une seule requête pour toute la page (au lieu d'une requête par
+     * ligne de classement). Info publique : équivalent de l'ancien
+     * /api/public-rewards.php (seul le skin ACTIF est exposé, jamais
+     * la collection complète d'un joueur). */
+    if (isset($_GET['activeMap'])) {
+        $rows = $pdo->query(
+            'SELECT s.public_id, s.skin_id, u.username
+             FROM tfh_user_skins s
+             LEFT JOIN tfh_users u ON u.public_id = s.public_id
+             WHERE s.active = 1
+             ORDER BY s.redeemed_at DESC
+             LIMIT 1000'
+        )->fetchAll();
+        $active = array_map(static fn(array $r): array => [
+            'publicId' => $r['public_id'],
+            'username' => $r['username'],
+            'skinId'   => $r['skin_id'],
+        ], $rows);
+        json_out(['ok' => true, 'count' => count($active), 'active' => $active]);
     }
 
     /* Skins d'un joueur (public — nécessaire pour afficher les pseudos skinnés) */
