@@ -9,8 +9,11 @@
 | id (DB)    | Nom        | Rareté     | Classe CSS      | Effet                                                   |
 |------------|------------|------------|-----------------|---------------------------------------------------------|
 | `default`  | Standard   | Commun     | `.skin-default` | Texte normal (jamais déblocable par code)               |
+| `lagon`    | Lagon      | Rare       | `.skin-lagon`   | Eaux turquoise animées (cyan → bleu → indigo), 5 s      |
 | `aurora`   | Aurore     | Épique     | `.skin-aurora`  | Dégradé boréal animé (turquoise → émeraude → violet), balayage 4,5 s |
+| `braise`   | Braise     | Épique     | `.skin-braise`  | Braises animées (ambre → orange → rouge), balayage 5,5 s |
 | `dusk`     | Crépuscule | Légendaire | `.skin-dusk`    | Coucher de soleil animé (ambre → rose → violet), balayage 6 s |
+| `prisme`   | Prisme     | Mythique   | `.skin-prisme`  | Spectre prismatique complet (6 couleurs pures), balayage 7 s |
 
 Règles :
 - `skin_id` doit matcher `^[a-z0-9_-]{1,32}$` (validé côté serveur ET frontend).
@@ -40,33 +43,46 @@ Règles :
 curl -X POST https://thefronthub.com/api/skins.php \
   -H 'Content-Type: application/json' \
   -b "<cookie de session admin>" \
-  -d '{"action":"createCode","code":"AURORA-LANCEMENT","skinId":"aurora","maxUses":null,"note":"Lancement skins v3"}'
+  -d '{"action":"createCode","code":"AURORALANCEMENT","skinId":"aurora","maxUses":null,"note":"Lancement skins v3"}'
 ```
 
 Champs : `code` (min 3 car.), `skinId`, `maxUses` (null = illimité),
 `note` (255 max), `expiresAt` (optionnel, ex. `"2026-12-31 23:59:59"`).
 Nécessite un compte `role='admin'` dans `tfh_users`.
+L'API normalise automatiquement le code (majuscules, tirets supprimés) :
+`AURORA-LANCEMENT` est stocké `AURORALANCEMENT`.
 
 ### Option B — SQL direct (phpMyAdmin)
 
+> 📄 Fichier prêt à l'emploi : **`api/sql-skins-lancement-2026.sql`**
+> (les 5 codes de lancement + variantes commentées).
+
+> ⚠️ **CODES SANS TIRET EN BASE** : le serveur (`normalize_code` dans
+> `api/skins.php`) supprime tout caractère non alphanumérique avant la
+> recherche. Un code stocké `AURORA-2026` ne serait **jamais** trouvé
+> (le serveur cherche `AURORA2026`). En base : MAJUSCULES A-Z 0-9
+> uniquement. Les joueurs, eux, peuvent taper `aurora 2026`,
+> `AURORA-2026` ou `aurora2026` — toutes les variantes fonctionnent.
+
 ```sql
--- Code illimité pour Aurore
-INSERT INTO tfh_reward_codes (code, skin_id, max_uses, note, created_by)
-VALUES ('AURORA-LANCEMENT', 'aurora', NULL, 'Lancement skins v3', 'admin');
+-- Code illimité pour Aurore (code SANS tiret en base !)
+INSERT IGNORE INTO tfh_reward_codes (code, skin_id, max_uses, note, created_by)
+VALUES ('AURORALANCEMENT', 'aurora', NULL, 'Lancement skins v3', 'admin');
 
 -- Code 50 usages, expirable, pour Crépuscule
-INSERT INTO tfh_reward_codes (code, skin_id, max_uses, note, created_by, expires_at)
-VALUES ('DUSK-DROP-50', 'dusk', 50, 'Drop communauté', 'admin', '2026-12-31 23:59:59');
+INSERT IGNORE INTO tfh_reward_codes (code, skin_id, max_uses, note, created_by, expires_at)
+VALUES ('DUSKDROP50', 'dusk', 50, 'Drop communauté', 'admin', '2026-12-31 23:59:59');
 
 -- Suivi des rachats
 SELECT code, skin_id, uses, max_uses, expires_at FROM tfh_reward_codes ORDER BY created_at DESC;
 SELECT public_id, skin_id, code_used, active, redeemed_at FROM tfh_user_skins ORDER BY redeemed_at DESC;
 ```
 
-### Codes de test utilisés en validation locale
+### Codes de lancement 2026
 
-`AURORA-2026` (aurora) et `DUSK-2026` (dusk) — codes factices du harnais de
-test, **non insérés en base**.
+`LAGON2026`, `AURORA2026`, `BRAISE2026`, `DUSK2026`, `PRISME2026`
+(voir `api/sql-skins-lancement-2026.sql`). Codes des tests de validation
+locale = les mêmes, simulés par le harnais mock, pas d'effet en base.
 
 ## Ajouter un nouveau skin (checklist)
 

@@ -32,10 +32,12 @@ export const RARITY_META = {
 
 /**
  * Catalogue des cosmétiques.
- * 2026-08 : premiers cosmétiques de la nouvelle génération — 2 skins de
- * texte à dégradé animé (aurora, dusk). Les skins de l'ancien catalogue
- * (gold, rainbow, fire…) ont été retirés à la refonte ; les lignes
- * tfh_user_skins héritées sont simplement ignorées (fallback Standard).
+ * 2026-08 : cosmétiques nouvelle génération — 5 skins de texte à dégradé
+ * animé couvrant toute l'échelle de rareté : lagon (rare), aurora et
+ * braise (épiques), dusk (légendaire), prisme (mythique). Les skins de
+ * l'ancien catalogue (gold, rainbow, fire…) ont été retirés à la refonte ;
+ * les lignes tfh_user_skins héritées sont simplement ignorées (fallback
+ * Standard).
  */
 export const SKINS = [
   {
@@ -46,6 +48,13 @@ export const SKINS = [
     cssClass: "skin-default",
   },
   {
+    id: "lagon",
+    name: "Lagon",
+    description: "Eaux turquoise animées — cyan, bleu océan et indigo qui virevoltent doucement.",
+    rarity: "rare",
+    cssClass: "skin-lagon",
+  },
+  {
     id: "aurora",
     name: "Aurore",
     description: "Dégradé boréal animé — turquoise, émeraude et violet qui ondulent sur ton pseudo.",
@@ -53,11 +62,25 @@ export const SKINS = [
     cssClass: "skin-aurora",
   },
   {
+    id: "braise",
+    name: "Braise",
+    description: "Braises animées — ambre, orange et rouge incandescent qui palpitent sans fin.",
+    rarity: "epic",
+    cssClass: "skin-braise",
+  },
+  {
     id: "dusk",
     name: "Crépuscule",
     description: "Coucher de soleil animé — ambre, rose et violet qui glissent en continu.",
     rarity: "legendary",
     cssClass: "skin-dusk",
+  },
+  {
+    id: "prisme",
+    name: "Prisme",
+    description: "Spectre prismatique complet — six couleurs pures qui traversent ton pseudo en boucle.",
+    rarity: "mythic",
+    cssClass: "skin-prisme",
   },
   // ── Prochains cosmétiques : à venir ────────────────────────────
   // {

@@ -16,6 +16,25 @@
   font-weight: 600;
 }
 
+/* Lagon — eaux turquoise animées (cyan → bleu → indigo) */
+.skin-lagon {
+  background: linear-gradient(100deg,
+    #22d3ee 0%, #38bdf8 28%, #3b82f6 52%, #6366f1 78%, #22d3ee 100%);
+  background-size: 220% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  font-weight: 700;
+  filter: drop-shadow(0 0 5px rgba(56, 189, 248, 0.30));
+  animation: skin-lagon-flow 5s linear infinite;
+}
+
+@keyframes skin-lagon-flow {
+  0%   { background-position: 0% center; }
+  100% { background-position: 220% center; }
+}
+
 /* Aurore — dégradé boréal animé (turquoise → émeraude → violet) */
 .skin-aurora {
   background: linear-gradient(100deg,
@@ -33,6 +52,25 @@
 @keyframes skin-aurora-flow {
   0%   { background-position: 0% center; }
   100% { background-position: 250% center; }
+}
+
+/* Braise — braises animées (ambre → orange → rouge) */
+.skin-braise {
+  background: linear-gradient(100deg,
+    #fde047 0%, #fb923c 30%, #ef4444 55%, #fb923c 80%, #fde047 100%);
+  background-size: 240% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  font-weight: 700;
+  filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.35));
+  animation: skin-braise-flow 5.5s linear infinite;
+}
+
+@keyframes skin-braise-flow {
+  0%   { background-position: 0% center; }
+  100% { background-position: 240% center; }
 }
 
 /* Crépuscule — coucher de soleil animé (ambre → rose → violet) */
@@ -54,10 +92,34 @@
   100% { background-position: 300% center; }
 }
 
+/* Prisme — spectre prismatique complet (6 couleurs pures) */
+.skin-prisme {
+  background: linear-gradient(100deg,
+    #f43f5e 0%, #fb923c 16%, #facc15 33%, #34d399 50%,
+    #38bdf8 67%, #a78bfa 84%, #f43f5e 100%);
+  background-size: 350% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  filter: drop-shadow(0 0 7px rgba(167, 139, 250, 0.40));
+  animation: skin-prisme-flow 7s linear infinite;
+}
+
+@keyframes skin-prisme-flow {
+  0%   { background-position: 0% center; }
+  100% { background-position: 350% center; }
+}
+
 /* Accessibilité : pas d'animation si l'utilisateur la refuse */
 @media (prefers-reduced-motion: reduce) {
+  .skin-lagon,
   .skin-aurora,
-  .skin-dusk {
+  .skin-braise,
+  .skin-dusk,
+  .skin-prisme {
     animation: none;
   }
 }
