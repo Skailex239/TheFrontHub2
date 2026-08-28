@@ -128,15 +128,26 @@ TheFrontHub2/
 2 mécanismes en parallèle :
 
 #### 1. Cron job o2switch (toutes les 5 min — RECOMMANDÉ)
-Commande cron dans cPanel (déploiement du code **ET** des données) :
+Le déploiement du code **ET** des données passe par `deploy.sh` (versionné dans le repo, auto-mis-à-jour, log horodaté — remplace la longue commande historique).
+
+**Commande cron dans cPanel (courte et incassable) :**
 ```bash
-cd /home2/mask6607/thefronthub-src && git fetch origin main --quiet && git reset --hard origin/main --quiet && rsync -a --delete --exclude='.git' --exclude='.htaccess' --exclude='_upload.php' --exclude='_deploy.php' --exclude='_archives' --exclude='*.json' --exclude='*.json.gz' --exclude='player-data' --exclude='player-stats' --exclude='src' --exclude='tests' --exclude='scripts' --exclude='.github' --exclude='.trae' --exclude='.windsurf' --exclude='.zscripts' --exclude='prisma' --exclude='db' --exclude='examples' --exclude='mini-services' --exclude='cloudflare-worker' --exclude='agent-ctx' --exclude='worklog.md' --exclude='GUIDE_*.md' --exclude='public' --exclude='node_modules' --exclude='package.json' --exclude='package-lock.json' --exclude='bun.lock' --exclude='tsconfig.json' --exclude='next.config.ts' --exclude='tailwind.config.ts' --exclude='postcss.config.mjs' --exclude='eslint.config.mjs' --exclude='pull-data.sh' ./ /home2/mask6607/public_html/thefronthub.com/ && find /home2/mask6607/public_html/thefronthub.com/ -type d -exec chmod 755 {} \; && find /home2/mask6607/public_html/thefronthub.com/ -type f -exec chmod 644 {} \; && mkdir -p /home2/mask6607/logs && bash /home2/mask6607/thefronthub-src/pull-data.sh >> /home2/mask6607/logs/pull-data.log 2>&1
+bash /home2/mask6607/thefronthub-src/deploy.sh
 ```
 
-> ⚠️ **Correctif du cron (2026-08-27) — à appliquer dans cPanel si votre cron actuel diffère** :
-> - `--exclude='dist'` **retiré** : les 6 pages (index/dashboard/tournois/atlas/profile/auth) chargent `dist/*.min.js` — l'exclusion empêchait tout déploiement de bundle (le fix `lenis.min.js` et les correctifs XSS n'atteignaient jamais la prod). `dist/` ne contient que 15 fichiers `.min.js` (364 Ko), sans risque.
-> - `--exclude='worklog.md'` et `--exclude='GUIDE_*.md'` **ajoutés** : docs internes, ne doivent pas être servis publiquement.
-> - `--exclude='pull-data.sh'` **ajouté** et `&& bash /home2/mask6607/thefronthub-src/pull-data.sh …` **ajouté en fin de commande** : déploiement des DONNÉES (voir section « Données » ci-dessous). Le script est lu directement dans le clone git (auto-mis-à-jour par le `git reset`), aucune copie manuelle à faire.
+**Installation initiale (une seule fois, Terminal cPanel) :**
+```bash
+cd /home2/mask6607/thefronthub-src && git fetch origin main && git reset --hard origin/main
+bash /home2/mask6607/thefronthub-src/deploy.sh
+```
+
+**Vérification :** `tail -8 /home2/mask6607/logs/deploy.log` → doit montrer `[…] SUCCES deploiement <commit>` à chaque passage du cron.
+
+Ce que fait `deploy.sh` : `git fetch` + `reset --hard origin/main` → `rsync` clone→webroot (mêmes exclusions qu'avant + `deploy.sh` lui-même, jamais servi) → permissions 755/644 → `pull-data.sh` (données JSON, log dédié). Avantages : PATH explicite (le cron cPanel a un PATH minimal, cause n°1 d'échec), échecs **visibles** dans `deploy.log` (l'ancienne commande `--quiet` échouait en silence), garde-fou d'auto-mise-à-jour (exécution depuis une copie figée dans /tmp), corrigeable à distance par simple push git.
+
+> ⚠️ **Historique du cron** :
+> - 2026-08-28 : remplacement de la commande monolithique (~1 200 caractères, échecs silencieux) par `deploy.sh`. Le `/.htaccess` est ancré à la racine — protège le `.htaccess` racine **et** `api/.htaccess`, tous deux gérés manuellement sur le serveur.
+> - 2026-08-27 : `--exclude='dist'` **retiré** : les 6 pages (index/dashboard/tournois/atlas/profile/auth) chargent `dist/*.min.js` — l'exclusion empêchait tout déploiement de bundle (le fix `lenis.min.js` et les correctifs XSS n'atteignaient jamais la prod). `dist/` ne contient que 15 fichiers `.min.js` (364 Ko), sans risque.
 >
 > ⚠️ **Rappel** : `.htaccess`, `_upload.php` et `_deploy.php` sont volontairement exclus du rsync — leurs mises à jour doivent être copiées **manuellement** sur le serveur (voir `SECURITE_CORRECTIONS.md` pour la procédure et l'ordre des étapes).
 
