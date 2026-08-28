@@ -1,6 +1,6 @@
 import { MAP_NORMALIZATION } from "./shared/maps.js";
 import { icon } from "./icons.js";
-import { fetchActiveSkinMap } from "./reward-codes.js";
+import { fetchActiveSkinMap, normPlayerName } from "./reward-codes.js";
 import { getSkin } from "./skins.js";
 
 function getMapDisplayName(mapName) {
@@ -253,8 +253,8 @@ async function loadVipPlayers() {
   }
 }
 
-// Référence à la map renvoyée par fetchActiveSkinMap (byPid/byUser).
-let activeMapCacheRef = { byPid: new Map(), byUser: new Map() };
+// Référence à la map renvoyée par fetchActiveSkinMap (byPid/byUser/byNorm).
+let activeMapCacheRef = { byPid: new Map(), byUser: new Map(), byNorm: new Map() };
 
 /**
  * ⚠️ OBSOLÈTE (no-op conservé pour les 2 sites d'appel restants) :
@@ -271,12 +271,16 @@ function rebuildVipByPid() {
 /**
  * Résout le rewardType d'un joueur ranked en priorisant le PUBLIC ID.
  * Utilisé par renderRankedTable et showRankedPlayerModal.
- * Fallback username pour la rétrocompatibilité (rewards sans publicId résolvable).
+ * Fallback username exact, puis username NORMALISÉ (sans tag de clan ni
+ * discriminateur OpenFront) pour les leaderboards speedruns :
+ * "[LBU] Skailex" et "VarXard.9236" matchent le compte via byNorm.
  */
 function getRankedRewardType(publicId, username, accountUsername) {
+  const byNorm = activeMapCacheRef.byNorm;
   return (publicId && vipPlayersByPid.get(publicId))
     || (username && vipPlayers.get(username))
     || (accountUsername && vipPlayers.get(accountUsername))
+    || (username && byNorm && byNorm.get(normPlayerName(username)))
     || null;
 }
 

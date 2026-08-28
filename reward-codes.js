@@ -110,17 +110,41 @@ export function invalidateActiveSkinCache(publicId) {
  * Cache partagé de la carte des skins actifs (toutes les pages d'une
  * session partagent le module si importé, sinon chaque bundle a le
  * sien — dans tous les cas 1 seule requête par page et par TTL).
+ * byPid : publicId → skinId (ranked, dashboard — matching exact)
+ * byUser : username du compte → skinId (speedruns, matching exact)
+ * byNorm : username normalisé → skinId (fallback : "[LBU] Skailex" et
+ *          "VarXard.9236" se normalisent comme "Skailex"/"VarXard").
+ *          Alimenté par le username du compte ET par openfrontUsername
+ *          (résolu côté serveur dans l'endpoint activeMap — l'API
+ *          OpenFront est CORS-restreinte, impossible depuis le client).
  */
-const activeMapCache = { at: 0, byPid: null, byUser: null };
+const activeMapCache = { at: 0, byPid: null, byUser: null, byNorm: null };
 const ACTIVE_MAP_TTL = 60 * 1000; // 1 min
+
+/**
+ * Normalise un pseudo pour le matching speedruns :
+ * - retire le tag de clan en préfixe ("[LBU] Skailex" → "Skailex")
+ * - retire le discriminateur OpenFront ("VarXard.9236" → "VarXard")
+ * - minuscules
+ */
+export function normPlayerName(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/^\[[a-z0-9_-]{2,8}\]\s*/, "")
+    .replace(/\.\d{3,6}$/, "")
+    .trim();
+}
 
 /**
  * Charge en UNE requête la map publique publicId/username → skin actif.
  *
  * Utilisé par les leaderboards (index, dashboard, runs) pour skinner
  * les pseudos sans faire une requête API par ligne de classement.
- * Retourne { byPid: Map<publicId, skinId>,
- *            byUser: Map<usernameExact, skinId> }.
+ * L'endpoint renvoie aussi openfrontUsername (username OpenFront actuel,
+ * résolu côté serveur avec cache 5 min) qui alimente byNorm — c'est ce
+ * qui fait matcher "[LBU] Skailex" (nom en partie) avec le compte
+ * skailex_yt.
+ * Retourne { byPid: Map, byUser: Map, byNorm: Map }.
  */
 export async function fetchActiveSkinMap(force = false) {
   const now = Date.now();
@@ -131,13 +155,21 @@ export async function fetchActiveSkinMap(force = false) {
     const data = await apiGet("/api/skins.php?activeMap=1");
     const byPid = new Map();
     const byUser = new Map();
+    const byNorm = new Map();
     for (const row of data.active || []) {
       if (!row.publicId || !row.skinId) continue;
       byPid.set(row.publicId, row.skinId);
-      if (row.username) byUser.set(row.username, row.skinId);
+      if (row.username) {
+        byUser.set(row.username, row.skinId);
+        byNorm.set(normPlayerName(row.username), row.skinId);
+      }
+      if (row.openfrontUsername) {
+        byNorm.set(normPlayerName(row.openfrontUsername), row.skinId);
+      }
     }
     activeMapCache.byPid = byPid;
     activeMapCache.byUser = byUser;
+    activeMapCache.byNorm = byNorm;
     activeMapCache.at = now;
     return activeMapCache;
   } catch (e) {
@@ -145,6 +177,7 @@ export async function fetchActiveSkinMap(force = false) {
     if (!activeMapCache.byPid) {
       activeMapCache.byPid = new Map();
       activeMapCache.byUser = new Map();
+      activeMapCache.byNorm = new Map();
       activeMapCache.at = now;
     }
     return activeMapCache;

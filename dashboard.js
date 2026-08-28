@@ -56,7 +56,7 @@ import {
   onAuthStateChanged, signOut,
 } from "./auth.js";
 import { fetchOpenFront } from "./openfront-client.js?v=25";
-import { fetchActiveSkinMap } from "./reward-codes.js";
+import { fetchActiveSkinMap, normPlayerName } from "./reward-codes.js";
 import { getSkin } from "./skins.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -90,6 +90,7 @@ let _dashMode = "global";      // "global" | "weekly"
 // pour les joueurs qui ont un cosmétique ACTIF.
 let _vipSkins = new Map();      // publicId → skinId
 let _vipSkinsByName = new Map(); // username → skinId
+let _vipSkinsByNorm = new Map(); // username normalisé → skinId
 let currentUser = null;     // { name, publicId, avatar, uid, email }
 let _ownershipCode = null;
 let _ownershipPublicId = null;
@@ -277,9 +278,10 @@ async function loadConnectedPlayers() {
  */
 async function loadVipSkins() {
   try {
-    const { byPid, byUser } = await fetchActiveSkinMap();
+    const { byPid, byUser, byNorm } = await fetchActiveSkinMap();
     _vipSkins = new Map(byPid);
     _vipSkinsByName = new Map(byUser);
+    _vipSkinsByNorm = new Map(byNorm || new Map());
     console.log(`[dashboard] Skins actifs: ${_vipSkins.size} joueurs cosmétiques`);
   } catch (e) {
     console.warn("[dashboard] Skins indisponibles:", e.message);
@@ -288,12 +290,17 @@ async function loadVipSkins() {
 
 /**
  * Résout le skin actif d'un joueur du classement.
- * Priorité: publicId direct → username.
+ * Priorité: publicId direct → username exact → username normalisé
+ * ("[LBU] Skailex" / "VarXard.9236" → forme de base).
  * Retourne un skinId du nouveau catalogue (lagon, aurora, …) ou null.
  */
 function getSkinForPlayer(publicId, username) {
   if (publicId && _vipSkins.has(publicId)) return _vipSkins.get(publicId);
   if (username && _vipSkinsByName.has(username)) return _vipSkinsByName.get(username);
+  if (username) {
+    const norm = normPlayerName(username);
+    if (norm && _vipSkinsByNorm.has(norm)) return _vipSkinsByNorm.get(norm);
+  }
   return null;
 }
 

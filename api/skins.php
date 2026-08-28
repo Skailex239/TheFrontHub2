@@ -57,7 +57,15 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
      * Une seule requête pour toute la page (au lieu d'une requête par
      * ligne de classement). Info publique : équivalent de l'ancien
      * /api/public-rewards.php (seul le skin ACTIF est exposé, jamais
-     * la collection complète d'un joueur). */
+     * la collection complète d'un joueur).
+     *
+     * Enrichissement openfrontUsername : username ACTUEL côté OpenFront
+     * (sans tag de clan ni discriminateur) de chaque joueur cosmétique,
+     * résolu côté serveur (l'API OpenFront est CORS-restreinte à
+     * openfront.io — impossible depuis le navigateur). C'est lui qui
+     * permet au frontend de matcher "[LBU] Skailex" (nom en partie) ou
+     * "VarXard.9236" avec le compte du joueur. Cache fichier 5 min :
+     * 0 requête OpenFront dans ~toutes les réponses. */
     if (isset($_GET['activeMap'])) {
         $rows = $pdo->query(
             'SELECT s.public_id, s.skin_id, u.username
@@ -72,6 +80,39 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
             'username' => $r['username'],
             'skinId'   => $r['skin_id'],
         ], $rows);
+
+        /* Cache fichier des usernames OpenFront (publicId → username). */
+        $ofCacheFile = sys_get_temp_dir() . '/tfh_of_usernames.json';
+        $ofCache = [];
+        if (is_file($ofCacheFile)) {
+            $ofCache = json_decode((string) file_get_contents($ofCacheFile), true) ?: [];
+        }
+        $ofTtl = 300; // 5 min
+        $dirty = false;
+        foreach ($active as &$a) {
+            $pid = $a['publicId'];
+            $fresh = isset($ofCache[$pid]['at']) && $ofCache[$pid]['at'] >= time() - $ofTtl;
+            if (!$fresh) {
+                $uname = null;
+                $url = 'https://api.openfront.io/public/player/' . rawurlencode($pid);
+                $ctx = stream_context_create(['http' => ['timeout' => 3, 'ignore_errors' => true]]);
+                $raw = @file_get_contents($url, false, $ctx);
+                if (is_string($raw) && $raw !== '') {
+                    $j = json_decode($raw, true);
+                    if (is_array($j) && !empty($j['username'])) {
+                        $uname = (string) $j['username'];
+                    }
+                }
+                $ofCache[$pid] = ['at' => time(), 'username' => $uname];
+                $dirty = true;
+            }
+            $a['openfrontUsername'] = $ofCache[$pid]['username'] ?? null;
+        }
+        unset($a);
+        if ($dirty) {
+            @file_put_contents($ofCacheFile, json_encode($ofCache), LOCK_EX);
+        }
+
         json_out(['ok' => true, 'count' => count($active), 'active' => $active]);
     }
 

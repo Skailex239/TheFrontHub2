@@ -4,18 +4,50 @@ const connectedUsernames = new Set();
 
 // Skins actifs (username → skinId) — nouveau système tfh_user_skins.
 // Self-contained : runs.min.js est un script autonome (pas d'import ES).
+// - activeSkinsByName : username exact du compte → skinId
+// - activeSkinsByNorm : username normalisé → skinId (fait matcher
+//   "[LBU] Skailex" ou "VarXard.9236" avec le compte du joueur)
 const activeSkinsByName = new Map();
+const activeSkinsByNorm = new Map();
+
+// Normalise un pseudo : retire le tag de clan en préfixe et le
+// discriminateur OpenFront, en minuscules.
+function normPlayerName(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/^\[[a-z0-9_-]{2,8}\]\s*/, '')
+    .replace(/\.\d{3,6}$/, '')
+    .trim();
+}
+
+// Résout le skin actif d'un pseudo de run (exact puis normalisé).
+function skinIdForPlayer(name) {
+  if (!name) return null;
+  return activeSkinsByName.get(name)
+    || activeSkinsByNorm.get(normPlayerName(name))
+    || null;
+}
 
 // Charge en 1 requête la map publique des skins actifs puis patche le
-// tableau si déjà rendu (non bloquant). Les classes .skin-* sont définies
-// dans styles.css, chargé sur toutes les pages.
+// tableau si déjà rendu (non bloquant). L'endpoint renvoie aussi
+// openfrontUsername (username OpenFront actuel, résolu côté serveur —
+// l'API OpenFront est CORS-restreinte) qui alimente la map normalisée
+// pour matcher "[LBU] Skailex" / "VarXard.9236". Les classes .skin-*
+// sont définies dans styles.css, chargé sur toutes les pages.
 async function loadActiveSkins() {
   try {
     const res = await fetch('/api/skins.php?activeMap=1', { cache: 'no-store' });
     if (!res.ok) return;
     const data = await res.json();
     (data.active || []).forEach(function(row) {
-      if (row.username && row.skinId) activeSkinsByName.set(row.username, row.skinId);
+      if (!row.publicId || !row.skinId) return;
+      if (row.username) {
+        activeSkinsByName.set(row.username, row.skinId);
+        activeSkinsByNorm.set(normPlayerName(row.username), row.skinId);
+      }
+      if (row.openfrontUsername) {
+        activeSkinsByNorm.set(normPlayerName(row.openfrontUsername), row.skinId);
+      }
     });
     applySkinsToDom();
   } catch (e) {
@@ -26,10 +58,10 @@ async function loadActiveSkins() {
 // Patch DOM : ajoute la classe .skin-* aux pseudos du tableau déjà rendu
 // (utile quand la map arrive APRÈS le premier rendu).
 function applySkinsToDom() {
-  if (activeSkinsByName.size === 0) return;
+  if (activeSkinsByName.size === 0 && activeSkinsByNorm.size === 0) return;
   document.querySelectorAll('td.global-player a').forEach(function(a) {
     const name = (a.textContent || '').trim();
-    const skinId = activeSkinsByName.get(name);
+    const skinId = skinIdForPlayer(name);
     if (skinId) a.classList.add('skin-' + skinId);
   });
 }
@@ -166,7 +198,7 @@ async function loadTopRuns({ limit, windowDays }) {
       var playerName = String(rawName).replace(/[\x00-\x1F\x7F-\x9F]/g, '').trim() || '\u2014';
       if (playerName.length > 28) playerName = playerName.slice(0, 25) + '...';
       // Skin actif du joueur (si possédé ET activé) → classe .skin-*
-      var skinId = activeSkinsByName.get(playerName) || '';
+      var skinId = skinIdForPlayer(playerName) || '';
       var skinAttr = skinId ? ' class="skin-' + skinId + '"' : '';
       if (connectedUsernames.has(playerName)) {
         tdPlayer.innerHTML = '<a' + skinAttr + ' href="#" onclick="handlePlayerClick(\'' + escapeHtml(playerName).replace(/'/g, "\\'") + "');return false\" style=\"cursor:pointer;text-decoration:underline;color:var(--orange)\">" + escapeHtml(playerName) + '</a>';
