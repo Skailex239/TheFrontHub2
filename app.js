@@ -583,38 +583,43 @@ function toggleAuthModal() {
 // L11: Track in-progress login to prevent double-clicks
 let _loginInProgress = false;
 
+// État visuel du bouton Discord pendant la redirection OAuth
+function setDiscordRedirecting(redirecting) {
+  const btn = document.getElementById('auth-btn-discord') || document.querySelector('.auth-btn.discord');
+  if (!btn) return;
+  const label = btn.querySelector('.auth-btn-label');
+  if (redirecting) {
+    btn.disabled = true;
+    btn.classList.add('is-redirecting');
+    if (label) label.textContent = 'Redirection vers Discord…';
+  } else {
+    btn.disabled = false;
+    btn.classList.remove('is-redirecting');
+    if (label) label.textContent = 'Continuer avec Discord';
+  }
+}
+
 async function handleLogin(provider) {
   if (_loginInProgress) return; // prevent multiple concurrent logins
   _loginInProgress = true;
-  console.log(`Tentative de connexion avec ${provider}...`);
+  console.log('[auth] Connexion Discord…');
 
-  // Simple disable (no innerHTML swap — keeps button content stable)
-  const authBtns = document.querySelectorAll('.auth-btn');
-  authBtns.forEach(btn => { btn.disabled = true; btn.style.opacity = '0.6'; });
+  setDiscordRedirecting(true);
 
   // Set flag BEFORE login attempt — onAuthStateChanged may fire before
   // signInWithPopup resolves (race condition), so the flag must be ready
   try { sessionStorage.setItem("tfs_just_logged_in", "1"); } catch {}
 
   try {
-    let user;
-    if (provider === 'google') {
-      user = await window.loginWithGoogle();
-    } else if (provider === 'discord') {
-      user = await window.loginWithDiscord();
-    }
-
-    if (user) {
-      toggleAuthModal();
-    }
-    // L'UI sera mise à jour automatiquement par onAuthStateChanged
+    // Discord uniquement — loginWithDiscord() redirige vers l'OAuth
+    // (/api/auth/discord/login.php) ; la page est quittée juste après.
+    await window.loginWithDiscord();
   } catch (error) {
     // Login failed — clear the flag so it doesn't trigger a false redirect
     try { sessionStorage.removeItem("tfs_just_logged_in"); } catch {}
     console.error("Erreur d'authentification:", error);
-  } finally {
     _loginInProgress = false;
-    authBtns.forEach(btn => { btn.disabled = false; btn.style.opacity = ''; });
+    setDiscordRedirecting(false);
   }
 }
 

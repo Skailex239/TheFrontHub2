@@ -1,12 +1,10 @@
 /* ════════════════════════════════════════════════════════════════════════
-   auth.css — Auth-specific styles ONLY
+   auth.css v2 — Auth-specific styles ONLY
    ──────────────────────────────────────────────────────────────────────────
-   The shared .auth-btn, .form-group input, .auth-divider, .auth-form rules
-   used to be duplicated here AND in styles.css with conflicting values
-   (radius 10 vs 14, bg --bg2 vs --bg, focus outline vs box-shadow).
-   They are now defined ONCE in styles.css (canonical). This file keeps only
-   styles unique to the auth UX: zone positioning, login button, user badge,
-   modal logo, provider buttons, connected-user highlight, responsive tweaks.
+   Refonte 2026-08 : panneau de connexion Discord uniquement.
+   - Modal : logo + titre + gros bouton Discord + perks + note sécurité
+   - État "is-redirecting" : spinner pendant la redirection OAuth
+   - .auth-btn / .form-group restent canoniques dans styles.css
    ════════════════════════════════════════════════════════════════════════ */
 
 /* Auth Zone — top-right positioned container */
@@ -69,31 +67,48 @@
   color: var(--text);
 }
 
-/* Auth Modal sizing */
+/* ════════════════════════════════════════════════════════════════════════
+   AUTH MODAL v2 — Discord only
+   ════════════════════════════════════════════════════════════════════════ */
+
 .auth-modal {
   max-width: 400px !important;
-  padding: var(--space-8) !important;
+  padding: var(--space-8) var(--space-6) var(--space-5) !important;
+  overflow: hidden;
 }
 
-/* Auth Modal logo */
+/* Halo décoratif derrière la carte */
+.auth-modal::before {
+  content: "";
+  position: absolute;
+  inset: -40% -20% auto;
+  height: 75%;
+  background:
+    radial-gradient(60% 60% at 30% 20%, rgba(88, 101, 242, 0.07), transparent 70%),
+    radial-gradient(50% 50% at 75% 15%, rgba(255, 107, 0, 0.08), transparent 70%);
+  pointer-events: none;
+}
+
+/* Logo */
 .auth-modal-logo {
   text-align: center;
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-4);
+  position: relative;
 }
 
 .auth-modal-logo-img {
-  width: 80px;
-  height: 80px;
-  border-radius: var(--radius-lg);
+  width: 84px;
+  height: 84px;
+  border-radius: var(--radius-xl);
   object-fit: cover;
   animation: authLogoPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.3));
+  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.18));
   transition: transform var(--dur-slow) var(--ease), filter var(--dur-slow) var(--ease);
 }
 
 .auth-modal-logo-img:hover {
-  transform: scale(1.08) rotate(-3deg);
-  filter: drop-shadow(0 6px 18px rgba(0,0,0,0.4));
+  transform: scale(1.07) rotate(-3deg);
+  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.25));
 }
 
 @keyframes authLogoPop {
@@ -102,27 +117,164 @@
   100% { opacity: 1; transform: scale(1) rotate(0deg); }
 }
 
-/* Provider buttons (Google / Discord) — brand colors override .auth-btn */
-.auth-btn.google {
-  background: #fff;
-  color: #000;
-  border: none;
+/* Header — centré */
+.auth-modal .modal-header {
+  text-align: center;
+  position: relative;
 }
 
-.auth-btn.google:hover {
-  background: #fafafa;
-  box-shadow: var(--shadow-sm);
+.auth-modal .modal-title {
+  font-size: 24px;
+  letter-spacing: -0.4px;
+}
+
+.auth-modal .modal-subtitle {
+  max-width: 300px;
+  margin: 6px auto 0;
+  line-height: 1.5;
+}
+
+/* ── Gros bouton Discord ─────────────────────────────────────────── */
+.auth-options {
+  padding: 0 !important;
+  margin-top: var(--space-6);
+  position: relative;
 }
 
 .auth-btn.discord {
+  width: 100%;
+  padding: 14px 18px;
   background: #5865F2;
   color: #fff;
   border: none;
+  font-size: 15px;
+  box-shadow: 0 1px 2px rgba(88, 101, 242, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  position: relative;
+  overflow: hidden;
 }
 
-.auth-btn.discord:hover {
-  background: #4752c4;
-  box-shadow: 0 4px 12px rgba(88,101,242,.3);
+.auth-btn.discord:hover:not(:disabled) {
+  background: #4752C4;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(88, 101, 242, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.auth-btn.discord:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.auth-btn.discord:disabled {
+  opacity: 0.75;
+  cursor: wait;
+}
+
+/* Effet de brillance au survol */
+.auth-btn.discord::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -80%;
+  width: 45%;
+  height: 100%;
+  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.22), transparent);
+  transform: skewX(-20deg);
+  transition: left 0.6s var(--ease);
+  pointer-events: none;
+}
+
+.auth-btn.discord:hover:not(:disabled)::after {
+  left: 130%;
+}
+
+/* Spinner pendant la redirection OAuth */
+.auth-btn .auth-spinner {
+  display: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: authSpin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.auth-btn.is-redirecting {
+  pointer-events: none;
+}
+
+.auth-btn.is-redirecting > svg {
+  display: none;
+}
+
+.auth-btn.is-redirecting .auth-spinner {
+  display: inline-block;
+}
+
+@keyframes authSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Liste des avantages ─────────────────────────────────────────── */
+.auth-perks {
+  list-style: none;
+  margin: var(--space-6) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+}
+
+.auth-perks li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--fg-secondary);
+  line-height: 1.4;
+}
+
+.auth-perks li strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.auth-perk-check {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent-subtle, #FFF4ED);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.auth-perk-check svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* ── Note de sécurité ────────────────────────────────────────────── */
+.auth-security-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: var(--space-6) 0 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle, #F0F0F1);
+  font-size: 11.5px;
+  color: var(--fg-subtle);
+  position: relative;
+}
+
+.auth-security-note svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  opacity: 0.7;
 }
 
 /* Highlight for the connected user's rows (leaderboards) */
@@ -137,7 +289,7 @@
   color: var(--accent);
 }
 
-/* Responsive */
+/* ── Responsive ──────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .auth-zone {
     top: 15px;
@@ -148,5 +300,11 @@
   }
   .login-btn {
     padding: 8px;
+  }
+  .auth-modal {
+    padding: var(--space-6) var(--space-4) var(--space-4) !important;
+  }
+  .auth-modal .modal-title {
+    font-size: 21px;
   }
 }

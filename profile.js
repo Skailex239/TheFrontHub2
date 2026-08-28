@@ -904,6 +904,23 @@ async function saveUserProfile(username, publicId) {
 
 /* ── Sidebar / auth modal handlers ── */
 
+// État visuel des boutons Discord pendant la redirection OAuth (modal + gate)
+function setDiscordRedirecting(redirecting) {
+  const btns = document.querySelectorAll(".auth-btn.discord, .pf-discord-btn, #auth-btn-discord");
+  btns.forEach((btn) => {
+    const label = btn.querySelector(".auth-btn-label");
+    if (redirecting) {
+      btn.disabled = true;
+      btn.classList.add("is-redirecting");
+      if (label) label.textContent = "Redirection vers Discord…";
+    } else {
+      btn.disabled = false;
+      btn.classList.remove("is-redirecting");
+      if (label) label.textContent = "Continuer avec Discord";
+    }
+  });
+}
+
 window.toggleAuthModal = function () {
   const modal = document.getElementById("auth-modal");
   if (modal) modal.classList.toggle("active");
@@ -912,19 +929,16 @@ window.toggleAuthModal = function () {
 window.handleLogin = async function (provider) {
   if (window._loginInProgress) return;
   window._loginInProgress = true;
-  const authBtns = document.querySelectorAll(".auth-btn");
-  authBtns.forEach((b) => { b.disabled = true; b.style.opacity = "0.6"; });
+  setDiscordRedirecting(true);
   try {
-    if (provider === "google") await window.loginWithGoogle();
-    else if (provider === "discord") await window.loginWithDiscord();
-    // Close modal on success — onAuthStateChanged will switch view
+    // Discord uniquement — loginWithDiscord() redirige vers l'OAuth
+    await window.loginWithDiscord();
     const modal = document.getElementById("auth-modal");
     if (modal) modal.classList.remove("active");
   } catch (e) {
     console.error("[profile] Login error:", e);
-  } finally {
     window._loginInProgress = false;
-    authBtns.forEach((b) => { b.disabled = false; b.style.opacity = ""; });
+    setDiscordRedirecting(false);
   }
 };
 
@@ -1252,66 +1266,88 @@ function renderWeeklyChart() {
   });
 }
 /* ════════════════════════════════════════════════════════════════
-   REWARD CODE CARD (skins)
+   RÉCOMPENSES v2 — codes + cosmétiques (design 2026-08)
    ════════════════════════════════════════════════════════════════ */
+
+const RW_SUBMIT_LABEL = "Valider";
+
+function setRwFeedback(type, msg) {
+  const el = document.getElementById("rw-feedback");
+  if (!el) return;
+  el.className = "rw-feedback show " + type;
+  const icon =
+    type === "success"
+      ? '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><polyline points="20 6 9 17 4 12"/></svg>'
+      : '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
+  el.innerHTML = icon + "<span>" + esc(msg) + "</span>";
+  el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function clearRwFeedback() {
+  const el = document.getElementById("rw-feedback");
+  if (el) {
+    el.className = "rw-feedback";
+    el.innerHTML = "";
+  }
+}
 
 function renderRewardCodeCard(publicId) {
   _rewardCardState.publicId = publicId;
   const container = document.getElementById("reward-code-section");
   if (!container) return;
 
-  // Build the card HTML
   container.innerHTML = `
-    <div class="reward-code-card">
-      <div class="reward-code-header">
-        <span class="reward-code-header-icon">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
+    <div class="rw-card">
+      <div class="rw-header">
+        <span class="rw-header-icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
         </span>
-        <div>
-          <h2>Codes de récompense</h2>
-          <p>Entre un code pour débloquer un skin (motif de texte coloré sur ton pseudo)</p>
+        <div class="rw-header-text">
+          <h2>Récompenses</h2>
+          <p>Entre un code pour débloquer un cosmétique exclusif pour ton pseudo.</p>
         </div>
       </div>
-      <div class="reward-code-body">
-        <label for="reward-code-input" style="display:block;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">Code de récompense</label>
-        <div class="reward-code-input-row">
-          <div class="reward-code-input-wrap">
+      <div class="rw-redeem">
+        <div class="rw-redeem-row">
+          <div class="rw-input-wrap">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-            <input type="text" id="reward-code-input" placeholder="EX: GOLD-2025" autocomplete="off" style="text-transform:uppercase">
+            <input type="text" id="reward-code-input" placeholder="TON-CODE-ICI" autocomplete="off" spellcheck="false">
           </div>
-          <button type="button" class="reward-code-btn" id="reward-code-submit" disabled>
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-            Valider
+          <button type="button" class="rw-submit" id="reward-code-submit" disabled>
+            <span class="auth-spinner" aria-hidden="true"></span>
+            <span class="rw-submit-label">${RW_SUBMIT_LABEL}</span>
           </button>
         </div>
-        <p class="reward-code-hint">Les codes sont normalisés en majuscules. Un code peut être à usage unique ou limité.</p>
+        <div class="rw-feedback" id="rw-feedback" role="status"></div>
       </div>
-      <div class="reward-code-gallery-section">
-        <div class="reward-code-gallery-title">
-          <h3>Skins possédés (<span id="owned-skins-count">0</span>)</h3>
-          <span class="reward-code-gallery-hint">Clique pour activer</span>
+      <div class="rw-gallery-section">
+        <div class="rw-gallery-head">
+          <h3>Mes cosmétiques <span class="rw-count" id="owned-skins-count">0</span></h3>
+          <span class="rw-gallery-hint">Clique pour activer</span>
         </div>
-        <div class="skins-gallery" id="skins-gallery">
-          <div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">Chargement…</div>
+        <div class="rw-gallery" id="skins-gallery">
+          <div class="rw-empty">
+            <span class="rw-empty-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8L20 10.5l-5 4.4 1.5 6.1L12 17.8 7.5 21l1.5-6.1-5-4.4 6.1-1.7L12 3z"/></svg></span>
+            <h4>Chargement…</h4>
+          </div>
         </div>
       </div>
     </div>
   `;
 
-  // Wire up the input + button
   const input = document.getElementById("reward-code-input");
   const btn = document.getElementById("reward-code-submit");
 
   input.addEventListener("input", () => {
     input.value = normalizeCode(input.value);
     btn.disabled = !input.value.trim();
+    clearRwFeedback();
   });
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && input.value.trim()) handleRedeem();
   });
   btn.addEventListener("click", handleRedeem);
 
-  // Load owned skins
   refreshOwnedSkins(publicId);
 }
 
@@ -1328,7 +1364,7 @@ async function refreshOwnedSkins(publicId) {
     renderSkinsGallery(ownedSkins, activeSkinId);
   } catch (e) {
     console.warn("[profile] refreshOwnedSkins failed:", e);
-    gallery.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">Erreur de chargement</div>`;
+    gallery.innerHTML = `<div class="rw-empty"><h4>Erreur de chargement</h4><p>Réessaie dans un instant.</p></div>`;
   }
 }
 
@@ -1337,40 +1373,54 @@ function renderSkinsGallery(ownedSkins, activeSkinId) {
   if (!gallery) return;
 
   const ownedIds = new Set(ownedSkins.map((s) => s.skinId));
-  const allSkins = [getSkin(DEFAULT_SKIN_ID), ...getUnlockableSkins()];
+  const unlockable = getUnlockableSkins();
+  const allSkins = [getSkin(DEFAULT_SKIN_ID), ...unlockable];
 
-  gallery.innerHTML = allSkins.map((skin) => {
+  // Cartes des skins (possédés + catalogue)
+  const cards = allSkins.map((skin) => {
     const isOwned = skin.id === DEFAULT_SKIN_ID || ownedIds.has(skin.id);
-    const isActive = (skin.id === DEFAULT_SKIN_ID && (!activeSkinId || activeSkinId === DEFAULT_SKIN_ID)) || activeSkinId === skin.id;
+    const isActive =
+      (skin.id === DEFAULT_SKIN_ID && (!activeSkinId || activeSkinId === DEFAULT_SKIN_ID)) ||
+      activeSkinId === skin.id;
     const ownedEntry = ownedSkins.find((s) => s.skinId === skin.id);
     const rarity = RARITY_META[skin.rarity];
 
     if (!isOwned) {
       return `
-        <div class="skin-card locked" title="${esc(skin.description)}">
-          <svg class="skin-locked-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-          <div class="skin-preview"><span class="${skin.cssClass}" style="opacity:0.3">${esc(skin.name)}</span></div>
-          <div class="skin-name">${esc(skin.name)}</div>
-          <span class="skin-rarity-badge" style="color:${rarity.color};background:${rarity.bg}">${rarity.label}</span>
-          <div style="margin-top:4px;font-size:10px;color:var(--text3)">Verrouillé</div>
+        <div class="rw-skin-card" style="opacity:.55;cursor:default;border-style:dashed" title="${esc(skin.description)}">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--fg-subtle)"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <div class="rw-skin-preview"><span class="${skin.cssClass}" style="opacity:0.35">${esc(skin.name)}</span></div>
+          <div class="rw-skin-name">${esc(skin.name)}</div>
+          <span class="rw-skin-rarity" style="color:${rarity.color};background:${rarity.bg}">${rarity.label}</span>
+          <div style="margin-top:2px;font-size:10px;color:var(--fg-subtle)">Verrouillé</div>
         </div>
       `;
     }
 
     return `
-      <button type="button" class="skin-card ${isActive ? 'active' : ''}" data-skin-id="${esc(skin.id)}" title="${esc(skin.description)}">
-        ${isActive ? '<span style="position:absolute;top:6px;right:6px;width:18px;height:18px;border-radius:50%;background:var(--orange);color:#fff;display:inline-flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>' : ''}
-        <div class="skin-preview"><span class="${skin.cssClass}">${esc(skin.name)}</span></div>
-        <div class="skin-name">${esc(skin.name)}</div>
-        <span class="skin-rarity-badge" style="color:${rarity.color};background:${rarity.bg}">${rarity.label}</span>
-        ${ownedEntry && ownedEntry.redeemedAt ? `<span class="skin-redeemed-date">Depuis le ${formatFrenchDate(new Date(ownedEntry.redeemedAt).getTime())}</span>` : ''}
-        ${isActive ? '<span class="skin-active-badge">● Actif</span>' : ''}
+      <button type="button" class="rw-skin-card ${isActive ? "active" : ""}" data-skin-id="${esc(skin.id)}" title="${esc(skin.description)}">
+        <div class="rw-skin-preview"><span class="${skin.cssClass}">${esc(skin.name)}</span></div>
+        <div class="rw-skin-name">${esc(skin.name)}</div>
+        <span class="rw-skin-rarity" style="color:${rarity.color};background:${rarity.bg}">${rarity.label}</span>
+        ${ownedEntry && ownedEntry.redeemedAt ? `<span class="rw-skin-date">Depuis le ${formatFrenchDate(new Date(ownedEntry.redeemedAt).getTime())}</span>` : ""}
+        ${isActive ? '<span class="rw-skin-active-badge">Actif</span>' : ""}
       </button>
     `;
   }).join("");
 
-  // Wire up activate buttons
-  gallery.querySelectorAll(".skin-card[data-skin-id]").forEach((card) => {
+  // Catalogue vide → empty state « cosmétiques à venir »
+  const emptyState = unlockable.length === 0 ? `
+    <div class="rw-empty">
+      <span class="rw-empty-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8L20 10.5l-5 4.4 1.5 6.1L12 17.8 7.5 21l1.5-6.1-5-4.4 6.1-1.7L12 3z"/></svg></span>
+      <h4>Aucun cosmétique disponible pour l'instant</h4>
+      <p>De nouveaux skins exclusifs arrivent bientôt sur TheFrontHub. Les codes déjà distribués resteront valables !</p>
+      <span class="rw-empty-tag">Nouveautés à venir</span>
+    </div>
+  ` : "";
+
+  gallery.innerHTML = cards + emptyState;
+
+  gallery.querySelectorAll(".rw-skin-card[data-skin-id]").forEach((card) => {
     card.addEventListener("click", () => handleActivate(card.dataset.skinId));
   });
 }
@@ -1378,6 +1428,7 @@ function renderSkinsGallery(ownedSkins, activeSkinId) {
 async function handleRedeem() {
   const input = document.getElementById("reward-code-input");
   const btn = document.getElementById("reward-code-submit");
+  const label = btn ? btn.querySelector(".rw-submit-label") : null;
   if (!input || !input.value.trim()) return;
 
   const code = input.value.trim();
@@ -1385,24 +1436,30 @@ async function handleRedeem() {
   if (!publicId) return;
 
   btn.disabled = true;
-  btn.innerHTML = `<div class="games-loading-spinner" style="width:14px;height:14px"></div> Validation…`;
+  btn.classList.add("is-redirecting");
+  if (label) label.textContent = "Validation…";
+  clearRwFeedback();
 
   try {
     const result = await redeemCode(code, publicId);
     if (result.alreadyOwned) {
+      setRwFeedback("success", result.message);
       showToast(result.message, "info");
     } else {
-      showToast(result.message || `Skin "${result.skinName}" débloqué !`, "success");
+      const rarity = result.rarity ? ` (${RARITY_META[result.rarity]?.label || result.rarity})` : "";
+      setRwFeedback("success", `${result.message}${rarity} — il est déjà activé sur ton pseudo.`);
+      showToast(result.message || `Cosmétique "${result.skinName}" débloqué !`, "success");
     }
     input.value = "";
     await refreshOwnedSkins(publicId);
-    // Refresh the hero name skin
     if (currentProfile) renderHero(currentUser, currentProfile);
   } catch (e) {
+    setRwFeedback("error", e.message || "Code invalide ou expiré.");
     showToast(e.message || "Code invalide", "error");
   } finally {
-    btn.disabled = false;
-    btn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg> Valider`;
+    btn.disabled = true; // sera ré-activé par l'input listener si besoin
+    btn.classList.remove("is-redirecting");
+    if (label) label.textContent = RW_SUBMIT_LABEL;
   }
 }
 

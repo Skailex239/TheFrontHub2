@@ -941,22 +941,35 @@ window.closeProfileModal = function () {
   if (modal) modal.classList.remove("active");
 };
 
+// État visuel du bouton Discord pendant la redirection OAuth
+function setDiscordRedirecting(redirecting) {
+  const btn = document.getElementById("auth-btn-discord") || document.querySelector(".auth-btn.discord");
+  if (!btn) return;
+  const label = btn.querySelector(".auth-btn-label");
+  if (redirecting) {
+    btn.disabled = true;
+    btn.classList.add("is-redirecting");
+    if (label) label.textContent = "Redirection vers Discord…";
+  } else {
+    btn.disabled = false;
+    btn.classList.remove("is-redirecting");
+    if (label) label.textContent = "Continuer avec Discord";
+  }
+}
+
 window.handleLogin = async function (provider) {
   if (_loginInProgress) return;
   _loginInProgress = true;
-  const authBtns = document.querySelectorAll(".auth-btn");
-  authBtns.forEach((b) => { b.disabled = true; b.style.opacity = "0.6"; });
+  setDiscordRedirecting(true);
   try {
-    if (provider === "google") await window.loginWithGoogle();
-    else if (provider === "discord") await window.loginWithDiscord();
+    // Discord uniquement — loginWithDiscord() redirige vers l'OAuth
+    await window.loginWithDiscord();
     const modal = document.getElementById("auth-modal");
     if (modal) modal.classList.remove("active");
-    // onAuthStateChanged prend le relais pour la redirection / UI
   } catch (e) {
     console.error("[dashboard] Login error:", e);
-  } finally {
     _loginInProgress = false;
-    authBtns.forEach((b) => { b.disabled = false; b.style.opacity = ""; });
+    setDiscordRedirecting(false);
   }
 };
 

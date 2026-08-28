@@ -61,38 +61,46 @@ window.toggleUserDropdown = function (event) {
 };
 
 /* ════════════════════════════════════════════════════════════════════
-   Connexion (popup → redirect fallback géré dans auth.js)
+   Connexion — Discord uniquement (redirection OAuth /api/auth/discord/)
    ════════════════════════════════════════════════════════════════════ */
 
 let _loginInProgress = false; // L11 : anti double-clic
 
+// État visuel du bouton Discord pendant la redirection OAuth
+function setDiscordRedirecting(redirecting) {
+  const btn = document.getElementById("auth-btn-discord") || document.querySelector(".auth-btn.discord");
+  if (!btn) return;
+  const label = btn.querySelector(".auth-btn-label");
+  if (redirecting) {
+    btn.disabled = true;
+    btn.classList.add("is-redirecting");
+    if (label) label.textContent = "Redirection vers Discord…";
+  } else {
+    btn.disabled = false;
+    btn.classList.remove("is-redirecting");
+    if (label) label.textContent = "Continuer avec Discord";
+  }
+}
+
 window.handleLogin = async function (provider) {
   if (_loginInProgress) return;
   _loginInProgress = true;
-  console.log(`[auth-ui] Tentative de connexion avec ${provider}...`);
+  console.log("[auth-ui] Connexion Discord…");
 
-  const authBtns = document.querySelectorAll(".auth-btn");
-  authBtns.forEach((btn) => { btn.disabled = true; btn.style.opacity = "0.6"; });
+  setDiscordRedirecting(true);
 
-  // Le flag doit être posé AVANT l'appel (onAuthStateChanged peut tirer avant
-  // la résolution du popup — race condition, cf. app.js)
+  // Le flag doit être posé AVANT la redirection (le retour OAuth recharge
+  // la page : onAuthStateChanged lit ce flag pour le comportement post-login)
   try { sessionStorage.setItem("tfs_just_logged_in", "1"); } catch {}
 
   try {
-    let user;
-    if (provider === "google") {
-      user = await window.loginWithGoogle();
-    } else if (provider === "discord") {
-      user = await window.loginWithDiscord();
-    }
-    if (user) window.toggleAuthModal();
-    // L'UI est mise à jour par onAuthStateChanged ci-dessous
+    // loginWithDiscord() redirige vers l'OAuth Discord ; la page est quittée.
+    await window.loginWithDiscord();
   } catch (error) {
     try { sessionStorage.removeItem("tfs_just_logged_in"); } catch {}
     console.error("[auth-ui] Erreur d'authentification:", error);
-  } finally {
     _loginInProgress = false;
-    authBtns.forEach((btn) => { btn.disabled = false; btn.style.opacity = ""; });
+    setDiscordRedirecting(false);
   }
 };
 

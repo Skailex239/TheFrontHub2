@@ -1238,3 +1238,567 @@
 :root.dark .pf-game-result.loss { background: rgba(220,80,80,.18);  color: #F87171; }
 :root.dark .pf-error-banner     { background: rgba(255,120,80,.15); border-color: rgba(255,120,80,.45); }
 :root.dark .pf-show-all:hover   { background: var(--bg-muted); }
+
+/* ════════════════════════════════════════════════════════════════════════
+   REFONTE 2026-08 — Connexion Discord + Récompenses v2
+   (classes rw-* et pf-gate-*/pf-setup-* nouvelles, aucun conflit)
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── Gate : carte de connexion Discord ─────────────────────────────── */
+.pf-gate-card {
+  max-width: 420px;
+  margin: 8vh auto 0;
+  padding: var(--space-10) var(--space-8) var(--space-8) !important;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.pf-gate-card::before {
+  content: "";
+  position: absolute;
+  inset: -40% -20% auto;
+  height: 70%;
+  background:
+    radial-gradient(60% 60% at 30% 25%, rgba(88, 101, 242, 0.08), transparent 70%),
+    radial-gradient(50% 50% at 75% 20%, rgba(255, 107, 0, 0.09), transparent 70%);
+  pointer-events: none;
+}
+
+.pf-gate-logo {
+  position: relative;
+  margin-bottom: var(--space-5);
+}
+
+.pf-gate-logo img {
+  width: 88px;
+  height: 88px;
+  border-radius: var(--radius-xl);
+  object-fit: cover;
+  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.16));
+  animation: authLogoPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.pf-gate-card h2 {
+  position: relative;
+  font-size: 24px;
+  letter-spacing: -0.4px;
+  margin-bottom: var(--space-2);
+}
+
+.pf-gate-card > p {
+  position: relative;
+  color: var(--fg-muted);
+  font-size: 14px;
+  line-height: 1.55;
+  max-width: 320px;
+  margin: 0 auto var(--space-6);
+}
+
+/* Gros bouton Discord (variante page) */
+.pf-discord-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 18px;
+  border: none;
+  border-radius: var(--radius);
+  background: #5865F2;
+  color: #fff;
+  font-family: var(--f);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(88, 101, 242, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  transition: background 0.15s var(--ease), transform 0.15s var(--ease), box-shadow 0.15s var(--ease);
+  overflow: hidden;
+}
+
+.pf-discord-btn:hover:not(:disabled) {
+  background: #4752C4;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(88, 101, 242, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.pf-discord-btn:active:not(:disabled) { transform: translateY(0); }
+.pf-discord-btn:disabled { opacity: 0.75; cursor: wait; }
+
+.pf-discord-btn::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -80%;
+  width: 45%;
+  height: 100%;
+  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.22), transparent);
+  transform: skewX(-20deg);
+  transition: left 0.6s var(--ease);
+  pointer-events: none;
+}
+
+.pf-discord-btn:hover:not(:disabled)::after { left: 130%; }
+
+.pf-discord-btn > svg { flex-shrink: 0; }
+.pf-discord-btn.is-redirecting { pointer-events: none; }
+.pf-discord-btn.is-redirecting > svg { display: none; }
+
+.pf-gate-perks {
+  position: relative;
+  list-style: none;
+  margin: var(--space-6) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+
+.pf-gate-perks li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--fg-secondary);
+}
+
+.pf-gate-check {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent-subtle);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.pf-gate-note {
+  position: relative;
+  margin: var(--space-6) 0 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+  font-size: 11.5px;
+  color: var(--fg-subtle);
+}
+
+/* ── Setup : carte de configuration ────────────────────────────────── */
+.pf-setup-card {
+  max-width: 460px;
+  margin: 6vh auto 0;
+  padding: var(--space-8) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.pf-setup-card::before {
+  content: "";
+  position: absolute;
+  inset: -50% -30% auto;
+  height: 60%;
+  background: radial-gradient(55% 55% at 50% 30%, rgba(255, 107, 0, 0.07), transparent 70%);
+  pointer-events: none;
+}
+
+.pf-setup-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-subtle);
+  color: var(--accent-hover);
+  border: 1px solid var(--accent-border);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: var(--space-3);
+}
+
+.pf-setup-card h2 {
+  position: relative;
+  font-size: 22px;
+  letter-spacing: -0.3px;
+  margin-bottom: var(--space-2);
+}
+
+.pf-setup-card .pf-sub {
+  position: relative;
+  color: var(--fg-muted);
+  font-size: 13.5px;
+  line-height: 1.5;
+  margin-bottom: var(--space-6);
+}
+
+.pf-setup-card .pf-form-group { position: relative; margin-bottom: var(--space-5); }
+
+.pf-form-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--fg-subtle);
+  line-height: 1.45;
+}
+
+/* Spinner partagé (boutons Discord) */
+.auth-spinner {
+  display: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: authSpin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.is-redirecting .auth-spinner { display: inline-block; }
+
+@keyframes authSpin { to { transform: rotate(360deg); } }
+
+/* ════════════════════════════════════════════════════════════════════════
+   RÉCOMPENSES v2 — carte rw-*
+   ════════════════════════════════════════════════════════════════════════ */
+
+.rw-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-5);
+  overflow: hidden;
+}
+
+.rw-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--border-subtle);
+  position: relative;
+}
+
+.rw-header-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, #5865F2 0%, #7B87F5 100%);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(88, 101, 242, 0.3);
+}
+
+.rw-header-text h2 {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  margin-bottom: 2px;
+}
+
+.rw-header-text p {
+  font-size: 12.5px;
+  color: var(--fg-muted);
+  line-height: 1.45;
+}
+
+/* Zone de rachat de code */
+.rw-redeem {
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.rw-redeem-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.rw-input-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 14px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+
+.rw-input-wrap:focus-within {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-focus);
+  background: var(--bg);
+}
+
+.rw-input-wrap svg {
+  color: var(--fg-subtle);
+  flex-shrink: 0;
+}
+
+.rw-input-wrap input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 11px 0;
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--fg);
+  text-transform: uppercase;
+  min-width: 0;
+}
+
+.rw-input-wrap input::placeholder {
+  color: var(--fg-subtle);
+  letter-spacing: 0.08em;
+  font-weight: 400;
+}
+
+.rw-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 22px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--f);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s var(--ease), transform 0.15s var(--ease), opacity 0.15s var(--ease);
+  white-space: nowrap;
+}
+
+.rw-submit:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); }
+.rw-submit:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.rw-submit .auth-spinner {
+  border-color: rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  width: 14px;
+  height: 14px;
+}
+
+.rw-feedback {
+  display: none;
+  margin-top: var(--space-3);
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  line-height: 1.45;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.rw-feedback.show { display: flex; }
+
+.rw-feedback.success {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #0d9668;
+}
+
+.rw-feedback.error {
+  background: rgba(239, 68, 68, 0.07);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #dc2626;
+}
+
+:root.dark .rw-feedback.success { color: #34d399; }
+:root.dark .rw-feedback.error   { color: #f87171; }
+
+/* Galerie des cosmétiques possédés */
+.rw-gallery-section { padding: var(--space-5) var(--space-6) var(--space-6); }
+
+.rw-gallery-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.rw-gallery-head h3 {
+  font-size: 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rw-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-subtle);
+  color: var(--accent-hover);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rw-gallery-hint {
+  font-size: 11.5px;
+  color: var(--fg-subtle);
+}
+
+.rw-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--space-3);
+}
+
+.rw-skin-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: var(--space-4) var(--space-3) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  cursor: pointer;
+  text-align: center;
+  font-family: var(--f);
+  transition: border-color 0.15s var(--ease), transform 0.15s var(--ease), box-shadow 0.15s var(--ease), background 0.15s var(--ease);
+}
+
+.rw-skin-card:hover {
+  border-color: var(--accent-border);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.07);
+}
+
+.rw-skin-card.active {
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+  box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.15);
+}
+
+.rw-skin-preview {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  font-weight: 800;
+  margin-bottom: 2px;
+}
+
+.rw-skin-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.rw-skin-rarity {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.rw-skin-date {
+  font-size: 10px;
+  color: var(--fg-subtle);
+  margin-top: 2px;
+}
+
+.rw-skin-active-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-hover);
+}
+
+.rw-skin-active-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+/* Empty state — catalogue vide (cosmétiques à venir) */
+.rw-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: var(--space-8) var(--space-6);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+}
+
+.rw-empty-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--accent-subtle);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--space-2);
+}
+
+.rw-empty h4 {
+  font-size: 14.5px;
+  font-weight: 700;
+}
+
+.rw-empty p {
+  font-size: 12.5px;
+  color: var(--fg-muted);
+  line-height: 1.5;
+  max-width: 340px;
+}
+
+.rw-empty-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--space-2);
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+
+/* Responsive récompenses */
+@media (max-width: 640px) {
+  .rw-redeem-row { flex-direction: column; }
+  .rw-submit { padding: 12px; }
+  .rw-gallery { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+  .rw-header, .rw-redeem, .rw-gallery-section { padding-left: var(--space-4); padding-right: var(--space-4); }
+}
