@@ -103,6 +103,24 @@ async function run() {
     console.log("[build] 👀 Watching for changes... (Ctrl+C to stop)");
   } else {
     await Promise.all(entries.map(e => build(e)));
+
+    // ── Fix Lenis : dist/lenis.min.js est chargé en <script> CLASSIQUE
+    // (sans type="module") sur toutes les pages, mais esbuild (format: esm)
+    // convertit l'UMD en ESM : « export default J(); » → SyntaxError
+    // « Unexpected token 'export' » + le wrapper CJS détourne l'UMD vers
+    // module.exports sans jamais poser globalThis.Lenis.
+    // Correctif : on remplace l'export par une assignation globale —
+    // J() exécute l'usine et retourne la classe Lenis.
+    const lenisOut = path.join(DIST, "lenis.min.js");
+    if (fs.existsSync(lenisOut)) {
+      let src = fs.readFileSync(lenisOut, "utf8");
+      const patched = src.replace(/;export default (\w+)\(\);?\s*$/, ";globalThis.Lenis=$1();");
+      if (patched !== src) {
+        fs.writeFileSync(lenisOut, patched);
+        console.log("[build] 🔧 lenis.min.js : « export default J() » → « globalThis.Lenis = J() »");
+      }
+    }
+
     const afterMs = Date.now();
 
     // Report sizes

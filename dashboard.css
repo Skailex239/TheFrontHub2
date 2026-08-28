@@ -127,20 +127,20 @@
   justify-content: center;
   min-height: 320px;
   gap: 12px;
-  color: #6B7280;
+  color: var(--fg-muted, #6B7280);
   text-align: center;
 }
 .dash-empty-state h3,
-.dash-error h3 { color: #111827; margin: 0; font-size: 18px; }
+.dash-error h3 { color: var(--fg, #111827); margin: 0; font-size: 18px; }
 .dash-empty-icon {
   width: 56px; height: 56px; border-radius: 50%;
-  background: #FFF7ED;
+  background: var(--orange-pale, #FFF7ED);
   color: var(--orange);
   display: flex; align-items: center; justify-content: center;
 }
 .spinner {
   width: 32px; height: 32px;
-  border: 3px solid #F3F4F6;
+  border: 3px solid var(--bg-muted, #F3F4F6);
   border-top-color: var(--orange);
   border-radius: 50%;
   animation: dash-spin 0.8s linear infinite;
@@ -152,7 +152,7 @@
   display: block;
   margin-bottom: 16px;
   padding: 10px 14px;
-  background: #FFF7ED;
+  background: var(--orange-pale, #FFF7ED);
   border: 1px solid rgba(249, 115, 22, 0.25);
   border-radius: 10px;
   color: var(--orange-deep);
@@ -164,7 +164,7 @@
 .dash-progress {
   margin-bottom: 16px;
   padding: 12px 14px;
-  background: #FFF7ED;
+  background: var(--orange-pale, #FFF7ED);
   border: 1px solid rgba(249, 115, 22, 0.25);
   border-radius: 10px;
 }
@@ -219,7 +219,7 @@
 }
 .dash-scoring-inline {
   font-size: 12px;
-  color: #6B7280;
+  color: var(--fg-muted, #6B7280);
   font-family: var(--mono, monospace);
   letter-spacing: 0.01em;
 }
@@ -227,7 +227,7 @@
 /* ── Toggle (segmented pill, orange on active) ── */
 .dash-toggle {
   display: inline-flex;
-  background: #F3F4F6;
+  background: var(--bg-muted, #F3F4F6);
   border-radius: 999px;
   padding: 3px;
   gap: 2px;
@@ -236,7 +236,7 @@
   padding: 8px 18px;
   border: none;
   background: transparent;
-  color: #6B7280;
+  color: var(--fg-muted, #6B7280);
   font-family: inherit;
   font-size: 14px;
   font-weight: 600;
@@ -245,7 +245,7 @@
   transition: color var(--dur-fast) var(--ease-out), background var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out);
   white-space: nowrap;
 }
-.dash-toggle-btn:hover { color: #111827; }
+.dash-toggle-btn:hover { color: var(--fg, #111827); }
 .dash-toggle-btn.active {
   background: var(--orange);
   color: #fff;
@@ -288,14 +288,14 @@
   font-family: var(--mono, "JetBrains Mono", monospace);
   font-size: 15px;
   font-weight: 800;
-  color: #111827;
+  color: var(--fg, #111827);
   margin: 0;
   letter-spacing: 0.03em;
   text-transform: uppercase;
 }
 .dash-panel-sub {
   font-size: 12px;
-  color: #6B7280;
+  color: var(--fg-muted, #6B7280);
   font-weight: 500;
 }
 
@@ -307,6 +307,10 @@
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: thin;
+  /* Fondu en bas : signale que la liste continue (scroll) au lieu
+     de ressembler à des lignes coupées net */
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 34px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 34px), transparent 100%);
   scrollbar-color: #E5E7EB transparent;
   -webkit-overflow-scrolling: touch;
 }
@@ -439,7 +443,7 @@
 .dash-player-name {
   font-size: 15px;
   font-weight: 600;
-  color: #111827;
+  color: var(--fg, #111827);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -487,7 +491,7 @@
 .dash-score-val {
   font-size: 16px;
   font-weight: 800;
-  color: #111827;
+  color: var(--fg, #111827);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
@@ -524,7 +528,7 @@
 .dash-empty {
   text-align: center;
   padding: 48px 20px;
-  color: #6B7280;
+  color: var(--fg-muted, #6B7280);
   font-size: 14px;
 }
 
@@ -536,7 +540,7 @@
   margin-top: 24px;
   padding: 12px 16px;
   border-radius: 10px;
-  background: #FFF7ED;
+  background: var(--orange-pale, #FFF7ED);
   border: 1px solid rgba(249, 115, 22, 0.2);
   color: #4B5563;
   font-size: 12px;
@@ -547,11 +551,11 @@
 
 /* ═══ Sticky footer ═══ */
 .dash-footer {
-  background: #FFFFFF;
-  border-top: 1px solid #F3F4F6;
+  background: var(--bg-subtle, #FAFAFA);
+  border-top: 1px solid var(--border, #F3F4F6);
   padding: 14px 24px;
   font-size: 12px;
-  color: #6B7280;
+  color: var(--fg-muted, #6B7280);
   flex-shrink: 0;
 }
 .dash-footer-inner {
@@ -566,7 +570,7 @@
 .dash-footer-legend {
   font-family: var(--mono, monospace);
   font-size: 11px;
-  color: #9CA3AF;
+  color: var(--fg-subtle, #9CA3AF);
 }
 
 /* ═══ Skins VIP — pseudo en dégradé animé ═══

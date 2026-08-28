@@ -15,7 +15,7 @@
 <link rel="dns-prefetch" href="https://api.openfront.io">
 
 <!-- Performance: Preload critical assets -->
-<link rel="preload" href="styles.css?v=64" as="style">
+<link rel="preload" href="styles.css?v=66" as="style">
 <link rel="preload" href="atlas.css?v=7" as="style">
 <link rel="preload" href="dist/atlas.min.js?v=2" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=2" as="script" crossorigin>
@@ -25,21 +25,21 @@
 
 <link rel="icon" type="image/png" href="favicon-32x32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="favicon-180x180.png">
-<link rel="stylesheet" href="styles.css?v=64">
+<link rel="stylesheet" href="styles.css?v=66">
 <link rel="stylesheet" href="auth.css?v=19">
 <link rel="stylesheet" href="toast.css">
 <link rel="stylesheet" href="animations.css?v=6">
 <link rel="stylesheet" href="atlas.css?v=7">
 <style>.skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}</style>
 <script type="module" src="dist/icons.min.js?v=2"></script>
-<link rel="stylesheet" href="ads.css?v=1">
+<link rel="stylesheet" href="ads.css?v=2">
 </head>
 <body>
 <a href="#atlas-content" class="skip-link">Aller au contenu principal</a>
 <div class="loading-bar-track"><div class="loading-bar-fill" id="loading-bar"></div></div>
 
-<div class="page-wrap" style="min-height:100vh;display:flex;flex-direction:column">
-<div class="app" style="flex:1;display:flex;min-width:0">
+<div class="page-wrap">
+<div class="app">
 
   <aside class="sidebar">
     <div class="logo" onclick="logoClickAnim(event)" role="link" aria-label="Aller au tableau de bord" tabindex="0">
@@ -80,6 +80,36 @@
           <span>Connexion</span>
         </button>
       </div>
+
+      <!-- Logged in (hidden by default) -->
+      <div class="user-container" id="user-container" style="display: none;">
+        <div class="user-badge" id="user-badge-btn" aria-expanded="false" aria-haspopup="true" aria-controls="user-dropdown-menu" onclick="toggleUserDropdown(event)">
+          <div class="profile-avatar" id="sidebar-avatar">—</div>
+          <div class="profile-info">
+            <h4 id="user-display-name">—</h4>
+            <span>En ligne</span>
+          </div>
+          <svg class="chevron-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left:auto;color:var(--muted);flex-shrink:0"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="user-dropdown-menu" id="user-dropdown-menu">
+          <div class="dropdown-header">
+            <div class="dropdown-avatar" id="dropdown-avatar"></div>
+            <div class="dropdown-user-info">
+              <div class="dropdown-username" id="dropdown-username-display">—</div>
+              <div class="dropdown-publicid" id="dropdown-publicid-display">—</div>
+            </div>
+          </div>
+          <div class="dropdown-divider"></div>
+          <button class="dropdown-item" onclick="goToProfilePage(event)">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span>Mon profil</span>
+          </button>
+          <button class="dropdown-item logout" onclick="handleLogout(event)">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            <span>Se déconnecter</span>
+          </button>
+        </div>
+      </div>
     </div>
   </aside>
 
@@ -102,19 +132,56 @@
 </div>
 </div>
 
+<!-- Auth Modal (pour le bouton Connexion de la sidebar — même markup que lobby.html) -->
+<div class="modal-overlay" id="auth-modal" onclick="toggleAuthModal()">
+  <div class="modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" onclick="event.stopPropagation()">
+    <button class="modal-close" aria-label="Fermer" onclick="toggleAuthModal()">&times;</button>
+    <div class="auth-modal-logo">
+      <img src="TheFrontHub Logo No Text.png" alt="TheFrontHub" class="auth-modal-logo-img">
+    </div>
+    <div class="modal-header">
+      <div class="modal-title" id="auth-modal-title">Rejoins TheFrontHub</div>
+      <div class="modal-subtitle">Connexion ou inscription en 1 clic avec Discord — sans mot de passe, sans email.</div>
+    </div>
+    <div class="auth-options">
+      <button class="auth-btn discord" id="auth-btn-discord" onclick="handleLogin('discord')">
+        <span class="auth-spinner" aria-hidden="true"></span>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-label="Discord"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028 14.09 14.09 0 001.226-1.994.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+        <span class="auth-btn-label">Continuer avec Discord</span>
+      </button>
+    </div>
+    <ul class="auth-perks">
+      <li>
+        <span class="auth-perk-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+        <span><strong>Profil et stats OpenFront</strong> — tes parties suivies automatiquement</span>
+      </li>
+      <li>
+        <span class="auth-perk-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+        <span><strong>Historique et progression</strong> — graphiques, temps de jeu et achievements</span>
+      </li>
+    </ul>
+    <p class="auth-security-note">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <span>Session sécurisée · Hébergé en France · Aucun mot de passe stocké</span>
+    </p>
+  </div>
+</div>
+
 <div id="toast-container"></div>
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/d3-array@3/dist/d3-array.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/d3-geo@3/dist/d3-geo.min.js"></script>
 <script type="module" src="dist/atlas.min.js?v=2"></script>
-<script src="dist/lenis.min.js?v=2"></script>
+<script src="dist/lenis.min.js?v=6"></script>
 <script src="dist/animations.min.js?v=1"></script>
 <script src="dist/toast.min.js?v=1"></script>
 <script type="module" src="dist/tutorial.min.js?v=2"></script>
+<script type="module" src="auth.js?v=19"></script>
+<script type="module" src="auth-ui.js?v=2"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=17').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=19').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>
@@ -169,6 +236,6 @@
 </script>
 
 
-<script src="ads.js?v=1"></script>
+<script src="ads.js?v=3"></script>
 </body>
 </html>

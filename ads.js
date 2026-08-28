@@ -169,7 +169,52 @@ function createAdSlot(id, format, layout) {
     }
   }, 100);
 
+  // Collapse automatique si la pub n'a pas rempli l'emplacement.
+  // AdSense pose data-ad-status="filled" | "unfilled" sur le <ins>.
+  // Un slot vide ne doit PAS laisser un grand rectangle noir : on le replie.
+  scheduleCollapseCheck(wrapper, ins, id);
+
   return wrapper;
+}
+
+/**
+ * Vérifie après un délai si l'annonce a été remplie.
+ * Si non remplie (bloqueur de pub, pas de campagne, IDs placeholder…),
+ * le slot est masqué pour ne pas créer de trou visuel dans la page.
+ */
+function scheduleCollapseCheck(wrapper, ins, id) {
+  const checks = [
+    { delay: 2500 },
+    { delay: 6000 },  // 2e chance : les annonces tardives (lazy, vidéo…) remplissent parfois après 3-5s
+  ];
+
+  const check = () => {
+    if (!wrapper.isConnected) return; // slot retiré du DOM entre-temps
+
+    // data-ad-status est posé par AdSense : "filled" | "unfilled".
+    // ⚠️ un iframe est créé même pour les annonces NON remplies :
+    // on ne peut PAS se fier à sa seule présence.
+    const status = ins.getAttribute("data-ad-status");
+    let filled;
+    if (status === "filled") {
+      filled = true;
+    } else if (status === "unfilled") {
+      filled = false;
+    } else {
+      // Statut absent : AdSense pas encore traité (réseau lent) ou bloqué.
+      // On ne replie que si rien n'est rendu.
+      filled = ins.offsetHeight > 40 && ins.querySelector("iframe") !== null;
+    }
+
+    if (!filled) {
+      wrapper.classList.add("ad-collapsed");
+      console.log("[ads] slot non rempli → replié:", id);
+    } else {
+      wrapper.classList.remove("ad-collapsed");
+    }
+  };
+
+  checks.forEach(({ delay }) => setTimeout(check, delay));
 }
 
 // IDs de slots AdSense — à remplacer par tes vrais IDs quand tu crées

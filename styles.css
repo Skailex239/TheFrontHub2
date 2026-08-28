@@ -144,7 +144,28 @@ body{
 /* ═══════════════════════════════════════════
    APP LAYOUT — Sidebar + Content
    ═══════════════════════════════════════════ */
-.app{display:flex;min-height:100vh}
+.app{display:flex;min-height:100vh;flex:1;min-width:0}
+
+/* ── Wrapper de page (remplace les styles inline dupliqués sur
+      atlas.html / lobby.html / dashboard.html) ── */
+.page-wrap{min-height:100vh;display:flex;flex-direction:column}
+
+/* ── Bouton d'action du topbar (bouton « Partager » d'index.html,
+      avant stylé en inline) ── */
+.topbar-action{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:6px 12px;
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:6px;
+  cursor:pointer;
+  color:var(--text2);
+  font-size:12px;
+  font-family:var(--f);
+  transition:all .15s ease;
+  flex-shrink:0;
+}
+.topbar-action:hover{border-color:var(--accent);color:var(--accent)}
 
 /* ── SIDEBAR — clean white, 1px border-right, no shadow ── */
 .sidebar{
@@ -592,6 +613,15 @@ body{
 .empty-state h3{font-size:16px;color:var(--fg);margin-bottom:6px;font-weight:600}
 .empty-state p{color:var(--fg-muted);font-size:13px}
 .loading{padding:24px;text-align:center;color:var(--fg-muted);font-size:13px}
+/* Indicateur vidé après chargement (runs.js fait status.textContent = '')
+   → ne pas garder un bloc vide de 48px dans le flux */
+.loading:empty{display:none}
+
+/* Liens joueurs dans les tableaux : héritent de la couleur du texte
+   (avant : bleu navigateur par défaut, incohérent avec le thème orange) */
+.global-player a{color:inherit;text-decoration:none}
+.global-player a:hover{color:var(--accent)}
+.global-table a{color:inherit}
 
 /* ═══════════════════════════════════════════
    MODALS — clean white, 1px border, no shadow

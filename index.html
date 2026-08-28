@@ -62,8 +62,8 @@
 <link rel="dns-prefetch" href="https://www.gstatic.com" crossorigin>
 
 <!-- Performance: Preload critical assets -->
-<link rel="preload" href="styles.css?v=64" as="style">
-<link rel="preload" href="dist/app.min.js?v=7" as="script" crossorigin>
+<link rel="preload" href="styles.css?v=66" as="style">
+<link rel="preload" href="dist/app.min.js?v=8" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=2" as="script" crossorigin>
 <link rel="preload" href="runs_public.json.gz" as="fetch" crossorigin>
 
@@ -73,17 +73,17 @@
 <link rel="icon" type="image/png" href="favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="128x128" href="favicon-180x180.png">
 <link rel="apple-touch-icon" sizes="180x180" href="favicon-180x180.png">
-<link rel="stylesheet" href="styles.css?v=64">
+<link rel="stylesheet" href="styles.css?v=66">
 <link rel="stylesheet" href="auth.css?v=19">
 <link rel="stylesheet" href="animations.css?v=6" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="animations.css?v=6"></noscript>
 <link rel="stylesheet" href="toast.css">
 <style>.skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}</style>
   <script type="module" src="dist/icons.min.js?v=2"></script>
-<link rel="stylesheet" href="ads.css?v=1">
+<link rel="stylesheet" href="ads.css?v=2">
 </head>
 <body>
-<a href="#topbar-title" class="skip-link">Aller au contenu principal</a>
+<a href="#tab-maps" class="skip-link">Aller au contenu principal</a>
 <div class="loading-bar-track"><div class="loading-bar-fill" id="loading-bar"></div></div>
 
 <div class="app">
@@ -193,7 +193,7 @@
         <p id="topbar-subtitle">OpenFront Leaderboard</p>
       </div>
       <div class="topbar-right" style="overflow:hidden;max-width:300px;display:flex;align-items:center;gap:10px">
-        <button id="share-topbar-btn" onclick="shareCurrentView()" title="Partager cette page" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:var(--card);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text2);font-size:12px;font-family:var(--f);transition:all .15s ease;flex-shrink:0">
+        <button id="share-topbar-btn" class="topbar-action" onclick="shareCurrentView()" title="Partager cette page">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
           <span>Partager</span>
         </button>
@@ -582,15 +582,15 @@
 
 <script src="dist/i18n.min.js?v=1"></script>
 <script src="dist/toast.min.js?v=1" defer></script>
-<script src="dist/lenis.min.js?v=2"></script>
+<script src="dist/lenis.min.js?v=6"></script>
 <script src="dist/animations.min.js?v=1" defer></script>
-<script src="dist/app.min.js?v=7" type="module"></script>
+<script src="dist/app.min.js?v=8" type="module"></script>
 
 <script>
   // Register Service Worker for offline support + Stale-While-Revalidate caching
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=18').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=19').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>
@@ -648,6 +648,6 @@
 
 
 
-<script src="ads.js?v=1"></script>
+<script src="ads.js?v=3"></script>
 </body>
 </html>

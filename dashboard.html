@@ -23,8 +23,8 @@
 <link rel="dns-prefetch" href="https://api.openfront.io">
 
 <!-- Performance: Preload critical assets -->
-<link rel="preload" href="styles.css?v=64" as="style">
-<link rel="preload" href="dashboard.css?v=15" as="style">
+<link rel="preload" href="styles.css?v=66" as="style">
+<link rel="preload" href="dashboard.css?v=16" as="style">
 <link rel="preload" href="dist/dashboard.min.js?v=5" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=2" as="script" crossorigin>
 
@@ -32,22 +32,22 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Orbitron:wght@900&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
 
 <link rel="icon" type="image/png" href="favicon-32x32.png">
-<link rel="stylesheet" href="styles.css?v=64">
+<link rel="stylesheet" href="styles.css?v=66">
 <link rel="stylesheet" href="auth.css?v=19">
 <link rel="stylesheet" href="toast.css">
 <link rel="stylesheet" href="animations.css?v=6">
-<link rel="stylesheet" href="dashboard.css?v=15">
+<link rel="stylesheet" href="dashboard.css?v=16">
 <style>.skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}</style>
 <script type="module" src="dist/icons.min.js?v=2"></script>
-<link rel="stylesheet" href="ads.css?v=1">
+<link rel="stylesheet" href="ads.css?v=2">
 </head>
 <body>
 <a href="#dashboard-content" class="skip-link">Aller au contenu principal</a>
 <div class="loading-bar-track"><div class="loading-bar-fill" id="loading-bar"></div></div>
 
-<div class="page-wrap" style="min-height:100vh;display:flex;flex-direction:column">
+<div class="page-wrap">
 
-<div class="app" style="flex:1;display:flex;min-width:0">
+<div class="app">
 
   <!-- ═══ SIDEBAR ═══ -->
   <aside class="sidebar">
@@ -259,15 +259,15 @@
 <div id="toast-container"></div>
 
 <script type="module" src="dist/dashboard.min.js?v=5"></script>
-<script type="module" src="dist/auth.min.js?v=2"></script>
+<script type="module" src="dist/auth.min.js?v=3"></script>
 <script src="dist/toast.min.js?v=1"></script>
-<script src="dist/lenis.min.js?v=2"></script>
+<script src="dist/lenis.min.js?v=6"></script>
 <script src="dist/animations.min.js?v=1"></script>
 <script type="module" src="dist/tutorial.min.js?v=2"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=17').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=19').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>
@@ -323,6 +323,6 @@
 
 
 
-<script src="ads.js?v=1"></script>
+<script src="ads.js?v=3"></script>
 </body>
 </html>

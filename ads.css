@@ -26,6 +26,17 @@
   margin-right: auto;
 }
 
+/* Slot replié : pub non remplie (bloqueur, pas de campagne…).
+   On le masque totalement pour ne laisser AUCUN trou visuel. */
+.ad-slot.ad-collapsed {
+  display: none;
+}
+
+/* Transition douce si la pub arrive tard (2e check à 6s) */
+.ad-slot {
+  transition: min-height 0.3s ease, opacity 0.3s ease;
+}
+
 .ad-label {
   font-size: 9px;
   font-weight: 700;
@@ -43,7 +54,9 @@
   margin: 0 auto;
 }
 
-/* Dark mode */
+/* Dark mode — le sélecteur historique :root.dark n'existait jamais,
+   le vrai sélecteur du site est [data-theme="dark"] */
+:root[data-theme="dark"] .ad-slot,
 :root.dark .ad-slot {
   background: var(--card, #1a1f2e);
   border-color: var(--border, #2a2f3e);
@@ -87,11 +100,14 @@ footer + .ad-slot,
   }
 }
 
-/* Masquer les pubs sur les très petits écrans (optionnel) */
+/* Très petits écrans : pubs verticales masquées (trop intrusives),
+   horizontales réduites */
 @media (max-width: 480px) {
+  .ad-slot.ad-vertical {
+    display: none;
+  }
   .ad-slot.ad-horizontal#ad-header,
   .ad-slot.ad-horizontal#ad-footer {
-    /* On les garde mais plus petit */
     min-height: 50px;
   }
 }

@@ -35,9 +35,13 @@ function animateRanking(){
   const rows = leaderboard.getElementsByTagName("tr");
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    const rank = parseInt(row.getElementsByTagName("td")[0].textContent);
-    const player = row.getElementsByTagName("td")[1].textContent;
-    const points = row.getElementsByTagName("td")[2].textContent;
+    const cells = row.getElementsByTagName("td");
+    // Garde-fou : certaines lignes (chargement, colspan, tr d'un autre tableau
+    // imbriqué) n'ont pas 3 cellules → crash « reading 'textContent' » avant.
+    if (cells.length < 3) continue;
+    const rank = parseInt(cells[0].textContent);
+    const player = cells[1].textContent;
+    const points = cells[2].textContent;
     const prevRank = previousGlobalLeaderboard.find(p => p.player === player);
     if (prevRank && prevRank.rank !== rank) {
       row.classList.add("animate");
