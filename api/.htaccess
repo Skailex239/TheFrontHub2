@@ -1,0 +1,22 @@
+# TheFrontHub API - durcissement Apache
+# Ce dossier ne sert QUE du JSON via PHP ; rien d'autre ne doit sortir d'ici.
+
+Options -Indexes
+
+# Fichiers de bibliotheque : jamais accessibles en HTTP (inclus seulement)
+<FilesMatch "^(config|helpers)\.php$">
+  Require all denied
+</FilesMatch>
+
+# Aucun fichier de donnees ou de sauvegarde servi ici
+<FilesMatch "\.(json|log|md|sql|bak|ini|sh|csv|tar|gz|zip)$">
+  Require all denied
+</FilesMatch>
+
+# En-tetes de securite sur toutes les reponses de l'API
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "DENY"
+  Header always set Referrer-Policy "no-referrer"
+  Header always set Cache-Control "no-store, max-age=0"
+</IfModule>
