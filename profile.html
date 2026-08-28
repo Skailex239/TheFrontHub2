@@ -22,7 +22,7 @@
 
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=63" as="style">
-<link rel="preload" href="profile.css?v=31" as="style">
+<link rel="preload" href="profile.css?v=32" as="style">
 <link rel="preload" href="dist/profile.min.js?v=4" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=2" as="script" crossorigin>
 
@@ -33,8 +33,8 @@
   <link rel="icon" type="image/png" sizes="128x128" href="favicon-180x180.png">
   <link rel="apple-touch-icon" sizes="180x180" href="favicon-180x180.png">
   <link rel="stylesheet" href="styles.css?v=63">
-  <link rel="stylesheet" href="auth.css?v=18">
-  <link rel="stylesheet" href="profile.css?v=31">
+  <link rel="stylesheet" href="auth.css?v=19">
+  <link rel="stylesheet" href="profile.css?v=32">
   <link rel="stylesheet" href="skins.css?v=3">
   <link rel="stylesheet" href="animations.css?v=6" media="print" onload="this.media='all'">
   <noscript><link rel="stylesheet" href="animations.css?v=6"></noscript>
@@ -536,10 +536,10 @@
     <div id="profile-gate" class="pf-view">
       <div class="pf-gate-card">
         <div class="pf-gate-logo">
-          <img src="TheFrontHub Logo Text.png" alt="TheFrontHub">
+          <img src="TheFrontHub Logo No Text.png" alt="TheFrontHub">
         </div>
         <h2>Rejoins TheFrontHub</h2>
-        <p>Connecte-toi avec Discord pour lier ton compte OpenFront, suivre tes stats et débloquer des récompenses.</p>
+        <p>Connecte-toi avec Discord pour lier ton compte OpenFront et suivre tes stats.</p>
         <button class="pf-discord-btn" onclick="handleLogin('discord')">
           <span class="auth-spinner" aria-hidden="true"></span>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-label="Discord"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.095 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.095 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
@@ -547,8 +547,7 @@
         </button>
         <ul class="pf-gate-perks">
           <li><span class="pf-gate-check">✓</span> Profil et stats OpenFront automatiques</li>
-          <li><span class="pf-gate-check">✓</span> Récompenses et cosmétiques exclusifs</li>
-          <li><span class="pf-gate-check">✓</span> Pseudo en couleur dans les classements</li>
+          <li><span class="pf-gate-check">✓</span> Historique, graphiques et achievements</li>
         </ul>
         <p class="pf-gate-note">Sans mot de passe · Session sécurisée · Hébergé en France</p>
       </div>
@@ -614,9 +613,6 @@
       <!-- API error banner -->
       <div id="profile-api-error" class="pf-error-banner" style="display:none"></div>
 
-      <!-- Reward code card (skins) -->
-      <div id="reward-code-section"></div>
-
       <!-- Career stats overview + charts + playtime + activity + map stats + achievements -->
       <div id="career-stats-section"></div>
     </div>
@@ -629,7 +625,7 @@
   <div class="modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" onclick="event.stopPropagation()">
     <button class="modal-close" aria-label="Fermer" onclick="toggleAuthModal()">&times;</button>
     <div class="auth-modal-logo">
-      <img src="TheFrontHub Logo Text.png" alt="TheFrontHub" class="auth-modal-logo-img">
+      <img src="TheFrontHub Logo No Text.png" alt="TheFrontHub" class="auth-modal-logo-img">
     </div>
     <div class="modal-header">
       <div class="modal-title" id="auth-modal-title">Rejoins TheFrontHub</div>
@@ -649,13 +645,9 @@
       </li>
       <li>
         <span class="auth-perk-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
-        <span><strong>Récompenses et cosmétiques</strong> — débloque des skins de pseudo exclusifs</span>
+        <span><strong>Historique et progression</strong> — graphiques, temps de jeu et achievements</span>
       </li>
-      <li>
-        <span class="auth-perk-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
-        <span><strong>Pseudo en couleur</strong> dans les classements et le lobby</span>
-      </li>
-    </ul>
+          </ul>
     <p class="auth-security-note">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
       <span>Session sécurisée · Hébergé en France · Aucun mot de passe stocké</span>
