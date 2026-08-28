@@ -144,22 +144,20 @@ try {
         }
 
         $userId = 0;
-        $publicId = '';
         for ($try = 0; $try < 3; $try++) {
-            $publicId = 'tfh' . bin2hex(random_bytes(6)); // 15 caracteres
             try {
                 $pdo->prepare(
                     'INSERT INTO tfh_users
                      (username, global_name, avatar_url, locale, discord_flags,
                       discord_premium_type, discord_created_at, email, email_verified,
-                      public_id, role, last_login_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \'user\', NOW())'
-                )->execute([$username, $globalName, $avatarUrl, $locale, $flags, $premiumType, $dcCreatedAt, $email, $verified, $publicId]);
+                      role, last_login_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, \'user\', NOW())'
+                )->execute([$username, $globalName, $avatarUrl, $locale, $flags, $premiumType, $dcCreatedAt, $email, $verified]);
                 $userId = (int) $pdo->lastInsertId();
                 break;
             } catch (PDOException $e) {
                 if ($try === 2) {
-                    throw $e; // 3 essais suffisent pour eviter une collision improbable
+                    throw $e; // collision improbable sur email : 3 essais suffisent
                 }
             }
         }
@@ -167,8 +165,10 @@ try {
         $pdo->prepare('INSERT INTO tfh_user_identities (user_id, provider, provider_uid) VALUES (?, ?, ?)')
             ->execute([$userId, 'discord', $did]);
 
-        $pdo->prepare('INSERT INTO tfh_public_aliases (user_id, username, public_id) VALUES (?, ?, ?)')
-            ->execute([$userId, $username ?? ('user' . $userId), $publicId]);
+        /* Alias public minimal (public_id reste NULL jusqu'à la vérification
+           OpenFront faite par le joueur sur la page profil) */
+        $pdo->prepare('INSERT INTO tfh_public_aliases (user_id, username, public_id) VALUES (?, ?, NULL)')
+            ->execute([$userId, $username ?? ('user' . $userId)]);
     }
 
     $pdo->commit();

@@ -22,6 +22,16 @@ $prov = $pdo->prepare('SELECT provider FROM tfh_user_identities WHERE user_id = 
 $prov->execute([$user['id']]);
 $providers = array_column($prov->fetchAll(), 'provider');
 
+/* Cache sessions OpenFront (équivalent Firestore users.openFrontSessions) */
+$openFrontSessions = null;
+$sessionsRaw = $user['openfront_sessions'] ?? null;
+if ($sessionsRaw !== null) {
+    $decoded = json_decode((string) $sessionsRaw, true);
+    if (is_array($decoded)) {
+        $openFrontSessions = $decoded;
+    }
+}
+
 json_out([
     'ok'   => true,
     'user' => [
@@ -42,5 +52,6 @@ json_out([
         'createdAt'        => $user['created_at'],
         'lastLoginAt'      => $user['last_login_at'],
         'providers'        => $providers,
+        'openFrontSessions' => $openFrontSessions,
     ],
 ]);

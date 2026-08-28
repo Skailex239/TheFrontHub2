@@ -104,8 +104,6 @@ const WEEK_TZ = "Europe/Paris";
 // = ~10 games. 50 pages = 500 games = largement plus qu'une semaine d'activité
 // même pour un joueur très actif. On s'arrête en plus dès le 1er game > 7 jours.
 const MAX_WEEKLY_PAGES = 50;
-const FIREBASE_PROJECT = "openfront-speedrun";
-const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents`;
 
 /* ════════════════════════════════════════════════════════════════
    Helpers
@@ -236,70 +234,60 @@ async function loadRankedJson() {
   }
 }
 
-/** Charge la liste des joueurs connectés depuis Firebase public-aliases. */
+/** Charge la liste des joueurs connectés depuis l'API MySQL public-aliases. */
 async function loadConnectedPlayers() {
   try {
-    const url = `${FIRESTORE_BASE}/public-aliases`;
-    const res = await fetch(url, { cache: "no-store" });
+    const res = await fetch("/api/public-aliases.php", { cache: "no-store" });
     if (!res.ok) {
-      console.warn(`[dashboard] Firebase public-aliases: HTTP ${res.status}`);
+      console.warn(`[dashboard] API public-aliases: HTTP ${res.status}`);
       return;
     }
     const data = await res.json();
-    const docs = data.documents || [];
+    const docs = data.aliases || [];
     const seen = new Set();
-    _connectedPlayers = docs.map((doc) => {
-      const fields = doc.fields || {};
-      const val = (f) => (f?.stringValue || f?.integerValue || "");
-      const publicId = val(fields.publicId);
-      return {
-        publicId,
-        username: val(fields.username) || publicId || "?",
-      };
-    })
-    // Filtrer : publicId valide = exactement 8 caractères alphanumériques
-    .filter((p) => /^[A-Za-z0-9]{8}$/.test(p.publicId))
-    // Dédoublonner par publicId (garder le premier)
-    .filter((p) => {
-      if (seen.has(p.publicId)) return false;
-      seen.add(p.publicId);
-      return true;
-    });
-    console.log(`[dashboard] Firebase: ${_connectedPlayers.length} joueurs connectés (sur ${docs.length} documents)`);
+    _connectedPlayers = docs
+      .map((doc) => ({
+        publicId: doc.publicId || "",
+        username: doc.username || doc.publicId || "?",
+      }))
+      // Filtrer : publicId valide = exactement 8 caractères alphanumériques
+      .filter((p) => /^[A-Za-z0-9]{8}$/.test(p.publicId))
+      // Dédoublonner par publicId (garder le premier)
+      .filter((p) => {
+        if (seen.has(p.publicId)) return false;
+        seen.add(p.publicId);
+        return true;
+      });
+    console.log(`[dashboard] API: ${_connectedPlayers.length} joueurs connectés (sur ${docs.length} alias)`);
   } catch (e) {
-    console.warn("[dashboard] Firebase indisponible:", e.message);
+    console.warn("[dashboard] API indisponible:", e.message);
   }
 }
 
 /**
- * Charge les skins VIP depuis Firestore (collection public-rewards).
+ * Charge les skins VIP depuis l'API MySQL (tfh_public_rewards).
  * Mappe publicId → rewardType pour appliquer la classe .rgb-{type} sur
  * les pseudos du classement. Les définitions CSS (.rgb-prism, .rgb-gold,
  * etc.) vivent dans styles.css et sont déjà chargées sur la page.
  *
- * Collection: public-rewards (docs publics, pas d'auth requise)
- * Champs utilisés: publicId, username, activeType, activated
+ * Champs utilisés: publicId, username, activeType, type, activated
  */
 async function loadVipSkins() {
   try {
-    const url = `${FIRESTORE_BASE}/public-rewards`;
-    const res = await fetch(url, { cache: "no-store" });
+    const res = await fetch("/api/public-rewards.php", { cache: "no-store" });
     if (!res.ok) {
-      console.warn(`[dashboard] Firebase public-rewards: HTTP ${res.status}`);
+      console.warn(`[dashboard] API public-rewards: HTTP ${res.status}`);
       return;
     }
     const data = await res.json();
-    const docs = data.documents || [];
+    const docs = data.rewards || [];
     _vipSkins = new Map();
     for (const doc of docs) {
-      const f = doc.fields || {};
-      const val = (field) => (field?.stringValue || field?.integerValue || "");
-      const publicId = val(f.publicId);
-      const username = val(f.username);
+      const publicId = doc.publicId || "";
+      const username = doc.username || "";
       // activeType = nouveau format, type = ancien format (rétrocompat)
-      const rewardType = val(f.activeType) || val(f.type) || "";
-      // activated peut être booleanValue ou absent (= true par défaut)
-      const activated = f.activated?.booleanValue !== false;
+      const rewardType = doc.activeType || doc.type || "";
+      const activated = doc.activated !== false;
       if (!rewardType || !activated) continue;
       // Priorité : publicId (stable), fallback username
       if (publicId) _vipSkins.set(publicId, rewardType);

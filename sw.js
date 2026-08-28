@@ -15,7 +15,7 @@
 //   - On next visit: user sees fresh data, still instantly
 //   - Works even on flaky 3G
 
-const CACHE_NAME = 'thefronthub-v35';
+const CACHE_NAME = 'thefronthub-v36';
 const CACHE_IMMUTABLE = 'thefronthub-imm-v10';
 const SWR_MAX_AGE_MS = 30 * 60 * 1000;  // 30 min — consider cache fresh this long
 
@@ -55,7 +55,6 @@ const STATIC_ASSETS = [
   '/dist/auth.min.js',
   // Shared modules (used as ESM imports)
   '/shared/maps.js',
-  '/shared/firebase-config.js',
   // Favicons + logo
   // ⚠️ Perf (audit 2026-08-27) : '/favicon.ico' retiré — le fichier n'existe
   // pas dans le repo (404 à chaque installation du SW).
@@ -147,7 +146,12 @@ self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
   if (req.method !== 'GET') return;
 
-  // Skip cross-origin requests entirely (Firebase, OpenFront, CDN, etc.)
+  // ── /api/* → TOUJOURS le réseau, jamais de cache ──
+  // L'API PHP (auth, profil, likes, skins) doit être fraîche et ne doit
+  // JAMAIS être servie depuis le cache (sessions, données dynamiques).
+  if (url.origin === self.location.origin && url.pathname.startsWith('/api/')) return;
+
+  // Skip cross-origin requests entirely (OpenFront, CDN, etc.)
   if (isCrossOrigin(url)) return;
 
   // ── Strategy 1: /dist/*.js → cache-first, immutable ──
