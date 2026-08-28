@@ -32,8 +32,10 @@ export const RARITY_META = {
 
 /**
  * Catalogue des cosmétiques.
- * ⚠️ Vide pour l'instant — les nouveaux cosmétiques seront ajoutés ici
- * (on les crée ensemble : chaque entrée = 1 skin + sa classe CSS).
+ * 2026-08 : premiers cosmétiques de la nouvelle génération — 2 skins de
+ * texte à dégradé animé (aurora, dusk). Les skins de l'ancien catalogue
+ * (gold, rainbow, fire…) ont été retirés à la refonte ; les lignes
+ * tfh_user_skins héritées sont simplement ignorées (fallback Standard).
  */
 export const SKINS = [
   {
@@ -43,7 +45,21 @@ export const SKINS = [
     rarity: "common",
     cssClass: "skin-default",
   },
-  // ── Nouveaux cosmétiques : à venir ─────────────────────────────
+  {
+    id: "aurora",
+    name: "Aurore",
+    description: "Dégradé boréal animé — turquoise, émeraude et violet qui ondulent sur ton pseudo.",
+    rarity: "epic",
+    cssClass: "skin-aurora",
+  },
+  {
+    id: "dusk",
+    name: "Crépuscule",
+    description: "Coucher de soleil animé — ambre, rose et violet qui glissent en continu.",
+    rarity: "legendary",
+    cssClass: "skin-dusk",
+  },
+  // ── Prochains cosmétiques : à venir ────────────────────────────
   // {
   //   id: "exemple",
   //   name: "Exemple",

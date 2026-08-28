@@ -202,8 +202,9 @@ export function applySkinToElement(el, publicId, async = true) {
   if (async) {
     fetchActiveSkinId(publicId).then((skinId) => {
       const s = getSkin(skinId);
-      const currentCached = getCachedActiveSkinId(publicId);
-      if (currentCached === skinId) return; // déjà appliqué
+      // ⚠️ Ne PAS comparer au cache (déjà peuplé par la promesse elle-même) :
+      // vérifier la classe réellement appliquée à l'élément.
+      if (el.classList.contains(s.cssClass)) return; // déjà appliqué
       el.className = el.className.replace(/\bskin-\S+/g, "").trim();
       el.classList.add(s.cssClass);
     });

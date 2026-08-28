@@ -1297,14 +1297,14 @@ function renderRewardCodeCard(publicId) {
   if (!container) return;
 
   container.innerHTML = `
-    <div class="rw-card">
+    <div class="rw-card rw-card-compact">
       <div class="rw-header">
         <span class="rw-header-icon">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
         </span>
         <div class="rw-header-text">
-          <h2>Récompenses</h2>
-          <p>Entre un code pour débloquer un cosmétique exclusif pour ton pseudo.</p>
+          <h2>Code de récompense</h2>
+          <p>Entre un code pour débloquer un cosmétique pour ton pseudo.</p>
         </div>
       </div>
       <div class="rw-redeem">
@@ -1320,17 +1320,12 @@ function renderRewardCodeCard(publicId) {
         </div>
         <div class="rw-feedback" id="rw-feedback" role="status"></div>
       </div>
-      <div class="rw-gallery-section">
-        <div class="rw-gallery-head">
+      <div class="rw-owned" id="rw-owned" hidden>
+        <div class="rw-owned-head">
           <h3>Mes cosmétiques <span class="rw-count" id="owned-skins-count">0</span></h3>
           <span class="rw-gallery-hint">Clique pour activer</span>
         </div>
-        <div class="rw-gallery" id="skins-gallery">
-          <div class="rw-empty">
-            <span class="rw-empty-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8L20 10.5l-5 4.4 1.5 6.1L12 17.8 7.5 21l1.5-6.1-5-4.4 6.1-1.7L12 3z"/></svg></span>
-            <h4>Chargement…</h4>
-          </div>
-        </div>
+        <div class="rw-chips" id="rw-chips"></div>
       </div>
     </div>
   `;
@@ -1352,76 +1347,64 @@ function renderRewardCodeCard(publicId) {
 }
 
 async function refreshOwnedSkins(publicId) {
-  const gallery = document.getElementById("skins-gallery");
-  const countEl = document.getElementById("owned-skins-count");
-  if (!gallery) return;
+  const ownedWrap = document.getElementById("rw-owned");
+  if (!ownedWrap) return;
 
   try {
     const { ownedSkins, activeSkinId } = await fetchOwnedSkins(publicId);
     _rewardCardState.ownedSkins = ownedSkins;
     _rewardCardState.activeSkinId = activeSkinId;
-    if (countEl) countEl.textContent = ownedSkins.filter((s) => s.skinId !== DEFAULT_SKIN_ID).length;
-    renderSkinsGallery(ownedSkins, activeSkinId);
+    renderOwnedSkins(ownedSkins, activeSkinId);
   } catch (e) {
     console.warn("[profile] refreshOwnedSkins failed:", e);
-    gallery.innerHTML = `<div class="rw-empty"><h4>Erreur de chargement</h4><p>Réessaie dans un instant.</p></div>`;
   }
 }
 
-function renderSkinsGallery(ownedSkins, activeSkinId) {
-  const gallery = document.getElementById("skins-gallery");
-  if (!gallery) return;
+/**
+ * Affiche les cosmétiques possédés en chips compactes.
+ * La ligne n'apparaît QUE si le joueur possède au moins un skin du
+ * catalogue — sinon la carte reste une simple entrée de code.
+ * (Les ids hérités de l'ancien catalogue sont ignorés.)
+ */
+function renderOwnedSkins(ownedSkins, activeSkinId) {
+  const wrap = document.getElementById("rw-owned");
+  const chipsEl = document.getElementById("rw-chips");
+  const countEl = document.getElementById("owned-skins-count");
+  if (!wrap || !chipsEl) return;
 
-  const ownedIds = new Set(ownedSkins.map((s) => s.skinId));
-  const unlockable = getUnlockableSkins();
-  const allSkins = [getSkin(DEFAULT_SKIN_ID), ...unlockable];
+  const owned = getUnlockableSkins().filter((s) =>
+    ownedSkins.some((o) => o.skinId === s.id)
+  );
+  if (owned.length === 0) {
+    wrap.hidden = true;
+    chipsEl.innerHTML = "";
+    if (countEl) countEl.textContent = "0";
+    return;
+  }
 
-  // Cartes des skins (possédés + catalogue)
-  const cards = allSkins.map((skin) => {
-    const isOwned = skin.id === DEFAULT_SKIN_ID || ownedIds.has(skin.id);
-    const isActive =
-      (skin.id === DEFAULT_SKIN_ID && (!activeSkinId || activeSkinId === DEFAULT_SKIN_ID)) ||
-      activeSkinId === skin.id;
-    const ownedEntry = ownedSkins.find((s) => s.skinId === skin.id);
-    const rarity = RARITY_META[skin.rarity];
+  wrap.hidden = false;
+  if (countEl) countEl.textContent = String(owned.length);
 
-    if (!isOwned) {
-      return `
-        <div class="rw-skin-card" style="opacity:.55;cursor:default;border-style:dashed" title="${esc(skin.description)}">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--fg-subtle)"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-          <div class="rw-skin-preview"><span class="${skin.cssClass}" style="opacity:0.35">${esc(skin.name)}</span></div>
-          <div class="rw-skin-name">${esc(skin.name)}</div>
-          <span class="rw-skin-rarity" style="color:${rarity.color};background:${rarity.bg}">${rarity.label}</span>
-          <div style="margin-top:2px;font-size:10px;color:var(--fg-subtle)">Verrouillé</div>
-        </div>
-      `;
-    }
+  const isActive = (skinId) =>
+    (skinId === DEFAULT_SKIN_ID && (!activeSkinId || activeSkinId === DEFAULT_SKIN_ID)) ||
+    activeSkinId === skinId;
 
+  const chip = (skin) => {
+    const rarity = RARITY_META[skin.rarity] || RARITY_META.common;
+    const active = isActive(skin.id);
     return `
-      <button type="button" class="rw-skin-card ${isActive ? "active" : ""}" data-skin-id="${esc(skin.id)}" title="${esc(skin.description)}">
-        <div class="rw-skin-preview"><span class="${skin.cssClass}">${esc(skin.name)}</span></div>
-        <div class="rw-skin-name">${esc(skin.name)}</div>
-        <span class="rw-skin-rarity" style="color:${rarity.color};background:${rarity.bg}">${rarity.label}</span>
-        ${ownedEntry && ownedEntry.redeemedAt ? `<span class="rw-skin-date">Depuis le ${formatFrenchDate(new Date(ownedEntry.redeemedAt).getTime())}</span>` : ""}
-        ${isActive ? '<span class="rw-skin-active-badge">Actif</span>' : ""}
+      <button type="button" class="rw-chip ${active ? "active" : ""}" data-skin-id="${esc(skin.id)}" title="${esc(skin.description)}">
+        <span class="rw-chip-preview"><span class="${skin.cssClass}">${esc(skin.name)}</span></span>
+        <span class="rw-chip-dot" style="background:${rarity.color}"></span>
+        ${active ? '<span class="rw-chip-badge">Actif</span>' : ""}
       </button>
     `;
-  }).join("");
+  };
 
-  // Catalogue vide → empty state « cosmétiques à venir »
-  const emptyState = unlockable.length === 0 ? `
-    <div class="rw-empty">
-      <span class="rw-empty-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8L20 10.5l-5 4.4 1.5 6.1L12 17.8 7.5 21l1.5-6.1-5-4.4 6.1-1.7L12 3z"/></svg></span>
-      <h4>Aucun cosmétique disponible pour l'instant</h4>
-      <p>De nouveaux skins exclusifs arrivent bientôt sur TheFrontHub. Les codes déjà distribués resteront valables !</p>
-      <span class="rw-empty-tag">Nouveautés à venir</span>
-    </div>
-  ` : "";
+  chipsEl.innerHTML = chip(getSkin(DEFAULT_SKIN_ID)) + owned.map(chip).join("");
 
-  gallery.innerHTML = cards + emptyState;
-
-  gallery.querySelectorAll(".rw-skin-card[data-skin-id]").forEach((card) => {
-    card.addEventListener("click", () => handleActivate(card.dataset.skinId));
+  chipsEl.querySelectorAll(".rw-chip[data-skin-id]").forEach((el) => {
+    el.addEventListener("click", () => handleActivate(el.dataset.skinId));
   });
 }
 
@@ -1442,14 +1425,26 @@ async function handleRedeem() {
 
   try {
     const result = await redeemCode(code, publicId);
-    if (result.alreadyOwned) {
-      setRwFeedback("success", result.message);
-      showToast(result.message, "info");
-    } else {
-      const rarity = result.rarity ? ` (${RARITY_META[result.rarity]?.label || result.rarity})` : "";
-      setRwFeedback("success", `${result.message}${rarity} — il est déjà activé sur ton pseudo.`);
-      showToast(result.message || `Cosmétique "${result.skinName}" débloqué !`, "success");
+    let message = result.message;
+
+    // Auto-activation : le skin débloqué s'applique aussitôt au pseudo.
+    // (Peut échouer pour un id hérité hors catalogue → message dégradé.)
+    try {
+      await activateSkin(publicId, result.skinId);
+      message = result.alreadyOwned
+        ? `Skin « ${result.skinName} » déjà dans ta collection — réactivé.`
+        : `Skin « ${result.skinName} » débloqué et activé !`;
+    } catch (e) {
+      if (!result.alreadyOwned) message = `${result.message} Active-le ci-dessous.`;
     }
+
+    setRwFeedback("success", message);
+    showToast(
+      result.alreadyOwned
+        ? `Skin « ${result.skinName} » réactivé`
+        : `Cosmétique « ${result.skinName} » débloqué !`,
+      result.alreadyOwned ? "info" : "success"
+    );
     input.value = "";
     await refreshOwnedSkins(publicId);
     if (currentProfile) renderHero(currentUser, currentProfile);
@@ -1469,9 +1464,12 @@ async function handleActivate(skinId) {
   try {
     const result = await activateSkin(publicId, skinId);
     _rewardCardState.activeSkinId = result.activeSkinId;
-    showToast(skinId === DEFAULT_SKIN_ID ? "Skin standard activé" : `Skin "${getSkin(skinId).name}" activé`, "success");
-    renderSkinsGallery(_rewardCardState.ownedSkins, result.activeSkinId);
-    // Refresh hero name
+    showToast(
+      skinId === DEFAULT_SKIN_ID ? "Skin standard activé" : `Skin « ${getSkin(skinId).name} » activé`,
+      "success"
+    );
+    renderOwnedSkins(_rewardCardState.ownedSkins, result.activeSkinId);
+    // Rafraîchit le pseudo du hero avec le skin actif
     if (currentProfile) renderHero(currentUser, currentProfile);
   } catch (e) {
     showToast(e.message || "Activation impossible", "error");

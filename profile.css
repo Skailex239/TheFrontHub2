@@ -1464,7 +1464,7 @@
 @keyframes authSpin { to { transform: rotate(360deg); } }
 
 /* ════════════════════════════════════════════════════════════════════════
-   RÉCOMPENSES v2 — carte rw-*
+   RÉCOMPENSES v3 — carte rw-* (entrée de code seule + chips possédées)
    ════════════════════════════════════════════════════════════════════════ */
 
 .rw-card {
@@ -1621,24 +1621,9 @@
 :root.dark .rw-feedback.success { color: #34d399; }
 :root.dark .rw-feedback.error   { color: #f87171; }
 
-/* Galerie des cosmétiques possédés */
-.rw-gallery-section { padding: var(--space-5) var(--space-6) var(--space-6); }
-
-.rw-gallery-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-bottom: var(--space-4);
-}
-
-.rw-gallery-head h3 {
-  font-size: 14px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+/* Carte compacte : pas de galerie — la ligne des cosmétiques possédés
+   n'apparaît qu'après un premier déblocage (voir .rw-owned). */
+.rw-card-compact .rw-redeem { border-bottom: none; }
 
 .rw-count {
   display: inline-flex;
@@ -1659,83 +1644,82 @@
   color: var(--fg-subtle);
 }
 
-.rw-gallery {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: var(--space-3);
+/* ── Cosmétiques possédés — chips compactes (V3) ── */
+.rw-owned {
+  padding: var(--space-5) var(--space-6) var(--space-6);
+  border-top: 1px solid var(--border-subtle);
 }
 
-.rw-skin-card {
-  position: relative;
+.rw-owned-head {
   display: flex;
-  flex-direction: column;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.rw-owned-head h3 {
+  font-size: 14px;
+  font-weight: 700;
+  display: flex;
   align-items: center;
-  gap: 4px;
-  padding: var(--space-4) var(--space-3) var(--space-3);
+  gap: 8px;
+}
+
+.rw-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.rw-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 15px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-pill);
   background: var(--bg);
   cursor: pointer;
-  text-align: center;
   font-family: var(--f);
   transition: border-color 0.15s var(--ease), transform 0.15s var(--ease), box-shadow 0.15s var(--ease), background 0.15s var(--ease);
 }
 
-.rw-skin-card:hover {
+.rw-chip:hover {
   border-color: var(--accent-border);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.07);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.07);
 }
 
-.rw-skin-card.active {
+.rw-chip.active {
   border-color: var(--accent);
   background: var(--accent-subtle);
   box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.15);
 }
 
-.rw-skin-preview {
-  height: 38px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 17px;
+.rw-chip-preview {
+  font-size: 14px;
   font-weight: 800;
-  margin-bottom: 2px;
+  line-height: 1.2;
 }
 
-.rw-skin-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--fg);
+.rw-chip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
-.rw-skin-rarity {
-  display: inline-block;
-  padding: 2px 9px;
-  border-radius: var(--radius-pill);
-  font-size: 9px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.rw-skin-date {
-  font-size: 10px;
-  color: var(--fg-subtle);
-  margin-top: 2px;
-}
-
-.rw-skin-active-badge {
+.rw-chip-badge {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin-top: 4px;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
   color: var(--accent-hover);
 }
 
-.rw-skin-active-badge::before {
+.rw-chip-badge::before {
   content: "";
   width: 6px;
   height: 6px;
@@ -1743,62 +1727,11 @@
   background: var(--green);
 }
 
-/* Empty state — catalogue vide (cosmétiques à venir) */
-.rw-empty {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 6px;
-  padding: var(--space-8) var(--space-6);
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius);
-  background: var(--bg-subtle);
-}
-
-.rw-empty-icon {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: var(--accent-subtle);
-  color: var(--accent);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: var(--space-2);
-}
-
-.rw-empty h4 {
-  font-size: 14.5px;
-  font-weight: 700;
-}
-
-.rw-empty p {
-  font-size: 12.5px;
-  color: var(--fg-muted);
-  line-height: 1.5;
-  max-width: 340px;
-}
-
-.rw-empty-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: var(--space-2);
-  padding: 4px 12px;
-  border-radius: var(--radius-pill);
-  background: var(--bg-muted);
-  border: 1px solid var(--border);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--fg-muted);
-}
-
 /* Responsive récompenses */
 @media (max-width: 640px) {
   .rw-redeem-row { flex-direction: column; }
   .rw-submit { padding: 12px; }
-  .rw-gallery { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
-  .rw-header, .rw-redeem, .rw-gallery-section { padding-left: var(--space-4); padding-right: var(--space-4); }
+  .rw-chips { gap: 8px; }
+  .rw-chip { padding: 7px 13px; }
+  .rw-header, .rw-redeem, .rw-owned { padding-left: var(--space-4); padding-right: var(--space-4); }
 }

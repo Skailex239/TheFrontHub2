@@ -1,451 +1,65 @@
 /* ════════════════════════════════════════════════════════════════
-   skins.css — Classes CSS pour les skins de pseudo TheFrontStats.
-   Chaque classe .skin-* est appliquée à un <span> contenant un pseudo.
+   skins.css — Skins de pseudo TheFrontHub (génération 2026-08)
+   ─────────────────────────────────────────────────────────────────
+   Chaque classe .skin-* est appliquée à un <span> contenant un pseudo
+   (profil, classements, lobby). Le catalogue vit dans skins.js :
+   ajouter un skin = 1 entrée SKINS + 1 classe .skin-* ici.
+
+   Ancien catalogue (gold, rainbow, fire, ice, neon, purple, sunset,
+   ocean, silver, bronze, diamond, inferno, emerald, galaxy) retiré à
+   la refonte 2026-08 — classes et UI galerie v1 supprimées.
    ════════════════════════════════════════════════════════════════ */
 
+/* Standard — texte normal */
 .skin-default {
   color: var(--text, #111);
   font-weight: 600;
 }
 
-/* Or — dégradé doré métallique brillant */
-.skin-gold {
-  background: linear-gradient(90deg, #B8860B 0%, #FFD700 30%, #FFEC8B 50%, #FFD700 70%, #B8860B 100%);
-  background-size: 200% auto;
+/* Aurore — dégradé boréal animé (turquoise → émeraude → violet) */
+.skin-aurora {
+  background: linear-gradient(100deg,
+    #22d3ee 0%, #34d399 24%, #a78bfa 50%, #34d399 76%, #22d3ee 100%);
+  background-size: 250% auto;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
   font-weight: 700;
-  animation: skin-shimmer 3s linear infinite;
+  filter: drop-shadow(0 0 6px rgba(52, 211, 153, 0.35));
+  animation: skin-aurora-flow 4.5s linear infinite;
 }
 
-/* Arc-en-ciel — animé multi-couleurs */
-.skin-rainbow {
-  background: linear-gradient(90deg, #ff0000, #ff9500, #ffd000, #00ff00, #00d4ff, #7a00ff, #ff00e0, #ff0000);
+@keyframes skin-aurora-flow {
+  0%   { background-position: 0% center; }
+  100% { background-position: 250% center; }
+}
+
+/* Crépuscule — coucher de soleil animé (ambre → rose → violet) */
+.skin-dusk {
+  background: linear-gradient(100deg,
+    #fde047 0%, #fb923c 24%, #f43f5e 50%, #a855f7 76%, #fde047 100%);
   background-size: 300% auto;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
   font-weight: 700;
-  animation: skin-rainbow-move 4s linear infinite;
+  filter: drop-shadow(0 0 6px rgba(244, 63, 94, 0.30));
+  animation: skin-dusk-flow 6s linear infinite;
 }
 
-/* Flammes — rouge/orange/jaune avec glow */
-.skin-fire {
-  background: linear-gradient(180deg, #ffeb00 0%, #ff7a00 50%, #e20000 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  font-weight: 700;
-  filter: drop-shadow(0 0 6px rgba(255, 80, 0, 0.5));
-  animation: skin-flicker 2.5s ease-in-out infinite;
-}
-
-/* Glace — bleu givré */
-.skin-ice {
-  background: linear-gradient(180deg, #e0fbff 0%, #7cdfff 50%, #2196f3 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  font-weight: 700;
-  filter: drop-shadow(0 0 5px rgba(33, 150, 243, 0.4));
-}
-
-/* Néon — vert lumineux avec glow fort */
-.skin-neon {
-  color: #39ff14;
-  text-shadow:
-    0 0 5px #39ff14,
-    0 0 12px #39ff14,
-    0 0 20px rgba(57, 255, 20, 0.5);
-  font-weight: 700;
-  animation: skin-neon-pulse 2s ease-in-out infinite;
-}
-
-/* Violet Royal — dégradé violet profond */
-.skin-purple {
-  background: linear-gradient(180deg, #d8b4fe 0%, #a855f7 50%, #6b21a8 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  font-weight: 700;
-}
-
-/* Coucher de soleil — rose/orange/violet chaud */
-.skin-sunset {
-  background: linear-gradient(90deg, #ff6b6b, #ffa500, #ffd700, #ff6b9d, #c44dff);
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  font-weight: 700;
-  animation: skin-shimmer 4s linear infinite;
-}
-
-/* Océan — bleu profond à turquoise */
-.skin-ocean {
-  background: linear-gradient(180deg, #67e8f9 0%, #0891b2 50%, #1e3a8a 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  font-weight: 700;
-}
-
-/* Argent — métal poli */
-.skin-silver {
-  background: linear-gradient(180deg, #ffffff 0%, #d1d5db 50%, #9ca3af 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  font-weight: 700;
-}
-
-/* Bronze — patiné */
-.skin-bronze {
-  background: linear-gradient(180deg, #fde68a 0%, #d97706 50%, #78350f 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  font-weight: 700;
-}
-
-/* Diamant — éclat cristallin bleu-blanc */
-.skin-diamond {
-  background: linear-gradient(135deg, #b3e5fc 0%, #ffffff 25%, #81d4fa 50%, #ffffff 75%, #4fc3f7 100%);
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  font-weight: 700;
-  filter: drop-shadow(0 0 8px rgba(129, 212, 250, 0.5));
-  animation: skin-shimmer 3s linear infinite;
-}
-
-/* Inferno — rouge-noir animé */
-.skin-inferno {
-  background: linear-gradient(180deg, #ff0000 0%, #8b0000 50%, #2a0000 100%);
-  background-size: 100% 200%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  font-weight: 800;
-  filter: drop-shadow(0 0 8px rgba(255, 0, 0, 0.6));
-  animation: skin-inferno-burn 3s ease-in-out infinite;
-}
-
-/* Émeraude — vert précieux */
-.skin-emerald {
-  background: linear-gradient(180deg, #6ee7b7 0%, #10b981 50%, #064e3b 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  font-weight: 700;
-  filter: drop-shadow(0 0 6px rgba(16, 185, 129, 0.4));
-}
-
-/* Galaxie — violet/rose/bleu cosmique */
-.skin-galaxy {
-  background: linear-gradient(135deg, #1e1b4b 0%, #7c3aed 25%, #ec4899 50%, #3b82f6 75%, #1e1b4b 100%);
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  font-weight: 700;
-  animation: skin-shimmer 5s linear infinite;
-}
-
-/* ── Animations des skins ── */
-@keyframes skin-shimmer {
-  0% { background-position: 0% center; }
-  100% { background-position: 200% center; }
-}
-
-@keyframes skin-rainbow-move {
-  0% { background-position: 0% center; }
+@keyframes skin-dusk-flow {
+  0%   { background-position: 0% center; }
   100% { background-position: 300% center; }
 }
 
-@keyframes skin-flicker {
-  0%, 100% { filter: drop-shadow(0 0 6px rgba(255, 80, 0, 0.5)); }
-  50% { filter: drop-shadow(0 0 12px rgba(255, 80, 0, 0.8)); }
-}
-
-@keyframes skin-neon-pulse {
-  0%, 100% {
-    text-shadow:
-      0 0 5px #39ff14,
-      0 0 12px #39ff14,
-      0 0 20px rgba(57, 255, 20, 0.5);
+/* Accessibilité : pas d'animation si l'utilisateur la refuse */
+@media (prefers-reduced-motion: reduce) {
+  .skin-aurora,
+  .skin-dusk {
+    animation: none;
   }
-  50% {
-    text-shadow:
-      0 0 8px #39ff14,
-      0 0 18px #39ff14,
-      0 0 30px rgba(57, 255, 20, 0.7);
-  }
-}
-
-@keyframes skin-inferno-burn {
-  0%, 100% { background-position: 0% 0%; filter: drop-shadow(0 0 8px rgba(255, 0, 0, 0.6)); }
-  50% { background-position: 0% 100%; filter: drop-shadow(0 0 14px rgba(255, 50, 0, 0.85)); }
-}
-
-/* ════════════════════════════════════════════════════════════════
-   Styles pour la galerie de skins (cartes de skins)
-   ════════════════════════════════════════════════════════════════ */
-
-.skins-gallery {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.skin-card {
-  position: relative;
-  border: 1px solid var(--border, #E5E7EB);
-  border-radius: 10px;
-  padding: 12px;
-  background: var(--card, #fff);
-  cursor: pointer;
-  text-align: center;
-  transition: all 0.15s;
-  font-family: var(--f, inherit);
-}
-
-.skin-card:hover:not(.locked) {
-  border-color: var(--orange, #ff7a00);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(255, 122, 0, 0.15);
-}
-
-.skin-card.active {
-  border: 2px solid var(--orange, #ff7a00);
-  background: var(--orange-pale, #fff4e9);
-  box-shadow: 0 0 0 3px rgba(255, 122, 0, 0.18);
-}
-
-.skin-card.locked {
-  border: 1px dashed var(--border, #E5E7EB);
-  background: var(--bg, #FAFAFA);
-  opacity: 0.6;
-  cursor: default;
-}
-
-.skin-preview {
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 6px;
-  font-size: 16px;
-}
-
-.skin-card.locked .skin-preview {
-  opacity: 0.3;
-}
-
-.skin-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text, #111);
-  margin-bottom: 4px;
-}
-
-.skin-card.locked .skin-name {
-  color: var(--text3, #9CA3AF);
-}
-
-.skin-rarity-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 9px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.skin-active-badge {
-  display: block;
-  margin-top: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--orange, #ff7a00);
-}
-
-.skin-locked-icon {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  color: var(--text3, #9CA3AF);
-}
-
-.skin-redeemed-date {
-  display: block;
-  margin-top: 4px;
-  font-size: 10px;
-  color: var(--text3, #9CA3AF);
-}
-
-/* ════════════════════════════════════════════════════════════════
-   Carte de code de récompense
-   ════════════════════════════════════════════════════════════════ */
-
-.reward-code-card {
-  background: var(--card, #fff);
-  border: 1px solid var(--border, #F3F4F6);
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-  overflow: hidden;
-  margin-bottom: 20px;
-}
-
-.reward-code-header {
-  padding: 18px 20px;
-  border-bottom: 1px solid var(--border, #F3F4F6);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: linear-gradient(135deg, var(--orange-pale, #fff4e9) 0%, var(--card, #fff) 100%);
-}
-
-.reward-code-header-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  background: var(--orange-gradient-subtle, linear-gradient(135deg, #ff7a00, #c25700));
-  color: #fff;
-  flex-shrink: 0;
-}
-
-.reward-code-header h2 {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--text, #111);
-}
-
-.reward-code-header p {
-  margin: 2px 0 0;
-  font-size: 12px;
-  color: var(--text2, #6B7280);
-}
-
-.reward-code-body {
-  padding: 18px 20px;
-}
-
-.reward-code-input-row {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.reward-code-input-wrap {
-  position: relative;
-  flex: 1 1 220px;
-  min-width: 220px;
-}
-
-.reward-code-input-wrap svg {
-  position: absolute;
-  left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text3, #9CA3AF);
-}
-
-.reward-code-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 11px 12px 11px 36px;
-  border: 1px solid var(--border, #E5E7EB);
-  border-radius: 8px;
-  font-size: 15px;
-  font-family: var(--mono, monospace);
-  letter-spacing: 0.05em;
-  font-weight: 600;
-  color: var(--text, #111);
-  background: var(--bg, #FAFAFA);
-  outline: none;
-  transition: border 0.15s;
-}
-
-.reward-code-input:focus {
-  border-color: var(--orange, #ff7a00);
-  background: var(--card, #fff);
-  box-shadow: 0 0 0 3px rgba(255, 122, 0, 0.18);
-}
-
-.reward-code-btn {
-  padding: 11px 18px;
-  background: var(--orange-gradient-subtle, linear-gradient(135deg, #ff7a00, #c25700));
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  font-family: var(--f, inherit);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  transition: opacity 0.15s;
-}
-
-.reward-code-btn:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.reward-code-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.reward-code-hint {
-  margin: 8px 0 0;
-  font-size: 12px;
-  color: var(--text3, #9CA3AF);
-}
-
-.reward-code-gallery-section {
-  padding: 0 20px 20px;
-}
-
-.reward-code-gallery-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-
-.reward-code-gallery-title h3 {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text2, #374151);
-}
-
-.reward-code-gallery-hint {
-  font-size: 12px;
-  color: var(--text3, #9CA3AF);
 }
 
 /* ════════════════════════════════════════════════════════════════
