@@ -59,12 +59,23 @@ log "git OK -> commit $COMMIT"
 # /.htaccess ancre a la racine : protege le .htaccess racine ET
 # api/.htaccess (durcissement), qui sont geres manuellement serveur.
 # deploy.sh est exclu : script serveur, jamais servi publiquement.
+#
+# NB (fix 2026-08-29) : les regles --include AVANT --exclude='*.json'
+# re-tablissent le deploiement des JSON du site (data/*.json,
+# data/tournaments/*.json, atlas-data/maps_data.json) que l'exclusion
+# globale *.json bloquait depuis l'inversion du flux de donnees.
+# Les JSON de SYNC a la racine (lobby_state.json, ranked.json, runs*.gz…)
+# restent exclus : ils sont ecris par pull-data.sh et l'exclusion les
+# protege aussi du --delete rsync (jamais ecrases par le clone git).
 rsync -a --delete \
   --exclude='.git' \
   --exclude='/.htaccess' \
   --exclude='_upload.php' \
   --exclude='_deploy.php' \
   --exclude='_archives' \
+  --include='/data/' \
+  --include='/data/**' \
+  --include='/atlas-data/maps_data.json' \
   --exclude='*.json' \
   --exclude='*.json.gz' \
   --exclude='player-data' \
