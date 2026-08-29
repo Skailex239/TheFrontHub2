@@ -789,17 +789,16 @@ window.startOwnershipVerification = async () => {
   }
 
   // Check that no other user has this publicId already
+  // (fix 2026-08-29 : FIRESTORE_BASE n'existe plus depuis la migration MySQL —
+  //  la vérification pointait vers une variable undefined → ReferenceError
+  //  avalé par le catch, check mort. Remplacé par l'API MySQL public-aliases.)
   try {
-    const aliasesRes = await fetch(`${FIRESTORE_BASE}/public-aliases`);
+    const aliasesRes = await fetch("/api/public-aliases.php", { cache: "no-store" });
     if (aliasesRes.ok) {
       const aliasesData = await aliasesRes.json();
-      const docs = aliasesData.documents || [];
-      for (const doc of docs) {
-        const f = doc.fields || {};
-        const val = (field) => (field?.stringValue || field?.integerValue || "");
-        const pid = val(f.publicId);
-        const docUid = doc.name?.split("/").pop();
-        if (pid === publicId && docUid !== currentUser.uid) {
+      const aliases = aliasesData.aliases || [];
+      for (const alias of aliases) {
+        if (alias.publicId === publicId && String(alias.uid) !== String(currentUser.uid)) {
           showToast("Ce Public ID est déjà lié à un autre compte.", "error");
           return;
         }
