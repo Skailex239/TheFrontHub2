@@ -1995,3 +1995,93 @@ Stage Summary:
 - RÉPONSE CLOUDFLARE : Le Worker n'est obligatoire que pour le CORS (l'API bloque les requêtes cross-origin depuis github.io). Pour le rate-limit, ce n'est plus nécessaire (51 req << limite). Alternatives au Worker : proxies CORS publics (corsproxy.io, codetabs, allorigins — déjà en fallback dans openfront-client.js) MAIS ils sont peu fiables. Le Worker reste le meilleur choix (gratuit, rapide, fiable).
 - Pour supprimer Cloudflare entièrement : il faudrait basculer sur Alternative 1 (GitHub Actions précalcule leaderboard.json, le site charge un fichier statique, 0 requête API navigateur).
 - PAT : [PAT REDACTED] utilisé en one-time URL push, NON stocké dans git config. L'utilisateur DOIT le révoquer.
+
+---
+Task ID: 12
+Agent: main (Z.ai Code — session cleanup dettes techniques)
+Task: Réglage complet des dettes techniques identifiées lors de l'audit des repos (TheFrontHub2 + OpenFrontIO)
+
+Work Log:
+- Audit préalable des 2 repos (agents d'exploration) : architecture prod réelle confirmée (site statique racine + PHP MySQL + Worker CF + cron o2switch + release data-latest), OpenFront API documentée (api.openfront.io : /public/games, /public/game/:id, /leaderboard/ranked, /public/clans/*, replays GameRecord JSON, clé primaire = publicId).
+
+DETTE #1 — Double copie divergente (racine vs public/) :
+    public/ SUPPRIMÉ (exclu du rsync ET bloqué par .htaccess → strictement mort).
+    La copie racine (auth.js MySQL-compat) est la seule copie vivante.
+    Aucune référence vers public/ dans le code prod (vérifié).
+
+DETTE #2 — Migration Firebase→MySQL finalisée :
+    sync-dashboard.js : loadFirebasePlayers() (Firestore REST) → loadConnectedPlayers()
+    via /api/public-aliases.php (MySQL tfh_public_aliases). Env TFH_ALIASES_URL surchargeable.
+    detect-new-players.js : réécrit ESM + API MySQL (plus de Firestore).
+    generate-code.js : réécrit en générateur SQL INSERT pour tfh_reward_codes
+    (codes normalisés SANS tiret, conforme normalize_code de api/skins.php).
+    Plus aucun firebase-admin requis.
+    shared/firebase-config.js + firestore.rules SUPPRIMÉS (auth.js n'a aucun import).
+    Commentaires obsolètes "Firebase/Firestore" corrigés dans dashboard.js, runs.js,
+    sync-dashboard.js, scripts/build.js, server.js (map /shared/firebase-config.js retirée).
+
+DETTE #3 — Nettoyage du repo (268 Mo → ~55 Mo de working tree) :
+    Supprimés : public/ (42 Mo), src/ + prisma/ + db/ (Next.js sandbox mort),
+    examples/, mini-services/, agent-ctx/, .trae/, .windsurf/, .zscripts/, tests/,
+    player-data/ + player-stats/ (36 fichiers JSON joueurs),
+    31 captures d'écran de debug (~28 Mo), atlas-data n'est PAS touché (prod).
+    Fichiers racine orphelins : Caddyfile, do-reset.ps1, restore-sync.sh,
+    push_via_api.py, components.json, tsconfig.json, next.config.ts,
+    tailwind.config.ts, postcss.config.mjs, bun.lock, package.build.json,
+    sync-workflow-template.yml, test-api.js, maps_list.json (plus référencé),
+    overlay-*.webp (3), "Overlays 1 test !!!.webp", dashboard_ranking.json.test-backup.
+    Données sync trackées par erreur : runs.json.gz (15 Mo), seen.json (6.8),
+    seen_compact.json (7.7), teams_runs.json (7.3+1 Mo), runs_compact.json.gz (4.4),
+    teams_public.json, ranked_*, dashboard_*, checkpoint_*, sync-players.json… → dé-trackées
+    (le .gitignore les listait déjà ; elles vivent dans la release data-latest).
+    .gitignore réécrit (plus de sections Next.js ; bloc anti-PNG avec exceptions
+    PDP.png / logos / favicons ; toutes les données de sync listées).
+    GARDÉS (référencés en prod, vérifié par grep) : PDP.png, TheFrontHub Logo*.png,
+    favicon-*, tous les webp fire_/green_original_/final_/HQ_ (skins), playtime-stats.js.
+    ⚠️ Historique git NON réécrit : le pack reste ~89 Mo. Pour purger vraiment :
+    git filter-repo --strip-blobs-bigger-than 1M + force push + re-clone o2switch
+    (voir GUIDE_NETTOYAGE.md) — à faire en coordination, la prod se re-synchronise en 5 min.
+
+DETTE #4 — Réduction du SPOF Cloudflare Worker :
+    api/openfront-proxy.php : NOUVEAU proxy de secours same-origin o2switch.
+    GET-only, whitelist stricte (/public/*, /leaderboard/*, /game/<8>, news.json,
+    streams.json, jwks.json), rate-limit SQL 30/min/IP, mirroir du statut HTTP
+    (le client distingue 404 JSON d'une route absente), header x-skailex-access
+    injecté côté serveur si clé "openfront_access" présente dans tfh-secrets.json
+    (optionnel — fonctionne sans, juste rate-limited).
+    openfront-client.js : cascade = Next.js local → Worker CF (principal) →
+    proxy PHP o2switch (NOUVEAU) → proxies CORS publics.
+
+DETTE #5 — Divers :
+    package.json UNIFIÉ (type:module + esbuild + node-fetch@2 + ws@8) ;
+    package.build.json supprimé ; le hack "npm init -y + type:module" des 6 jobs
+    sync.yml remplacé par "npm install --silent" ; install ajouté au job
+    sync-player-games (qui n'en avait pas).
+    3 scripts CJS convertis ESM (detect-new-players, sync-player-games,
+    compute-player-stats) — tout le repo est désormais ESM cohérent.
+    deploy-pages.yml : "branches: ain]" était un FAUX POSITIF (sous-chaîne de
+    "[main]") — le YAML était valide ; paths-ignore nettoyés (fichiers supprimés).
+    Auto-versionnement du cache : scripts/build.js réécrit les ?v= des 7 HTML
+    (hash sha256 court du contenu) + CACHE_NAME/CACHE_IMMUTABLE du sw.js
+    (hash du contenu precaché/dist). Idempotent. Plus de bump manuel (SKINS.md
+    checklist simplifiée d'autant).
+
+Divers :
+    README.md entièrement réécrit (architecture à jour : pull-based, cascade
+    proxies 4 niveaux, package unifié, ESM, migration MySQL terminée, auto-cache).
+    Vérifié : dashboard.html charge bien dist/auth.min.js en type=module (bug
+    Task 22-a déjà corrigé). _upload.php/_deploy.php : $SECRET_FALLBACK = '' (vide,
+    aucun secret committé) — OK.
+
+Stage Summary:
+- TOUTES les dettes techniques identifiées sont réglées, sauf la purge d'historique
+  git (filter-repo + force push) volontairement laissée en option, car elle exige
+  une coordination avec le re-clone o2switch.
+- Travail effectué sur la branche chore/tech-debt-cleanup (PAS sur main) : le cron
+  o2switch ne déployera RIEN tant que la branche n'est pas fusionnée.
+- Avant fusion : npm run build exécuté et validé (bundles + versionnement OK).
+- Action complémentaire conseillée : ajouter "openfront_access": "<token>" dans
+  ~/.tfs_secrets/tfh-secrets.json pour que le proxy PHP de secours bénéficie
+  de l'exemption de rate-limit OpenFront.
+- Après fusion : surveiller 1 cycle complet de sync.yml (7 jobs) + un passage
+  du cron o2switch (deploy.log + pull-data.log).

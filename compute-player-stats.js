@@ -13,8 +13,11 @@
  *   node compute-player-stats.js <publicId>     # calcule pour un joueur
  */
 
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const DATA_DIR = path.join(__dirname, "player-data");
 const STATS_DIR = path.join(__dirname, "player-stats");

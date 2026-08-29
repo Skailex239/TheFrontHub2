@@ -7,7 +7,7 @@
  *      pour le top 100 1v1 + top 100 2v2. Servé depuis GitHub Pages.
  *      Utilisé pour les joueurs ranked-only (non connectés au site).
  *
- *   2. Firebase public-aliases (Firestore REST API) → liste des joueurs
+ *   2. API MySQL tfh_public_aliases (/api/public-aliases.php) → liste des joueurs
  *      connectés via Google/Discord qui ont lié leur Public ID.
  *
  *   3. OpenFront API (via proxy Cloudflare Worker ou /api/openfront en dev)
@@ -41,7 +41,7 @@
  *   Team casual = +5   ·  Team classé (2v2) = +1
  *   (ranked = 1 pt, PAS en plus du FFA/Team)
  *
- * Auth : importe auth.js (Firebase) et écoute onAuthStateChanged pour brancher
+ * Auth : importe auth.js (couche compat MySQL /api/) et écoute onAuthStateChanged pour brancher
  * la sidebar (login-btn / user-badge). Définit sur window les handlers utilisés
  * par les onclick du HTML : toggleAuthModal, handleLogin, handleLogout,
  * toggleUserDropdown, goToProfilePage, closeProfileModal,
@@ -76,7 +76,7 @@ const view = document.getElementById("dashboard-view");
 const lastUpdateEl = document.getElementById("last-update");
 
 let _rankedData = null;        // ranked.json décodé (ranked wins carrière)
-let _connectedPlayers = [];    // [{publicId, username}] depuis Firebase
+let _connectedPlayers = [];    // [{publicId, username}] depuis l'API MySQL aliases
 let _liveStats = {};           // { publicId: { global: {...}, weekly: {...}, games: [], fetchedAt } }
 // Layout 2 panneaux : on maintient deux vues (global + weekly) en parallèle
 let _mergedViews = { global: [], weekly: [] };
@@ -888,13 +888,13 @@ onAuthStateChanged(auth, async (user) => {
   }
   currentUser = { uid: user.uid, avatar: user.photoURL, email: user.email };
 
-  // Lecture du profil Firestore
+  // Lecture du profil (couche compat auth.js → /api/me.php MySQL)
   let profile = null;
   try {
     const snap = await getDoc(doc(db, "users", user.uid));
     if (snap.exists()) profile = snap.data();
   } catch (e) {
-    console.warn("[dashboard] Firestore read error:", e.message);
+    console.warn("[dashboard] Profil read error:", e.message);
   }
 
   if (profile && profile.publicId) {
@@ -908,7 +908,7 @@ onAuthStateChanged(auth, async (user) => {
     // Redirige vers profile.html pour finaliser le setup (le dashboard n'a pas
     // vocation à héberger tout le flow d'ownership verification ici).
     if (profile == null) {
-      // Pas de doc Firestore du tout → l'utilisateur n'a jamais finalisé.
+      // Pas de profil du tout → l'utilisateur n'a jamais finalisé.
       // On l'envoie sur profile.html qui gère le setup.
       // On évite la boucle en ne redirigeant que si l'URL ne contient pas ?setup=1
       const params = new URLSearchParams(window.location.search);
@@ -1209,7 +1209,7 @@ document.addEventListener("click", (e) => {
     // Skins VIP en arrière-plan même en mode fallback
     loadVipSkins().then(() => { if (_vipSkins.size > 0) mergeAndRender(); }).catch(() => {});
 
-    // Phase 2 : Charger la liste des joueurs connectés (Firebase)
+    // Phase 2 : Charger la liste des joueurs connectés (API MySQL aliases)
     await loadConnectedPlayers();
 
     // Phase 3 : Charger les stats live pour chaque joueur connecté

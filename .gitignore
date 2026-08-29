@@ -1,116 +1,64 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# ─────────────────────────────────────────────────────────────────────────────
+# .gitignore — TheFrontHub
+# Site statique (vanilla JS, build esbuild) + API PHP (o2switch) + scripts sync.
+# ─────────────────────────────────────────────────────────────────────────────
 
-# dependencies
-node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+# ── Node / build ──────────────────────────────────────────────────────────────
+node_modules/
+package-lock.json
 
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# env files (can opt-in for committing if needed)
+# ── Secrets / env (jamais dans le repo) ───────────────────────────────────────
 .env*
-
-# Docs internes / WIP — ne jamais pousser sur le repo public
-# (le cron o2switch rsync le repo vers le webroot : ces fichiers seraient servibles)
-_wip-auth-mysql/
+*.pem
+*.key
+_upload.php.local
 SECURITE_CORRECTIONS.md
 
-# vercel
-.vercel
-
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-local-*
-.claude
+# ── Travail agents / IA (ne jamais pousser) ───────────────────────────────────
+_wip-auth-mysql/
+agent-ctx/
+.trae/
+.windsurf/
+.zscripts/
+.claude/
 .z-ai-config
+/skills/
+/tool-results/
+prompt
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
 *.log
 dev.log
 dev.out.log
-test
-prompt
-
 server.log
-# Skills directory
-/skills/
 
-# Ranked history (ungzipped — only .gz versions are committed to repo)
-# sync-ranked.js regénère ces fichiers à chaque run ; les versions non-gzippées
-# ne sont pas nécessaires sur le site (seul le .gz est servi). Les ignorer évite
-# qu'ils bloquent git pull --rebase avec "unstaged changes".
-/ranked_history.json
-/ranked_2v2_history.json
+# ── Captures d'écran de debug (jamais de PNG dans le repo) ────────────────────
+*.png
+!PDP.png
+!TheFrontHub Logo No Text.png
+!TheFrontHub Logo Text.png
+!favicon-*.png
 
-# Backups (ne jamais commit)
+# ── Backups ───────────────────────────────────────────────────────────────────
 *backup.json
 *full.json
-# Temp files from agent tools (never commit)
-/tool-results/
-dashboard-*-screenshot.png
-dashboard-v[0-9]-*.png
-live-*-final.png
-
-# All dashboard screenshots (never commit)
-dashboard-*.png
-
-# ─── Build artifacts ──────────────────────────────────────────────────────────
-# /dist/ IS committed because GitHub Pages doesn't run a build step.
-# The minified bundles must be present in the repo so they get deployed.
-# Run `node scripts/build.js` after editing source JS to regenerate them.
-
-# Build deps (local only — don't commit our local symlink or package-lock)
-/node_modules
-/package-lock.json
-
-# Build script temp
-/scripts/build.js.bak
-
-# ─────────────────────────────────────────────────────────────────────────────
-# DONNÉES DE SYNC — NE PAS COMMIT (désormais uploadées vers o2switch)
-# ─────────────────────────────────────────────────────────────────────────────
-# Ces fichiers sont générés par GitHub Actions et uploadés via HTTP
-# vers o2switch (_upload.php). Ils ne doivent PLUS être commités au repo
-# pour éviter que l'historique Git n'explose (actuellement ~45 Mo de JSON
-# qui grossissent avec l'historique).
-#
-# ⚠️ Si tu as besoin de reprendre une sync après une pause, GitHub Actions
-# recréera ces fichiers en local. Pour le "resume" stateful (checkpoint),
-# il est stocké dans `checkpoint.json` qui est aussi uploadé vers o2switch
-# et re-téléchargeable au besoin.
-#
-# Voir GUIDE_COMPLET_O2SWITCH.md pour la stratégie de rétention.
 .backup-ui-avant/
 
-# Snapshots temps réel (snapshot — écrasés à chaque sync)
+# ──────────────────────────────────────────────────────────────────────────────
+# DONNÉES DE SYNC — produites par GitHub Actions, publiées dans la release
+# GitHub « data-latest », installées en prod par pull-data.sh (cron o2switch).
+# NE JAMAIS COMMIT : l'état et les gros fichiers vivent dans la release.
+# Récupération locale : ./scripts/data-release.sh pull <fichiers...>
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Snapshots / payloads publics (régénérés à chaque sync)
 /lobby_state.json
 /ranked.json
 /ranked.json.gz
 /teams.json
+/teams.json.gz
 /teams_runs.json
+/teams_runs.json.gz
 /teams_seen.json
 /teams_checkpoint.json
 /teams_public.json
@@ -119,12 +67,6 @@ dashboard-*.png
 /dashboard_scores.json.gz
 /dashboard_ranking.json
 /dashboard_player_games.json
-/checkpoint.json
-/checkpoint_compact.json
-/seen.json
-/seen_compact.json
-/maps_list.json
-/sync-players.json
 /runs_public.json
 /runs_public.json.gz
 /runs_compact_public.json
@@ -134,7 +76,14 @@ dashboard-*.png
 /news.json
 /news.json.gz
 
-# Archives horodatées (mode archive — conservées sur o2switch + rotation 30j)
+# État interne des syncs (checkpoints, seen, players suivis)
+/checkpoint.json
+/checkpoint_compact.json
+/seen.json
+/seen_compact.json
+/sync-players.json
+
+# Archives lourdes (fallback, rotation)
 /runs.json.gz
 /runs_compact.json.gz
 /ranked_history.json
@@ -142,13 +91,9 @@ dashboard-*.png
 /ranked_2v2_history.json
 /ranked_2v2_history.json.gz
 
-# Dossiers de données joueurs
+# Données joueurs individuelles (tarball player-files.tar.gz en release)
 /player-data/
 /player-stats/
 
-# Archives locales (mode archive du script _upload.php)
+# Archives locales (rotation _upload.php, si réactivé un jour)
 /_archives/
-
-# PHP upload endpoint (ne jamais commit le secret)
-/_upload.php.local
-

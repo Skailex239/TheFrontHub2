@@ -29,9 +29,12 @@
  * (exemption de rate-limit). Le token est dans la variable d'env SKAILEX_ACCESS_TOKEN.
  */
 
-const fs = require("fs");
-const path = require("path");
-const https = require("https");
+import fs from "fs";
+import path from "path";
+import https from "https";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const SKAILEX_ACCESS_TOKEN = process.env.SKAILEX_ACCESS_TOKEN || "";
 const API_BASE = "https://api.openfront.io";

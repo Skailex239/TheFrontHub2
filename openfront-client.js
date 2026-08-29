@@ -9,14 +9,20 @@
  *      et le serveur Next.js fait le fetch vers OpenFront côté backend.
  *      C'est le chemin le plus rapide et le plus fiable.
  *
- *   2. PROXY CORS externes  →  corsproxy.io, codetabs, allorigins
- *      Utilisé uniquement si le proxy local n'existe pas (ex: hébergement
- *      statique GitHub Pages où /api/openfront/... renvoie une 404 HTML).
- *      On essaie plusieurs proxies en cascade car ils sont souvent
- *      surchargés ou devenus payants.
+ *   2. PROXY CLOUDFLARE WORKER → openfront-proxy.diofortnite3.workers.dev
+ *      Proxy principal en production (hébergement statique o2switch).
+ *      Injecte le header x-skailex-access côté serveur.
  *
- *   3. PROXY CUSTOM  →  window.OPENFRONT_API_PROXY ou <meta>
- *      URL de backend personnel (Render/Railway/Vercel) si défini.
+ *   3. PROXY PHP DE SECOURS  →  /api/openfront-proxy.php?path=...
+ *      Same-origin sur o2switch (aucune dépendance externe). Utilisé si le
+ *      Worker Cloudflare tombe — réduit le SPOF. Injecte aussi le header
+ *      d'exemption côté serveur (clé "openfront_access" des secrets).
+ *
+ *   4. PROXY CORS externes  →  codetabs, allorigins, thingproxy
+ *      Dernier recours, souvent surchargés ou devenus payants.
+ *
+ *   5. PROXY CUSTOM  →  window.OPENFRONT_API_PROXY ou <meta>
+ *      URL de backend personnel si défini (testé en premier de la liste).
  *
  * Note : l'API OpenFront n'autorise CORS que depuis openfront.io, d'où
  * le besoin d'un proxy côté serveur.
@@ -61,10 +67,9 @@ export class OpenFrontError extends Error {
 }
 
 /**
- * Liste des proxies CORS externes à essayer en cascade (fallback).
- * corsproxy.io est devenu payant côté serveur mais fonctionne encore
- * depuis un navigateur avec Origin ; codetabs et allorigins sont des
- * alternatives gratuites souvent surchargées.
+ * Liste des proxies à essayer en cascade (fallback hébergement statique).
+ * Ordre : Worker Cloudflare (principal) → proxy PHP o2switch (secours
+ * same-origin, réduit le SPOF Worker) → proxies CORS publics gratuits.
  */
 function buildCorsProxyUrls(apiPath) {
   const path = apiPath.startsWith("/") ? apiPath : `/${apiPath}`;
@@ -72,6 +77,9 @@ function buildCorsProxyUrls(apiPath) {
   const proxies = [
     // Cloudflare Worker (le plus fiable, ajoute le header x-skailex-access)
     `https://openfront-proxy.diofortnite3.workers.dev${path}`,
+    // Proxy PHP de secours, same-origin o2switch (404 HTML sur GitHub Pages
+    // → géré par tryFetchJson qui passe au suivant)
+    `/api/openfront-proxy.php?path=${encodeURIComponent(path)}`,
     // Fallbacks CORS gratuits
     `https://api.codetabs.com/v1/proxy/?quest=${encodedUrl}`,
     `https://api.allorigins.win/raw?url=${encodedUrl}`,
@@ -134,7 +142,7 @@ async function tryFetchJson(url, ms) {
  *
  * Ordre :
  *   1. Proxy local Next.js (/api/openfront/...) — rapide, same-origin.
- *   2. Proxies CORS externes en cascade.
+ *   2. Worker Cloudflare → proxy PHP o2switch → proxies CORS publics.
  *
  * Une OpenFrontError avec status=404 remonte immédiatement (joueur
  * introuvable) sans essayer les autres proxies, car un 404 de l'API

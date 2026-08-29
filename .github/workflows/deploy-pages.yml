@@ -6,10 +6,8 @@ on:
     paths-ignore:
       - '.github/**'
       - 'README.md'
-      - 'GUIDE_NETTOYAGE.md'
-      - 'do-reset.ps1'
-      - 'restore-sync.sh'
-      - 'push_via_api.py'
+      - 'worklog.md'
+      - 'GUIDE_*.md'
   workflow_dispatch:
 
 # ─────────────────────────────────────────────────────────────────────────────

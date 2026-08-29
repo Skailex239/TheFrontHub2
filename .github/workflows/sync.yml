@@ -42,7 +42,7 @@ jobs:
         with: { fetch-depth: 1, ref: main }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
-      - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - run: npm install --silent --no-audit --no-fund
       - name: État depuis la release
         run: |
           chmod +x scripts/data-release.sh
@@ -68,7 +68,7 @@ jobs:
         with: { fetch-depth: 1, ref: main }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
-      - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - run: npm install --silent --no-audit --no-fund
       - name: État depuis la release
         run: |
           chmod +x scripts/data-release.sh
@@ -94,7 +94,7 @@ jobs:
         with: { fetch-depth: 1, ref: main }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
-      - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - run: npm install --silent --no-audit --no-fund
       - name: État depuis la release
         run: |
           chmod +x scripts/data-release.sh
@@ -119,7 +119,7 @@ jobs:
         with: { fetch-depth: 1, ref: main }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
-      - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - run: npm install --silent --no-audit --no-fund
       - name: État depuis la release
         run: |
           chmod +x scripts/data-release.sh
@@ -148,7 +148,7 @@ jobs:
         with: { fetch-depth: 1, ref: main }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
-      - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - run: npm install --silent --no-audit --no-fund
       - name: Entrées depuis la release
         run: |
           chmod +x scripts/data-release.sh
@@ -175,6 +175,7 @@ jobs:
         with: { fetch-depth: 1, ref: main }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
+      - run: npm install --silent --no-audit --no-fund
       - name: État depuis la release
         run: |
           chmod +x scripts/data-release.sh
@@ -183,7 +184,7 @@ jobs:
             tar xzf player-files.tar.gz
             echo "  📦 player-data/ et player-stats/ restaurés"
           fi
-      - name: Detect new players from Firebase
+      - name: Detect new players (API MySQL aliases)
         run: node detect-new-players.js || true
         env:
           OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}

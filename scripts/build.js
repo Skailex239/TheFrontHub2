@@ -24,6 +24,7 @@
 import { build, context } from "esbuild";
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -50,8 +51,8 @@ const targets = [
   { entry: "animations.js",  out: "animations.min.js",   bundled: false },
   { entry: "lenis.js",       out: "lenis.min.js",        bundled: false },
   { entry: "icons.js",       out: "icons.min.js",        bundled: false },
-  // auth.js imports ./shared/firebase-config.js — bundle it so the firebase config
-  // gets inlined (otherwise the browser looks for /dist/shared/firebase-config.js which 404s)
+  // auth.js n'a plus d'imports locaux (migration MySQL) — le bundle reste
+  // inoffensif et garantit un fichier autonome minifié.
   { entry: "auth.js",        out: "auth.min.js",         bundled: true },
   { entry: "tournois-icons.js", out: "tournois-icons.min.js", bundled: false },
   // Tutorial (no imports, just standalone)
@@ -59,6 +60,95 @@ const targets = [
 ];
 
 const watch = process.argv.includes("--watch");
+
+// ════════════════════════════════════════════════════════════════════════════
+// Auto-versionnement du cache (fini les bumps manuels de ?v= et CACHE_NAME)
+// ──────────────────────────────────────────────────────────────────────────
+// 1. Chaque référence locale `src/href="...js|css?v=N"` dans les *.html est
+//    réécrite avec un hash court du contenu du fichier référencé → le
+//    navigateur ne re-télécharge QUE ce qui a réellement changé.
+// 2. CACHE_NAME du sw.js devient un hash du contenu des fichiers precachés
+//    (STATIC_ASSETS) → le SW n'invalide son cache que si nécessaire.
+// 3. CACHE_IMMUTABLE devient un hash de tous les bundles dist/*.js.
+// Exécuté uniquement en mode one-shot (pas en --watch).
+// ════════════════════════════════════════════════════════════════════════════
+
+function contentHash8(file) {
+  return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex").slice(0, 8);
+}
+
+function bumpHtmlVersions() {
+  const htmls = fs.readdirSync(ROOT).filter(f => f.endsWith(".html"));
+  let totalRefs = 0;
+  for (const html of htmls) {
+    const p = path.join(ROOT, html);
+    const src = fs.readFileSync(p, "utf8");
+    let count = 0;
+    const out = src.replace(
+      /((?:src|href)\s*=\s*["'])([^"'?]+\.(?:js|css))\?v=[^"']*("|')/g,
+      (m, pre, file, post) => {
+        const abs = path.join(ROOT, file);
+        if (!fs.existsSync(abs)) return m; // fichier introuvable → on ne touche pas
+        count++;
+        return `${pre}${file}?v=${contentHash8(abs)}${post}`;
+      }
+    );
+    if (count > 0) {
+      totalRefs += count;
+      if (out !== src) {
+        fs.writeFileSync(p, out);
+        console.log(`[build] 🔖 ${html} : ${count} version(s) ?v= recalculée(s)`);
+      }
+    }
+  }
+  if (totalRefs === 0) console.log("[build] 🔖 Aucune référence ?v= à mettre à jour");
+}
+
+function bumpSwCacheNames() {
+  const swPath = path.join(ROOT, "sw.js");
+  if (!fs.existsSync(swPath)) return;
+  let src = fs.readFileSync(swPath, "utf8");
+  let changed = false;
+
+  // CACHE_NAME ← hash du contenu des fichiers precachés (STATIC_ASSETS)
+  const listMatch = src.match(/const STATIC_ASSETS = \[([\s\S]*?)\];/);
+  if (listMatch) {
+    const urls = [...listMatch[1].matchAll(/'([^']+)'/g)].map(m => m[1])
+      .filter(u => u.startsWith("/"));
+    const h = crypto.createHash("sha256");
+    for (const u of urls) {
+      const abs = path.join(ROOT, u);
+      h.update(u);
+      // u = '/' (racine) ou fichier absent → empreinte "MISSING" stable
+      const isFile = u !== "/" && fs.existsSync(abs) && fs.statSync(abs).isFile();
+      h.update(isFile ? fs.readFileSync(abs) : Buffer.from("MISSING"));
+    }
+    const next = `const CACHE_NAME = 'thefronthub-${h.digest("hex").slice(0, 8)}';`;
+    if (!src.includes(next)) {
+      src = src.replace(/const CACHE_NAME = 'thefronthub-[^']*';/, next);
+      changed = true;
+    }
+  }
+
+  // CACHE_IMMUTABLE ← hash de tous les bundles dist/*.js
+  if (fs.existsSync(DIST)) {
+    const distFiles = fs.readdirSync(DIST).filter(f => f.endsWith(".js")).sort();
+    const h2 = crypto.createHash("sha256");
+    for (const f of distFiles) h2.update(fs.readFileSync(path.join(DIST, f)));
+    const next = `const CACHE_IMMUTABLE = 'thefronthub-imm-${h2.digest("hex").slice(0, 8)}';`;
+    if (!src.includes(next)) {
+      src = src.replace(/const CACHE_IMMUTABLE = 'thefronthub-[^']*';/, next);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    fs.writeFileSync(swPath, src);
+    console.log("[build] 🔖 sw.js : CACHE_NAME / CACHE_IMMUTABLE recalculés (hash contenu)");
+  } else {
+    console.log("[build] 🔖 sw.js : caches déjà à jour");
+  }
+}
 
 async function run() {
   const beforeMs = Date.now();
@@ -120,6 +210,10 @@ async function run() {
         console.log("[build] 🔧 lenis.min.js : « export default J() » → « globalThis.Lenis = J() »");
       }
     }
+
+    // ── Auto-versionnement du cache (?v= HTML + CACHE_NAME sw.js) ──
+    bumpHtmlVersions();
+    bumpSwCacheNames();
 
     const afterMs = Date.now();
 

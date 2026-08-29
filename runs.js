@@ -88,7 +88,7 @@ function makeRankBadge(rank) {
   return '<span class="global-rank ' + cls + '">' + rank + '</span>';
 }
 
-// Load connected usernames from Firebase public-rewards and public-aliases
+// Load connected usernames from the MySQL API (public-rewards + public-aliases)
 async function loadConnectedUsernames() {
   try {
     // Fix double chemin (audit 2026-08-27) : depuis dist/runs.min.js, l'import

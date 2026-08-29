@@ -377,7 +377,6 @@ const server = http.createServer(async (req, res) => {
     "/toast.css": ["toast.css", "text/css; charset=utf-8"],
     // Shared modules (ESM imports)
     "/shared/maps.js": ["shared/maps.js", "text/javascript; charset=utf-8"],
-    "/shared/firebase-config.js": ["shared/firebase-config.js", "text/javascript; charset=utf-8"],
     "/shared/extract-speedrun.js": ["shared/extract-speedrun.js", "text/javascript; charset=utf-8"],
     // JSON data
     "/maps_list.json": ["maps_list.json", "application/json; charset=utf-8"],

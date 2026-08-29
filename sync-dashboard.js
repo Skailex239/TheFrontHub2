@@ -1,7 +1,7 @@
 // sync-dashboard.js — Pré-calcule les scores du dashboard
 // Sources de joueurs (fusionnées par publicId) :
 //   1. data/players.json (joueurs Discord)
-//   2. Firebase public-aliases (joueurs connectés via Google/Discord)
+//   2. API MySQL tfh_public_aliases (joueurs connectés — ex-Firestore)
 //   3. ranked.json (top 100 1v1 + top 100 2v2 — nouveaux ranked auto-inclus)
 //
 // SEMAINE FIXE (reset automatique) :
@@ -21,7 +21,9 @@ import { API_BASE, openFrontFetch, hasExemption } from "./openfront-api.js";
 const PLAYERS_FILE = "data/players.json";
 const OUTPUT_FILE = "dashboard_scores.json";
 const CONCURRENCY = 8;
-const FIRESTORE_BASE = "https://firestore.googleapis.com/v1/projects/openfront-speedrun/databases/(default)/documents";
+// Alias joueurs connectés — API MySQL TheFrontHub (remplace Firestore,
+// migration MySQL terminée). Surchargable pour les tests locaux.
+const TFH_ALIASES_URL = process.env.TFH_ALIASES_URL || "https://thefronthub.com/api/public-aliases.php";
 
 const SCORE = {
   ffa_casual: 10,
@@ -91,26 +93,28 @@ async function fetchPlayerStats(publicId) {
   }
 }
 
-async function loadFirebasePlayers() {
+/**
+ * Joueurs connectés via l'API MySQL TheFrontHub (tfh_public_aliases).
+ * Remplace l'ancienne lecture Firestore `public-aliases` (migration MySQL).
+ */
+async function loadConnectedPlayers() {
   try {
-    const res = await fetch(`${FIRESTORE_BASE}/public-aliases`, { cache: "no-store" });
-    if (!res.ok) { console.warn(`[dashboard-sync] Firebase: HTTP ${res.status}`); return []; }
+    const res = await fetch(TFH_ALIASES_URL, { cache: "no-store" });
+    if (!res.ok) { console.warn(`[dashboard-sync] API aliases: HTTP ${res.status}`); return []; }
     const data = await res.json();
-    const docs = data.documents || [];
+    const rows = Array.isArray(data.aliases) ? data.aliases : [];
     const players = [];
     const seen = new Set();
-    for (const doc of docs) {
-      const fields = doc.fields || {};
-      const val = (f) => (f?.stringValue || f?.integerValue || "");
-      const publicId = val(fields.publicId);
+    for (const row of rows) {
+      const publicId = String(row.publicId || "");
       if (!publicId || !/^[A-Za-z0-9]{8}$/.test(publicId) || seen.has(publicId)) continue;
       seen.add(publicId);
-      players.push({ publicId, name: val(fields.username) || publicId, openfrontId: publicId, source: "firebase" });
+      players.push({ publicId, name: row.username || publicId, openfrontId: publicId, source: "mysql" });
     }
-    console.log(`[dashboard-sync] Firebase: ${players.length} joueurs connectés`);
+    console.log(`[dashboard-sync] API aliases: ${players.length} joueurs connectés`);
     return players;
   } catch (e) {
-    console.warn(`[dashboard-sync] Firebase error: ${e.message}`);
+    console.warn(`[dashboard-sync] API aliases error: ${e.message}`);
     return [];
   }
 }
@@ -237,8 +241,8 @@ async function main() {
   })).filter(p => p.publicId);
   console.log(`[dashboard-sync] data/players.json: ${discordPlayers.length} joueurs Discord`);
 
-  // 2. Firebase public-aliases (connectés)
-  const firebasePlayers = await loadFirebasePlayers();
+  // 2. Joueurs connectés (API MySQL tfh_public_aliases)
+  const connectedPlayers = await loadConnectedPlayers();
 
   // 3. ranked.json (top 100 1v1 + top 100 2v2)
   let ranked = {};
@@ -260,11 +264,11 @@ async function main() {
   // 4. Fusionner les 3 sources (déduire par publicId)
   const merged = new Map();
   for (const p of discordPlayers) if (p.publicId && !merged.has(p.publicId)) merged.set(p.publicId, p);
-  for (const p of firebasePlayers) if (p.publicId && !merged.has(p.publicId)) merged.set(p.publicId, p);
+  for (const p of connectedPlayers) if (p.publicId && !merged.has(p.publicId)) merged.set(p.publicId, p);
   for (const p of rankedPlayers) if (p.publicId && !merged.has(p.publicId)) merged.set(p.publicId, p);
 
   const allPlayers = [...merged.values()];
-  console.log(`[dashboard-sync] Total: ${allPlayers.length} joueurs (${discordPlayers.length} Discord + ${firebasePlayers.length} Firebase + ${rankedPlayers.length} Ranked)`);
+  console.log(`[dashboard-sync] Total: ${allPlayers.length} joueurs (${discordPlayers.length} Discord + ${connectedPlayers.length} connectés MySQL + ${rankedPlayers.length} Ranked)`);
 
   // 5. Fetch stats
   const results = [];
