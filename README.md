@@ -16,6 +16,7 @@
 - [Développement local](#-développement-local)
 - [Fonctionnalités](#-fonctionnalités)
 - [Sécurité](#-sécurité)
+- [Corrections récentes](#-corrections-récentes-2026-08-29)
 
 ---
 
@@ -67,6 +68,7 @@
 ## 🛠 Stack technique
 
 - **Frontend** : HTML/CSS/JS vanilla (pas de framework)
+- **Backend** : PHP 8 + MySQL (API `api/`, hébergée sur o2switch)
 - **Hébergement** : o2switch (cPanel shared hosting, offre Grow)
 - **Domaine** : thefronthub.com (enregistré chez o2switch)
 - **SSL** : Let's Encrypt (auto-renouvelé via cPanel AutoSSL)
@@ -99,20 +101,32 @@ TheFrontHub2/
 ├── .htaccess              # Config Apache (HTTPS, cache, GZIP)
 ├── .user.ini              # Limites PHP (100M upload)
 │
+├── api/                   # API PHP + MySQL (o2switch) — auth Discord, profils, cosmétiques
+│   ├── auth/discord/      # login.php + callback.php (OAuth2 Discord)
+│   ├── .htaccess          # Config Apache dédiée API
+│   └── *.php              # me, logout, ping, profile, likes, public-aliases, public-rewards, rewards, skins (+ config.php, helpers.php)
+│
 ├── lobby-wire.js          # Décodeur zbin binaire OpenFront
 ├── styles.css             # Styles globaux
 ├── lobby.css              # Styles lobby
-├── auth.js + auth.css     # Auth Google/Discord
+├── auth.js + auth.css     # Shim de compat API MySQL (remplace Firebase Auth/Firestore)
 ├── icons.js, i18n.js      # UI helpers
 │
-├── shared/                # Modules JS partagés
+├── shared/                # Modules JS partagés (firebase-config.js = vestige Firebase, non chargé par le front racine)
 ├── atlas-data/            # Images cartes + drapeaux
 ├── data/                  # Données tournois, calendrier
+│
+├── deploy.sh              # Déploiement cron git → webroot (rsync + permissions)
+├── pull-data.sh           # Télécharge les données JSON depuis la release data-latest
 │
 ├── cloudflare-worker/     # Code du Worker Cloudflare
 │   └── openfront-proxy.js
 │
+├── dist/                  # Bundles *.min.js (esbuild, commités)
+│
 ├── scripts/
+│   ├── build.js               # Build esbuild → dist/*.min.js
+│   ├── data-release.sh        # Publication des données en release GitHub data-latest
 │   └── upload-to-o2switch.sh  # Bash script appelé par GitHub Actions
 │
 └── .github/workflows/
@@ -213,6 +227,13 @@ python3 -m http.server 8000
 # Ouvrir http://localhost:8000/lobby.html
 ```
 
+### Régénérer les bundles (dist/)
+Les pages chargent les bundles commités `dist/*.min.js`. Après modification des sources JS, les régénérer (esbuild requis) :
+```bash
+npm install esbuild
+node scripts/build.js
+```
+
 ### Tester le worker Cloudflare en local
 Le worker `cloudflare-worker/openfront-proxy.js` peut être testé avec `wrangler` :
 ```bash
@@ -235,9 +256,8 @@ wrangler dev
 - 🏃 **Speedruns** (`/runs.html`) — records par carte
 
 ### Authentification
-- Connexion Google (Firebase Auth)
-- Connexion Discord (Firebase Auth)
-- Lier son compte OpenFront via Public ID
+- Connexion Discord (OAuth2, API PHP MySQL) — sessions cookie HttpOnly 30 j (jetons hashés SHA-256, tables MySQL `tfh_*`)
+- Lier son compte OpenFront via Public ID (immuable après liaison)
 
 ---
 
@@ -275,10 +295,21 @@ wrangler dev
 
 ---
 
+## 🩹 Corrections récentes (2026-08-29)
+
+Branche `fix/auto-bugfixes` (commits `5bfef46..e30a556`) :
+
+- **deploy.sh** : `--include data/` + `atlas-data/maps_data.json` — le `--exclude='*.json'` global empêchait le déploiement des JSON du site (rétabli)
+- **profile.js** : check d'unicité du Public ID rétabli via `/api/public-aliases.php` (l'ancien code appelait une constante `FIRESTORE_BASE` undefined → check mort avalé par le catch)
+- **sync-dashboard.js + detect-new-players.js** : bascule Firestore → API MySQL `public-aliases` (fin de la migration étape 6/8)
+- **Untrack des données de sync** (~51 Mo retirés de l'index) : l'état courant vit dans la release [`data-latest`](https://github.com/Skailex239/TheFrontHub2/releases/tag/data-latest)
+
+---
+
 ## 📝 Notes
 
-- Le repo GitHub reste léger (~3 Mo) — les fichiers de données sont stockés sur o2switch, pas dans Git
-- Historique Git purgé régulièrement pour éviter l'explosion (les fichiers JSON ne sont plus commités)
+- Les données de sync (`runs.json.gz`, `lobby_state.json`, etc.) ne sont plus commitées — l'état courant est publié dans la release [`data-latest`](https://github.com/Skailex239/TheFrontHub2/releases/tag/data-latest)
+- Le repo contient encore ces données dans son historique Git (~51 Mo) — un nettoyage d'historique est prévu (cf. `GUIDE_NETTOYAGE.md`)
 - Le `lobby_state.json` est alimenté toutes les 5 min par GitHub Actions
 - Le cron o2switch déploie le code toutes les 5 min
 - Pubs Google AdSense actives sur toutes les pages sauf `/profile.html`

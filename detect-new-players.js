@@ -1,9 +1,10 @@
 /**
- * detect-new-players.js — Détecte les nouveaux joueurs depuis Firebase.
+ * detect-new-players.js — Détecte les nouveaux joueurs connectés.
  *
- * Lit la collection Firestore `public-aliases` via l'API REST pour lister
- * tous les joueurs connectés (Google/Discord). Ajoute ceux qui ne sont pas
+ * Interroge l'API MySQL TheFrontHub (/api/public-aliases.php) pour lister
+ * tous les joueurs connectés via Discord. Ajoute ceux qui ne sont pas
  * encore dans sync-players.json.
+ * (Migré depuis Firestore le 2026-08-29 — fin de la migration Firestore→MySQL.)
  *
  * Usage:
  *   node detect-new-players.js
@@ -15,8 +16,7 @@ const fs = require("fs");
 const path = require("path");
 const https = require("https");
 
-const FIREBASE_PROJECT = "openfront-speedrun";
-const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents`;
+const TFH_ALIASES_URL = "https://thefronthub.com/api/public-aliases.php";
 const CONFIG_FILE = path.join(__dirname, "sync-players.json");
 
 function fetchJson(url) {
@@ -43,31 +43,26 @@ function fetchJson(url) {
 }
 
 async function fetchConnectedPlayers() {
-  console.log("[detect] Fetching connected players from Firebase public-aliases...");
+  console.log("[detect] Fetching connected players from thefronthub.com API...");
   try {
-    const data = await fetchJson(`${FIRESTORE_BASE}/public-aliases?pageSize=1000`);
-    const docs = data.documents || [];
+    const data = await fetchJson(TFH_ALIASES_URL);
+    const aliases = data.aliases || [];
     const seen = new Set();
     const list = [];
-    for (const doc of docs) {
-      const fields = doc.fields || {};
-      const val = (f) => {
-        if (!f || typeof f !== "object") return "";
-        return f.stringValue || f.integerValue || "";
-      };
-      const publicId = val(fields.publicId);
+    for (const alias of aliases) {
+      const publicId = String(alias.publicId || "");
       if (!/^[A-Za-z0-9]{8}$/.test(publicId)) continue;
       if (seen.has(publicId)) continue;
       seen.add(publicId);
       list.push({
         publicId,
-        username: val(fields.username) || publicId,
+        username: alias.username || publicId,
       });
     }
     console.log(`[detect] Found ${list.length} connected players`);
     return list;
   } catch (e) {
-    console.warn(`[detect] Firebase fetch failed: ${e.message}`);
+    console.warn(`[detect] Aliases API fetch failed: ${e.message}`);
     return [];
   }
 }
