@@ -112,6 +112,7 @@ dashboard-*.png
 /teams.json
 /teams.json.gz
 /teams_runs.json
+/teams_runs.json.gz
 /teams_seen.json
 /teams_checkpoint.json
 /teams_public.json
