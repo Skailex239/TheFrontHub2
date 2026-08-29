@@ -110,6 +110,7 @@ dashboard-*.png
 /ranked.json
 /ranked.json.gz
 /teams.json
+/teams.json.gz
 /teams_runs.json
 /teams_seen.json
 /teams_checkpoint.json
@@ -148,6 +149,10 @@ dashboard-*.png
 
 # Archives locales (mode archive du script _upload.php)
 /_archives/
+
+# DB SQLite résiduelle (template Next — jamais utilisé en prod)
+/db/custom.db
+/db/*.db
 
 # PHP upload endpoint (ne jamais commit le secret)
 /_upload.php.local
