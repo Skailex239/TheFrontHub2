@@ -11,7 +11,8 @@
   <meta name="description" content="Votre profil TheFrontHub — statistiques OpenFront, historique de parties et progression.">
   <meta property="og:title" content="TheFrontHub — Mon Profil">
   <meta property="og:description" content="Suivez votre progression et vos statistiques OpenFront.">
-  <meta property="og:image" content="https://skailex239.github.io/TheFrontHub/TheFrontHub%20Logo%20Text.png">
+  <meta property="og:image" content="https://thefronthub.com/TheFrontHub%20Logo%20Text.png">
+  <meta property="og:url" content="https://thefronthub.com/profile.html">
 
 <!-- Performance: preconnect + dns-prefetch -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -23,7 +24,7 @@
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=66" as="style">
 <link rel="preload" href="profile.css?v=33" as="style">
-<link rel="preload" href="dist/profile.min.js?v=8" as="script" crossorigin>
+<link rel="preload" href="dist/profile.min.js?v=9" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=2" as="script" crossorigin>
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
@@ -423,7 +424,7 @@
       <img src="TheFrontHub Logo Text.png" alt="TheFrontHub" loading="eager">
     </div>
 
-    <nav role="tablist">
+    <nav aria-label="Navigation principale">
       <a class="nav-item tab-btn" id="tab-btn-dashboard" href="dashboard.html">
         <i data-icon="home"></i> Tableau de bord
       </a>
@@ -433,16 +434,16 @@
       <a class="nav-item tab-btn" id="tab-btn-ranked" href="index.html?tab=ranked">
         <i data-icon="swords"></i> Classé
       </a>
-      <a class="nav-item tab-btn" id="tab-btn-lobby" href="lobby.html" role="tab" aria-selected="false" tabindex="0">
+      <a class="nav-item tab-btn" id="tab-btn-lobby" href="lobby.html">
         <i data-icon="bolt"></i> Lobby
       </a>
-      <a class="nav-item tab-btn" id="tab-btn-atlas" href="atlas.html" role="tab" aria-selected="false" tabindex="0">
+      <a class="nav-item tab-btn" id="tab-btn-atlas" href="atlas.html">
         <i data-icon="map"></i> Atlas
       </a>
       <a class="nav-item tab-btn" id="tab-btn-tournois" href="tournois.html">
         <i data-icon="medal"></i> Tournois
       </a>
-      <a class="nav-item tab-btn active" id="tab-btn-profile" role="tab" aria-selected="true">
+      <a class="nav-item tab-btn active" id="tab-btn-profile" href="profile.html" aria-current="page">
         <i data-icon="user"></i> Mon Profil
       </a>
     </nav>
@@ -594,7 +595,7 @@
         <div class="pf-header-top">
           <div class="pf-avatar-frame" id="profile-avatar-large">—</div>
           <div class="pf-header-info">
-            <h1 class="pf-player-name" id="profile-title-name">—</h1>
+            <h2 class="pf-player-name" id="profile-title-name">—</h2>
             <span class="pf-publicid" id="profile-public-badge">ID public : —</span>
           </div>
           <button class="pf-logout-btn" onclick="handleLogout()" title="Se déconnecter">
@@ -658,11 +659,11 @@
   </div>
 </div>
 
-<script src="dist/i18n.min.js?v=1"></script>
+<script src="dist/i18n.min.js?v=2"></script>
 <script src="dist/toast.min.js?v=1" defer></script>
 <script src="dist/lenis.min.js?v=6"></script>
 <script src="dist/animations.min.js?v=1" defer></script>
-<script src="dist/profile.min.js?v=8" type="module"></script>
+<script src="dist/profile.min.js?v=9" type="module"></script>
 
 <script type="module" src="dist/tutorial.min.js?v=2"></script>
 <script>
@@ -689,12 +690,12 @@
     <div class="tfh-footer-col">
       <h4 class="tfh-footer-title">Navigation</h4>
       <ul class="tfh-footer-links">
+        <li><a href="dashboard.html">Tableau de bord</a></li>
         <li><a href="index.html">Speedruns</a></li>
         <li><a href="index.html?tab=ranked">Classé</a></li>
-        <li><a href="dashboard.html">Tableau de bord</a></li>
-        <li><a href="tournois.html">Tournois</a></li>
-        <li><a href="atlas.html">Atlas</a></li>
         <li><a href="lobby.html">Lobby</a></li>
+        <li><a href="atlas.html">Atlas</a></li>
+        <li><a href="tournois.html">Tournois</a></li>
       </ul>
     </div>
 

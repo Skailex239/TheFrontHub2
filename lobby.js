@@ -24,6 +24,19 @@
 
 "use strict";
 
+/* ── Helpers ─────────────────────────────────────────────────────────── */
+
+// Nom de carte affichable : passe par i18n (window.t, chargé sur toutes les
+// pages) pour afficher le nom francisé ("Mer Égée", "Alpes"…) comme sur
+// l'index et /runs. Les vignettes (mapThumb) et l'URL du jeu continuent
+// d'utiliser le nom brut de l'API — seul le libellé visible est traduit.
+function mapDisplayName(raw) {
+  if (!raw) return "?";
+  const key = "map." + raw;
+  const translated = (typeof window.t === "function") ? window.t(key) : null;
+  return (translated && translated !== key) ? translated : raw;
+}
+
 /* ════════════════════════════════════════════════════════════════════════
    Configuration
    ════════════════════════════════════════════════════════════════════════ */
@@ -545,7 +558,8 @@ function updateCard(card, game, opts) {
     }
 
     const mapEl = $(".lobby-card-map", card);
-    if (mapEl.textContent !== mapName) mapEl.textContent = mapName;
+    const mapLabel = mapDisplayName(mapName);
+    if (mapEl.textContent !== mapLabel) mapEl.textContent = mapLabel;
 
     const mode = modeLabel(game);
     const modeEl = $(".lobby-card-mode", card);

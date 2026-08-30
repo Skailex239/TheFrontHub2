@@ -1,6 +1,6 @@
 const translations = {
   fr: {
-    "nav.maps": "Cartes",
+    "nav.maps": "Speedruns",
     "nav.global": "Mondial",
     "nav.stats": "Stats",
     "header.subtitle": "Leaderboard FFA · 10+ joueurs · 400 bots · Standard",
@@ -215,7 +215,7 @@ const translations = {
     "profile.api_losses": "Défaites (API)"
   },
   en: {
-    "nav.maps": "Maps",
+    "nav.maps": "Speedruns",
     "nav.global": "Global",
     "nav.stats": "Stats",
     "header.subtitle": "FFA Leaderboard · 10+ players · 400 bots · Standard",

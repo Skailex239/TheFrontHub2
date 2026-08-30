@@ -11,8 +11,8 @@
 <meta name="description" content="Tableau de bord — Classement par points. FFA casual +10 · FFA classé +1 · Team casual +5 · Team classé +1.">
 <meta property="og:title" content="TheFrontHub — Tableau de bord">
 <meta property="og:description" content="Classement par points des parties OpenFront — FFA + Team, casual + ranked">
-<meta property="og:image" content="https://skailex239.github.io/TheFrontHub/TheFrontHub%20Logo%20Text.png">
-<meta property="og:url" content="https://skailex239.github.io/TheFrontHub/dashboard.html">
+<meta property="og:image" content="https://thefronthub.com/TheFrontHub%20Logo%20Text.png">
+<meta property="og:url" content="https://thefronthub.com/dashboard.html">
 <meta property="og:type" content="website">
 <meta name="openfront-api-proxy" content="https://openfront-proxy.diofortnite3.workers.dev">
 
@@ -25,13 +25,15 @@
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=66" as="style">
 <link rel="preload" href="dashboard.css?v=16" as="style">
-<link rel="preload" href="dist/dashboard.min.js?v=5" as="script" crossorigin>
+<link rel="preload" href="dist/dashboard.min.js?v=6" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=2" as="script" crossorigin>
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Orbitron:wght@900&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
 
 <link rel="icon" type="image/png" href="favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="180x180" href="favicon-180x180.png">
+<link rel="apple-touch-icon" sizes="180x180" href="favicon-180x180.png">
 <link rel="stylesheet" href="styles.css?v=66">
 <link rel="stylesheet" href="auth.css?v=19">
 <link rel="stylesheet" href="toast.css">
@@ -56,26 +58,26 @@
       <img src="TheFrontHub Logo Text.png" alt="TheFrontHub" loading="eager">
     </div>
 
-    <nav role="tablist">
-      <a class="nav-item tab-btn active" id="tab-btn-dashboard" role="tab" aria-selected="true" tabindex="0">
+    <nav aria-label="Navigation principale">
+      <a class="nav-item tab-btn active" id="tab-btn-dashboard" href="dashboard.html" aria-current="page">
         <i data-icon="home"></i> Tableau de bord
       </a>
-      <a class="nav-item tab-btn" id="tab-btn-maps" href="index.html" role="tab" aria-selected="false" tabindex="0">
+      <a class="nav-item tab-btn" id="tab-btn-maps" href="index.html">
         <i data-icon="trophy"></i> Speedruns
       </a>
-      <a class="nav-item tab-btn" id="tab-btn-ranked" href="index.html?tab=ranked" role="tab" aria-selected="false" tabindex="0">
+      <a class="nav-item tab-btn" id="tab-btn-ranked" href="index.html?tab=ranked">
         <i data-icon="swords"></i> Classé
       </a>
-      <a class="nav-item tab-btn" id="tab-btn-lobby" href="lobby.html" role="tab" aria-selected="false" tabindex="0">
+      <a class="nav-item tab-btn" id="tab-btn-lobby" href="lobby.html">
         <i data-icon="bolt"></i> Lobby
       </a>
-      <a class="nav-item tab-btn" id="tab-btn-atlas" href="atlas.html" role="tab" aria-selected="false" tabindex="0">
+      <a class="nav-item tab-btn" id="tab-btn-atlas" href="atlas.html">
         <i data-icon="map"></i> Atlas
       </a>
-      <a class="nav-item tab-btn" id="tab-btn-tournois" href="tournois.html" role="tab" aria-selected="false" tabindex="0">
+      <a class="nav-item tab-btn" id="tab-btn-tournois" href="tournois.html">
         <i data-icon="medal"></i> Tournois
       </a>
-      <a class="nav-item tab-btn" id="tab-btn-profile" href="profile.html" role="tab" aria-selected="false" tabindex="0">
+      <a class="nav-item tab-btn" id="tab-btn-profile" href="profile.html">
         <i data-icon="user"></i> Mon Profil
       </a>
     </nav>
@@ -258,8 +260,8 @@
 <!-- Toast container -->
 <div id="toast-container"></div>
 
-<script type="module" src="dist/dashboard.min.js?v=5"></script>
-<script type="module" src="dist/auth.min.js?v=3"></script>
+<script type="module" src="dist/dashboard.min.js?v=6"></script>
+<script src="dist/i18n.min.js?v=2"></script>
 <script src="dist/toast.min.js?v=1"></script>
 <script src="dist/lenis.min.js?v=6"></script>
 <script src="dist/animations.min.js?v=1"></script>
@@ -288,12 +290,12 @@
     <div class="tfh-footer-col">
       <h4 class="tfh-footer-title">Navigation</h4>
       <ul class="tfh-footer-links">
+        <li><a href="dashboard.html">Tableau de bord</a></li>
         <li><a href="index.html">Speedruns</a></li>
         <li><a href="index.html?tab=ranked">Classé</a></li>
-        <li><a href="dashboard.html">Tableau de bord</a></li>
-        <li><a href="tournois.html">Tournois</a></li>
-        <li><a href="atlas.html">Atlas</a></li>
         <li><a href="lobby.html">Lobby</a></li>
+        <li><a href="atlas.html">Atlas</a></li>
+        <li><a href="tournois.html">Tournois</a></li>
       </ul>
     </div>
 
@@ -323,6 +325,6 @@
 
 
 
-<script src="ads.js?v=3"></script>
+<script src="dist/ads.min.js?v=1"></script>
 </body>
 </html>

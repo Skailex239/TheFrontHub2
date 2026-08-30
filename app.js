@@ -3,6 +3,26 @@ import { icon } from "./icons.js";
 import { fetchActiveSkinMap, normPlayerName } from "./reward-codes.js";
 import { getSkin } from "./skins.js";
 
+// ── Filet de sécurité auth (cohérence 2026-08-30) ────────────────────────────
+// index.html ne charge ni auth.js ni auth-ui.js : sans ce filet,
+// window.loginWithDiscord / window.logout n'existent pas et les boutons
+// « Connexion » / « Déconnexion » de la page d'accueil échouent en silence
+// (TypeError avalée par le try/catch de handleLogin / levée dans handleLogout).
+// Contrats identiques à auth.js : login redirige vers l'OAuth Discord et ne
+// résout jamais (la page est quittée) ; logout POSTe /api/logout.php.
+if (typeof window.loginWithDiscord !== "function") {
+  window.loginWithDiscord = () => {
+    window.location.href = "/api/auth/discord/login.php";
+    return new Promise(() => {}); // NEVER : l'état « Redirection… » reste jusqu'au unload
+  };
+}
+if (typeof window.logout !== "function") {
+  window.logout = async () => {
+    try { await fetch("/api/logout.php", { method: "POST", credentials: "same-origin" }); }
+    catch (e) { console.warn("[auth] logout API error:", e); }
+  };
+}
+
 function getMapDisplayName(mapName) {
   const key = "map." + mapName;
   const translated = window.t ? window.t(key) : key;
@@ -1775,7 +1795,7 @@ function switchTab(name,btn){
     else if (name === 'maps') topbarTitle.textContent = 'Speedruns';
   }
   if (name === 'ranked') loadRankedLeaderboard(true);
-  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>{b.classList.remove('active');b.removeAttribute('aria-current');});
   
   // Toggle FFA-specific elements visibility
   const serverInfo = document.querySelector('.server-info');
@@ -1795,13 +1815,13 @@ function switchTab(name,btn){
       currentActive.classList.remove('active');
       currentActive.style.opacity = '';
       currentActive.style.transform = '';
-      if (btn) btn.classList.add('active');
+      if (btn) { btn.classList.add('active'); btn.setAttribute('aria-current','page'); }
       const tabContent = document.getElementById('tab-'+name);
       if (tabContent) tabContent.classList.add('active');
       updateURL();
     }, 150);
   } else {
-    if (btn) btn.classList.add('active');
+    if (btn) { btn.classList.add('active'); btn.setAttribute('aria-current','page'); }
     const tabContent = document.getElementById('tab-'+name);
     if (tabContent) tabContent.classList.add('active');
     updateURL();
