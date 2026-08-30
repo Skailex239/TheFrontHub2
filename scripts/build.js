@@ -41,7 +41,14 @@ const targets = [
   { entry: "profile.js",     out: "profile.min.js",     bundled: true },
   { entry: "dashboard.js",   out: "dashboard.min.js",   bundled: true },
   { entry: "lobby.js",       out: "lobby.min.js",        bundled: true },
-  { entry: "lobby-wire.js",  out: "lobby-wire.min.js",   bundled: false },
+  // ⚠️ format iife OBLIGATOIRE : lobby-wire.js contient `module.exports` (usage
+  // Node dans sync-lobby-state.js) → esbuild le détecte en CommonJS. Avec le
+  // format esm par défaut, la sortie finit par « export default U(); » : chargé
+  // en <script> CLASSIQUE (lobby.html), le navigateur lève une SyntaxError
+  // « Unexpected token 'export' » et window.OpenFrontWire n'est jamais posé →
+  // plus AUCUNE carte rendue dans le lobby (frames zbin toutes ignorées).
+  // iife enveloppe le module CJS et INVOQUE l'entrée immédiatement.
+  { entry: "lobby-wire.js",  out: "lobby-wire.min.js",   bundled: false, format: "iife" },
   { entry: "auth-ui.js",     out: "auth-ui.min.js",      bundled: true },
   { entry: "atlas.js",       out: "atlas.min.js",        bundled: true },
   { entry: "tournois.js",    out: "tournois.min.js",     bundled: true },
@@ -87,6 +94,8 @@ async function run() {
       // Disable it to be safe — bundle size impact is minimal (<5%).
       treeShaking: false,
     };
+    // Surcharge ponctuelle du format (voir la cible lobby-wire.js ci-dessus)
+    if (t.format) opts.format = t.format;
     if (t.bundled) {
       opts.bundle = true;
       // Inline everything including auth.js (small, only 3.5KB minified).

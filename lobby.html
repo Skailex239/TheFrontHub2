@@ -26,7 +26,7 @@
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=66" as="style">
 <link rel="preload" href="lobby.css?v=14" as="style">
-<link rel="preload" href="dist/lobby-wire.min.js?v=1" as="script">
+<link rel="preload" href="dist/lobby-wire.min.js?v=2" as="script">
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Orbitron:wght@900&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
@@ -240,8 +240,8 @@
 <!-- Toast container -->
 <div id="toast-container"></div>
 
-<script src="dist/lobby-wire.min.js?v=1"></script>
-<script type="module" src="dist/lobby.min.js?v=1"></script>
+<script src="dist/lobby-wire.min.js?v=2"></script>
+<script type="module" src="dist/lobby.min.js?v=2"></script>
 <script src="dist/i18n.min.js?v=2"></script>
 <script type="module" src="dist/auth-ui.min.js?v=1"></script>
 <script src="dist/toast.min.js?v=1"></script>
@@ -251,7 +251,7 @@
   // Service Worker — offline + cache stale-while-revalidate
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=19').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=20').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>

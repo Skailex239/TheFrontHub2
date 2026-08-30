@@ -274,6 +274,7 @@ const wire = () => (typeof window !== "undefined" ? window.OpenFrontWire : null)
 let ws = null;
 let wsGeneration = 0;
 let wsFailCount = { direct: 0, proxy: 0 };
+let decoderWarned = false;
 let wsReconnectTimer = null;
 let wsOpenTimer = null;
 
@@ -330,7 +331,15 @@ function startWebSocket() {
   sock.onmessage = (event) => {
     if (gen !== wsGeneration) return;
     const decoder = wire();
-    if (!decoder) return;
+    if (!decoder) {
+      // Sans décodeur, toutes les frames seraient silencieusement perdues :
+      // le lobby resterait vide sous badge « Temps réel ». On signale fort.
+      if (!decoderWarned) {
+        decoderWarned = true;
+        console.error("[lobby] OpenFrontWire indisponible — frames zbin ignorées");
+      }
+      return;
+    }
     try {
       const bytes = event.data instanceof ArrayBuffer
         ? new Uint8Array(event.data)
@@ -780,7 +789,7 @@ function renderHero() {
         </div>
         <div class="lobby-hero-bottom">
           <span class="lobby-hero-players" data-role="hero-players"></span>
-          <h2 class="lobby-hero-map">${esc(mapName)}</h2>
+          <h2 class="lobby-hero-map">${esc(mapDisplayName(mapName))}</h2>
           <p class="lobby-hero-mode">${esc(modeLabel(next))}</p>
         </div>
       </a>`;
@@ -888,13 +897,18 @@ function boot() {
     console.warn("[lobby] #lobby-view introuvable");
     return;
   }
-  if (!wire()) {
-    console.error("[lobby] lobby-wire.js non chargé — décodage zbin impossible");
-  }
   ensureStatusBar();
   buildSkeleton();
   render(true);
   startClock();
+  // Filet de sécurité : sans décodeur zbin (lobby-wire), le WebSocket ne peut
+  // rien rendre — on bascule directement sur le fallback HTTP (lobby_state.json)
+  // qui n'a PAS besoin du décodeur. Les cartes restent donc toujours visibles.
+  if (!wire()) {
+    console.error("[lobby] lobby-wire indisponible → fallback HTTP direct (décodage zbin impossible)");
+    startHttpFallback();
+    return;
+  }
   startWebSocket();
 }
 
