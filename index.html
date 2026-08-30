@@ -63,7 +63,7 @@
 
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=66" as="style">
-<link rel="preload" href="dist/app.min.js?v=8" as="script" crossorigin>
+<link rel="preload" href="dist/app.min.js?v=9" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=2" as="script" crossorigin>
 <link rel="preload" href="runs_public.json.gz" as="fetch" crossorigin>
 
@@ -96,20 +96,20 @@
 
     </div>
 
-    <nav role="tablist">
-      <a class="nav-item tab-btn" id="tab-btn-dashboard" href="dashboard.html" role="tab" aria-selected="false" tabindex="0">
+    <nav aria-label="Navigation principale">
+      <a class="nav-item tab-btn" id="tab-btn-dashboard" href="dashboard.html">
         <i data-icon="home"></i> Tableau de bord
       </a>
-      <a class="nav-item tab-btn active" id="tab-btn-maps" role="tab" aria-selected="true" tabindex="0" onclick="switchTab('maps',this);document.getElementById('topbar-title').textContent='Speedruns'">
+      <a class="nav-item tab-btn active" id="tab-btn-maps" href="index.html" aria-current="page" onclick="event.preventDefault();switchTab('maps',this);document.getElementById('topbar-title').textContent='Speedruns'">
         <i data-icon="trophy"></i> Speedruns
       </a>
-      <a class="nav-item tab-btn" id="tab-btn-ranked" role="tab" aria-selected="false" tabindex="0" onclick="switchTab('ranked',this);document.getElementById('topbar-title').textContent='Classé'">
+      <a class="nav-item tab-btn" id="tab-btn-ranked" href="index.html?tab=ranked" onclick="event.preventDefault();switchTab('ranked',this);document.getElementById('topbar-title').textContent='Classé'">
         <i data-icon="swords"></i> Classé
       </a>
-      <a class="nav-item tab-btn" id="tab-btn-lobby" href="lobby.html" role="tab" aria-selected="false" tabindex="0">
+      <a class="nav-item tab-btn" id="tab-btn-lobby" href="lobby.html">
         <i data-icon="bolt"></i> Lobby
       </a>
-      <a class="nav-item tab-btn" id="tab-btn-atlas" href="atlas.html" role="tab" aria-selected="false" tabindex="0">
+      <a class="nav-item tab-btn" id="tab-btn-atlas" href="atlas.html">
         <i data-icon="map"></i> Atlas
       </a>
       <a class="nav-item tab-btn" id="tab-btn-tournois" href="tournois.html">
@@ -430,12 +430,12 @@
                 <th scope="col" style="padding: 12px 8px; width: 6%;">Rang</th>
                 <th scope="col" style="padding: 12px 8px; width: 30%;">Joueur</th>
                 <th scope="col" style="padding: 12px 8px; width: 10%;">Elo</th>
-                <th scope="col" class="rk-mobile-hide" style="padding: 12px 8px; width: 10%;">Peak</th>
+                <th scope="col" class="rk-mobile-hide" style="padding: 12px 8px; width: 10%;" title="Elo maximal atteint par le joueur">Peak</th>
                 <th scope="col" style="padding: 12px 8px; width: 10%;">Winrate</th>
-                <th scope="col" style="padding: 12px 8px; width: 12%;">V - D</th>
-                <th scope="col" class="rk-mobile-hide" style="padding: 12px 8px; width: 8%;">Total</th>
-                <th scope="col" class="rk-mobile-hide" style="padding: 12px 8px; width: 8%;">MV</th>
-                <th scope="col" class="rk-mobile-hide" style="padding: 12px 8px; width: 8%;">Streak</th>
+                <th scope="col" style="padding: 12px 8px; width: 12%;" title="Victoires - Défaites">V - D</th>
+                <th scope="col" class="rk-mobile-hide" style="padding: 12px 8px; width: 8%;" title="Parties classées jouées">Total</th>
+                <th scope="col" class="rk-mobile-hide" style="padding: 12px 8px; width: 8%;" title="Mouvement au classement depuis la dernière mise à jour">MV</th>
+                <th scope="col" class="rk-mobile-hide" style="padding: 12px 8px; width: 8%;" title="Série de victoires en cours">Streak</th>
               </tr>
             </thead>
             <tbody id="ranked-list">
@@ -580,11 +580,11 @@
   </div>
 </div>
 
-<script src="dist/i18n.min.js?v=1"></script>
+<script src="dist/i18n.min.js?v=2"></script>
 <script src="dist/toast.min.js?v=1" defer></script>
 <script src="dist/lenis.min.js?v=6"></script>
 <script src="dist/animations.min.js?v=1" defer></script>
-<script src="dist/app.min.js?v=8" type="module"></script>
+<script src="dist/app.min.js?v=9" type="module"></script>
 
 <script>
   // Register Service Worker for offline support + Stale-While-Revalidate caching
@@ -611,12 +611,12 @@
     <div class="tfh-footer-col">
       <h4 class="tfh-footer-title">Navigation</h4>
       <ul class="tfh-footer-links">
+        <li><a href="dashboard.html">Tableau de bord</a></li>
         <li><a href="index.html">Speedruns</a></li>
         <li><a href="index.html?tab=ranked">Classé</a></li>
-        <li><a href="dashboard.html">Tableau de bord</a></li>
-        <li><a href="tournois.html">Tournois</a></li>
-        <li><a href="atlas.html">Atlas</a></li>
         <li><a href="lobby.html">Lobby</a></li>
+        <li><a href="atlas.html">Atlas</a></li>
+        <li><a href="tournois.html">Tournois</a></li>
       </ul>
     </div>
 

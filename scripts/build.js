@@ -41,6 +41,8 @@ const targets = [
   { entry: "profile.js",     out: "profile.min.js",     bundled: true },
   { entry: "dashboard.js",   out: "dashboard.min.js",   bundled: true },
   { entry: "lobby.js",       out: "lobby.min.js",        bundled: true },
+  { entry: "lobby-wire.js",  out: "lobby-wire.min.js",   bundled: false },
+  { entry: "auth-ui.js",     out: "auth-ui.min.js",      bundled: true },
   { entry: "atlas.js",       out: "atlas.min.js",        bundled: true },
   { entry: "tournois.js",    out: "tournois.min.js",     bundled: true },
   { entry: "runs.js",        out: "runs.min.js",         bundled: false },
@@ -56,6 +58,8 @@ const targets = [
   { entry: "tournois-icons.js", out: "tournois-icons.min.js", bundled: false },
   // Tutorial (no imports, just standalone)
   { entry: "tutorial.js",    out: "tutorial.min.js",     bundled: false },
+  // Ads (no imports, loaded on every page)
+  { entry: "ads.js",         out: "ads.min.js",          bundled: false },
 ];
 
 const watch = process.argv.includes("--watch");

@@ -8,6 +8,11 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <title>TheFrontHub — Tournois & Power Ranking</title>
 <meta name="description" content="Classement Power Ranking des tournois OpenFront — circuit compétitif, profils joueurs et calendrier.">
+<meta property="og:title" content="TheFrontHub — Tournois & Power Ranking">
+<meta property="og:description" content="Circuit compétitif OpenFront — Power Ranking, tournois et calendrier.">
+<meta property="og:image" content="https://thefronthub.com/TheFrontHub%20Logo%20Text.png">
+<meta property="og:url" content="https://thefronthub.com/tournois.html">
+<meta property="og:type" content="website">
 
 <!-- Performance: preconnect + dns-prefetch -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -26,6 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Orbitron:wght@900&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
 
 <link rel="icon" type="image/png" href="favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="180x180" href="favicon-180x180.png">
+<link rel="apple-touch-icon" sizes="180x180" href="favicon-180x180.png">
 <link rel="stylesheet" href="styles.css?v=66">
 <link rel="stylesheet" href="tournois.css?v=11">
 <link rel="stylesheet" href="auth.css?v=19">
@@ -49,7 +56,7 @@
       <img src="TheFrontHub Logo Text.png" alt="TheFrontHub" loading="eager">
     </div>
 
-    <nav role="tablist">
+    <nav aria-label="Navigation principale">
       <a class="nav-item tab-btn" id="tab-btn-dashboard" href="dashboard.html">
         <i data-icon="home"></i> Tableau de bord
       </a>
@@ -59,13 +66,13 @@
       <a class="nav-item tab-btn" id="tab-btn-ranked" href="index.html?tab=ranked">
         <i data-icon="swords"></i> Classé
       </a>
-      <a class="nav-item tab-btn" id="tab-btn-lobby" href="lobby.html" role="tab" aria-selected="false" tabindex="0">
+      <a class="nav-item tab-btn" id="tab-btn-lobby" href="lobby.html">
         <i data-icon="bolt"></i> Lobby
       </a>
-      <a class="nav-item tab-btn" id="tab-btn-atlas" href="atlas.html" role="tab" aria-selected="false" tabindex="0">
+      <a class="nav-item tab-btn" id="tab-btn-atlas" href="atlas.html">
         <i data-icon="map"></i> Atlas
       </a>
-      <a class="nav-item tab-btn active" id="tab-btn-tournois" role="tab" aria-selected="true">
+      <a class="nav-item tab-btn active" id="tab-btn-tournois" href="tournois.html" aria-current="page">
         <i data-icon="medal"></i> Tournois
       </a>
       <a class="nav-item tab-btn" id="tab-btn-profile" href="profile.html">
@@ -261,8 +268,8 @@
 <script src="dist/animations.min.js?v=1"></script>
 <script src="dist/toast.min.js?v=1"></script>
 <script type="module" src="dist/tutorial.min.js?v=2"></script>
-<script type="module" src="auth.js?v=19"></script>
-<script type="module" src="auth-ui.js?v=2"></script>
+<script src="dist/i18n.min.js?v=2"></script>
+<script type="module" src="dist/auth-ui.min.js?v=1"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
@@ -287,12 +294,12 @@
     <div class="tfh-footer-col">
       <h4 class="tfh-footer-title">Navigation</h4>
       <ul class="tfh-footer-links">
+        <li><a href="dashboard.html">Tableau de bord</a></li>
         <li><a href="index.html">Speedruns</a></li>
         <li><a href="index.html?tab=ranked">Classé</a></li>
-        <li><a href="dashboard.html">Tableau de bord</a></li>
-        <li><a href="tournois.html">Tournois</a></li>
-        <li><a href="atlas.html">Atlas</a></li>
         <li><a href="lobby.html">Lobby</a></li>
+        <li><a href="atlas.html">Atlas</a></li>
+        <li><a href="tournois.html">Tournois</a></li>
       </ul>
     </div>
 
@@ -321,6 +328,6 @@
 </script>
 
 
-<script src="ads.js?v=3"></script>
+<script src="dist/ads.min.js?v=1"></script>
 </body>
 </html>

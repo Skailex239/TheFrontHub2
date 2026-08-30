@@ -156,14 +156,14 @@ function showView(view) {
 function formatDateShort(iso) {
   if (!iso) return "—";
   try {
-    return new Date(iso).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
+    return new Date(iso).toLocaleDateString('fr-FR', { day: "2-digit", month: "short", year: "numeric" });
   } catch { return iso; }
 }
 
 function formatDateTime(iso) {
   if (!iso) return "—";
   try {
-    return new Date(iso).toLocaleString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+    return new Date(iso).toLocaleString('fr-FR', { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
   } catch { return iso; }
 }
 

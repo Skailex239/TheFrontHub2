@@ -718,14 +718,14 @@ function render() {
     <div class="dash-grid">
       <section class="dash-panel">
         <div class="dash-panel-header">
-          <h2 class="dash-panel-title">Top players all Time</h2>
+          <h2 class="dash-panel-title">Top joueurs — Toutes saisons</h2>
           <span class="dash-panel-sub">Classement cumulé · ${globalView.length} joueurs</span>
         </div>
         ${renderRanking(globalTopN)}
       </section>
       <section class="dash-panel">
         <div class="dash-panel-header">
-          <h2 class="dash-panel-title">Top players this Week</h2>
+          <h2 class="dash-panel-title">Top joueurs — Cette semaine</h2>
           <span class="dash-panel-sub">Depuis le ${weekStartLabel} · ${weeklyView.length} joueurs actifs</span>
         </div>
         ${renderRanking(weeklyTopN)}

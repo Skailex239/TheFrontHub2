@@ -2,6 +2,16 @@ const $ = (id) => document.getElementById(id);
 
 const connectedUsernames = new Set();
 
+// Nom de carte affichable : passe par i18n (window.t, chargé sur toutes les
+// pages) pour afficher le nom francisé ("Mer Égée", "Alpes"…) comme sur
+// l'index. Retombe sur le nom brut si la clé n'existe pas ou si i18n manque.
+function mapDisplayName(raw) {
+  if (!raw) return '\u2014';
+  const key = 'map.' + raw;
+  const translated = (typeof window.t === 'function') ? window.t(key) : null;
+  return (translated && translated !== key) ? translated : raw;
+}
+
 // Skins actifs (username → skinId) — nouveau système tfh_user_skins.
 // Self-contained : runs.min.js est un script autonome (pas d'import ES).
 // - activeSkinsByName : username exact du compte → skinId
@@ -70,7 +80,7 @@ function formatTime(durationSeconds) {
   if (typeof durationSeconds !== 'number' || !Number.isFinite(durationSeconds)) return '\u2014';
   const m = Math.floor(durationSeconds / 60);
   const s = String(durationSeconds % 60).padStart(2, '0');
-  return m + 'm' + s + 's';
+  return m + ':' + s; // format « m:ss » identique à l'index (cohérence)
 }
 
 function escapeHtml(str) {
@@ -207,7 +217,7 @@ async function loadTopRuns({ limit, windowDays }) {
       }
 
       const tdMap = document.createElement('td');
-      tdMap.innerHTML = escapeHtml(r.map || '\u2014');
+      tdMap.innerHTML = escapeHtml(mapDisplayName(r.map));
 
       const tdTime = document.createElement('td');
       tdTime.innerHTML = '<span class="run-runtime">' + escapeHtml(formatTime(r.duration_s)) + '</span>';
@@ -231,7 +241,7 @@ async function loadTopRuns({ limit, windowDays }) {
     const ms = Date.now() - startedAt;
 
     meta.textContent = '';
-    generatedMeta.textContent = 'Top ' + runs.length + ' sur ' + filtered.length + ' runs (' + windowDays + 'j) \u2022 Total: ' + totalInFile.toLocaleString('fr') + ' \u2022 ' + ms + 'ms';
+    generatedMeta.textContent = 'Top ' + runs.length + ' sur ' + filtered.length + ' runs (' + windowDays + 'j) \u2022 Total: ' + totalInFile.toLocaleString('fr-FR') + ' \u2022 ' + ms + 'ms';
   } catch (e) {
     status.textContent = '';
     const message = e && e.message ? e.message : String(e);

@@ -7,8 +7,14 @@
 <meta name="google-adsense-account" content="ca-pub-2991878097014222">
 <title>TheFrontHub — Lobby</title>
 <meta name="description" content="Lobby — parties OpenFront en temps réel.">
+<meta property="og:title" content="TheFrontHub — Lobby">
+<meta property="og:description" content="Parties OpenFront en temps réel — rejoins une carte en un clic.">
+<meta property="og:image" content="https://thefronthub.com/TheFrontHub%20Logo%20Text.png">
+<meta property="og:url" content="https://thefronthub.com/lobby.html">
+<meta property="og:type" content="website">
+<meta name="openfront-api-proxy" content="https://openfront-proxy.diofortnite3.workers.dev">
 <link rel="icon" type="image/png" href="favicon-32x32.png">
-<link rel="icon" type="image/png" sizes="128x128" href="favicon-180x180.png">
+<link rel="icon" type="image/png" sizes="180x180" href="favicon-180x180.png">
 <link rel="apple-touch-icon" sizes="180x180" href="favicon-180x180.png">
 
 <!-- Performance: preconnect + dns-prefetch -->
@@ -20,7 +26,7 @@
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=66" as="style">
 <link rel="preload" href="lobby.css?v=14" as="style">
-<link rel="preload" href="lobby-wire.js?v=2" as="script">
+<link rel="preload" href="dist/lobby-wire.min.js?v=1" as="script">
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Orbitron:wght@900&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
@@ -32,7 +38,7 @@
 <link rel="stylesheet" href="lobby.css?v=14">
 <link rel="stylesheet" href="ads.css?v=2">
 <style>.skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}</style>
-<script type="module" src="icons.js?v=2"></script>
+<script type="module" src="dist/icons.min.js?v=2"></script>
 </head>
 <body>
 <a href="#lobby-content" class="skip-link">Aller au contenu principal</a>
@@ -49,26 +55,26 @@
       <img src="TheFrontHub Logo Text.png" alt="TheFrontHub" loading="eager">
     </div>
 
-    <nav role="tablist">
-      <a class="nav-item tab-btn" id="tab-btn-dashboard" href="dashboard.html" role="tab" aria-selected="false" tabindex="0">
+    <nav aria-label="Navigation principale">
+      <a class="nav-item tab-btn" id="tab-btn-dashboard" href="dashboard.html">
         <i data-icon="home"></i> Tableau de bord
       </a>
-      <a class="nav-item tab-btn" id="tab-btn-maps" href="index.html" role="tab" aria-selected="false" tabindex="0">
+      <a class="nav-item tab-btn" id="tab-btn-maps" href="index.html">
         <i data-icon="trophy"></i> Speedruns
       </a>
-      <a class="nav-item tab-btn" id="tab-btn-ranked" href="index.html?tab=ranked" role="tab" aria-selected="false" tabindex="0">
+      <a class="nav-item tab-btn" id="tab-btn-ranked" href="index.html?tab=ranked">
         <i data-icon="swords"></i> Classé
       </a>
-      <a class="nav-item tab-btn active" id="tab-btn-lobby" role="tab" aria-selected="true" tabindex="0">
+      <a class="nav-item tab-btn active" id="tab-btn-lobby" href="lobby.html" aria-current="page">
         <i data-icon="bolt"></i> Lobby
       </a>
-      <a class="nav-item tab-btn" id="tab-btn-atlas" href="atlas.html" role="tab" aria-selected="false" tabindex="0">
+      <a class="nav-item tab-btn" id="tab-btn-atlas" href="atlas.html">
         <i data-icon="map"></i> Atlas
       </a>
-      <a class="nav-item tab-btn" id="tab-btn-tournois" href="tournois.html" role="tab" aria-selected="false" tabindex="0">
+      <a class="nav-item tab-btn" id="tab-btn-tournois" href="tournois.html">
         <i data-icon="medal"></i> Tournois
       </a>
-      <a class="nav-item tab-btn" id="tab-btn-profile" href="profile.html" role="tab" aria-selected="false" tabindex="0">
+      <a class="nav-item tab-btn" id="tab-btn-profile" href="profile.html">
         <i data-icon="user"></i> Mon Profil
       </a>
     </nav>
@@ -172,12 +178,12 @@
     <div class="tfh-footer-col">
       <h4 class="tfh-footer-title">Navigation</h4>
       <ul class="tfh-footer-links">
+        <li><a href="dashboard.html">Tableau de bord</a></li>
         <li><a href="index.html">Speedruns</a></li>
         <li><a href="index.html?tab=ranked">Classé</a></li>
-        <li><a href="dashboard.html">Tableau de bord</a></li>
-        <li><a href="tournois.html">Tournois</a></li>
-        <li><a href="atlas.html">Atlas</a></li>
         <li><a href="lobby.html">Lobby</a></li>
+        <li><a href="atlas.html">Atlas</a></li>
+        <li><a href="tournois.html">Tournois</a></li>
       </ul>
     </div>
 
@@ -234,13 +240,13 @@
 <!-- Toast container -->
 <div id="toast-container"></div>
 
-<script src="lobby-wire.js?v=2"></script>
-<script type="module" src="lobby.js?v=28"></script>
-<script type="module" src="auth.js?v=19"></script>
-<script type="module" src="auth-ui.js?v=2"></script>
-<script src="toast.js"></script>
-<script src="lenis.js?v=6"></script>
-<script src="animations.js?v=13"></script>
+<script src="dist/lobby-wire.min.js?v=1"></script>
+<script type="module" src="dist/lobby.min.js?v=1"></script>
+<script src="dist/i18n.min.js?v=2"></script>
+<script type="module" src="dist/auth-ui.min.js?v=1"></script>
+<script src="dist/toast.min.js?v=1"></script>
+<script src="dist/lenis.min.js?v=6"></script>
+<script src="dist/animations.min.js?v=1"></script>
 <script>
   // Service Worker — offline + cache stale-while-revalidate
   if ('serviceWorker' in navigator) {
@@ -257,6 +263,6 @@
     if (el) el.textContent = y;
   })();
 </script>
-<script src="ads.js?v=3"></script>
+<script src="dist/ads.min.js?v=1"></script>
 </body>
 </html>
