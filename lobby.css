@@ -1,15 +1,17 @@
-/* lobby.css — Lobby TheFrontHub v4 « B+ »
+/* lobby.css — Lobby TheFrontHub v5 « B+ » + favoris & remplissage
    ──────────────────────────────────────────────────────────────────────
    Refonte adoptée au design system du site (maquette « B+ » validée) :
    - Bandeau compact « Prochaine partie » (fond accent-subtle, pastille
      pulsante, vignette 44×28, CTA orange) à la place du hero plein écran.
-   - Filtre segmenté Toutes / FFA / Team / Spécial (style filtres Top runs).
+   - Filtre segmenté Toutes / FFA / Team / Spécial / Favoris (style filtres
+     Top runs).
    - En-têtes de section identiques au Tableau de bord : 12px majuscules +
      interlettrage + count chip + filet + flèches de défilement.
    - Cartes blanches (surface + bordure 1px + rayon 12) : miniature 112px,
      voile réduit au strict nécessaire (protection du timer), badge timer
-     flottant (orange si imminent), pills en chips bordées, pied de carte
-     en mono + CTA « Rejoindre ».
+     flottant (orange si imminent), pills en chips bordées, barre de
+     remplissage joueur/capacité, étoile favori (coin haut-gauche, stockée
+     en base), pied de carte en mono + CTA « Rejoindre ».
    - Carrousels conservés (auto-défilement lent, pause au survol / drag).
    - Héritage complet des variables CSS → thèmes clair ET sombre.
    ────────────────────────────────────────────────────────────────────── */
@@ -475,6 +477,42 @@
   max-width: 100%;
 }
 
+/* Étoile favori (coin haut-gauche de la miniature) — stockée en base */
+.lobby-card-fav {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 3;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--fg-subtle);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+              background var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+}
+.lobby-card-fav svg { display: block; }
+.lobby-card-fav:hover {
+  color: var(--accent);
+  border-color: var(--accent-border);
+  transform: scale(1.08);
+}
+.lobby-card-fav:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.lobby-card-fav[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent-border);
+  background: var(--accent-subtle);
+}
+
 /* Corps de carte */
 .lobby-card-body {
   display: flex;
@@ -542,6 +580,47 @@
 }
 .lobby-card-cta svg { transition: transform var(--dur-fast) var(--ease); }
 .lobby-card:hover .lobby-card-cta svg { transform: translateX(2px); }
+
+/* Barre de remplissage joueur/capacité (orange ; dorée à ≥ 80 %) */
+.lobby-card-fill {
+  position: relative;
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: var(--bg-muted);
+  overflow: hidden;
+}
+.lobby-card-fill-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width var(--dur) var(--ease);
+}
+.lobby-card.is-almost-full .lobby-card-fill-bar { background: var(--gold); }
+.lobby-card.no-cap .lobby-card-fill { display: none; }
+
+/* Badge « Presque pleine » (chip flottant sur la vignette, sous le timer) */
+.lobby-card-almost {
+  position: absolute;
+  top: 36px;
+  right: 8px;
+  z-index: 2;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  border: 1px solid var(--gold);
+  color: var(--gold);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  white-space: nowrap;
+}
 
 /* ════════════════════════════════════════════════════════════════════
    États vides / chargement
