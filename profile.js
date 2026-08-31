@@ -1840,6 +1840,13 @@ window.cockpitShareProfile = cockpitShareProfile;
 function renderPrecomputedStats(stats, mount) {
   if (!mount || !stats) return;
   mount.innerHTML = "";
+  // Idempotence : vide aussi les zones hors mount (rappels loadStats / profils publics)
+  const sideExtra = document.getElementById("pf2-side-extra");
+  if (sideExtra) sideExtra.innerHTML = "";
+  const below = document.getElementById("pf2-below");
+  if (below) below.innerHTML = "";
+  const weeklyCard = document.getElementById("weekly-chart-card");
+  if (weeklyCard) weeklyCard.remove();
   setupCockpitKeyboardShortcuts();
 
   const fmt = (n) => new Intl.NumberFormat("fr-FR").format(Number(n) || 0);
@@ -1990,7 +1997,6 @@ function renderPrecomputedStats(stats, mount) {
   mount.appendChild(weekPanel);
 
   // ─────────── Colonne droite : Objectifs · Succès · Niveau · 7 jours ───────────
-  const sideExtra = document.getElementById("pf2-side-extra");
 
   // Milestones (objectifs) — fallback calculé si absentes
   const ms = stats.nextMilestones || (() => {
@@ -2123,7 +2129,6 @@ function renderPrecomputedStats(stats, mount) {
   }
 
   // ─────────── Sous la grille : stats par carte ───────────
-  const below = document.getElementById("pf2-below");
   if (below && stats.maps && stats.maps.length > 0) {
     below.innerHTML = "";
     const allMaps = stats.maps;
