@@ -25,6 +25,9 @@ const ICONS = {
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>',
   users: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.6"/><path d="M15.6 14.2c2.5.3 4.4 2.5 4.4 5.3"/>',
   swords: '<polyline points="14.5 17.5 3 6 3 3 6 3 17.5 14.5"/><line x1="13" y1="19" x2="19" y2="13"/><line x1="16" y1="16" x2="20" y2="20"/><line x1="19" y1="21" x2="21" y2="19"/><polyline points="14.5 17.5 17.5 14.5 12 9 9 12 14.5 17.5"/><polyline points="9.5 17.5 6.5 14.5 12 9"/><line x1="20" y1="8" x2="8" y2="20"/>',
+  // Ladder (échelle) — icône de la catégorie « Classé » (proposition 4 validée) :
+  // triple chevron montant, évoque le « ladder » classé 1v1/2v2.
+  ladder: '<path d="m6 10 6-5 6 5"/><path d="m6 15 6-5 6 5"/><path d="m6 20 6-5 6 5"/>',
   bolt: '<path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/>',
   map: '<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/>',
   trophy: '<path d="M8 4h8v4a4 4 0 01-8 0V4z"/><path d="M5 4H3v3a3 3 0 003 3M19 4h2v3a3 3 0 01-3 3M9 14h6M10 14v3h4v-3M8 20h8"/>',

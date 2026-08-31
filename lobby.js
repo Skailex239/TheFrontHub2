@@ -1,8 +1,10 @@
-// lobby.js — Lobby TheFrontHub (v3 — refonte "grosses cartes défilantes")
+// lobby.js — Lobby TheFrontHub (v4 — maquette « B+ » : cartes propres)
 //
-// Réplique le lobby d'OpenFront.io : grandes cartes avec miniature de la map,
-// pills de modificateurs, compte à rebours, compteur de joueurs et barre
-// inférieure (nom de la map + mode), réparties en carrousels défilants.
+// Bandeau compact « Prochaine partie », filtre segmenté
+// Toutes / FFA / Team / Spécial, en-têtes de section au design system
+// (majuscules + filet) et cartes claires (vignette, timer flottant, pills
+// chips, compteur mono, CTA « Rejoindre »), réparties en carrousels
+// défilants (auto-scroll lent, pause au survol / drag / molette).
 //
 // ── Connexion tri-niveaux (fiabilité maximale) ──────────────────────────
 //   N1  WebSocket DIRECT   wss://openfront.io/w{0-4}/lobbies   (zbin binaire)
@@ -58,6 +60,14 @@ const SECTIONS = [
   { key: "ffa", label: "Free For All", icon: "swords" },
   { key: "team", label: "Team", icon: "users" },
   { key: "special", label: "Spécial", icon: "bolt" },
+];
+
+// Filtre segmenté (maquette C) : toutes les catégories ou une seule
+const FILTERS = [
+  { key: "all", label: "Toutes" },
+  { key: "ffa", label: "FFA" },
+  { key: "team", label: "Team" },
+  { key: "special", label: "Spécial" },
 ];
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -209,6 +219,7 @@ const state = {
   serverTimeAt: Date.now(),
   games: { ffa: [], team: [], special: [] },
   connected: false,
+  updatedAt: 0,            // Date.now() du dernier snapshot (label « Actualisé il y a… »)
 };
 
 /** Horloge serveur interpolée localement (serverTime + temps écoulé). */
@@ -240,6 +251,7 @@ function ingestFull(msg) {
       return ta - tb;
     });
   }
+  state.updatedAt = Date.now();
   scheduleRender(true);
 }
 
@@ -464,9 +476,31 @@ function buildSkeleton() {
 
   v.innerHTML = `
     <div id="lobby-root">
-      <div class="lobby-hero" id="lobby-hero" hidden></div>
+      <div class="lobby-filter" role="group" aria-label="Filtrer les parties">
+        <span class="lobby-filter-label">Afficher</span>
+        <div class="lobby-filter-group">
+          ${FILTERS.map((f) => `<button type="button" class="lobby-filter-btn" data-filter="${f.key}" aria-pressed="${f.key === "all"}">${esc(f.label)}</button>`).join("")}
+        </div>
+        <span class="lobby-filter-updated" id="lobby-updated"></span>
+      </div>
+      <a class="lobby-banner" id="lobby-hero" hidden></a>
       <div id="lobby-sections"></div>
     </div>`;
+
+  // Filtre segmenté : affiche toutes les sections ou une seule catégorie
+  const lobbyRoot = $("#lobby-root");
+  $$(".lobby-filter-btn", lobbyRoot).forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.filter;
+      $$(".lobby-filter-btn", lobbyRoot).forEach((b) =>
+        b.setAttribute("aria-pressed", String(b === btn)));
+      for (const sec of SECTIONS) {
+        const el = document.getElementById(`lobby-sec-${sec.key}`);
+        if (el) el.hidden = key !== "all" && sec.key !== key;
+      }
+    });
+  });
+
   const sections = $("#lobby-sections");
   for (const sec of SECTIONS) {
     const el = document.createElement("section");
@@ -476,12 +510,13 @@ function buildSkeleton() {
       <header class="lobby-section-head">
         <h2 class="lobby-section-title">${esc(sec.label)}</h2>
         <span class="lobby-section-count" id="lobby-count-${sec.key}"></span>
+        <span class="lobby-section-rule" aria-hidden="true"></span>
         <div class="lobby-section-nav">
           <button class="lobby-arrow" data-dir="-1" aria-label="Défiler vers la gauche">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
           <button class="lobby-arrow" data-dir="1" aria-label="Défiler vers la droite">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
         </div>
       </header>
@@ -512,7 +547,7 @@ function buildSkeleton() {
   return true;
 }
 
-/** La carte (clone du design LobbyCard d'OpenFront). */
+/** La carte (maquette B — surface claire au design system). */
 function buildCard(game) {
   const id = game.gameID || game.id || "";
   const cfg = game.gameConfig || {};
@@ -527,21 +562,25 @@ function buildCard(game) {
   card.dataset.gameId = id;
   card.setAttribute("role", "listitem");
   card.innerHTML = `
-    <div class="lobby-card-img">
+    <span class="lobby-card-media">
       <img alt="" loading="lazy" draggable="false"
            src="${esc(mapThumb(mapName))}"
            onerror="this.remove()">
-      <div class="lobby-card-img-fallback">${esc(mapName.slice(0, 1).toUpperCase())}</div>
-    </div>
-    <div class="lobby-card-top">
-      <div class="lobby-card-pills"></div>
+      <span class="lobby-card-img-fallback">${esc(mapName.slice(0, 1).toUpperCase())}</span>
+      <span class="lobby-card-shade" aria-hidden="true"></span>
       <span class="lobby-card-timer" data-role="timer"></span>
-    </div>
-    <div class="lobby-card-bottom">
-      <span class="lobby-card-players" data-role="players"></span>
-      <p class="lobby-card-map"></p>
-      <h3 class="lobby-card-mode"></h3>
-    </div>`;
+      <span class="lobby-card-pills"></span>
+    </span>
+    <span class="lobby-card-body">
+      <h3 class="lobby-card-map"></h3>
+      <p class="lobby-card-mode"></p>
+      <span class="lobby-card-foot">
+        <span class="lobby-card-players" data-role="players"></span>
+        <span class="lobby-card-cta" aria-hidden="true">Rejoindre
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+        </span>
+      </span>
+    </span>`;
   return card;
 }
 
@@ -550,7 +589,7 @@ function updateCard(card, game, opts) {
   const mapName = cfg.gameMap || "?";
 
   if (opts.full) {
-    const img = $(".lobby-card-img img", card);
+    const img = $(".lobby-card-media img", card);
     const src = mapThumb(mapName);
     if (img) {
       if (img.getAttribute("src") !== src) img.setAttribute("src", src);
@@ -668,7 +707,7 @@ function render(isFull) {
       emptyEl.hidden = false;
       emptyEl.innerHTML = `
         <div class="lobby-empty-inner">
-          <div class="lobby-empty-emoji">📡</div>
+          <div class="lobby-empty-icon"><i data-icon="globe" data-icon-size="32"></i></div>
           <h3>Flux temps réel indisponible</h3>
           <p>Impossible de joindre les serveurs OpenFront en direct depuis ce réseau.<br>Les parties réapparaîtront dès la reconnexion.</p>
           <button class="lobby-retry-btn" type="button">Réessayer</button>
@@ -685,7 +724,7 @@ function render(isFull) {
       emptyEl.hidden = false;
       emptyEl.innerHTML = `
         <div class="lobby-empty-inner">
-          <div class="lobby-empty-emoji">🎮</div>
+          <div class="lobby-empty-icon"><i data-icon="hourglass" data-icon-size="32"></i></div>
           <h3>Aucune partie en attente</h3>
           <p>Les nouvelles parties OpenFront apparaîtront ici automatiquement.</p>
         </div>`;
@@ -739,7 +778,7 @@ function render(isFull) {
       // Restaure la position de scroll (clampée au nouveau contenu)
       const max = Math.max(0, track.scrollWidth - track.clientWidth);
       track.scrollLeft = Math.min(savedScroll, max);
-      startAutoScroll(track, 24); // ~24 px/s, défilement doux
+      startAutoScroll(track, 18); // ~18 px/s, défilement lent (pause au survol)
     }
 
     // Mise à jour des cartes visibles (timers + joueurs + contenu)
@@ -773,26 +812,22 @@ function renderHero() {
     hero.dataset.gameId = next.gameID || next.id || "";
     hero.hidden = false;
     const url = `https://openfront.io/game/${encodeURIComponent(next.gameID || next.id || "")}`;
+    const bannerMode = [modeLabel(next), ...modifierPills(next).map((p) => pillLabel(p))].join(" · ");
     hero.innerHTML = `
-      <div class="lobby-hero-tag">
-        <span class="lobby-hero-dot"></span> Prochaine partie
-      </div>
-      <a class="lobby-hero-card" href="${esc(url)}" target="_blank" rel="noopener">
-        <div class="lobby-hero-img">
-          <img alt="${esc(mapName)}" src="${esc(mapThumb(mapName))}" onerror="this.remove()">
-          <div class="lobby-hero-img-fallback">${esc(mapName.slice(0, 1).toUpperCase())}</div>
-        </div>
-        <div class="lobby-hero-overlay"></div>
-        <div class="lobby-hero-top">
-          <div class="lobby-card-pills">${modifierPills(next).map((p) => `<span class="lobby-pill">${esc(pillLabel(p))}</span>`).join("")}</div>
-          <span class="lobby-card-timer" data-role="hero-timer"></span>
-        </div>
-        <div class="lobby-hero-bottom">
-          <span class="lobby-hero-players" data-role="hero-players"></span>
-          <h2 class="lobby-hero-map">${esc(mapDisplayName(mapName))}</h2>
-          <p class="lobby-hero-mode">${esc(modeLabel(next))}</p>
-        </div>
-      </a>`;
+      <span class="lobby-banner-dot" aria-hidden="true"></span>
+      <span class="lobby-banner-label">Prochaine partie</span>
+      <span class="lobby-banner-thumb">
+        <img alt="" src="${esc(mapThumb(mapName))}" onerror="this.remove()">
+        <span class="lobby-banner-thumb-fallback">${esc(mapName.slice(0, 1).toUpperCase())}</span>
+      </span>
+      <span class="lobby-banner-name">${esc(mapDisplayName(mapName))}</span>
+      <span class="lobby-banner-mode">${esc(bannerMode)}</span>
+      <span class="lobby-banner-players" data-role="hero-players"></span>
+      <span class="lobby-card-timer" data-role="hero-timer"></span>
+      <span class="lobby-banner-cta">Rejoindre
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+      </span>`;
+    hero.setAttribute("aria-label", `Rejoindre la prochaine partie : ${mapDisplayName(mapName)}`);
   }
 
   // Mise à jour dynamique
@@ -856,6 +891,15 @@ function ensureStatusBar() {
 
 function startClock() {
   setInterval(() => {
+    // Label « Actualisé il y a … » (dernier snapshot reçu)
+    const upEl = document.getElementById("lobby-updated");
+    if (upEl && state.updatedAt) {
+      const s = Math.max(0, Math.round((Date.now() - state.updatedAt) / 1000));
+      const txt = s < 5 ? "Actualisé à l'instant"
+        : s < 60 ? `Actualisé il y a ${s} s`
+        : `Actualisé il y a ${Math.floor(s / 60)} min`;
+      if (upEl.textContent !== txt) upEl.textContent = txt;
+    }
     // Maj légère : uniquement timers + compteurs (pas de re-render structurel)
     const root = document.getElementById("lobby-root");
     if (!root) return;
