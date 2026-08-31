@@ -39,7 +39,7 @@
     <link rel="stylesheet" href="toast.css">
   <link rel="stylesheet" href="ads.css?v=2">
   <style>.skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}</style>
-  <script type="module" src="dist/icons.min.js?v=2"></script>
+  <script type="module" src="dist/icons.min.js?v=3"></script>
 </head>
   <body>
     <a href="#runs-content" class="skip-link">Aller au contenu principal</a>
@@ -63,7 +63,7 @@
         <i data-icon="trophy"></i> Speedruns
       </a>
       <a class="nav-item tab-btn" id="tab-btn-ranked" href="index.html?tab=ranked">
-        <i data-icon="swords"></i> Classé
+        <i data-icon="ladder"></i> Classé
       </a>
       <a class="nav-item tab-btn" id="tab-btn-lobby" href="lobby.html">
         <i data-icon="bolt"></i> Lobby
@@ -243,7 +243,7 @@
 <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js?v=20').catch(e => console.warn('[SW] Registration failed:', e));
+          navigator.serviceWorker.register('/sw.js?v=21').catch(e => console.warn('[SW] Registration failed:', e));
         });
       }
     </script>
