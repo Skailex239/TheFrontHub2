@@ -23,391 +23,29 @@
 
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=66" as="style">
-<link rel="preload" href="profile.css?v=33" as="style">
-<link rel="preload" href="dist/profile.min.js?v=9" as="script" crossorigin>
+<link rel="preload" href="profile.css?v=34" as="style">
+<link rel="preload" href="dist/profile.min.js?v=10" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=3" as="script" crossorigin>
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Orbitron:wght@900&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Orbitron:wght@900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 
   <link rel="icon" type="image/png" href="favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="128x128" href="favicon-180x180.png">
   <link rel="apple-touch-icon" sizes="180x180" href="favicon-180x180.png">
   <link rel="stylesheet" href="styles.css?v=66">
   <link rel="stylesheet" href="auth.css?v=19">
-  <link rel="stylesheet" href="profile.css?v=33">
+  <link rel="stylesheet" href="profile.css?v=34">
   <link rel="stylesheet" href="skins.css?v=6">
   <link rel="stylesheet" href="animations.css?v=6" media="print" onload="this.media='all'">
   <noscript><link rel="stylesheet" href="animations.css?v=6"></noscript>
   <link rel="stylesheet" href="toast.css">
   <style>
-    /* Inline styles for the rewritten profile page — kept minimal and orange-themed */
+    /* Styles critique minimal — tout le reste vit dans profile.css (source unique) */
     .pf-view { display:none; }
     .pf-view.is-active { display:block; }
-
-    .pf-gate-card {
-      max-width: 460px; margin: 40px auto; padding: 40px 28px;
-      text-align: center; border-radius: 16px;
-      background: var(--card); border: 1px solid var(--border);
-      box-shadow: 0 6px 24px rgba(0,0,0,.04);
-    }
-    .pf-gate-card h2 { font-size: 22px; margin: 12px 0 6px; }
-    .pf-gate-card p { color: var(--muted); font-size: 14px; margin-bottom: 22px; line-height: 1.5; }
-    .pf-gate-icon {
-      width: 56px; height: 56px; margin: 0 auto 8px;
-      border-radius: 50%;
-      background: var(--orange-gradient-subtle);
-      display:flex; align-items:center; justify-content:center;
-      color: #fff; font-size: 28px;
-    }
-    .pf-primary-btn {
-      display: inline-flex; align-items: center; gap: 8px; justify-content: center;
-      width: 100%; padding: 12px 18px; border-radius: 10px;
-      background: var(--orange-gradient-subtle); color: #fff;
-      border: none; font-family: var(--f); font-size: 14px; font-weight: 600;
-      cursor: pointer; transition: transform .15s ease, box-shadow .2s ease;
-    }
-    .pf-primary-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px var(--orange-glow); }
-    .pf-primary-btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
-
-    .pf-setup-card {
-      max-width: 480px; margin: 32px auto; padding: 28px;
-      border-radius: 16px; background: var(--card); border: 1px solid var(--border);
-      box-shadow: 0 6px 24px rgba(0,0,0,.04);
-    }
-    .pf-setup-card h2 { font-size: 20px; margin-bottom: 4px; }
-    .pf-setup-card .pf-sub { color: var(--text2); font-size: 13px; margin-bottom: 20px; }
-    .pf-form-group { margin-bottom: 14px; }
-    .pf-form-group label { display:block; font-size: 12px; font-weight: 600; color: var(--text2); margin-bottom: 6px; }
-    .pf-form-group input {
-      width: 100%; box-sizing: border-box; padding: 10px 12px;
-      border-radius: 8px; border: 1px solid var(--border); background: var(--bg);
-      font-family: var(--f); font-size: 14px; color: var(--text);
-    }
-    .pf-form-group input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-glow); }
-    .pf-ghost-btn {
-      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-      width: 100%; padding: 10px 16px; border-radius: 8px;
-      background: transparent; color: var(--text2); border: 1px solid var(--border);
-      font-family: var(--f); font-size: 13px; font-weight: 600; cursor: pointer;
-      margin-top: 10px;
-    }
-    .pf-ghost-btn:hover { color: var(--orange); border-color: var(--orange); }
-
-    .pf-challenge-box {
-      background: var(--orange-pale); border: 1px solid var(--orange);
-      border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;
-    }
-    .pf-challenge-code { font-family: var(--mono, monospace); font-size: 16px; color: var(--orange); font-weight: 700; }
-    .pf-challenge-box ol { font-size: 13px; color: var(--text); padding-left: 20px; margin: 8px 0 0; }
-    .pf-challenge-box ol li { margin-bottom: 4px; }
-
-    .pf-loading-wrap { text-align:center; padding: 80px 20px; }
-    .pf-spinner {
-      width: 36px; height: 36px; margin: 0 auto 16px;
-      border: 3px solid var(--border); border-top-color: var(--orange);
-      border-radius: 50%; animation: pf-spin .8s linear infinite;
-    }
-    @keyframes pf-spin { to { transform: rotate(360deg); } }
-    .pf-loading-wrap p { color: var(--text2); font-size: 14px; }
-
-    .pf-main { animation: pf-fade .3s ease; }
-    @keyframes pf-fade { from { opacity:0; transform: translateY(6px);} to { opacity:1; transform: none; } }
-
-    .pf-stat-grid {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 12px; margin: 16px 0 22px;
-    }
-    .pf-stat-card {
-      padding: 16px 14px; border-radius: 12px;
-      background: var(--card); border: 1px solid var(--border);
-      transition: transform .2s ease, box-shadow .2s ease;
-    }
-    .pf-stat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.05); }
-    .pf-stat-value { font-size: 24px; font-weight: 800; color: var(--orange); line-height: 1.1; }
-    .pf-stat-value.muted { color: var(--text2); }
-    .pf-stat-label { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: .5px; margin-top: 4px; }
-
-    .pf-section-card {
-      padding: 18px 20px; border-radius: 12px;
-      background: var(--card); border: 1px solid var(--border); margin-bottom: 16px;
-    }
-    .pf-section-title { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 12px; display:flex; align-items:center; gap:8px; }
-
-    .pf-game-row {
-      display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center;
-      padding: 10px 12px; border-radius: 8px; background: var(--bg);
-      margin-bottom: 6px; font-size: 13px;
-    }
-    .pf-game-row:last-child { margin-bottom: 0; }
-    .pf-game-map { font-weight: 600; color: var(--text); }
-    .pf-game-meta { font-size: 11px; color: var(--text3); margin-top: 2px; }
-    .pf-game-result { font-weight: 700; font-size: 12px; padding: 4px 10px; border-radius: 20px; }
-    .pf-game-result.win { background: rgba(80,200,120,.15); color: #2a9d4a; }
-    .pf-game-result.loss { background: rgba(220,80,80,.12); color: #c0392b; }
-    .pf-game-result.loading { background: var(--bg2); color: var(--text3); }
-    .pf-game-date { color: var(--text3); font-size: 12px; white-space: nowrap; }
-
-    .pf-error-banner {
-      padding: 12px 16px; border-radius: 10px;
-      border: 1px solid rgba(255,120,80,.45); background: rgba(255,120,80,.12);
-      color: var(--text); font-size: 13px; margin-bottom: 16px;
-    }
-    .pf-empty { padding: 18px; text-align: center; color: var(--text3); font-size: 13px; }
-
-    @media (max-width: 720px) {
-      .pf-game-row { grid-template-columns: 1fr; gap: 6px; }
-      .pf-game-date, .pf-game-result { justify-self: start; }
-    }
-
-    /* ═══ NEW PROFILE DESIGN (Jimmy-style) ═══ */
-    .pf-public-banner {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 10px 16px;
-      margin-bottom: 16px;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-left: 3px solid var(--accent, #f97316);
-      border-radius: 8px;
-      font-size: 13px;
-      color: var(--text2, #888);
-    }
-    .pf-back-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 4px 10px;
-      background: transparent;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      color: var(--text, #eee);
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.18s ease;
-    }
-    .pf-back-btn:hover {
-      background: var(--bg2, #1a1a20);
-      border-color: var(--accent, #f97316);
-      color: var(--accent, #f97316);
-    }
-    .pf-public-banner-text {
-      font-weight: 600;
-      letter-spacing: 0.02em;
-      text-transform: uppercase;
-      font-size: 11px;
-    }
-
-    .pf-header-card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 20px;
-      margin-bottom: 24px;
-    }
-    .pf-header-top {
-      display: flex;
-      align-items: flex-start;
-      gap: 16px;
-      margin-bottom: 16px;
-    }
-    .pf-avatar-frame {
-      width: 80px;
-      height: 80px;
-      border: 2px solid #ff6b6b;
-      border-radius: 6px;
-      overflow: hidden;
-      flex-shrink: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: var(--bg);
-      font-size: 28px;
-      font-weight: 700;
-      color: var(--muted);
-    }
-    .pf-avatar-frame img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-    .pf-header-info {
-      flex: 1;
-      min-width: 0;
-    }
-    .pf-header-right {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      flex-shrink: 0;
-    }
-    .pf-player-name {
-      margin: 0 0 4px 0;
-      font-size: 24px;
-      font-weight: 700;
-      color: var(--text);
-      line-height: 1.2;
-    }
-    .pf-publicid {
-      display: inline-block;
-      font-size: 13px;
-      color: var(--muted);
-      font-family: var(--mono, monospace);
-    }
-    .pf-logout-btn {
-      background: transparent;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 8px;
-      cursor: pointer;
-      color: var(--muted);
-      flex-shrink: 0;
-      transition: all 0.2s;
-    }
-    .pf-logout-btn:hover { border-color: #ff6b6b; color: #ff6b6b; }
-
-    .pf-stats-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }
-    .pf-stats-list li {
-      position: relative;
-      padding-left: 14px;
-      margin-bottom: 8px;
-      font-size: 14px;
-      color: var(--text);
-      line-height: 1.5;
-    }
-    .pf-stats-list li::before {
-      content: "";
-      position: absolute;
-      left: 0;
-      top: 8px;
-      width: 5px;
-      height: 5px;
-      border-radius: 50%;
-      background: var(--text);
-    }
-    .pf-stats-list li:last-child { margin-bottom: 0; }
-
-    .pf-games-section { margin-top: 8px; }
-    .pf-games-title {
-      font-size: 18px;
-      font-weight: 700;
-      color: var(--text);
-      margin: 0 0 16px 0;
-    }
-    .pf-games-grid {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      margin-bottom: 16px;
-    }
-    .pf-game-card {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      padding: 12px 14px;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-left: 3px solid #ef4444;
-      border-radius: 8px;
-      transition: background 0.18s ease, transform 0.18s ease;
-    }
-    .pf-game-card:hover {
-      background: var(--bg2);
-      transform: translateX(2px);
-    }
-    .pf-game-card.win { border-left-color: #10b981; }
-    .pf-game-card.loss { border-left-color: #ef4444; }
-    .pf-game-result {
-      flex-shrink: 0;
-      min-width: 84px;
-      text-align: center;
-      padding: 6px 10px;
-      border-radius: 6px;
-      color: #fff;
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.06em;
-    }
-    .pf-game-card.win .pf-game-result { background: #10b981; }
-    .pf-game-card.loss .pf-game-result { background: #ef4444; }
-    .pf-game-info {
-      flex: 1;
-      min-width: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-    .pf-game-map {
-      font-weight: 600;
-      font-size: 14px;
-      color: var(--text);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .pf-game-ranked {
-      display: inline-block;
-      padding: 1px 8px;
-      border-radius: 4px;
-      background: var(--accent, #f97316);
-      color: #fff;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-    }
-    .pf-game-meta {
-      font-size: 12px;
-      color: var(--text3);
-      line-height: 1.4;
-    }
-    .pf-game-replay {
-      flex-shrink: 0;
-      width: 32px;
-      height: 32px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 6px;
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      color: var(--text3);
-      text-decoration: none;
-      transition: all 0.18s ease;
-    }
-    .pf-game-replay:hover {
-      background: var(--accent, #f97316);
-      border-color: var(--accent, #f97316);
-      color: #fff;
-    }
-    .pf-show-all {
-      width: 100%;
-      padding: 10px 16px;
-      background: #e0e0e0;
-      border: none;
-      border-radius: 4px;
-      color: #666;
-      font-size: 14px;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-    .pf-show-all:hover { background: #d0d0d0; }
-
-    .skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}
-
-    @media (max-width: 600px) {
-      .pf-games-grid { grid-template-columns: 1fr; }
-      .pf-header-top { flex-wrap: wrap; }
-      .pf-avatar-frame { width: 64px; height: 64px; }
-      .pf-player-name { font-size: 20px; }
-    }
+    .skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}
+    .skip-link:focus{top:0}
   </style>
   <script type="module" src="dist/icons.min.js?v=3"></script>
 </head>
@@ -590,35 +228,76 @@
         </button>
         <span class="pf-public-banner-text">Profil public</span>
       </div>
-      <!-- Profile header (avatar on left, name center, logout right) -->
-      <div class="pf-header-card">
-        <div class="pf-header-top">
-          <div class="pf-avatar-frame" id="profile-avatar-large">—</div>
-          <div class="pf-header-info">
-            <h2 class="pf-player-name" id="profile-title-name">—</h2>
-            <span class="pf-publicid" id="profile-public-badge">ID public : —</span>
+
+      <!-- ═══ Carte identité (maquette A « Dossier ») ═══ -->
+      <section class="pf2-id" aria-label="Identité du joueur">
+        <div class="pf2-id-avatar" id="profile-avatar-large" aria-hidden="true">—</div>
+        <div class="pf2-id-info">
+          <div class="pf2-id-name-row">
+            <h2 class="pf2-id-name" id="profile-title-name">—</h2>
+            <span class="pf2-id-verified" id="profile-verified" title="Compte vérifié — Public ID lié" hidden>
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
+            </span>
           </div>
-          <button class="pf-logout-btn" onclick="handleLogout()" title="Se déconnecter">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          <div class="pf2-id-meta-row">
+            <button type="button" class="pf2-id-pid" id="profile-public-badge" onclick="copyPublicId(this)" title="Copier le Public ID" aria-label="Copier le Public ID">
+              <span id="profile-public-badge-text">—</span>
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+            </button>
+            <span class="pf2-id-joined" id="profile-joined">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="4" rx="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
+              <span id="profile-joined-text">Membre depuis le —</span>
+            </span>
+          </div>
+        </div>
+        <div class="pf2-id-actions">
+          <button type="button" class="pf2-id-share" onclick="cockpitShareProfile()">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/></svg>
+            Partager
+          </button>
+          <button type="button" class="pf-logout-btn pf2-id-iconbtn" onclick="handleLogout()" title="Se déconnecter" aria-label="Se déconnecter">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
           </button>
         </div>
-        <ul class="pf-stats-list">
-          <li id="stat-week-rank">Rang de la semaine : —</li>
-          <li id="stat-week-score">Score de la semaine : —</li>
-          <li id="stat-alltime">Score total : —</li>
-          <li id="stat-elo-line" style="display:none">ELO: — (Peak: —)</li>
-          <li id="stat-elo-2v2-line" style="display:none">ELO 2v2: — (Peak: —)</li>
-        </ul>
-      </div>
+      </section>
+
+      <!-- Chips meta (niveau / temps de jeu / série / Elo / hebdo) -->
+      <div id="cockpit-status-meta" class="pf2-chips" aria-label="Niveau, temps de jeu, série"></div>
+
+      <!-- Cartes statistiques (chiffres mono) -->
+      <section class="pf2-stats" aria-label="Statistiques principales">
+        <article class="pf2-stat"><span class="pf2-stat-value" id="stat-games">—</span><span class="pf2-stat-label">Parties</span><span class="pf2-stat-sub" id="stat-games-sub"></span></article>
+        <article class="pf2-stat"><span class="pf2-stat-value" id="stat-wins">—</span><span class="pf2-stat-label">Victoires</span><span class="pf2-stat-sub" id="stat-wins-sub"></span></article>
+        <article class="pf2-stat"><span class="pf2-stat-value" id="stat-winrate">—</span><span class="pf2-stat-label">Winrate</span><span class="pf2-stat-sub" id="stat-winrate-sub"></span></article>
+        <article class="pf2-stat"><span class="pf2-stat-value" id="stat-maps">—</span><span class="pf2-stat-label">Cartes</span><span class="pf2-stat-sub" id="stat-maps-sub"></span></article>
+        <article class="pf2-stat"><span class="pf2-stat-value" id="stat-alltime-value">—</span><span class="pf2-stat-label">Score total</span><span class="pf2-stat-sub" id="stat-alltime-sub"></span></article>
+      </section>
 
       <!-- API error banner -->
       <div id="profile-api-error" class="pf-error-banner" style="display:none"></div>
 
-      <!-- Reward code entry (skins) -->
-      <div id="reward-code-section"></div>
+      <!-- ═══ Grille 2 colonnes : dossier à gauche / panneau joueur à droite ═══ -->
+      <div class="pf2-columns">
+        <div class="pf2-col-main" id="career-stats-section" aria-label="Historique et activité"></div>
+        <aside class="pf2-col-side" aria-label="Récompenses et classement">
+          <div id="reward-code-section"></div>
+          <section class="pf2-panel" id="pf2-elo-panel" hidden>
+            <header class="pf2-panel-head"><h3>Elo Classé</h3><i class="pf2-panel-rule"></i></header>
+            <div class="pf2-elo-grid">
+              <div class="pf2-elo-item"><span class="pf2-elo-label">1v1</span><span class="pf2-elo-value" id="elo-1v1">—</span><span class="pf2-elo-sub" id="elo-1v1-sub">—</span></div>
+              <div class="pf2-elo-item"><span class="pf2-elo-label">2v2</span><span class="pf2-elo-value" id="elo-2v2">—</span><span class="pf2-elo-sub" id="elo-2v2-sub">—</span></div>
+            </div>
+          </section>
+          <section class="pf2-panel" id="pf2-peers-panel" hidden>
+            <header class="pf2-panel-head"><h3>Autour de toi</h3><i class="pf2-panel-rule"></i></header>
+            <div class="pf2-peers" id="pf2-peers-list"></div>
+          </section>
+          <div id="pf2-side-extra" aria-label="Objectifs et activité"></div>
+        </aside>
+      </div>
 
-      <!-- Career stats overview + charts + playtime + activity + map stats + achievements -->
-      <div id="career-stats-section"></div>
+      <!-- Sous la grille : stats par carte + graphique hebdo (ajoutés par JS) -->
+      <div id="pf2-below"></div>
     </div>
 
   </main>
@@ -663,13 +342,13 @@
 <script src="dist/toast.min.js?v=1" defer></script>
 <script src="dist/lenis.min.js?v=6"></script>
 <script src="dist/animations.min.js?v=1" defer></script>
-<script src="dist/profile.min.js?v=9" type="module"></script>
+<script src="dist/profile.min.js?v=10" type="module"></script>
 
 <script type="module" src="dist/tutorial.min.js?v=2"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=21').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=22').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>
