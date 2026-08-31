@@ -1,10 +1,24 @@
-// lobby.js — Lobby TheFrontHub (v4 — maquette « B+ » : cartes propres)
+// lobby.js — Lobby TheFrontHub (v5 — B+ + favoris & remplissage)
 //
 // Bandeau compact « Prochaine partie », filtre segmenté
-// Toutes / FFA / Team / Spécial, en-têtes de section au design system
-// (majuscules + filet) et cartes claires (vignette, timer flottant, pills
-// chips, compteur mono, CTA « Rejoindre »), réparties en carrousels
-// défilants (auto-scroll lent, pause au survol / drag / molette).
+// Toutes / FFA / Team / Spécial / Favoris, en-têtes de section au design
+// system (majuscules + filet) et cartes claires (vignette, timer flottant,
+// pills chips, barre de remplissage, compteur mono, étoile favori,
+// CTA « Rejoindre »), réparties en carrousels défilants.
+//
+// v5 :
+//   - FIN des cartes en double : chaque partie est rendue UNE seule fois
+//     (l'ancienne duplication ×2 servait à boucler l'auto-scroll ; le
+//     carrousel repasse simplement au début en fin de piste).
+//   - Le clic sur une carte redirige de nouveau DIRECTEMENT vers la partie :
+//     l'ancien setPointerCapture du drag retargetait le pointerup vers la
+//     piste → le clic était émis sur la piste et non sur le lien. Le drag
+//     n'avale le clic qu'après un vrai déplacement (seuil 6 px, souris
+//     uniquement) ; le tactile garde le scroll natif.
+//   - Barre de remplissage joueur/capacité + badge « Presque pleine » (≥ 80 %).
+//   - Favoris : étoile par carte, stockés EN BASE (api/favorites.php,
+//     session Discord requise), filtre « Favoris », toast quand une
+//     nouvelle partie s'ouvre sur une carte favorite.
 //
 // ── Connexion tri-niveaux (fiabilité maximale) ──────────────────────────
 //   N1  WebSocket DIRECT   wss://openfront.io/w{0-4}/lobbies   (zbin binaire)
@@ -62,12 +76,14 @@ const SECTIONS = [
   { key: "special", label: "Spécial", icon: "bolt" },
 ];
 
-// Filtre segmenté (maquette C) : toutes les catégories ou une seule
+// Filtre segmenté (maquette C) : toutes les catégories, une seule, ou les
+// cartes favorites (« fav » nécessite un compte — favoris stockés en base).
 const FILTERS = [
   { key: "all", label: "Toutes" },
   { key: "ffa", label: "FFA" },
   { key: "team", label: "Team" },
   { key: "special", label: "Spécial" },
+  { key: "fav", label: "Favoris" },
 ];
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -220,7 +236,40 @@ const state = {
   games: { ffa: [], team: [], special: [] },
   connected: false,
   updatedAt: 0,            // Date.now() du dernier snapshot (label « Actualisé il y a… »)
+  filter: "all",           // filtre actif (all | ffa | team | special | fav)
+  account: null,           // compte connecté (api/me.php) ou null
+  favorites: new Set(),    // slugs des cartes favorites (api/favorites.php)
+  knownIds: null,          // Set des ids du dernier snapshot (détection nouvelles parties)
+  hydrated: false,         // true après le 1er snapshot (le toast favori ne s'arme qu'ensuite)
 };
+
+/** Retrouve une partie par son id, toutes catégories confondues. */
+function findGame(id) {
+  for (const k of ["ffa", "team", "special"]) {
+    const found = state.games[k].find((g) => (g.gameID || g.id) === id);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Toast pour les nouvelles parties jouées sur une carte favorite (max 3). */
+function announceFavoriteGames(isNew) {
+  const fresh = [];
+  for (const k of Object.keys(state.games)) {
+    for (const g of state.games[k]) {
+      if (fresh.length >= 3) break;
+      const cfg = g.gameConfig || {};
+      const mapName = cfg.gameMap || "";
+      if (mapName && isNew(g) && state.favorites.has(mapSlug(mapName))) fresh.push(mapName);
+    }
+    if (fresh.length >= 3) break;
+  }
+  fresh.forEach((mapName, i) => {
+    setTimeout(() => {
+      window.showToast?.(`Nouvelle partie sur ta carte favorite : ${mapDisplayName(mapName)}`, "info", 7000, "star");
+    }, i * 400);
+  });
+}
 
 /** Horloge serveur interpolée localement (serverTime + temps écoulé). */
 function serverNow() {
@@ -251,6 +300,19 @@ function ingestFull(msg) {
       return ta - tb;
     });
   }
+
+  // Détection des NOUVELLES parties → toast si carte favorite
+  const ids = new Set();
+  for (const k of Object.keys(state.games)) {
+    for (const g of state.games[k]) ids.add(g.gameID || g.id);
+  }
+  if (state.hydrated && state.knownIds) {
+    const prev = state.knownIds;
+    announceFavoriteGames((g) => !prev.has(g.gameID || g.id));
+  }
+  state.knownIds = ids;
+  state.hydrated = true;
+
   state.updatedAt = Date.now();
   scheduleRender(true);
 }
@@ -487,17 +549,24 @@ function buildSkeleton() {
       <div id="lobby-sections"></div>
     </div>`;
 
-  // Filtre segmenté : affiche toutes les sections ou une seule catégorie
+  // Filtre segmenté : toutes les sections, une catégorie, ou les favoris
   const lobbyRoot = $("#lobby-root");
   $$(".lobby-filter-btn", lobbyRoot).forEach((btn) => {
     btn.addEventListener("click", () => {
       const key = btn.dataset.filter;
+      // Le filtre Favoris nécessite un compte connecté (favoris en base)
+      if (key === "fav" && !state.account) {
+        promptLogin();
+        return;
+      }
+      state.filter = key;
       $$(".lobby-filter-btn", lobbyRoot).forEach((b) =>
         b.setAttribute("aria-pressed", String(b === btn)));
       for (const sec of SECTIONS) {
         const el = document.getElementById(`lobby-sec-${sec.key}`);
-        if (el) el.hidden = key !== "all" && sec.key !== key;
+        if (el) el.hidden = key !== "all" && key !== "fav" && sec.key !== key;
       }
+      scheduleRender(true);
     });
   });
 
@@ -547,6 +616,25 @@ function buildSkeleton() {
   return true;
 }
 
+/** Étoile (contour / pleine) du bouton favori — window.icon() d'icons.js si dispo. */
+function favIconSvg(filled) {
+  if (typeof window.icon === "function") {
+    const svg = window.icon(filled ? "star" : "starOutline", { size: 14 });
+    if (svg) return svg;
+  }
+  const path = '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17.8 6.6 20l1-6.1L3.2 9.5l6.1-.9L12 3z"/>';
+  return `<svg viewBox="0 0 24 24" width="14" height="14" fill="${filled ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2" stroke-linejoin="round">${path}</svg>`;
+}
+
+/** État visuel du bouton favori d'une carte. */
+function setFavBtn(btn, filled) {
+  if (!btn) return;
+  btn.setAttribute("aria-pressed", String(filled));
+  btn.innerHTML = favIconSvg(filled);
+  btn.title = filled ? "Retirer des cartes favorites" : "Ajouter aux cartes favorites";
+  btn.setAttribute("aria-label", filled ? "Retirer la carte des favoris" : "Ajouter la carte aux favoris");
+}
+
 /** La carte (maquette B — surface claire au design system). */
 function buildCard(game) {
   const id = game.gameID || game.id || "";
@@ -560,6 +648,8 @@ function buildCard(game) {
   card.rel = "noopener";
   card.href = url;
   card.dataset.gameId = id;
+  card.dataset.map = mapSlug(mapName);
+  card.dataset.mapName = mapName;
   card.setAttribute("role", "listitem");
   card.innerHTML = `
     <span class="lobby-card-media">
@@ -569,11 +659,16 @@ function buildCard(game) {
       <span class="lobby-card-img-fallback">${esc(mapName.slice(0, 1).toUpperCase())}</span>
       <span class="lobby-card-shade" aria-hidden="true"></span>
       <span class="lobby-card-timer" data-role="timer"></span>
+      <span class="lobby-card-almost" data-role="almost" hidden>Presque pleine</span>
       <span class="lobby-card-pills"></span>
+      <button type="button" class="lobby-card-fav" data-role="fav"
+              aria-pressed="false" title="Ajouter aux cartes favorites"
+              aria-label="Ajouter la carte aux favoris">${favIconSvg(false)}</button>
     </span>
     <span class="lobby-card-body">
       <h3 class="lobby-card-map"></h3>
       <p class="lobby-card-mode"></p>
+      <span class="lobby-card-fill" aria-hidden="true"><span class="lobby-card-fill-bar" data-role="fill"></span></span>
       <span class="lobby-card-foot">
         <span class="lobby-card-players" data-role="players"></span>
         <span class="lobby-card-cta" aria-hidden="true">Rejoindre
@@ -587,6 +682,8 @@ function buildCard(game) {
 function updateCard(card, game, opts) {
   const cfg = game.gameConfig || {};
   const mapName = cfg.gameMap || "?";
+  const cap = Number(cfg.maxPlayers) || 0;
+  const nPlayers = Number(game.numClients) || 0;
 
   if (opts.full) {
     const img = $(".lobby-card-media img", card);
@@ -613,13 +710,29 @@ function updateCard(card, game, opts) {
     const modeEl = $(".lobby-card-mode", card);
     if (modeEl.textContent !== mode) modeEl.textContent = mode;
 
+    card.dataset.map = mapSlug(mapName);
+    card.dataset.mapName = mapName;
+    card.classList.toggle("no-cap", cap <= 0);
+
+    // Étoile favori (état depuis la base)
+    setFavBtn($("[data-role=fav]", card), state.favorites.has(card.dataset.map));
+
     card.classList.toggle("is-featured", !!game.featured);
-    card.classList.toggle("is-full", !!cfg.maxPlayers && game.numClients >= cfg.maxPlayers);
+    card.classList.toggle("is-full", cap > 0 && nPlayers >= cap);
   }
 
+  // Barre de remplissage + badge « Presque pleine » (maj fréquente : les
+  // messages "counts" patchent numClients sans re-render complet)
+  const pct = cap > 0 ? Math.min(100, Math.round((nPlayers / cap) * 100)) : 0;
+  const fill = $("[data-role=fill]", card);
+  if (fill) fill.style.width = pct + "%";
+  const almost = cap > 0 && pct >= 80 && nPlayers < cap;
+  card.classList.toggle("is-almost-full", almost);
+  const almostEl = $("[data-role=almost]", card);
+  if (almostEl) almostEl.hidden = !almost;
+
   // Compteur joueurs + compte à rebours (maj fréquente)
-  const cap = Number(cfg.maxPlayers) || 0;
-  const players = `${Number(game.numClients) || 0}${cap ? "/" + cap : ""}`;
+  const players = `${nPlayers}${cap ? "/" + cap : ""}`;
   const pEl = $("[data-role=players]", card);
   if (pEl && pEl.textContent !== players) pEl.textContent = players;
 
@@ -659,30 +772,69 @@ function startAutoScroll(track, speedPxPerSec) {
       if (st.carry >= 1) {
         const whole = Math.floor(st.carry);
         st.carry -= whole;
-        track.scrollLeft += whole;
-        // Boucle : en bout de piste, on revient au début (contenu dupliqué)
-        const half = track.scrollWidth / 2;
-        if (half > 0 && track.scrollLeft >= half) track.scrollLeft -= half;
+        // Une seule copie des cartes (pas de duplication) : en fin de piste
+        // on repasse simplement au début.
+        const maxScroll = track.scrollWidth - track.clientWidth;
+        if (maxScroll > 0) {
+          if (track.scrollLeft >= maxScroll - 1) {
+            track.scrollLeft = 0;
+          } else {
+            track.scrollLeft = Math.min(track.scrollLeft + whole, maxScroll);
+          }
+        }
       }
     }
     if (track.isConnected) requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
 
-  // Pause pendant le drag manuel
-  let startX = 0, startScroll = 0;
+  // ── Drag manuel (souris uniquement ; le tactile garde le scroll natif) ──
+  // ⚠️ NE PAS utiliser setPointerCapture : il retargete le pointerup vers la
+  // piste, le navigateur émet alors le clic sur la piste (ancêtre commun de
+  // pointerdown/pointerup) et JAMAIS sur le lien de la carte → « cliquer une
+  // carte ne fait rien ». On drague via des listeners fenêtre et on n'avale
+  // le clic qu'après un VRAI déplacement (seuil 6 px).
+  const DRAG_THRESHOLD = 6;
+  let activePointer = null;
+
+  const onMove = (e) => {
+    if (activePointer !== e.pointerId) return;
+    const dx = e.clientX - st.downX;
+    if (!st.dragging && Math.abs(dx) > DRAG_THRESHOLD) st.dragging = true;
+    if (st.dragging) {
+      track.scrollLeft = st.downScroll - dx;
+      pauseAutoScroll(track, 4000);
+    }
+  };
+  const onUp = (e) => {
+    if (activePointer !== e.pointerId) return;
+    activePointer = null;
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
+    if (st.dragging) {
+      st.dragging = false;
+      st.suppressClick = true; // le clic qui suit est un reliquat du drag
+    }
+  };
+
   track.addEventListener("pointerdown", (e) => {
-    st.dragging = true; startX = e.clientX; startScroll = track.scrollLeft;
-    track.setPointerCapture(e.pointerId);
+    if (e.pointerType !== "mouse" || e.button !== 0) return;
+    activePointer = e.pointerId;
+    st.downX = e.clientX;
+    st.downScroll = track.scrollLeft;
+    st.dragging = false;
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   });
-  track.addEventListener("pointermove", (e) => {
-    if (!st.dragging) return;
-    track.scrollLeft = startScroll - (e.clientX - startX);
-    pauseAutoScroll(track, 4000);
-  });
-  const endDrag = () => { st.dragging = false; };
-  track.addEventListener("pointerup", endDrag);
-  track.addEventListener("pointercancel", endDrag);
+  track.addEventListener("click", (e) => {
+    if (st.suppressClick) {
+      st.suppressClick = false;
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
   track.addEventListener("wheel", () => pauseAutoScroll(track, 5000), { passive: true });
 }
 
@@ -691,7 +843,17 @@ function startAutoScroll(track, speedPxPerSec) {
 function render(isFull) {
   if (!buildSkeleton()) return;
 
-  const total = state.games.ffa.length + state.games.team.length + state.games.special.length;
+  // Liste VISIBLE par section (le filtre « fav » ne garde que les cartes favorites)
+  const filtering = state.filter === "fav";
+  const visible = {};
+  let total = 0;
+  for (const sec of SECTIONS) {
+    const list = state.games[sec.key] || [];
+    visible[sec.key] = filtering
+      ? list.filter((g) => state.favorites.has(mapSlug((g.gameConfig || {}).gameMap || "")))
+      : list;
+    total += visible[sec.key].length;
+  }
   const emptyEl = document.getElementById("lobby-empty");
 
   if (total === 0) {
@@ -720,6 +882,14 @@ function render(isFull) {
         render(true);
         startWebSocket();
       });
+    } else if (filtering) {
+      emptyEl.hidden = false;
+      emptyEl.innerHTML = `
+        <div class="lobby-empty-inner">
+          <div class="lobby-empty-icon"><i data-icon="star" data-icon-size="32"></i></div>
+          <h3>Aucune partie sur tes cartes favorites</h3>
+          <p>Clique l'étoile d'une carte pour l'ajouter à tes favoris —<br>tu seras prévenu dès qu'une partie s'ouvre dessus.</p>
+        </div>`;
     } else {
       emptyEl.hidden = false;
       emptyEl.innerHTML = `
@@ -739,9 +909,14 @@ function render(isFull) {
 
   // Hero : la prochaine partie à démarrer (toutes catégories)
   if (isFull) renderHero();
+  // Le bandeau « Prochaine partie » n'a pas de sens filtré sur les favoris
+  if (filtering) {
+    const heroEl = document.getElementById("lobby-hero");
+    if (heroEl) heroEl.hidden = true;
+  }
 
   for (const sec of SECTIONS) {
-    const games = state.games[sec.key] || [];
+    const games = visible[sec.key];
     const countEl = document.getElementById(`lobby-count-${sec.key}`);
     if (countEl) countEl.textContent = games.length ? `${games.length}` : "";
 
@@ -749,10 +924,19 @@ function render(isFull) {
     if (!track) continue;
 
     if (games.length === 0) {
-      if (track.dataset.empty !== "1") {
+      const msg = filtering
+        ? "Aucune partie sur tes cartes favorites"
+        : `Aucune partie ${esc(sec.label.toLowerCase())} en attente`;
+      if (track.dataset.empty !== "1" || track.dataset.emptyMsg !== msg) {
         track.dataset.empty = "1";
-        track.innerHTML = `<div class="lobby-track-empty">Aucune partie ${esc(sec.label.toLowerCase())} en attente</div>`;
+        track.dataset.emptyMsg = msg;
+        track.innerHTML = `<div class="lobby-track-empty">${msg}</div>`;
       }
+      // ⚠️ Invalide la signature : au retour du filtre (ou d'un nouveau
+      // snapshot), la piste DOIT être reconstruite même si la liste d'ids
+      // redevient identique à celle d'avant la mise en vide.
+      track.dataset.sig = "";
+      track.dataset.count = "0";
       continue;
     }
     track.dataset.empty = "";
@@ -766,10 +950,9 @@ function render(isFull) {
     if (needsRebuild) {
       const savedScroll = track.scrollLeft;
       track.dataset.sig = sig;
-      // Cartes réelles ×2 (boucle d'auto-défilement infinie)
+      // Chaque partie est rendue UNE SEULE fois (pas de cartes en double)
       const shown = games.slice(0, MAX_CARDS_PER_ROW);
       const cards = shown.map((g) => buildCard(g));
-      if (shown.length > 1) cards.push(...shown.map((g) => buildCard(g)));
       track.innerHTML = "";
       const frag = document.createDocumentFragment();
       for (const c of cards) frag.appendChild(c);
@@ -886,6 +1069,91 @@ function ensureStatusBar() {
 }
 
 /* ════════════════════════════════════════════════════════════════════════
+   Compte + cartes favorites (api/me.php + api/favorites.php, MySQL)
+   Favoris stockés EN BASE : une session Discord est obligatoire pour en
+   poser ; les visiteurs déconnectés voient le bouton Connexion.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/** Identifie l'utilisateur (session PHP) puis charge ses favoris. */
+async function initAccount() {
+  try {
+    const res = await fetch("api/me.php", { credentials: "same-origin", cache: "no-store" });
+    state.account = res.ok ? ((await res.json()).user || null) : null;
+  } catch {
+    state.account = null; // offline / réseau bloqué : fonctionnalité cachée
+  }
+  if (state.account) await reloadFavorites();
+  scheduleRender(true); // peint les étoiles + rend le filtre Favoris cliquable
+}
+
+async function reloadFavorites() {
+  try {
+    const res = await fetch("api/favorites.php", { credentials: "same-origin", cache: "no-store" });
+    if (res.ok) {
+      const data = await res.json();
+      state.favorites = new Set(Array.isArray(data.favorites) ? data.favorites : []);
+    }
+  } catch { /* réseau : on garde l'état courant */ }
+}
+
+/** add/remove/toggle en base. → { ok, favorited?, auth? } */
+async function toggleFavoriteRemote(slug) {
+  try {
+    const res = await fetch("api/favorites.php", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ map: slug, action: "toggle" }),
+    });
+    if (res.status === 401) {
+      state.account = null;
+      state.favorites = new Set();
+      return { ok: false, auth: true };
+    }
+    if (!res.ok) return { ok: false };
+    const data = await res.json();
+    if (data.favorited) state.favorites.add(slug);
+    else state.favorites.delete(slug);
+    return { ok: true, favorited: !!data.favorited };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** Invite à se connecter (modal + toast). */
+function promptLogin() {
+  window.showToast?.("Connecte-toi avec Discord pour enregistrer tes cartes favorites", "warning", 5000);
+  window.toggleAuthModal?.();
+}
+
+/** Clic sur l'étoile d'une carte (délégation au niveau #lobby-view). */
+async function onFavClick(btn) {
+  const card = btn.closest(".lobby-card");
+  if (!card || !card.dataset.map) return;
+  if (!state.account) { promptLogin(); return; }
+
+  const slug = card.dataset.map;
+  const mapName = card.dataset.mapName || slug;
+  const next = !state.favorites.has(slug);
+  setFavBtn(btn, next); // optimiste
+
+  const r = await toggleFavoriteRemote(slug);
+  if (!r.ok) {
+    if (r.auth) { promptLogin(); return; }
+    setFavBtn(btn, state.favorites.has(slug)); // revert
+    window.showToast?.("Impossible de mettre à jour tes favoris, réessaie", "error");
+    return;
+  }
+  // Répercute sur toutes les cartes de la même carte (plusieurs parties possibles)
+  $$('.lobby-card[data-map="' + slug + '"] [data-role=fav]').forEach((b) => setFavBtn(b, r.favorited));
+  window.showToast?.(
+    r.favorited ? `${mapDisplayName(mapName)} ajoutée à tes cartes favorites`
+                : `${mapDisplayName(mapName)} retirée de tes cartes favorites`,
+    "success", 3500, r.favorited ? "star" : "starOutline",
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════
    Boucle d'horloge (comptes à rebours chaque seconde)
    ════════════════════════════════════════════════════════════════════════ */
 
@@ -905,11 +1173,8 @@ function startClock() {
     if (!root) return;
     $$("[data-role=timer]", root).forEach((el) => {
       const card = el.closest(".lobby-card");
-      const track = el.closest(".lobby-track");
-      if (!card || !track) return;
-      const id = card.dataset.gameId;
-      const secKey = track.id.replace("lobby-track-", "");
-      const game = (state.games[secKey] || []).find((g) => (g.gameID || g.id) === id);
+      if (!card) return;
+      const game = findGame(card.dataset.gameId);
       if (game) {
         const txt = countdownText(Number(game.startsAt) || 0, serverNow());
         if (el.textContent !== txt) el.textContent = txt;
@@ -945,6 +1210,21 @@ function boot() {
   buildSkeleton();
   render(true);
   startClock();
+
+  // Étoile favori : délégation au niveau de la vue — le clic sur l'étoile ne
+  // doit JAMAIS suivre le lien de la carte (openfront.io).
+  view().addEventListener("click", (e) => {
+    const fav = e.target.closest("[data-role=fav]");
+    if (fav) {
+      e.preventDefault();
+      e.stopPropagation();
+      onFavClick(fav);
+    }
+  });
+
+  // Compte + favoris (silencieux si déconnecté)
+  initAccount();
+
   // Filet de sécurité : sans décodeur zbin (lobby-wire), le WebSocket ne peut
   // rien rendre — on bascule directement sur le fallback HTTP (lobby_state.json)
   // qui n'a PAS besoin du décodeur. Les cartes restent donc toujours visibles.
@@ -967,6 +1247,11 @@ window._lobbyDebug = {
   state,
   reconnect: () => { wsFailCount = { direct: 0, proxy: 0 }; startWebSocket(); },
   fallback: startHttpFallback,
+  ingest: (fake) => ingestFull(fake),
+  // Tests : simule un compte connecté / des favoris (sans serveur PHP)
+  setAccount: (u) => { state.account = u || null; scheduleRender(true); },
+  setFavorites: (slugs) => { state.favorites = new Set(slugs || []); scheduleRender(true); },
+  toggleFavoriteRemote,
   scrollState: (trackOrId) => {
     const track = typeof trackOrId === "string"
       ? document.getElementById(`lobby-track-${trackOrId}`)
