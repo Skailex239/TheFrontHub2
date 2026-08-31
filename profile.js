@@ -32,6 +32,19 @@ import {
   formatPoints, classifyGame,
 } from "./playtime-stats.js?v=1";
 
+/* ── Vignettes de cartes : nom affiché → slug (atlas-data/maps_data.json,
+   précalculé en dictionnaire compact pour un lookup instantané) ── */
+const MAP_SLUGS={achiran:"achiran",aegean:"aegean",africa:"africa",alps:"alps",amazonriver:"amazonriver",antarctica:"antarctica",archipelagosea:"archipelagosea",arctic:"arctic",asia:"asia",australia:"australia",baikal:"baikal",baikalnukewars:"baikalnukewars",bajacalifornia:"bajacalifornia",balkans:"balkans",beringsea:"beringsea",beringstrait:"beringstrait",betweentwoseas:"betweentwoseas",blacksea:"blacksea",bosphorusstraits:"bosphorusstraits",branchingpaths:"branchingpaths",britannia:"britannia",britanniaclassic:"britanniaclassic",caribbean:"caribbean",caspiansea:"caspiansea",caucasus:"caucasus",centralasia:"centralasia",china:"china",colombia:"colombia", continua:"continua",danelaw:"danelaw",danishstraits:"danishstraits",degehabur:"degehabur",degahbour:"degahbour",dfz:"dfz",easterisland:"easterisland",europe:"europe",europeclassic:"europeclassic",falklandislands:"falklandislands",fars:"fars",france:"france",gatewaytotheatlantic:"gatewaytotheatlantic",germany:"germany",ghangisgolf:"ghangisgolf",ghana:"ghana",gobi:"gobi",greatlakes:"greatlakes",greece:"greece",greenland:"greenland",halfearth:"halfearth",hawaii:"hawaii",himalaya:"himalaya",iceland:"iceland",india:"india",indonesia:"indonesia",iowa:"iowa",iran:"iran",italia:"italia",italy:"italy",japan:"japan",japanneureich:"japanneureich",kalahari:"kalahari",kamtchatka:"kamtchatka",korea:"korea",lisboa:"lisboa",luna:"luna",maharaja:"maharaja",mallorca:"mallorca",manchuria:"manchuria",mapuche:"mapuche",mars:"mars",medina:"medina",mediterranean:"mediterranean",menam:"menam",montreal:"montreal",namibia:"namibia",naussicaa:"naussicaa",netherlands:"netherlands",newcaledonia:"newcaledonia",newengland:"newengland",newyork:"newyork",northamerica:"northamerica",norway:"norway",oceania:"oceania",pangaea:"pangaea",paris:"paris",patagonia:"patagonia",persepolis:"persepolis",poland:"poland",quebec:"quebec",richelieu:"richelieu",rome:"rome",sahara:"sahara",sardaigne:"sardaigne",sardinia:"sardinia",scandinavia:"scandinavia",southamerica:"southamerica",straitofgibraltar:"straitofgibraltar",suezcanal:"suezcanal",switzerland:"switzerland",taiwan:"taiwan",turkey:"turkey",uk:"uk",ukraine:"ukraine",vostok:"vostok",warsaw:"warsaw",westus:"westus",world:"world",yenisei:"yenisei",yemen:"yemen",znation:"znation"};
+
+/** Thumbnail URL for a map display name (null si le nom est inconnu). */
+function mapThumbUrl(name) {
+  if (!name) return null;
+  const slug = MAP_SLUGS[String(name).replace(/[^a-z0-9]/gi, "").toLowerCase()];
+  return slug
+    ? `https://raw.githubusercontent.com/openfrontio/OpenFrontIO/main/resources/maps/${slug}/thumbnail.webp`
+    : null;
+}
+
 /* ── Player overlays (plaque nominative) ── */
 const PLAYER_OVERLAYS = [
   { match: /skailex/i, theme: "green", images: {
@@ -167,13 +180,6 @@ function formatDateTime(iso) {
   } catch { return iso; }
 }
 
-function setStat(id, value, muted = false) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.textContent = value == null ? "—" : String(value);
-  el.classList.toggle("muted", muted);
-}
-
 /* ── Auth state ── */
 
 // Public profile view state (set when URL contains ?publicId=XXX)
@@ -299,8 +305,21 @@ function renderPublicProfile(username, publicId) {
     applySkinToElement(skinSpan, publicId, true);
   }
 
-  const badgeEl = document.getElementById("profile-public-badge");
-  if (badgeEl) badgeEl.textContent = "Public ID : " + publicId;
+  const badgeEl = document.getElementById("profile-public-badge-text");
+  if (badgeEl) badgeEl.textContent = publicId || "—";
+  const pidBtn = document.getElementById("profile-public-badge");
+  if (pidBtn) {
+    pidBtn.dataset.pid = publicId || "";
+    pidBtn.style.display = publicId ? "" : "none";
+  }
+
+  // Badge « vérifié » : masqué par défaut sur un profil public (donnée non chargée)
+  const verifiedEl = document.getElementById("profile-verified");
+  if (verifiedEl) verifiedEl.hidden = true;
+
+  // Date d'arrivée : masquée sur un profil public (donnée non chargée)
+  const joinedEl = document.getElementById("profile-joined-text");
+  if (joinedEl) joinedEl.parentElement.style.display = "none";
 
   // Affiche la bannière "Profil public" + bouton retour
   const banner = document.getElementById("public-profile-banner");
@@ -310,11 +329,16 @@ function renderPublicProfile(username, publicId) {
   const logoutBtn = document.querySelector(".pf-logout-btn");
   if (logoutBtn) logoutBtn.style.display = "none";
 
-  // Avatar : fallback PDP.png (on n'a pas l'avatar du joueur distant)
+  // Avatar dégradé + initiale (cohérent avec le flux normal)
   const avatarEl = document.getElementById("profile-avatar-large");
   if (avatarEl) {
-    avatarEl.innerHTML = `<img src="PDP.png" alt="${esc(username)}" style="width:100%;height:100%;object-fit:cover">`;
+    avatarEl.innerHTML = "";
+    avatarEl.textContent = (username || "J").charAt(0).toUpperCase();
   }
+
+  // Réinitialise les chips meta (remplies par renderPrecomputedStats)
+  const metaEl = document.getElementById("cockpit-status-meta");
+  if (metaEl) metaEl.innerHTML = "";
 
   // Construit un pseudo-profil pour que applyProfileSkin résolve le skin VIP
   // via le publicId du joueur visualisé (et non celui de l'utilisateur courant).
@@ -373,8 +397,27 @@ function renderHero(user, profile) {
     applySkinToElement(skinSpan, profile.publicId, true);
   }
 
-  const badgeEl = document.getElementById("profile-public-badge");
-  if (badgeEl) badgeEl.textContent = "Public ID: " + (profile.publicId || "—");
+  // Chip Public ID copiable (bouton pf2-id-pid)
+  const badgeEl = document.getElementById("profile-public-badge-text");
+  if (badgeEl) badgeEl.textContent = profile.publicId || "—";
+  const pidBtn = document.getElementById("profile-public-badge");
+  if (pidBtn) {
+    pidBtn.dataset.pid = profile.publicId || "";
+    pidBtn.style.display = profile.publicId ? "" : "none";
+  }
+
+  // Badge « vérifié » (donnée Firestore : profile.verified)
+  const verifiedEl = document.getElementById("profile-verified");
+  if (verifiedEl) verifiedEl.hidden = !profile.verified;
+
+  // Date d'arrivée (profile.createdAt)
+  const joinedEl = document.getElementById("profile-joined-text");
+  if (joinedEl) {
+    joinedEl.textContent = profile.createdAt
+      ? "Membre depuis le " + formatDateShort(profile.createdAt)
+      : "Membre";
+    joinedEl.parentElement.style.display = profile.createdAt ? "" : "none";
+  }
 
   // Masque la bannière "Profil public" (flux normal = propre profil)
   const banner = document.getElementById("public-profile-banner");
@@ -386,37 +429,46 @@ function renderHero(user, profile) {
 
   const avatarEl = document.getElementById("profile-avatar-large");
   if (avatarEl) {
-    // Use PDP.png as the avatar image (instead of default letter)
-    avatarEl.innerHTML = `<img src="PDP.png" alt="${esc(profile.username || 'avatar')}" style="width:100%;height:100%;object-fit:cover">`;
+    // Avatar dégradé + initiale (design system — cohérent avec la sidebar)
+    avatarEl.innerHTML = "";
+    avatarEl.textContent = (profile.username || user.displayName || "J").charAt(0).toUpperCase();
   }
 
   // Cockpit: ensure #cockpit-status-meta exists inside the header card.
   // Populated later by renderPrecomputedStats with level/playtime/streak chips.
-  const headerCard = document.querySelector(".pf-header-card");
-  if (headerCard && !document.getElementById("cockpit-status-meta")) {
-    const meta = document.createElement("div");
-    meta.id = "cockpit-status-meta";
-    meta.className = "cockpit-status-meta";
-    const statsList = headerCard.querySelector(".pf-stats-list");
-    if (statsList) headerCard.insertBefore(meta, statsList);
-    else headerCard.appendChild(meta);
-  }
+  const metaEl = document.getElementById("cockpit-status-meta");
+  if (metaEl) metaEl.innerHTML = "";
 
   // Applique le skin VIP résolu par publicId (le listener VIP re-appliquera quand
   // les rewards arriveront). Fallback username = null ici car pas encore chargé.
   applyProfileSkin(profile, null);
 }
 
+/** Copie le Public ID dans le presse-papiers (chip de la carte identité). */
+window.copyPublicId = function (btn) {
+  const pid = btn?.dataset?.pid || (currentProfile && currentProfile.publicId) || "";
+  if (!pid) return;
+  const done = () => showToast("Public ID copié : " + pid, "success");
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(pid).then(done).catch(() => {
+      showToast("Public ID : " + pid, "info");
+    });
+  } else {
+    showToast("Public ID : " + pid, "info");
+  }
+};
+
 /* ── Main view: load stats ── */
 
 async function loadStats(publicId) {
-  // Reset stats list to loading
-  setText("stat-week-rank", "This week rank: …");
-  setText("stat-week-score", "This week score: …");
-  setText("stat-alltime", "All-time score: …");
-  const recentEl = document.getElementById("profile-recent-games");
-  if (recentEl) recentEl.innerHTML = `<div class="pf-empty">Chargement…</div>`;
+  // Reset stat cards + panneau Elo pendant le chargement
+  setText("stat-alltime-value", "…");
+  setText("stat-alltime-sub", "");
   hideError();
+  const eloPanel = document.getElementById("pf2-elo-panel");
+  if (eloPanel) eloPanel.hidden = true;
+  const peersPanel = document.getElementById("pf2-peers-panel");
+  if (peersPanel) peersPanel.hidden = true;
 
   // Kick off ELO lookup (ranked.json) in parallel
   const eloPromise = getRankedEntry(publicId);
@@ -442,11 +494,8 @@ async function loadStats(publicId) {
     } else {
       showError(`Impossible de charger les statistiques depuis l'API OpenFront.`);
     }
-    setText("stat-week-rank", "This week rank: —");
-    setText("stat-week-score", "This week score: —");
-    setText("stat-alltime", "All-time score: —");
-    const c = document.getElementById("profile-recent-games");
-    if (c) c.innerHTML = `<div class="pf-empty">Aucune partie récente.</div>`;
+    setText("stat-alltime-value", "—");
+    setText("stat-alltime-sub", "");
     return;
   }
 
@@ -510,6 +559,8 @@ async function loadStats(publicId) {
             allTimePoints: entry.points || 0,
             allTimeFfa: entry.ffa_casual || 0,
             allTimeTeam: entry.team_casual || 0,
+            // Sorted players (voisins de classement pour « Autour de toi »)
+            weeklySorted: weeklySorted,
           };
         }
       }
@@ -520,47 +571,85 @@ async function loadStats(publicId) {
     // All-time score
     const allTimeScore = stats.wins * 4 + (stats.total - stats.wins);
 
-    // Breakdown by mode
-    const breakdown = computeModeBreakdown(playerData.stats || {});
-    const detail = [];
-    if (breakdown.FFA) detail.push("FFA: " + breakdown.FFA);
-    if (breakdown.Team) detail.push("Team: " + breakdown.Team);
-    if (breakdown.Duos) detail.push("Duos: " + breakdown.Duos);
-    if (breakdown.Trios) detail.push("Trios: " + breakdown.Trios);
-    if (breakdown.Quads) detail.push("Quads: " + breakdown.Quads);
-    const detailStr = detail.length ? " (" + detail.join(", ") + ")" : "";
+    setText("stat-alltime-value", new Intl.NumberFormat("fr-FR").format(weekTotalPoints || allTimeScore));
+    setText("stat-alltime-sub", weekRank !== "—" ? `Semaine : ${weekScore} pts · #${weekRank}` : "");
 
-    setText("stat-week-rank", `This week rank: #${weekRank}`);
-    setText("stat-week-score", `This week score: ${weekScore} pts (FFA: ${weekFFA} · Team: ${weekTeam})`);
-    setText("stat-alltime", `All-time score: ${weekTotalPoints || allTimeScore} (${stats.wins} wins${detailStr})`);
+    // Chip hebdo (Niv/temps/série sont posés par renderPrecomputedStats)
+    const metaEl = document.getElementById("cockpit-status-meta");
+    if (metaEl && weekRank !== "—") {
+      let chip = document.getElementById("pf2-chip-week");
+      if (!chip) {
+        chip = document.createElement("span");
+        chip.id = "pf2-chip-week";
+        chip.className = "pf2-chip";
+        metaEl.appendChild(chip);
+      }
+      chip.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg> Hebdo #${weekRank} · ${new Intl.NumberFormat("fr-FR").format(weekScore)} pts`;
+    }
 
-    // ELO from ranked.json (1v1)
-    const ranked1v1 = await eloPromise;
-    const eloLine = document.getElementById("stat-elo-line");
-    if (eloLine) {
-      if (ranked1v1 && ranked1v1.elo != null) {
-        eloLine.textContent = `ELO 1v1: ${ranked1v1.elo} (Peak: ${ranked1v1.peakElo ?? '—'}) — Rank #${ranked1v1.rank}`;
-        eloLine.style.display = "list-item";
-      } else {
-        eloLine.style.display = "none";
+    // ── Panneau « Autour de toi » : voisins du classement hebdo ──
+    const weekData = window._profileWeekData;
+    const peersPanel = document.getElementById("pf2-peers-panel");
+    const peersList = document.getElementById("pf2-peers-list");
+    if (peersPanel && peersList && weekData?.weeklySorted && currentProfile?.publicId === publicId) {
+      const sorted = weekData.weeklySorted;
+      const idx = sorted.findIndex(p => p.publicId === publicId);
+      if (idx >= 0) {
+        const from = Math.max(0, idx - 2);
+        const rows = sorted.slice(from, Math.min(sorted.length, from + 5));
+        peersList.innerHTML = rows.map((p, i) => {
+          const rank = from + i + 1;
+          const isMe = p.publicId === publicId;
+          return `<div class="pf2-peer${isMe ? " is-me" : ""}">
+            <span class="pf2-peer-rank">${rank}</span>
+            <span class="pf2-peer-name">${esc(p.username || p.publicId || "Joueur")}</span>
+            <span class="pf2-peer-score">${new Intl.NumberFormat("fr-FR").format(p.weekly_points || 0)}</span>
+          </div>`;
+        }).join("");
+        peersPanel.hidden = false;
       }
     }
 
-    // ELO 2v2 from ranked.json
+    // ── Panneau « Elo Classé » (ranked.json) ──
+    const ranked1v1 = await eloPromise;
     const ranked2v2 = await getRankedEntry(publicId, "2v2");
-    const elo2v2Line = document.getElementById("stat-elo-2v2-line");
-    if (elo2v2Line) {
-      if (ranked2v2 && ranked2v2.elo != null) {
-        elo2v2Line.textContent = `ELO 2v2: ${ranked2v2.elo} (Peak: ${ranked2v2.peakElo ?? '—'}) — Rank #${ranked2v2.rank}`;
-        elo2v2Line.style.display = "list-item";
-      } else {
-        elo2v2Line.style.display = "none";
+    if (eloPanel && (ranked1v1?.elo != null || ranked2v2?.elo != null)) {
+      const v11 = document.getElementById("elo-1v1");
+      const s11 = document.getElementById("elo-1v1-sub");
+      const v22 = document.getElementById("elo-2v2");
+      const s22 = document.getElementById("elo-2v2-sub");
+      if (ranked1v1?.elo != null) {
+        setText("elo-1v1", new Intl.NumberFormat("fr-FR").format(ranked1v1.elo));
+        if (s11) s11.textContent = `Peak ${ranked1v1.peakElo ?? "—"}${ranked1v1.rank ? ` · #${ranked1v1.rank}` : ""}`;
+      } else if (v11) {
+        v11.textContent = "—";
+        if (s11) s11.textContent = "Non classé";
+      }
+      if (ranked2v2?.elo != null) {
+        setText("elo-2v2", new Intl.NumberFormat("fr-FR").format(ranked2v2.elo));
+        if (s22) s22.textContent = `Peak ${ranked2v2.peakElo ?? "—"}${ranked2v2.rank ? ` · #${ranked2v2.rank}` : ""}`;
+      } else if (v22) {
+        v22.textContent = "—";
+        if (s22) s22.textContent = "Non classé";
+      }
+      eloPanel.hidden = false;
+
+      // Chip Elo dans les chips meta
+      if (metaEl && ranked1v1?.elo != null) {
+        let chip = document.getElementById("pf2-chip-elo");
+        if (!chip) {
+          chip = document.createElement("span");
+          chip.id = "pf2-chip-elo";
+          chip.className = "pf2-chip";
+          metaEl.appendChild(chip);
+        }
+        chip.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 10 6-5 6 5"/><path d="m6 15 6-5 6 5"/><path d="m6 20 6-5 6 5"/></svg> Elo ${new Intl.NumberFormat("fr-FR").format(ranked1v1.elo)}`;
       }
     }
 
     // Recent games — fetched from /public/player/{id}/games (separate endpoint).
     // Used only for the weekly chart now — the full recent games list
-    // is rendered by renderRecentGamesFull via loadAllGamesForStats().
+    // is rendered by renderPrecomputedStats via loadAllGamesForStats().
     try {
       await recentGamesPromise;
       renderWeeklyChart();
@@ -593,32 +682,6 @@ async function fetchRecentGames(publicId, maxPages = 1) {
 function setText(id, text) {
   const el = document.getElementById(id);
   if (el) el.textContent = text;
-}
-
-function computeModeBreakdown(statsTree) {
-  const out = { FFA: 0, Team: 0, Duos: 0, Trios: 0, Quads: 0 };
-  if (!statsTree || typeof statsTree !== "object") return out;
-  for (const catKey of Object.keys(statsTree)) {
-    const cat = statsTree[catKey];
-    if (!cat || typeof cat !== "object") continue;
-    for (const modeKey of Object.keys(cat)) {
-      const mode = cat[modeKey];
-      if (!mode || typeof mode !== "object") continue;
-      let wins = 0;
-      for (const diffKey of Object.keys(mode)) {
-        const diff = mode[diffKey];
-        if (diff && typeof diff === "object" && diff.wins != null) {
-          wins += parseInt(diff.wins, 10) || 0;
-        }
-      }
-      if (modeKey === "Free For All") out.FFA += wins;
-      else if (modeKey === "Team") {
-        // Try to break down by playerTeams if available
-        out.Team += wins;
-      }
-    }
-  }
-  return out;
 }
 
 function computeStats(games, statsTree) {
@@ -991,22 +1054,17 @@ function renderWeeklyChart() {
   let wrap = document.getElementById("weekly-chart-card");
   if (!wrap) {
     // Try cockpit mount first, then fallback to career-stats-section
-    const mount = document.getElementById("career-stats-section") || document.getElementById("playtime-section-mount");
+    const mount = document.getElementById("pf2-below") || document.getElementById("career-stats-section") || document.getElementById("playtime-section-mount");
     if (!mount) return;
     wrap = document.createElement("div");
     wrap.id = "weekly-chart-card";
-    wrap.className = "cockpit-card";
-    wrap.style.cssText = "margin-top:16px;padding:18px;background:var(--card,#fff);border:1px solid var(--border,#F3F4F6);border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,0.04)";
+    wrap.className = "pf2-panel";
     wrap.innerHTML = `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-        <span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;background:var(--orange-pale,#fff4e9);color:var(--orange-deep,#c25700);border:1px solid rgba(255,122,0,0.18)">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 6-6"/></svg>
-        </span>
-        <div>
-          <h3 style="margin:0;font-size:15px;font-weight:700;color:var(--text,#111)">Points par semaine</h3>
-          <p style="margin:0;font-size:12px;color:var(--text3,#9CA3AF)">Performance hebdomadaire (FFA, Team, Classé)</p>
-        </div>
-      </div>
+      <header class="pf2-panel-head">
+        <h3>Points par semaine</h3>
+        <i class="pf2-panel-rule"></i>
+        <span class="pf2-panel-sub">Performance hebdomadaire (FFA, Team, Classé)</span>
+      </header>
       <canvas id="weekly-chart-canvas" style="width:100%;height:300px;display:block"></canvas>
     `;
     mount.appendChild(wrap);
@@ -1488,7 +1546,7 @@ function renderCareerStats(statsTree, publicId) {
   // until the cockpit data arrives.
   const container = document.getElementById("career-stats-section");
   if (!container) return;
-  container.innerHTML = `<div class="cockpit-loading"><div class="cockpit-loading-spinner"></div><span>Chargement du cockpit…</span></div>`;
+  container.innerHTML = `<div class="pf2-loading"><div class="pf2-loading-spinner"></div><span>Chargement du dossier…</span></div>`;
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -1500,7 +1558,7 @@ async function loadAllGamesForStats(publicId) {
   _allGamesLoading = true;
 
   const mount = document.getElementById("career-stats-section");
-  if (mount) mount.innerHTML = `<div class="cockpit-loading"><div class="cockpit-loading-spinner"></div><span>Chargement du cockpit…</span></div>`;
+  if (mount) mount.innerHTML = `<div class="pf2-loading"><div class="pf2-loading-spinner"></div><span>Chargement du dossier…</span></div>`;
 
   // Load the PRE-CALCULATED stats file — instant, zero calculation!
   // Generated by compute-player-stats.js (GitHub Actions workflow, continuous loop).
@@ -1525,13 +1583,13 @@ async function loadAllGamesForStats(publicId) {
   // pre-computed fields: level, nextMilestones, sparkline7d, etc.).
   if (mount) {
     mount.innerHTML = `
-      <div class="cockpit-fallback">
-        <div class="cockpit-fallback-icon">
+      <div class="pf2-fallback">
+        <div class="pf2-fallback-icon">
           <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         </div>
         <h3>Stats en cours de calcul</h3>
-        <p>Notre serveur prépare ton cockpit. Recharge la page dans 1-2 minutes.</p>
-        <button type="button" class="cockpit-fallback-btn" onclick="location.reload()">Recharger</button>
+        <p>Notre serveur prépare ton dossier. Recharge la page dans 1-2 minutes.</p>
+        <button type="button" class="pf2-fallback-btn" onclick="location.reload()">Recharger</button>
       </div>
     `;
   }
@@ -1692,46 +1750,6 @@ function cockpitCountUp(el, target, duration = 1000) {
   requestAnimationFrame(tick);
 }
 
-/** Build 3 concentric progress rings as an SVG string (Apple Watch style). */
-function cockpitProgressRings(rings) {
-  const size = 168;
-  const cx = size / 2;
-  const cy = size / 2;
-  const stroke = 11;
-  const gap = 3;
-  const radii = [];
-  let r = cx - stroke / 2 - 3;
-  for (let i = 0; i < rings.length; i++) {
-    radii.push(r);
-    r -= (stroke + gap);
-  }
-  const circ = (rad) => 2 * Math.PI * rad;
-  const ringSvgs = rings.map((ring, i) => {
-    const rad = radii[i];
-    const c = circ(rad);
-    const pct = ring.target > 0 ? Math.min(1, ring.value / ring.target) : 0;
-    const offset = c * (1 - pct);
-    return `
-      <circle cx="${cx}" cy="${cy}" r="${rad}" fill="none" stroke="${ring.color}" stroke-opacity="0.13" stroke-width="${stroke}" />
-      <circle cx="${cx}" cy="${cy}" r="${rad}" fill="none" stroke="${ring.color}" stroke-width="${stroke}" stroke-linecap="round"
-        stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${c.toFixed(2)}"
-        transform="rotate(-90 ${cx} ${cy})"
-        style="transition: stroke-dashoffset 1.2s cubic-bezier(0.4, 0, 0.2, 1) ${0.1 + i * 0.15}s"
-        data-target-offset="${offset.toFixed(2)}" class="ring-arc" />
-    `;
-  }).join("");
-  const totalPct = rings.length > 0
-    ? Math.round(rings.reduce((s, r) => s + (r.target > 0 ? Math.min(1, r.value / r.target) : 0), 0) / rings.length * 100)
-    : 0;
-  return `
-    <svg viewBox="0 0 ${size} ${size}" class="progress-rings-svg" width="${size}" height="${size}" role="img" aria-label="Anneaux de progression">
-      ${ringSvgs}
-      <text x="${cx}" y="${cy - 2}" text-anchor="middle" class="progress-rings-center-pct">${totalPct}%</text>
-      <text x="${cx}" y="${cy + 18}" text-anchor="middle" class="progress-rings-center-sub">complété</text>
-    </svg>
-  `;
-}
-
 /** Build a small SVG sparkline from an array of 7 numbers. */
 function cockpitSparkline(values) {
   const w = 220;
@@ -1781,10 +1799,10 @@ function setupCockpitKeyboardShortcuts() {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key.toLowerCase();
     if (k === "g" || k === "r") {
-      const el = document.getElementById("cockpit-recent-games");
+      const el = document.getElementById("pf2-recent");
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     } else if (k === "m") {
-      const el = document.getElementById("cockpit-maps-section");
+      const el = document.getElementById("pf2-maps");
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     } else if (k === "s") {
       const el = document.getElementById("reward-code-section");
@@ -1812,9 +1830,10 @@ function cockpitShareProfile() {
     document.body.removeChild(tmp);
   }
 }
+window.cockpitShareProfile = cockpitShareProfile;
 
 /* ════════════════════════════════════════════════════════════════
-   RENDER PRE-COMPUTED STATS — Cockpit layout
+   RENDER PRE-COMPUTED STATS — layout « A · Dossier »
    (from player-stats/<pid>.json — instant display, zero calculation)
    ════════════════════════════════════════════════════════════════ */
 
@@ -1823,33 +1842,158 @@ function renderPrecomputedStats(stats, mount) {
   mount.innerHTML = "";
   setupCockpitKeyboardShortcuts();
 
-  // ── Synced data badge ──
-  const syncedDate = stats.lastSyncedAt ? new Date(stats.lastSyncedAt) : null;
-  const syncedStr = syncedDate ? syncedDate.toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "récemment";
-  const badge = document.createElement("div");
-  badge.className = "cockpit-sync-badge";
-  badge.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Données synchronisées (${stats.totalGames} parties · MAJ ${syncedStr})`;
-  mount.appendChild(badge);
+  const fmt = (n) => new Intl.NumberFormat("fr-FR").format(Number(n) || 0);
 
-  // ── Status bar meta (level + playtime + streak chips) ──
+  // ─────────── Cartes statistiques (au-dessus de la grille) ───────────
+  const results = stats.results || {};
+  setText("stat-games", fmt(stats.totalGames));
+  setText("stat-wins", fmt(stats.totalWins));
+  setText("stat-winrate", stats.formatted?.winrate || "—");
+  setText("stat-maps", String(stats.maps?.length || 0));
+  setText("stat-games-sub", stats.formatted?.avgGameDuration ? `Durée moy. ${stats.formatted.avgGameDuration}` : "");
+  setText("stat-wins-sub", stats.streaks?.best ? `Record série : ${stats.streaks.best}` : "");
+  setText("stat-winrate-sub", results.victory != null ? `${fmt(results.victory)}V · ${fmt(results.defeat || 0)}D` : "");
+  setText("stat-maps-sub", "");
+
+  // ─────────── Chips meta (niveau / temps de jeu / série) ───────────
   const metaEl = document.getElementById("cockpit-status-meta");
   if (metaEl) {
     const playtimeHours = Math.floor((stats.playtime?.totalSec || 0) / 3600);
     const streak = stats.streaks?.current || 0;
     const level = stats.level ?? Math.floor((stats.points || 0) / 100);
-    const flameSvg = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>`;
-    const starSvg = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
-    const clockSvg = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
+    const flameSvg = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>`;
+    const starSvg = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+    const clockSvg = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
     metaEl.innerHTML = `
-      <span class="cockpit-chip cockpit-chip-level">${starSvg} Niv. ${level}</span>
-      <span class="cockpit-chip cockpit-chip-playtime">${clockSvg} ${playtimeHours}h</span>
-      <span class="cockpit-chip cockpit-chip-streak ${streak > 0 ? "is-active" : ""}">${flameSvg} ${streak}</span>
+      <span class="pf2-chip">${starSvg} Niv. ${level}</span>
+      <span class="pf2-chip">${clockSvg} ${playtimeHours} h</span>
+      <span class="pf2-chip${streak > 0 ? " is-active" : ""}">${flameSvg} Série de ${streak}</span>
     `;
   }
 
-  // ── Compute milestone + ring data ──
+  // ─────────── Badge de synchro ───────────
+  const syncedDate = stats.lastSyncedAt ? new Date(stats.lastSyncedAt) : null;
+  const syncedStr = syncedDate ? syncedDate.toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "récemment";
+  const badge = document.createElement("div");
+  badge.className = "pf2-sync";
+  badge.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Données synchronisées · ${fmt(stats.totalGames)} parties · MAJ ${syncedStr}`;
+  mount.appendChild(badge);
+
+  // ─────────── Panneau : Parties récentes ───────────
+  const recentGames = stats.recentGames || [];
+  const recentPanel = document.createElement("section");
+  recentPanel.className = "pf2-panel";
+  recentPanel.id = "pf2-recent";
+  recentPanel.innerHTML = `
+    <header class="pf2-panel-head">
+      <h3>Parties récentes</h3>
+      <span class="pf2-panel-count">${fmt(stats.totalGames)}</span>
+      <i class="pf2-panel-rule"></i>
+      <span class="pf2-panel-sub">clique pour les détails</span>
+    </header>
+    <div class="pf2-recent-list"></div>
+  `;
+  const recentList = recentPanel.querySelector(".pf2-recent-list");
+  if (recentGames.length > 0) {
+    recentList.innerHTML = recentGames.slice(0, 20).map((g) => {
+      const win = g.result === "victory";
+      const loss = g.result === "defeat";
+      const pillCls = win ? "pf2-pill-win" : loss ? "pf2-pill-loss" : "pf2-pill-other";
+      const label = win ? "Victoire" : loss ? "Défaite" : (g.result || "—");
+      const dateStr = g.start ? formatFrenchDate(new Date(g.start).getTime()) : "—";
+      const durStr = g.durationSeconds ? formatDurationCompact(Number(g.durationSeconds) || 0) : "—";
+      const thumb = mapThumbUrl(g.map);
+      const letter = esc((g.map || "?").charAt(0).toUpperCase());
+      return `
+        <div class="pf2-gamerow" data-game-id="${esc(String(g.gameId ?? ""))}" role="button" tabindex="0" aria-label="Détails de la partie — ${esc(g.map || "carte inconnue")}">
+          <span class="pf2-gamerow-thumb">${letter}${thumb ? `<img src="${thumb}" alt="" loading="lazy" onerror="this.remove()">` : ""}</span>
+          <div class="pf2-gamerow-info">
+            <p class="pf2-gamerow-map">${esc(g.map || "Carte inconnue")}</p>
+            <p class="pf2-gamerow-meta">${esc(COCKPIT_CAT_LABELS[g.category] || g.mode || "—")} · ${g.totalPlayers || "?"} joueurs</p>
+          </div>
+          <div class="pf2-gamerow-right">
+            <span class="pf2-pill ${pillCls}">${label}</span>
+            <span class="pf2-gamerow-date">${esc(dateStr)} · ${esc(durStr)}</span>
+          </div>
+        </div>
+      `;
+    }).join("");
+  } else {
+    recentList.innerHTML = `<div class="pf-empty">Aucune partie récente.</div>`;
+  }
+  mount.appendChild(recentPanel);
+  if (recentGames.length > 0) attachGameRowClickHandlers(recentPanel, recentGames.slice(0, 20));
+
+  // ─────────── Panneau : Temps par catégorie ───────────
+  const cat = stats.playtime?.byCategory || {};
+  const totalSec = stats.playtime?.totalSec || 0;
+  const catRows = ["ffaCasual", "ffaRanked", "teamCasual", "teamRanked"].map((key) => ({
+    key,
+    playtimeSec: cat[key]?.playtimeSec || 0,
+    games: cat[key]?.games || 0,
+  }));
+  const catPanel = document.createElement("section");
+  catPanel.className = "pf2-panel";
+  catPanel.innerHTML = `
+    <header class="pf2-panel-head">
+      <h3>Temps par catégorie</h3>
+      <i class="pf2-panel-rule"></i>
+      <span class="pf2-panel-sub">${esc(stats.formatted?.totalPlaytime || "—")} au total</span>
+    </header>
+    ${catRows.map((c) => {
+      const pct = totalSec > 0 ? (c.playtimeSec / totalSec) * 100 : 0;
+      const hours = c.playtimeSec / 3600;
+      const hoursStr = hours >= 1 ? `${Math.floor(hours)} h ${Math.floor((hours % 1) * 60)} m` : `${Math.floor(c.playtimeSec / 60)} m`;
+      return `
+        <div class="pf2-cat-row">
+          <div class="pf2-cat-label">
+            <span class="pf2-cat-name">${esc(COCKPIT_CAT_LABELS[c.key] || c.key)}</span>
+            <span class="pf2-cat-hours">${esc(hoursStr)} · ${Math.round(pct)} %</span>
+          </div>
+          <div class="pf2-cat-track">
+            <div class="pf2-cat-fill" style="background:${COCKPIT_CAT_COLORS[c.key] || "#ff7a00"}" data-target-width="${pct.toFixed(2)}"></div>
+          </div>
+          <div class="pf2-cat-sub">${fmt(c.games)} parties</div>
+        </div>
+      `;
+    }).join("")}
+  `;
+  mount.appendChild(catPanel);
+
+  // ─────────── Panneau : Activité par jour ───────────
+  const wd = stats.activity?.byWeekday || [0, 0, 0, 0, 0, 0, 0];
+  const maxWd = Math.max(...wd, 1);
+  const peakWdIdx = wd.indexOf(Math.max(...wd));
+  const weekPanel = document.createElement("section");
+  weekPanel.className = "pf2-panel";
+  weekPanel.innerHTML = `
+    <header class="pf2-panel-head">
+      <h3>Activité par jour</h3>
+      <i class="pf2-panel-rule"></i>
+      <span class="pf2-panel-sub">Pic : ${esc(COCKPIT_WEEKDAYS[peakWdIdx] || "—")} (${fmt(maxWd)} parties)</span>
+    </header>
+    <div class="pf2-week">
+      ${wd.map((count, i) => {
+        const h = Math.max(2, (count / maxWd) * 100);
+        const isPeak = i === peakWdIdx && count > 0;
+        return `
+          <div class="pf2-week-col${isPeak ? " is-peak" : ""}" title="${esc(COCKPIT_WEEKDAYS[i])} — ${fmt(count)} parties">
+            <div class="pf2-week-track">
+              <div class="pf2-week-fill" data-target-height="${h.toFixed(2)}"></div>
+            </div>
+            <div class="pf2-week-label">${esc(COCKPIT_WEEKDAYS[i])}</div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+  mount.appendChild(weekPanel);
+
+  // ─────────── Colonne droite : Objectifs · Succès · Niveau · 7 jours ───────────
+  const sideExtra = document.getElementById("pf2-side-extra");
+
+  // Milestones (objectifs) — fallback calculé si absentes
   const ms = stats.nextMilestones || (() => {
-    // Fallback: compute next milestone dynamically (next multiple above current)
     const winsCurrent = stats.totalWins || 0;
     const playtimeCurrent = Math.floor((stats.playtime?.totalSec || 0) / 3600);
     const mapsCurrent = stats.maps?.length || 0;
@@ -1864,331 +2008,161 @@ function renderPrecomputedStats(stats, mount) {
       maps: { current: mapsCurrent, target: nextMult(mapsCurrent, 10) },
     };
   })();
-  const playtimeHoursCurrent = Math.floor((stats.playtime?.totalSec || 0) / 3600);
-  const rings = [
-    { label: "Wins", value: ms.wins.current, target: ms.wins.target, color: "#ff7a00" },
-    { label: "Playtime", value: ms.playtime.current ?? playtimeHoursCurrent, target: ms.playtime.target, color: "#c25700" },
-    { label: "Maps", value: ms.maps.current ?? (stats.maps?.length || 0), target: ms.maps.target, color: "#ffa14d" },
+  const goals = [
+    { name: "Victoires", value: ms.wins.current, target: ms.wins.target },
+    { name: "Heures de jeu", value: ms.playtime.current ?? Math.floor((stats.playtime?.totalSec || 0) / 3600), target: ms.playtime.target },
+    { name: "Cartes explorées", value: ms.maps.current ?? (stats.maps?.length || 0), target: ms.maps.target },
   ];
-
-  // ── Build the cockpit grid ──
-  const grid = document.createElement("div");
-  grid.className = "cockpit-grid";
-
-  // ─────────── LEFT COLUMN ───────────
-  const leftCol = document.createElement("div");
-  leftCol.className = "cockpit-left";
-
-  // 4 metric widgets
-  const winrateNum = parseInt(String(stats.formatted?.winrate || "0").replace(/\D/g, ""), 10) || 0;
-  const metrics = document.createElement("div");
-  metrics.className = "cockpit-metrics";
-  metrics.innerHTML = `
-    <div class="metric-card" data-metric="wins">
-      <span class="metric-card-label">Wins</span>
-      <span class="metric-card-value" data-countup="${stats.totalWins || 0}">0</span>
-    </div>
-    <div class="metric-card" data-metric="winrate">
-      <span class="metric-card-label">Winrate</span>
-      <span class="metric-card-value"><span data-countup="${winrateNum}">0</span>%</span>
-    </div>
-    <div class="metric-card" data-metric="games">
-      <span class="metric-card-label">Games</span>
-      <span class="metric-card-value" data-countup="${stats.totalGames || 0}">0</span>
-    </div>
-    <div class="metric-card" data-metric="maps">
-      <span class="metric-card-label">Cartes</span>
-      <span class="metric-card-value" data-countup="${stats.maps?.length || 0}">0</span>
-    </div>
-  `;
-  leftCol.appendChild(metrics);
-
-  // Progress rings card
-  const ringsCard = document.createElement("div");
-  ringsCard.className = "cockpit-card cockpit-rings";
-  ringsCard.innerHTML = `
-    <div class="cockpit-card-header">
-      <h3>Anneaux de progression</h3>
-      <span class="cockpit-card-sub">Vers le prochain palier</span>
-    </div>
-    <div class="cockpit-rings-body">
-      <div class="cockpit-rings-svg-wrap">${cockpitProgressRings(rings)}</div>
-      <div class="cockpit-rings-legend">
-        ${rings.map((r) => `
-          <div class="ring-legend-item">
-            <span class="ring-dot" style="background:${r.color}"></span>
-            <span class="ring-legend-label">${r.label}</span>
-            <span class="ring-legend-value">${r.value} / ${r.target}</span>
-          </div>
-        `).join("")}
-      </div>
-    </div>
-  `;
-  leftCol.appendChild(ringsCard);
-
-  // Temps par catégorie
-  const cat = stats.playtime?.byCategory || {};
-  const totalSec = stats.playtime?.totalSec || 0;
-  const catRows = [
-    { key: "ffaCasual", playtimeSec: cat.ffaCasual?.playtimeSec || 0, games: cat.ffaCasual?.games || 0 },
-    { key: "ffaRanked", playtimeSec: cat.ffaRanked?.playtimeSec || 0, games: cat.ffaRanked?.games || 0 },
-    { key: "teamCasual", playtimeSec: cat.teamCasual?.playtimeSec || 0, games: cat.teamCasual?.games || 0 },
-    { key: "teamRanked", playtimeSec: cat.teamRanked?.playtimeSec || 0, games: cat.teamRanked?.games || 0 },
-  ];
-  const catBars = document.createElement("div");
-  catBars.className = "cockpit-card cockpit-cat-bars";
-  catBars.innerHTML = `
-    <div class="cockpit-card-header">
-      <h3>Temps par catégorie</h3>
-      <span class="cockpit-card-sub">${stats.formatted?.totalPlaytime || "—"} au total</span>
-    </div>
-    <div class="cat-bars">
-      ${catRows.map((c) => {
-        const sec = c.playtimeSec;
-        const games = c.games;
-        const pct = totalSec > 0 ? (sec / totalSec) * 100 : 0;
-        const hours = sec / 3600;
-        const hoursStr = hours >= 1 ? `${Math.floor(hours)}h ${Math.floor((hours % 1) * 60)}m` : `${Math.floor(sec / 60)}m`;
+  if (sideExtra) {
+    const goalsPanel = document.createElement("section");
+    goalsPanel.className = "pf2-panel";
+    goalsPanel.innerHTML = `
+      <header class="pf2-panel-head"><h3>Objectifs</h3><i class="pf2-panel-rule"></i></header>
+      ${goals.map((g) => {
+        const pct = g.target > 0 ? Math.min(100, (g.value / g.target) * 100) : 0;
+        const remaining = Math.max(0, g.target - g.value);
         return `
-          <div class="cat-bar-row">
-            <div class="cat-bar-label">
-              <span>${COCKPIT_CAT_LABELS[c.key] || c.key}</span>
-              <span class="cat-bar-hours">${hoursStr} · ${Math.round(pct)}%</span>
+          <div class="pf2-goal">
+            <div class="pf2-goal-head">
+              <span class="pf2-goal-name">${esc(g.name)}</span>
+              <span class="pf2-goal-value">${fmt(g.value)} / ${fmt(g.target)}</span>
             </div>
-            <div class="cat-bar-track">
-              <div class="cat-bar-fill" style="width:0%;background:${COCKPIT_CAT_COLORS[c.key] || "#ff7a00"}" data-target-width="${pct.toFixed(2)}"></div>
+            <div class="pf2-goal-track">
+              <div class="pf2-goal-fill" data-target-width="${pct.toFixed(2)}"></div>
             </div>
-            <div class="cat-bar-sub">${games} parties</div>
+            <div class="pf2-goal-sub">${remaining > 0 ? `${fmt(remaining)} restants` : "Objectif atteint !"}</div>
           </div>
         `;
       }).join("")}
-    </div>
-  `;
-  leftCol.appendChild(catBars);
+    `;
+    sideExtra.appendChild(goalsPanel);
 
-  // Activité par jour (weekday bars)
-  const wd = stats.activity?.byWeekday || [0, 0, 0, 0, 0, 0, 0];
-  const maxWd = Math.max(...wd, 1);
-  const peakWdIdx = wd.indexOf(Math.max(...wd));
-  const weekdayCard = document.createElement("div");
-  weekdayCard.className = "cockpit-card cockpit-weekday-bars";
-  weekdayCard.innerHTML = `
-    <div class="cockpit-card-header">
-      <h3>Activité par jour</h3>
-      <span class="cockpit-card-sub">Pic: ${COCKPIT_WEEKDAYS[peakWdIdx] || "—"} (${maxWd} parties)</span>
-    </div>
-    <div class="weekday-bars">
-      ${wd.map((count, i) => {
-        const h = Math.max(2, (count / maxWd) * 100);
-        const isPeak = i === peakWdIdx && count > 0;
-        return `
-          <div class="weekday-bar-col ${isPeak ? "is-peak" : ""}" title="${COCKPIT_WEEKDAYS[i]} — ${count} parties">
-            <div class="weekday-bar-track">
-              <div class="weekday-bar-fill" style="height:0%" data-target-height="${h.toFixed(2)}"></div>
-            </div>
-            <div class="weekday-bar-label">${COCKPIT_WEEKDAYS[i]}</div>
-          </div>
-        `;
-      }).join("")}
-    </div>
-  `;
-  leftCol.appendChild(weekdayCard);
-
-  grid.appendChild(leftCol);
-
-  // ─────────── RIGHT COLUMN ───────────
-  const rightCol = document.createElement("div");
-  rightCol.className = "cockpit-right";
-
-  // Prochaine action panel
-  const winsRemaining = Math.max(0, ms.wins.target - ms.wins.current);
-  const mapsRemaining = Math.max(0, ms.maps.target - ms.maps.current);
-  const playtimeRemaining = Math.max(0, ms.playtime.target - (ms.playtime.current ?? playtimeHoursCurrent));
-  const actions = [
-    {
-      title: `Atteins ${ms.wins.target} wins`,
-      sub: winsRemaining > 0 ? `${winsRemaining} wins restants` : "Objectif atteint !",
-      icon: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>`,
-    },
-    {
-      title: `Atteins ${ms.playtime.target}h de jeu`,
-      sub: playtimeRemaining > 0 ? `${playtimeRemaining}h restantes` : "Objectif atteint !",
-      icon: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
-    },
-    {
-      title: `Explore ${ms.maps.target} cartes`,
-      sub: mapsRemaining > 0 ? `${mapsRemaining} cartes restantes` : "Toutes explorées !",
-      icon: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>`,
-    },
-    {
-      title: "Partage ton profil",
-      sub: "Copier le lien",
-      icon: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>`,
-      action: "share",
-    },
-  ];
-  const actionsCard = document.createElement("div");
-  actionsCard.className = "cockpit-card cockpit-actions";
-  actionsCard.innerHTML = `
-    <div class="cockpit-card-header">
-      <h3>Prochaine action</h3>
-    </div>
-    <div class="action-list">
-      ${actions.map((a) => `
-        <button type="button" class="action-item ${a.action === "share" ? "action-share" : ""}" ${a.action === "share" ? 'data-action="share"' : ""}>
-          <span class="action-arrow"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
-          <span class="action-icon">${a.icon}</span>
-          <span class="action-text">
-            <span class="action-title">${esc(a.title)}</span>
-            <span class="action-sub">${esc(a.sub)}</span>
-          </span>
-        </button>
-      `).join("")}
-    </div>
-  `;
-  actionsCard.querySelectorAll(".action-share").forEach((btn) => {
-    btn.addEventListener("click", cockpitShareProfile);
-  });
-  rightCol.appendChild(actionsCard);
-
-  // Level bar
-  const level = stats.level ?? Math.floor((stats.points || 0) / 100);
-  const levelProgress = stats.levelProgress ?? ((stats.points || 0) % 100);
-  const levelPct = Math.min(100, (levelProgress / 100) * 100);
-  const levelCard = document.createElement("div");
-  levelCard.className = "cockpit-card cockpit-level";
-  levelCard.innerHTML = `
-    <div class="cockpit-card-header">
-      <h3>Niveau ${level}</h3>
-      <span class="cockpit-card-sub">${levelProgress} / 100 pts → Niv. ${level + 1}</span>
-    </div>
-    <div class="level-bar-track">
-      <div class="level-bar-fill" style="width:0%" data-target-width="${levelPct.toFixed(2)}"></div>
-    </div>
-    <div class="level-bar-stats">
-      <span>${levelProgress} pts</span>
-      <span>${stats.formatted?.points || stats.points || 0} pts total</span>
-    </div>
-  `;
-  rightCol.appendChild(levelCard);
-
-  // Sparkline (7 days)
-  const sparkValues = stats.sparkline7d || [0, 0, 0, 0, 0, 0, 0];
-  const sparkTotal = sparkValues.reduce((s, v) => s + (Number(v) || 0), 0);
-  const sparkCard = document.createElement("div");
-  sparkCard.className = "cockpit-card cockpit-sparkline";
-  sparkCard.innerHTML = `
-    <div class="cockpit-card-header">
-      <h3>7 derniers jours</h3>
-      <span class="cockpit-card-sub">${sparkTotal} parties</span>
-    </div>
-    <div class="sparkline-wrap">${cockpitSparkline(sparkValues)}</div>
-    <div class="sparkline-axis">
-      <span>J-6</span><span></span><span></span><span></span><span></span><span></span><span>Auj.</span>
-    </div>
-  `;
-  rightCol.appendChild(sparkCard);
-
-  // Streaks
-  const streakCard = document.createElement("div");
-  streakCard.className = "cockpit-card cockpit-streaks";
-  const curStreak = stats.streaks?.current || 0;
-  const bestStreak = stats.streaks?.best || 0;
-  const flameIcon = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>`;
-  const trophyIcon = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>`;
-  streakCard.innerHTML = `
-    <div class="cockpit-card-header">
-      <h3>Séries</h3>
-    </div>
-    <div class="streaks-grid">
-      <div class="streak-item ${curStreak > 0 ? "is-active" : ""}">
-        <span class="streak-icon">${flameIcon}</span>
-        <span class="streak-label">Actuelle</span>
-        <span class="streak-value" data-countup="${curStreak}">0</span>
-      </div>
-      <div class="streak-item">
-        <span class="streak-icon">${trophyIcon}</span>
-        <span class="streak-label">Record</span>
-        <span class="streak-value" data-countup="${bestStreak}">0</span>
-      </div>
-    </div>
-  `;
-  rightCol.appendChild(streakCard);
-
-  grid.appendChild(rightCol);
-  mount.appendChild(grid);
-
-  // ─────────── RECENT GAMES (full width) ───────────
-  if (stats.recentGames && stats.recentGames.length > 0) {
-    const recentSection = document.createElement("div");
-    recentSection.className = "cockpit-card cockpit-recent-games";
-    recentSection.id = "cockpit-recent-games";
-    const recentList = stats.recentGames.slice(0, 20);
-    recentSection.innerHTML = `
-      <div class="cockpit-card-header">
-        <h3>Parties récentes</h3>
-        <span class="cockpit-card-sub">${stats.totalGames} au total · clique pour détails</span>
-      </div>
-      <div class="recent-games-list cockpit-recent-list">
-        ${recentList.map((g) => {
-          const resultColor = g.result === "victory" ? "#10b981" : g.result === "defeat" ? "#ef4444" : "#9CA3AF";
-          const resultLabel = g.result === "victory" ? "Victoire" : g.result === "defeat" ? "Défaite" : (g.result || "—");
-          const dur = g.durationSeconds;
-          const dateStr = g.start ? formatFrenchDate(new Date(g.start).getTime()) : "—";
-          const durStr = dur ? formatDurationCompact(Number(dur) || 0) : "—";
-          return `
-            <div class="recent-game-row" data-game-id="${esc(String(g.gameId ?? ""))}" role="button" tabindex="0">
-              <span class="recent-game-dot" style="background:${resultColor}"></span>
-              <div class="recent-game-info">
-                <div class="recent-game-map">${esc(g.map || "Carte inconnue")}</div>
-                <div class="recent-game-meta">${COCKPIT_CAT_LABELS[g.category] || g.mode || "—"} · ${g.totalPlayers || "?"} joueurs</div>
+    // ── Succès (tuiles) ──
+    const achvData = stats.achievements;
+    if (achvData?.list?.length) {
+      const ACHV_ICONS = {
+        "first-win": `<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>`,
+        "ten-wins": `<circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/>`,
+        "hundred-wins": `<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>`,
+        "marathon": `<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>`,
+        "weekend": `<rect width="18" height="18" x="3" y="4" rx="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/>`,
+        "cartographer": `<polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/>`,
+        "streak5": `<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>`,
+        "streak10": `<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>`,
+        "polyvalent": `<path d="m6 10 6-5 6 5"/><path d="m6 15 6-5 6 5"/><path d="m6 20 6-5 6 5"/>`,
+        "night-owl": `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>`,
+      };
+      const lockSvg = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
+      const achvPanel = document.createElement("section");
+      achvPanel.className = "pf2-panel";
+      achvPanel.innerHTML = `
+        <header class="pf2-panel-head">
+          <h3>Succès</h3>
+          <span class="pf2-panel-count">${achvData.unlockedCount ?? achvData.list.filter((a) => a.unlocked).length}/${achvData.list.length}</span>
+          <i class="pf2-panel-rule"></i>
+        </header>
+        <div class="pf2-achv-grid">
+          ${achvData.list.map((a) => {
+            const icon = a.unlocked
+              ? `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ACHV_ICONS[a.id] || ACHV_ICONS["first-win"]}</svg>`
+              : lockSvg;
+            const prog = !a.unlocked && a.progress?.target > 0
+              ? `<div class="pf2-achv-progress"><div class="pf2-achv-progress-fill" style="width:${Math.min(100, Math.round((a.progress.current / a.progress.target) * 100))}%"></div></div>`
+              : "";
+            return `
+              <div class="pf2-achv${a.unlocked ? "" : " is-locked"}">
+                <span class="pf2-achv-icon">${icon}</span>
+                <p class="pf2-achv-name">${esc(a.name)}</p>
+                <p class="pf2-achv-desc">${esc(a.desc)}</p>
+                ${prog}
               </div>
-              <div class="recent-game-right">
-                <div class="recent-game-result" style="color:${resultColor}">${resultLabel}</div>
-                <div class="recent-game-date">${dateStr} · ${durStr}</div>
-              </div>
-            </div>
-          `;
-        }).join("")}
+            `;
+          }).join("")}
+        </div>
+      `;
+      sideExtra.appendChild(achvPanel);
+    }
+
+    // ── Niveau ──
+    const level = stats.level ?? Math.floor((stats.points || 0) / 100);
+    const levelProgress = stats.levelProgress ?? ((stats.points || 0) % 100);
+    const levelPct = Math.min(100, levelProgress);
+    const levelPanel = document.createElement("section");
+    levelPanel.className = "pf2-panel";
+    levelPanel.innerHTML = `
+      <header class="pf2-panel-head"><h3>Niveau</h3><i class="pf2-panel-rule"></i></header>
+      <div class="pf2-level-head">
+        <span class="pf2-level-title">Niveau ${level}</span>
+        <span class="pf2-level-sub">${levelProgress} / 100 pts → Niv. ${level + 1}</span>
+      </div>
+      <div class="pf2-level-track">
+        <div class="pf2-level-fill" data-target-width="${levelPct.toFixed(2)}"></div>
+      </div>
+      <div class="pf2-level-stats">
+        <span>${fmt(levelProgress)} pts</span>
+        <span>${esc(stats.formatted?.points || fmt(stats.points))} pts total</span>
       </div>
     `;
-    mount.appendChild(recentSection);
-    attachGameRowClickHandlers(recentSection, recentList);
+    sideExtra.appendChild(levelPanel);
+
+    // ── 7 derniers jours (sparkline) ──
+    const sparkValues = stats.sparkline7d || [0, 0, 0, 0, 0, 0, 0];
+    const sparkTotal = sparkValues.reduce((s, v) => s + (Number(v) || 0), 0);
+    const sparkPanel = document.createElement("section");
+    sparkPanel.className = "pf2-panel";
+    sparkPanel.innerHTML = `
+      <header class="pf2-panel-head">
+        <h3>7 derniers jours</h3>
+        <i class="pf2-panel-rule"></i>
+        <span class="pf2-panel-sub">${fmt(sparkTotal)} parties</span>
+      </header>
+      <div class="pf2-spark-wrap">${cockpitSparkline(sparkValues)}</div>
+      <div class="pf2-spark-axis"><span>J-6</span><span></span><span></span><span></span><span></span><span></span><span>Auj.</span></div>
+    `;
+    sideExtra.appendChild(sparkPanel);
   }
 
-  // ─────────── MAP STATS (collapsible, full width) ───────────
-  if (stats.maps && stats.maps.length > 0) {
-    const mapSection = document.createElement("div");
-    mapSection.className = "cockpit-card cockpit-maps";
-    mapSection.id = "cockpit-maps-section";
+  // ─────────── Sous la grille : stats par carte ───────────
+  const below = document.getElementById("pf2-below");
+  if (below && stats.maps && stats.maps.length > 0) {
+    below.innerHTML = "";
     const allMaps = stats.maps;
     const topMaps = allMaps.slice(0, 10);
     const mapRowHtml = (m) => {
-      const wrColor = m.winRate >= 0.6 ? "#10b981" : m.winRate >= 0.4 ? "#d97706" : "#ef4444";
-      return `<tr><td class="map-name">${esc(m.map)}</td><td class="num">${m.count}</td><td class="num" style="color:#10b981">${m.wins}</td><td class="num" style="color:#ef4444">${m.losses}</td><td class="num" style="color:${wrColor};font-weight:700">${m.formatted.winRate}</td><td class="num">${m.formatted.avgDuration}</td><td class="num" style="font-size:11px;color:var(--text3)">${m.formatted.lastPlayed}</td></tr>`;
+      const wr = m.winRate * 100;
+      const wrColor = wr >= 60 ? "is-win" : wr >= 40 ? "" : "is-loss";
+      return `<tr>
+        <td>${esc(m.map)}</td>
+        <td>${fmt(m.count)}</td>
+        <td class="is-win">${fmt(m.wins)}</td>
+        <td class="is-loss">${fmt(m.losses)}</td>
+        <td class="${wrColor}" style="font-weight:700">${esc(m.formatted?.winRate || "—")}</td>
+        <td>${esc(m.formatted?.avgDuration || "—")}</td>
+        <td class="is-last">${esc(m.formatted?.lastPlayed || "—")}</td>
+      </tr>`;
     };
-    mapSection.innerHTML = `
-      <div class="cockpit-card-header">
+    const mapPanel = document.createElement("section");
+    mapPanel.className = "pf2-panel";
+    mapPanel.id = "pf2-maps";
+    mapPanel.innerHTML = `
+      <header class="pf2-panel-head">
         <h3>Statistiques par carte</h3>
-        <span class="cockpit-card-sub">${allMaps.length} cartes jouées</span>
-      </div>
-      <button type="button" id="cockpit-maps-toggle" class="cockpit-maps-toggle" aria-expanded="false">Voir les ${allMaps.length} cartes</button>
-      <div class="cockpit-maps-body" id="cockpit-maps-body">
-        <div class="map-stats-table-wrap">
-          <div class="map-stats-table-scroll">
-            <table class="map-stats-table">
-              <thead><tr><th>Carte</th><th style="text-align:right">Parties</th><th style="text-align:right">V</th><th style="text-align:right">D</th><th style="text-align:right">Winrate</th><th style="text-align:right">Durée moy.</th><th style="text-align:right">Dernière</th></tr></thead>
-              <tbody>${topMaps.map(mapRowHtml).join("")}</tbody>
-            </table>
-          </div>
+        <span class="pf2-panel-count">${allMaps.length}</span>
+        <i class="pf2-panel-rule"></i>
+      </header>
+      <button type="button" id="pf2-maps-toggle" class="pf2-maps-toggle" aria-expanded="false">Voir les ${allMaps.length} cartes</button>
+      <div class="pf2-maps-body" id="pf2-maps-body">
+        <div class="pf2-maps-wrap">
+          <table class="pf2-maps-table">
+            <thead><tr><th>Carte</th><th>Parties</th><th>V</th><th>D</th><th>Winrate</th><th>Durée moy.</th><th>Dernière</th></tr></thead>
+            <tbody>${topMaps.map(mapRowHtml).join("")}</tbody>
+          </table>
         </div>
       </div>
     `;
-    mount.appendChild(mapSection);
-
-    // Wire toggle button
-    const toggleBtn = mapSection.querySelector("#cockpit-maps-toggle");
-    const mapsBody = mapSection.querySelector("#cockpit-maps-body");
+    below.appendChild(mapPanel);
+    const toggleBtn = mapPanel.querySelector("#pf2-maps-toggle");
+    const mapsBody = mapPanel.querySelector("#pf2-maps-body");
     if (toggleBtn && mapsBody) {
       let expanded = false;
       toggleBtn.addEventListener("click", () => {
@@ -2196,44 +2170,44 @@ function renderPrecomputedStats(stats, mount) {
         mapsBody.classList.toggle("is-open", expanded);
         toggleBtn.textContent = expanded ? "Masquer les cartes" : `Voir les ${allMaps.length} cartes`;
         toggleBtn.setAttribute("aria-expanded", String(expanded));
-        if (expanded) {
-          const tbody = mapsBody.querySelector("tbody");
-          if (tbody) tbody.innerHTML = allMaps.map(mapRowHtml).join("");
-        } else {
-          const tbody = mapsBody.querySelector("tbody");
-          if (tbody) tbody.innerHTML = topMaps.map(mapRowHtml).join("");
-        }
+        const tbody = mapsBody.querySelector("tbody");
+        if (tbody) tbody.innerHTML = (expanded ? allMaps : topMaps).map(mapRowHtml).join("");
       });
     }
   }
 
-  // ── Trigger animations on next frame (count-up, ring arcs, sparkline, bars) ──
+  // ── Animations au frame suivant (barres, sparkline) ──
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      mount.querySelectorAll("[data-countup]").forEach((el) => {
-        cockpitCountUp(el, parseFloat(el.dataset.countup) || 0, 1100);
-      });
-      mount.querySelectorAll(".ring-arc").forEach((el) => {
-        el.style.strokeDashoffset = el.dataset.targetOffset;
-      });
-      mount.querySelectorAll(".sparkline-path").forEach((el) => {
-        el.style.strokeDashoffset = el.dataset.targetOffset || "0";
-      });
-      mount.querySelectorAll(".cat-bar-fill").forEach((el) => {
+      mount.querySelectorAll(".pf2-cat-fill").forEach((el) => {
         el.style.width = el.dataset.targetWidth + "%";
       });
-      mount.querySelectorAll(".weekday-bar-fill").forEach((el) => {
+      mount.querySelectorAll(".pf2-week-fill").forEach((el) => {
         el.style.height = el.dataset.targetHeight + "%";
       });
-      mount.querySelectorAll(".level-bar-fill").forEach((el) => {
+      document.querySelectorAll(".pf2-goal-fill").forEach((el) => {
         el.style.width = el.dataset.targetWidth + "%";
+      });
+      document.querySelectorAll(".pf2-level-fill").forEach((el) => {
+        el.style.width = el.dataset.targetWidth + "%";
+      });
+      document.querySelectorAll(".sparkline-path").forEach((el) => {
+        el.style.strokeDashoffset = el.dataset.targetOffset || "0";
       });
     });
   });
 
-  // ── Weekly chart (points par semaine) ──
-  // Render after cockpit so the mount element exists
+  // ── Graphique hebdomadaire (points par semaine) ──
   if (window._profileWeekData) {
     setTimeout(() => renderWeeklyChart(), 100);
   }
 }
+
+/* ── Hook de debug (E2E / support) — même pattern que _lobbyDebug ── */
+window._profileDebug = {
+  showView,
+  renderHero,
+  renderPrecomputedStats,
+  loadStats,
+  renderWeeklyChart,
+};
