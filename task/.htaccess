@@ -1,0 +1,24 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# task/.htaccess — Panel de tâches TheFrontHub (task.thefronthub.com)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Page d'entrée du panel (le site racine utilise index.html, ici c'est PHP)
+DirectoryIndex index.php index.html
+
+Options -Indexes
+
+# Le panel n'a rien à faire dans les moteurs de recherche
+<IfModule mod_headers.c>
+  Header set X-Robots-Tag "noindex, nofollow"
+  Header set Referrer-Policy "same-origin"
+</IfModule>
+
+# Fichiers internes jamais servis (guide, SQL de secours, logs…)
+<FilesMatch "\.(sql|md|log|lock|ini|sh)$">
+  Require all denied
+</FilesMatch>
+
+# Jamais de listing du dossier assets
+<IfModule mod_autoindex.c>
+  IndexIgnore *
+</IfModule>
