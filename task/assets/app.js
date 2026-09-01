@@ -123,13 +123,19 @@
   }
 
   async function apiState() {
-    const r = await fetch(BASE + '/api.php?action=state', { headers: { Accept: 'application/json' } });
+    const r = await fetch(BASE + '/api.php?action=state', { headers: { Accept: 'application/json' }, cache: 'no-store' });
     if (r.status === 401) {
       window.location.reload();
       throw new Error('reload');
     }
-    const j = await r.json();
-    if (!j.ok) throw new Error(j.message || j.error || 'Erreur de chargement');
+    let j = null;
+    try { j = await r.json(); } catch (e) { /* réponse non JSON */ }
+    if (!j) throw new Error('réponse invalide du serveur (HTTP ' + r.status + ')');
+    if (r.status === 403 && (j.error === 'forbidden' || j.error === 'not_logged')) {
+      window.location.reload();
+      throw new Error('reload');
+    }
+    if (!j.ok) throw new Error(j.message || j.error || 'Erreur de chargement (HTTP ' + r.status + ')');
     return j;
   }
 
@@ -139,7 +145,8 @@
       r = await fetch(BASE + '/api.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf(), Accept: 'application/json' },
-        body: JSON.stringify(Object.assign({ action: action }, payload || {}))
+        body: JSON.stringify(Object.assign({ action: action }, payload || {})),
+        cache: 'no-store'
       });
     } catch (e) {
       return { ok: false, error: 'network', message: 'Réseau indisponible — réessaie.' };
@@ -587,8 +594,9 @@
 
   refresh().catch((e) => {
     if (e && e.message === 'reload') return;
+    const detail = e && e.message ? ' (' + e.message + ')' : '';
     const bl = $('#board-loading');
-    if (bl) bl.textContent = 'Impossible de charger le tableau — recharge la page.';
+    if (bl) bl.textContent = 'Impossible de charger le tableau' + detail + ' — recharge la page.';
     toast('Chargement impossible', 'error');
   });
 })();

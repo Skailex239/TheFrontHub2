@@ -22,7 +22,7 @@ require_once __DIR__ . '/../api/config.php';
 /* ------------------------------------------------------------------ */
 
 define('TASK_CSRF_COOKIE', 'tfh_task_csrf');
-define('TASK_ASSET_VER', '1');
+define('TASK_ASSET_VER', '2');
 
 /* ------------------------------------------------------------------ */
 /* Divers                                                              */
