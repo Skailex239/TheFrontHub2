@@ -26,7 +26,8 @@ const TASK_DIAG_ID = 'k8q2m9x4r7';
 function task_diag(string $event): void
 {
     try {
-        $file = __DIR__ . '/tfhdiag-' . TASK_DIAG_ID . '.log';
+        /* .txt et non .log : le .htaccess du site interdit de servir les .log */
+        $file = __DIR__ . '/tfhdiag-' . TASK_DIAG_ID . '.txt';
         if (@filesize($file) > 65536) {
             @unlink($file); /* journal borné : on repart de zéro */
         }
