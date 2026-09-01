@@ -22,7 +22,7 @@ require_once __DIR__ . '/../api/config.php';
 /* ------------------------------------------------------------------ */
 
 define('TASK_CSRF_COOKIE', 'tfh_task_csrf');
-define('TASK_ASSET_VER', '2');
+define('TASK_ASSET_VER', '3');
 
 /* ------------------------------------------------------------------ */
 /* Divers                                                              */
@@ -338,23 +338,7 @@ function task_render_login(array $opts = []): never
       <?= TASK_DISCORD_SVG ?>
       <span>Se connecter avec Discord</span>
     </a>
-    <p class="auth-note">Connexion réservée aux comptes autorisés. Le premier compte à se connecter devient propriétaire du panel.</p>
-    <details class="setup">
-      <summary>Première fois ? Voir la configuration</summary>
-      <ol>
-        <li>Crée le sous-domaine <code>task.thefronthub.com</code> dans cPanel (o2switch), dossier racine <code>public_html/thefronthub.com/task</code>.</li>
-        <li>Dans le portail Discord (discord.com/developers → ton application → OAuth2 → Redirects), ajoute ces URLs de redirection :</li>
-      </ol>
-      <div class="copy-row">
-        <code id="redirect-uri">https://task.thefronthub.com/auth/callback.php</code>
-        <button type="button" class="btn ghost small" data-copy="redirect-uri">Copier</button>
-      </div>
-      <div class="copy-row">
-        <code>https://thefronthub.com/task/auth/callback.php</code>
-        <button type="button" class="btn ghost small" data-copy-static="https://thefronthub.com/task/auth/callback.php">Copier</button>
-      </div>
-      <p class="setup-hint">La deuxième URL sert de secours si le sous-domaine n'est pas encore prêt.</p>
-    </details>
+    <p class="auth-note">Connexion réservée aux comptes autorisés.</p>
   </section>
 </main>
 <script src="<?= task_e($base) ?>/assets/app.js?v=<?= TASK_ASSET_VER ?>"></script>
