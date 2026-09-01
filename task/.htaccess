@@ -5,6 +5,14 @@
 # Page d'entrée du panel (le site racine utilise index.html, ici c'est PHP)
 DirectoryIndex index.php index.html
 
+# IMPORTANT : Passenger (gestionnaire d'app Node/Python de cPanel) est actif
+# par défaut sur les nouveaux sous-domaines o2switch et intercepte ce dossier
+# en affichant « Web application could not be started ». Ce panel est 100 % PHP
+# classique : on désactive Passenger pour tout l'arbre task/.
+<IfModule mod_passenger.c>
+  PassengerEnabled Off
+</IfModule>
+
 Options -Indexes
 
 # Le panel n'a rien à faire dans les moteurs de recherche
