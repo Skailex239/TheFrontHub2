@@ -774,3 +774,177 @@
   flex-wrap: wrap;
   min-width: 0;
 }
+
+/* ════════════════════════════════════════════════════════════════
+   Toolbar — barre de recherche joueur + filtres Tous/FFA/Team
+   Placée entre l'intro et la grille, au-dessus des 2 panneaux.
+   ════════════════════════════════════════════════════════════════ */
+.dash-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+.dash-search {
+  flex: 1 1 260px;
+  min-width: 0;
+  max-width: 420px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--card, #fff);
+  border: 1px solid var(--border, #E5E7EB);
+  color: var(--muted, #9CA3AF);
+  transition: border-color 0.2s var(--ease-out, ease), box-shadow 0.2s var(--ease-out, ease);
+}
+.dash-search:focus-within {
+  border-color: var(--orange);
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.15);
+}
+.dash-search > svg { flex-shrink: 0; opacity: 0.6; }
+.dash-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--fg, #111827);
+  font-size: 14px;
+  font-family: inherit;
+  height: 100%;
+}
+.dash-search input::placeholder { color: var(--muted, #9CA3AF); }
+/* On a notre propre bouton ✕ (le cancel-button natif est incohérent) */
+.dash-search input::-webkit-search-cancel-button { display: none; }
+.dash-search-clear {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  background: var(--bg-subtle, #F3F4F6);
+  color: var(--muted, #6B7280);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.dash-search-clear:hover { background: var(--orange); color: #fff; }
+
+/* ── Filtres Tous / FFA / Team ── */
+.dash-filters {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--card, #fff);
+  border: 1px solid var(--border, #E5E7EB);
+}
+.dash-filter {
+  border: none;
+  background: transparent;
+  color: var(--muted, #6B7280);
+  font-size: 12.5px;
+  font-weight: 700;
+  font-family: inherit;
+  padding: 6px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  min-height: 32px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.dash-filter:hover { color: var(--orange-deep); background: var(--orange-pale, #FFF7ED); }
+.dash-filter.active {
+  background: var(--orange);
+  color: #fff;
+}
+.dash-filter:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 1px;
+}
+
+/* Corps de panel (liste + ligne TOI épinglée) */
+.dash-panel-body { min-width: 0; }
+
+/* ════════════════════════════════════════════════════════════════
+   Tendance hebdo — flèche ↑/↓ vs rang FINAL de la semaine dernière
+   (panel « Cette semaine » uniquement). Tooltip natif (title) :
+   jamais rogné par le conteneur scrollable .dash-list.
+   ════════════════════════════════════════════════════════════════ */
+.dash-trend {
+  flex-shrink: 0;
+  min-width: 34px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 6px;
+  border-radius: 6px;
+  cursor: help;
+  white-space: nowrap;
+}
+.dash-trend-up   { color: #16a34a; background: rgba(34, 197, 94, 0.10); }
+.dash-trend-down { color: #dc2626; background: rgba(220, 38, 38, 0.08); }
+.dash-trend-same { color: var(--muted, #9CA3AF); background: var(--bg-subtle, #F3F4F6); }
+.dash-trend-new  { color: var(--orange-deep, #C2410C); background: var(--orange-pale, #FFF7ED); }
+
+/* Thème sombre : contraste accru */
+[data-theme="dark"] .dash-trend-up   { color: #4ade80; background: rgba(34, 197, 94, 0.14); }
+[data-theme="dark"] .dash-trend-down { color: #f87171; background: rgba(220, 38, 38, 0.16); }
+
+/* ════════════════════════════════════════════════════════════════
+   Ligne TOI — joueur connecté dans le classement
+     .dash-row-me      : ligne surlignée (dans le top 50 ou résultats)
+     .dash-me-pinned   : ligne épinglée SOUS la liste (hors scroll),
+                       pour le joueur classé au-delà du top 50
+   ════════════════════════════════════════════════════════════════ */
+.dash-me-chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--orange);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.6;
+  vertical-align: middle;
+}
+.dash-row-me {
+  background: linear-gradient(90deg, rgba(249, 115, 22, 0.10) 0%, transparent 70%);
+}
+.dash-row-me::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--orange);
+  opacity: 0.85;
+}
+.dash-row-me:hover { background: var(--orange-pale, #FFF7ED); }
+.dash-me-pinned {
+  border-top: 1px dashed var(--border-strong, #E5E7EB);
+  border-bottom: none;
+  background: linear-gradient(90deg, rgba(249, 115, 22, 0.10) 0%, transparent 70%);
+}
+.dash-me-pinned:hover { background: var(--orange-pale, #FFF7ED); }
+
+/* ── Responsive toolbar / tendance / TOI ── */
+@media (max-width: 640px) {
+  .dash-toolbar { gap: 10px; margin-bottom: 18px; }
+  .dash-search { max-width: none; flex-basis: 100%; height: 38px; }
+  .dash-filters { flex: 1 1 100%; }
+  .dash-filter { flex: 1; text-align: center; padding: 6px 8px; }
+  .dash-trend { min-width: 28px; font-size: 10px; padding: 2px 4px; }
+  .dash-me-chip { font-size: 9px; padding: 1px 6px; }
+}

@@ -166,16 +166,25 @@ function calculatePoints(apiResponse) {
 }
 
 
-// Fetch recent games (depuis le lundi 00h00 Paris en cours) pour les stats hebdo.
-// SEMAINE FIXE : on ne compte QUE les victoires de la semaine en cours.
-// Quand une nouvelle semaine démarre (lundi 00h00 Paris), la frontière
-// avance automatiquement → les points hebdo retombent à 0 sans intervention.
+// Fetch les victoires des DEUX dernières semaines en UN SEUL passage :
+//   - semaine en cours (depuis le lundi 00h00 Paris)  → weekly_*
+//   - semaine précédente (7 jours avant, lundi→lundi) → prev_weekly_*
+// La semaine précédente sert aux flèches ↑/↓ du dashboard (rang actuel vs
+// rang final de la semaine dernière). La pagination est la même qu'avant :
+// on pousse juste la frontière d'arrêt au lundi PRÉCÉDENT au lieu du lundi
+// en cours → aucune requête supplémentaire, juste 1-3 pages de plus pour
+// les joueurs actifs (plafond 10 pages conservé).
+// SEMAINE FIXE : quand une nouvelle semaine démarre (lundi 00h00 Paris),
+// les frontières avancent automatiquement → reset sans intervention.
 async function fetchWeeklyWins(publicId) {
   try {
     const weekStartMs = getWeekStartMs(Date.now());
-    const weekStartDate = new Date(weekStartMs);
+    const prevWeekStartMs = getWeekStartMs(weekStartMs - 1); // lundi précédent 00h00 Paris
+    const curStartDate = new Date(weekStartMs);
+    const prevStartDate = new Date(prevWeekStartMs);
     let cursor = null;
     let ffaCasual = 0, ffaRanked = 0, teamCasual = 0, teamRanked = 0;
+    let pFfaCasual = 0, pFfaRanked = 0, pTeamCasual = 0, pTeamRanked = 0;
     
     for (let page = 0; page < 10; page++) {
       let url = `${API_BASE}/public/player/${encodeURIComponent(publicId)}/games?limit=50`;
@@ -190,21 +199,23 @@ async function fetchWeeklyWins(publicId) {
       let stop = false;
       for (const g of games) {
         const gameDate = g.start ? new Date(g.start) : null;
-        // Arrêt dès qu'on croise une game antérieure au lundi 00h00 Paris
-        if (gameDate && gameDate < weekStartDate) { stop = true; break; }
+        // Arrêt dès qu'on croise une game antérieure au lundi PRÉCÉDENT
+        if (gameDate && gameDate < prevStartDate) { stop = true; break; }
         if (g.result !== 'victory') continue;
         
         const mode = g.mode || g.gameMode || '';
         const type = g.type || g.gameType || '';
         const ranked = g.rankedType || '';
+        // Bucket : semaine en cours (>= lundi courant) vs semaine précédente
+        const isCur = gameDate && gameDate >= curStartDate;
         
         if (ranked === '1v1' || ranked === '2v2') {
-          if (ranked === '1v1') ffaRanked++;
-          else teamRanked++;
+          if (ranked === '1v1') { if (isCur) ffaRanked++; else pFfaRanked++; }
+          else { if (isCur) teamRanked++; else pTeamRanked++; }
         } else if (mode === 'Free For All' || mode === 'FFA') {
-          ffaCasual++;
+          if (isCur) ffaCasual++; else pFfaCasual++;
         } else if (mode === 'Team') {
-          teamCasual++;
+          if (isCur) teamCasual++; else pTeamCasual++;
         }
       }
       
@@ -212,9 +223,12 @@ async function fetchWeeklyWins(publicId) {
       if (!cursor || stop) break;
     }
     
-    return { ffa_casual: ffaCasual, ffa_ranked: ffaRanked, team_casual: teamCasual, team_ranked: teamRanked };
+    return {
+      ffa_casual: ffaCasual, ffa_ranked: ffaRanked, team_casual: teamCasual, team_ranked: teamRanked,
+      prev_ffa_casual: pFfaCasual, prev_ffa_ranked: pFfaRanked, prev_team_casual: pTeamCasual, prev_team_ranked: pTeamRanked,
+    };
   } catch (e) {
-    return { ffa_casual: 0, ffa_ranked: 0, team_casual: 0, team_ranked: 0 };
+    return { ffa_casual: 0, ffa_ranked: 0, team_casual: 0, team_ranked: 0, prev_ffa_casual: 0, prev_ffa_ranked: 0, prev_team_casual: 0, prev_team_ranked: 0 };
   }
 }
 
@@ -295,9 +309,10 @@ async function main() {
         finalPoints = ffaRanked * SCORE.ffa_ranked + teamRanked * SCORE.team_ranked;
       }
 
-      // Fetch weekly wins (last 7 days)
+      // Fetch weekly wins (semaine en cours + précédente, un seul passage)
       const weekly = await fetchWeeklyWins(publicId);
       const weeklyPoints = weekly.ffa_casual * SCORE.ffa_casual + weekly.ffa_ranked * SCORE.ffa_ranked + weekly.team_casual * SCORE.team_casual + weekly.team_ranked * SCORE.team_ranked;
+      const prevWeeklyPoints = weekly.prev_ffa_casual * SCORE.ffa_casual + weekly.prev_ffa_ranked * SCORE.ffa_ranked + weekly.prev_team_casual * SCORE.team_casual + weekly.prev_team_ranked * SCORE.team_ranked;
       
       results.push({
         publicId, username,
@@ -311,6 +326,12 @@ async function main() {
         weekly_team_casual: weekly.team_casual,
         weekly_team_ranked: weekly.team_ranked,
         weekly_points: weeklyPoints,
+        // Semaine précédente (rang final) → flèches ↑/↓ du dashboard
+        prev_weekly_ffa_casual: weekly.prev_ffa_casual,
+        prev_weekly_ffa_ranked: weekly.prev_ffa_ranked,
+        prev_weekly_team_casual: weekly.prev_team_casual,
+        prev_weekly_team_ranked: weekly.prev_team_ranked,
+        prev_weekly_points: prevWeeklyPoints,
         elo: elo.elo || null,
         peak_elo: elo.peak_elo || null,
       });

@@ -91,6 +91,15 @@ let _dashMode = "global";      // "global" | "weekly"
 let _vipSkins = new Map();      // publicId → skinId
 let _vipSkinsByName = new Map(); // username → skinId
 let _vipSkinsByNorm = new Map(); // username normalisé → skinId
+// ── Nouveautés dashboard : recherche + filtres + tendance hebdo ──
+let _pointFilter = "all";      // "all" | "ffa" | "team" — filtre de mode appliqué aux 2 panneaux
+let _searchQuery = "";         // recherche joueur (lowercase, trim) — "" = pas de recherche
+// Semaine précédente (pré-calculée par sync-dashboard.js, dashboard_scores.json.gz) :
+// publicId → { ffaCasualWins, ffaRankedWins, teamCasualWins, teamRankedWins }
+// (mêmes clés que pointsFor → même barème, même filtre FFA/Team applicables).
+// Sert aux flèches ↑/↓ : rang actuel vs rang FINAL de la semaine dernière.
+// Vide si les données de sync ne sont pas encore à jour → pas de flèches (graceful).
+let _prevWeekly = new Map();
 let currentUser = null;     // { name, publicId, avatar, uid, email }
 let _ownershipCode = null;
 let _ownershipPublicId = null;
@@ -544,7 +553,23 @@ function updateLastUpdateLabel(ts) {
    Merge ranked.json + stats live → _mergedViews { global, weekly }
    ════════════════════════════════════════════════════════════════ */
 
-function pointsFor(p) {
+/**
+ * Points d'un joueur selon le filtre de mode actif :
+ *   "all"  → barème complet (FFA×10 + FFA classé×1 + Team×5 + Team classé×1)
+ *   "ffa"  → uniquement les victoires FFA (casual + classé)
+ *   "team" → uniquement les victoires Team (casual + classé)
+ * Utilisé aussi pour la semaine précédente (flèches ↑/↓) avec les mêmes
+ * clés { ffaCasual, ffaRanked, teamCasual, teamRanked }.
+ */
+function pointsFor(p, filter = "all") {
+  if (filter === "ffa") {
+    return (p.ffaCasualWins || 0) * PTS_FFA_CASUAL
+         + (p.ffaRankedWins || 0) * PTS_FFA_RANKED;
+  }
+  if (filter === "team") {
+    return (p.teamCasualWins || 0) * PTS_TEAM_CASUAL
+         + (p.teamRankedWins || 0) * PTS_TEAM_RANKED;
+  }
   return (p.ffaCasualWins || 0) * PTS_FFA_CASUAL
        + (p.ffaRankedWins || 0) * PTS_FFA_RANKED
        + (p.teamCasualWins || 0) * PTS_TEAM_CASUAL
@@ -622,12 +647,19 @@ function buildMergedViews() {
       if (live.username && live.username !== pid) e.username = live.username;
     }
 
-    // 3. Calcul des points + tri
-    const players = [...byPid.values()].map((p) => ({
+    // 3. Calcul des points (selon le filtre FFA/Team actif) + tri
+    let players = [...byPid.values()].map((p) => ({
       ...p,
-      points: pointsFor(p),
+      points: pointsFor(p, _pointFilter),
     }));
+    // Filtre actif : on masque les joueurs à 0 pt dans la catégorie
+    // (un joueur 100 % FFA n'a pas sa place dans la vue Team).
+    if (_pointFilter !== "all") players = players.filter((p) => p.points > 0);
     players.sort((a, b) => b.points - a.points);
+    // Le rang est porté par les objets RÉELS de la vue (pas des copies) :
+    // updateLists() / panelBodyHtml() relisent _mergedViews directement
+    // (ligne TOI épinglée, flèches ↑/↓) → il faut p.rank ici.
+    players.forEach((p, i) => { p.rank = i + 1; });
     return players;
   };
 
@@ -643,6 +675,41 @@ function buildMergedViews() {
  */
 function getActiveView() {
   return { players: _mergedViews.global };
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Recherche + tendance hebdo (helpers)
+   ════════════════════════════════════════════════════════════════ */
+
+/**
+ * Recherche joueur : match si le pseudo BRUT (lowercase) ou NORMALISÉ
+ * (normPlayerName : sans tag de clan "[LBU]" ni suffixe ".9216") contient
+ * la requête. "skailex" trouve donc "[LBU] Skailex", "9216" trouve
+ * "Samraan.9216" (match brut).
+ */
+function nameMatches(name, q) {
+  if (!q) return true;
+  const raw = String(name || "").toLowerCase();
+  if (raw.includes(q)) return true;
+  const norm = normPlayerName(name);
+  return !!norm && norm.includes(q);
+}
+
+/**
+ * Rangs FINAUX de la semaine précédente (pour les flèches ↑/↓ du panel
+ * « Cette semaine »), recalculés selon le filtre de mode actif.
+ * Retourne Map publicId → rang, ou null si aucune donnée de sync
+ * (dashboard_scores.json.gz pas encore régénéré) → pas de flèches.
+ */
+function computePrevWeeklyRanks() {
+  if (_prevWeekly.size === 0) return null;
+  const scored = [..._prevWeekly.entries()]
+    .map(([pid, w]) => ({ pid, points: pointsFor(w, _pointFilter) }))
+    .filter((e) => e.points > 0)
+    .sort((a, b) => b.points - a.points);
+  const ranks = new Map();
+  scored.forEach((e, i) => ranks.set(e.pid, i + 1));
+  return ranks;
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -679,21 +746,16 @@ function render() {
   globalView.forEach((p, i) => { p.rank = i + 1; });
   weeklyView.forEach((p, i) => { p.rank = i + 1; });
 
-  const globalTopN = globalView.slice(0, 50);
-  const weeklyTopN = weeklyView.slice(0, 50);
-
   // Indicateur de chargement live — barre de progression 0-100 %
   const total = _connectedPlayers.length || 1;
   const done = _liveFetchProgress;
   const pct = Math.min(100, Math.round((done / total) * 100));
   const liveTag = "";
 
-  // Label "Depuis le lundi X …" — début de semaine à 00h00 (heure de Paris).
-  // Le reset est automatique : à chaque nouveau lundi, le label et les scores
-  // hebdo se réinitialisent sans aucune action manuelle (calculé côté client
-  // ET côté CI via sync-dashboard.js, même frontière Europe/Paris).
-  const weekStartMs = getWeekStartMs(Date.now());
-  const weekStartLabel = formatFrenchDate(weekStartMs);
+  // Préserve le focus de la barre de recherche à travers les re-rendus
+  // (mergeAndRender est appelé à chaque fetch live → la saisie ne doit pas
+  // perdre le focus ni la position du curseur).
+  const searchHadFocus = document.activeElement?.id === "dash-search-input";
 
   view.innerHTML = `
     ${liveTag}
@@ -715,20 +777,33 @@ function render() {
       </div>
     </div>
 
+    <div class="dash-toolbar">
+      <div class="dash-search">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.3" y2="16.3"/></svg>
+        <input type="search" id="dash-search-input" placeholder="Rechercher un joueur…" value="${escapeHtml(_searchQuery)}" autocomplete="off" spellcheck="false" aria-label="Rechercher un joueur dans le classement">
+        <button type="button" class="dash-search-clear" id="dash-search-clear" aria-label="Effacer la recherche"${_searchQuery ? "" : " hidden"}><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+      <div class="dash-filters" role="group" aria-label="Filtrer par mode de jeu">
+        <button type="button" class="dash-filter${_pointFilter === "all" ? " active" : ""}" data-filter="all" aria-pressed="${_pointFilter === "all"}">Tous</button>
+        <button type="button" class="dash-filter${_pointFilter === "ffa" ? " active" : ""}" data-filter="ffa" aria-pressed="${_pointFilter === "ffa"}">FFA</button>
+        <button type="button" class="dash-filter${_pointFilter === "team" ? " active" : ""}" data-filter="team" aria-pressed="${_pointFilter === "team"}">Team</button>
+      </div>
+    </div>
+
     <div class="dash-grid">
       <section class="dash-panel">
         <div class="dash-panel-header">
           <h2 class="dash-panel-title">Top joueurs — Toutes saisons</h2>
-          <span class="dash-panel-sub">Classement cumulé · ${globalView.length} joueurs</span>
+          <span class="dash-panel-sub" id="dash-sub-global"></span>
         </div>
-        ${renderRanking(globalTopN)}
+        <div class="dash-panel-body" id="dash-body-global"></div>
       </section>
       <section class="dash-panel">
         <div class="dash-panel-header">
           <h2 class="dash-panel-title">Top joueurs — Cette semaine</h2>
-          <span class="dash-panel-sub">Depuis le ${weekStartLabel} · ${weeklyView.length} joueurs actifs</span>
+          <span class="dash-panel-sub" id="dash-sub-weekly"></span>
         </div>
-        ${renderRanking(weeklyTopN, { weekly: true })}
+        <div class="dash-panel-body" id="dash-body-weekly"></div>
       </section>
     </div>
   `;
@@ -762,6 +837,49 @@ function render() {
         helpBtn.setAttribute("aria-expanded", "false");
       }
     });
+  }
+
+  // ── Barre de recherche : filtre les 2 panneaux en direct ──
+  const searchInput = document.getElementById("dash-search-input");
+  const searchClear = document.getElementById("dash-search-clear");
+  if (searchInput) {
+    searchInput.addEventListener("input", () => {
+      _searchQuery = searchInput.value.trim().toLowerCase().slice(0, 40);
+      if (searchClear) searchClear.hidden = _searchQuery.length === 0;
+      updateLists();
+    });
+    searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { clearSearch(); searchInput.blur(); }
+    });
+  }
+  if (searchClear) {
+    searchClear.addEventListener("click", () => {
+      clearSearch();
+      searchInput?.focus();
+    });
+  }
+
+  // ── Filtres Tous / FFA / Team (appliqués aux 2 panneaux) ──
+  document.querySelectorAll(".dash-filter").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!btn.dataset.filter || btn.dataset.filter === _pointFilter) return;
+      _pointFilter = btn.dataset.filter;
+      // Rebuild complet : points recalculés + tri + corps des panneaux
+      mergeAndRender();
+    });
+  });
+
+  // Remplit les corps des 2 panneaux (listes + flèches + ligne TOI)
+  updateLists();
+
+  // Restaure le focus de la recherche si on était en train de saisir
+  if (searchHadFocus) {
+    const inp = document.getElementById("dash-search-input");
+    if (inp) {
+      inp.focus();
+      const len = inp.value.length;
+      try { inp.setSelectionRange(len, len); } catch (e) { /* ignore */ }
+    }
   }
 
   // Re-init scroll reveal pour les nouveaux éléments .dash-panel / .dash-row
@@ -804,7 +922,10 @@ function weeklyPlutoniumBadge() {
  *   le rang (trophée 1-3 / badge orange 4+), le nom du joueur, un mini
  *   breakdown des victoires (FFA · Team) en texte discret, et le score
  *   total à droite. Hover = teinte orange subtile + flèche ›.
- *   opts.weekly : ajoute le badge Plutonium (preview) à côté du 1er. */
+ *   opts.weekly    : flèches ↑/↓ + badge Plutonium (panel hebdo).
+ *   opts.mePid     : surligne la ligne du joueur connecté + chip « TOI ».
+ *   opts.prevRanks : Map publicId → rang final semaine précédente (↑/↓).
+ *   opts.searching : état recherche (message vide personnalisé). */
 function renderRanking(topN, opts = {}) {
   const rows = topN.map((p) => {
     const name = p.username || p.publicId;
@@ -834,23 +955,36 @@ function renderRanking(topN, opts = {}) {
     const skinType = getSkinForPlayer(p.publicId, name);
     const skinClass = skinType ? " " + getSkin(skinType).cssClass : "";
 
-    // Badge Plutonium (preview) : uniquement à côté du 1er du panel hebdo.
-    // Enveloppé avec le pseudo dans une ligne flex pour rester SUR la ligne
-    // du nom (.dash-player est en flex-column : sans wrapper, le badge
-    // passerait sous le pseudo).
-    const puBadge = opts.weekly && p.rank === 1 ? weeklyPlutoniumBadge() : "";
+    // Ligne du joueur connecté : chip « TOI » + fond surligné (.dash-row-me)
+    const isMe = !!opts.mePid && p.publicId === opts.mePid;
+    const meChip = isMe
+      ? `<span class="dash-me-chip" title="Votre position dans le classement">TOI</span>`
+      : "";
+
+    // Badge Plutonium (preview) : uniquement à côté du 1er du panel hebdo,
+    // en classement OFFICIEL (filtre « Tous » — la récompense porte sur le
+    // top toutes catégories). Enveloppé avec le pseudo dans une ligne flex
+    // pour rester SUR la ligne du nom (.dash-player est en flex-column :
+    // sans wrapper, le badge passerait sous le pseudo).
+    const puBadge = opts.weekly && p.rank === 1 && _pointFilter === "all"
+      ? weeklyPlutoniumBadge()
+      : "";
     const nameHtml = `<span class="dash-player-name${skinClass}">${escapeHtml(name)}</span>`;
-    const nameLine = puBadge
-      ? `<span class="dash-player-line">${nameHtml}${puBadge}</span>`
+    const nameLine = (meChip || puBadge)
+      ? `<span class="dash-player-line">${nameHtml}${meChip}${puBadge}</span>`
       : nameHtml;
 
+    // Tendance hebdo : ↑/↓ vs rang final de la semaine dernière (panel hebdo)
+    const trend = opts.weekly && opts.prevRanks ? weeklyTrendHtml(p, opts.prevRanks) : "";
+
     return `
-      <a class="dash-row${p.rank <= 3 ? " dash-row-podium" : ""}${p.rank === 1 ? " dash-row-gold" : ""}" href="${profileUrl}">
+      <a class="dash-row${p.rank <= 3 ? " dash-row-podium" : ""}${p.rank === 1 ? " dash-row-gold" : ""}${isMe ? " dash-row-me" : ""}" href="${profileUrl}">
         <span class="dash-rank-slot">${rankSlot}</span>
         <span class="dash-player">
           ${nameLine}
           ${breakdown}
         </span>
+        ${trend}
         <span class="dash-score">
           <span class="dash-score-val">${formatPoints(p.points)}</span><span class="dash-score-suffix">pts</span>
         </span>
@@ -860,8 +994,124 @@ function renderRanking(topN, opts = {}) {
 
   return `
     <div class="dash-list" data-lenis-prevent>
-      ${rows || `<p class="dash-empty">Aucun joueur classé pour le moment.</p>`}
+      ${rows || (opts.searching
+        ? `<p class="dash-empty">Aucun joueur ne correspond à « ${escapeHtml(_searchQuery)} ».</p>`
+        : `<p class="dash-empty">Aucun joueur classé pour le moment.</p>`)}
     </div>`;
+}
+
+/* ── Tendance hebdo : flèche ↑/↓ vs rang FINAL de la semaine dernière ──
+ *   delta > 0 = le joueur a grimpé · < 0 = descendu · 0 = inchangé.
+ *   Pas classé la semaine dernière (0 pt) = « NEW ». Joueur à 0 pt cette
+ *   semaine : pas de flèche (rang arbitraire parmi les ex æquo à 0).
+ *   Info complémentaire en attribut title (tooltip natif, jamais rogné par
+ *   le conteneur scrollable .dash-list, contrairement à une bulle CSS). */
+function weeklyTrendHtml(p, prevRanks) {
+  if (!p.points) return "";
+  const prev = prevRanks.get(p.publicId);
+  if (prev == null) {
+    return `<span class="dash-trend dash-trend-new" title="N'était pas classé la semaine dernière" aria-label="Nouveau dans le classement de la semaine">NEW</span>`;
+  }
+  const delta = prev - p.rank;
+  if (delta === 0) {
+    return `<span class="dash-trend dash-trend-same" title="${prev}${rankOrdinalSuffix(prev)} la semaine dernière — position inchangée" aria-label="Position inchangée">–</span>`;
+  }
+  if (delta > 0) {
+    return `<span class="dash-trend dash-trend-up" title="↑ ${delta} place${delta > 1 ? "s" : ""} vs semaine dernière (${prev}${rankOrdinalSuffix(prev)})" aria-label="Monté de ${delta} place${delta > 1 ? "s" : ""}">↑${delta}</span>`;
+  }
+  return `<span class="dash-trend dash-trend-down" title="↓ ${-delta} place${delta < -1 ? "s" : ""} vs semaine dernière (${prev}${rankOrdinalSuffix(prev)})" aria-label="Descendu de ${-delta} place${delta < -1 ? "s" : ""}">↓${-delta}</span>`;
+}
+
+/** Suffixe ordinal français : 1ᵉʳ, 2ᵉ, 3ᵉ… */
+function rankOrdinalSuffix(n) {
+  return n === 1 ? "ᵉʳ" : "ᵉ";
+}
+
+/* ── Ligne TOI épinglée : le joueur connecté classé au-delà du top 50 ──
+ *   Rendue SOUS la liste (hors zone scrollable) → toujours visible sans
+ *   scroller. Le rang affiché est le rang RÉEL dans la vue courante. */
+function mePinnedRowHtml(me) {
+  const name = me.username || me.publicId;
+  const profileUrl = `profile.html?pid=${encodeURIComponent(me.publicId)}&player=${encodeURIComponent(name)}`;
+  return `
+    <a class="dash-row dash-row-me dash-me-pinned" href="${profileUrl}" aria-label="Votre position : ${me.rank} avec ${formatPoints(me.points)} points">
+      <span class="dash-rank-slot"><span class="dash-rank-badge">${me.rank}</span></span>
+      <span class="dash-player">
+        <span class="dash-player-line">
+          <span class="dash-player-name">${escapeHtml(name)}</span>
+          <span class="dash-me-chip">TOI</span>
+        </span>
+      </span>
+      <span class="dash-score">
+        <span class="dash-score-val">${formatPoints(me.points)}</span><span class="dash-score-suffix">pts</span>
+      </span>
+      <span class="dash-row-arrow" aria-hidden="true">›</span>
+    </a>`;
+}
+
+/* ── Corps d'un panel : liste + (ligne TOI épinglée) ── */
+function panelBodyHtml(fullView, shown, me, weekly) {
+  const mePid = currentUser?.publicId || null;
+  const searching = _searchQuery.length > 0;
+  const prevRanks = weekly ? computePrevWeeklyRanks() : null;
+  const list = renderRanking(shown, { weekly, mePid, prevRanks, searching });
+  // Ligne TOI épinglée : uniquement hors recherche, si le joueur connecté
+  // est classé au-delà du top 50 AVEC des points (un rang à 0 pt serait
+  // arbitraire parmi les ex æquo → on ne l'affiche pas).
+  const meRow = (me && !searching && me.rank > 50 && me.points > 0) ? mePinnedRowHtml(me) : "";
+  return list + meRow;
+}
+
+/* ── Re-rend UNIQUEMENT les corps des 2 panneaux ──
+ *   Appelé à chaque frappe dans la recherche / après login (ligne TOI) :
+ *   la toolbar n'est pas reconstruite → le focus de la saisie est préservé. */
+function updateLists() {
+  const searching = _searchQuery.length > 0;
+  const computeShown = (fullView) => {
+    if (!searching) return { shown: fullView.slice(0, 50), total: fullView.length };
+    const matches = fullView.filter((p) => nameMatches(p.username, _searchQuery));
+    return { shown: matches.slice(0, 20), total: matches.length };
+  };
+
+  const fill = (bodyId, subId, fullView, weekly, baseSub) => {
+    const body = document.getElementById(bodyId);
+    if (!body) return;
+    const mePid = currentUser?.publicId || null;
+    const me = mePid ? fullView.find((p) => p.publicId === mePid) : null;
+    const { shown, total } = computeShown(fullView);
+    body.innerHTML = panelBodyHtml(fullView, shown, me, weekly);
+    if (window.hydrateIcons) window.hydrateIcons(body);
+    const sub = document.getElementById(subId);
+    if (sub) {
+      if (searching) {
+        let label = `${total} résultat${total > 1 ? "s" : ""} pour « ${_searchQuery} »`;
+        if (total > shown.length) label += " · 20 premiers affichés";
+        sub.textContent = label;
+      } else {
+        sub.textContent = baseSub(fullView.length);
+      }
+    }
+  };
+
+  fill("dash-body-global", "dash-sub-global", _mergedViews.global, false,
+    (n) => `Classement cumulé · ${n} joueurs`);
+  fill("dash-body-weekly", "dash-sub-weekly", _mergedViews.weekly, true,
+    (n) => `Depuis le ${formatFrenchDate(getWeekStartMs(Date.now()))} · ${n} joueurs actifs`);
+}
+
+/** Vide la recherche et ré-affiche les listes complètes. */
+function clearSearch() {
+  _searchQuery = "";
+  const input = document.getElementById("dash-search-input");
+  if (input) input.value = "";
+  const clearBtn = document.getElementById("dash-search-clear");
+  if (clearBtn) clearBtn.hidden = true;
+  updateLists();
+}
+
+/** Re-rend les listes si elles sont affichées (ligne TOI après login/logout). */
+function refreshMeRows() {
+  if (_mergedViews.global.length > 0 || _mergedViews.weekly.length > 0) updateLists();
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -916,6 +1166,8 @@ onAuthStateChanged(auth, async (user) => {
   if (!user) {
     currentUser = null;
     updateAuthUI(null);
+    // Retrait de la ligne TOI après déconnexion
+    refreshMeRows();
     return;
   }
   currentUser = { uid: user.uid, avatar: user.photoURL, email: user.email };
@@ -933,10 +1185,13 @@ onAuthStateChanged(auth, async (user) => {
     currentUser.name = profile.username;
     currentUser.publicId = profile.publicId;
     updateAuthUI(currentUser);
+    // Ligne TOI : re-rend les listes si les données sont déjà affichées
+    refreshMeRows();
   } else {
     // Premier login sans profil : on affiche le badge + ouvre le setup modal
     currentUser.name = user.displayName || "Joueur";
     updateAuthUI(currentUser);
+    refreshMeRows();
     // Redirige vers profile.html pour finaliser le setup (le dashboard n'a pas
     // vocation à héberger tout le flow d'ownership verification ici).
     if (profile == null) {
@@ -1211,6 +1466,20 @@ document.addEventListener("click", (e) => {
               peak_elo: p.peak_elo,
               fetchedAt: Date.now(),
             };
+            // Semaine précédente (rang final) → flèches ↑/↓ du panel hebdo.
+            // Clés IDENTIQUES à celles de pointsFor() (ffaCasualWins…) pour
+            // pouvoir recalculer les points de la semaine passée avec le
+            // même barème (et le même filtre FFA/Team).
+            // Absente si le gzip n'a pas encore été régénéré par la sync
+            // → map vide → pas de flèches (graceful, pas de bug).
+            if (p.prev_weekly_ffa_casual != null || p.prev_weekly_team_casual != null) {
+              _prevWeekly.set(p.publicId, {
+                ffaCasualWins: p.prev_weekly_ffa_casual || 0,
+                ffaRankedWins: p.prev_weekly_ffa_ranked || 0,
+                teamCasualWins: p.prev_weekly_team_casual || 0,
+                teamRankedWins: p.prev_weekly_team_ranked || 0,
+              });
+            }
           }
 
           // Load ranked.json for ELO display + ranked wins merge
