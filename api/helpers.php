@@ -43,7 +43,10 @@ function json_out(array $payload, int $status = 200): never
     header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: no-store');
     header('X-Content-Type-Options: nosniff');
-    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    /* JSON_INVALID_UTF8_SUBSTITUTE : au lieu de renvoyer une réponse VIDE
+       (json_encode = false) si une donnée contient un encodage invalide,
+       on substitue le caractère problematique — la réponse reste du JSON valide. */
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
     exit;
 }
 
