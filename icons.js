@@ -46,6 +46,7 @@ const ICONS = {
   package: '<path d="M3 8l9-5 9 5v8l-9 5-9-5V8z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
   hourglass: '<path d="M7 3h10M7 21h10M7 3c0 6 10 6 10 12M17 21c0-6-10-6-10-12"/>',
   refresh: '<path d="M20 11a8 8 0 10-2.3 5.7"/><path d="M20 4v6h-6"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20.5 20.5-4.6-4.6"/>',
   target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/>',
   warning: '<path d="M12 3l9 16H3L12 3z"/><path d="M12 10v4M12 17v.6"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.5"/>',

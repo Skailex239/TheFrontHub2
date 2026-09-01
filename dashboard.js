@@ -1,6 +1,11 @@
 /**
  * dashboard.js — Contrôleur du Tableau de bord TheFrontHub.
  *
+ * Rendu v3 « Arène » (maquette B validée) : bandeau de contexte SANS
+ * compteur de parties, segmenté Général / Cette semaine (une course à la
+ * fois), recherche live, podium 2/1/3, rangs 4-10, ligne « TOI » épinglée,
+ * colonne droite (Ta semaine · Barème des points · Lobby en direct).
+ *
  * Architecture (v2 — stats agrégées côté serveur OpenFront) :
  *
  *   1. ranked.json (auto-synced par GitHub Actions) → ranked wins carrière
@@ -73,7 +78,6 @@ const PTS_TEAM_RANKED = 1;   // ranked = 1 pt, pas en plus du Team
    ════════════════════════════════════════════════════════════════ */
 
 const view = document.getElementById("dashboard-view");
-const lastUpdateEl = document.getElementById("last-update");
 
 let _rankedData = null;        // ranked.json décodé (ranked wins carrière)
 let _connectedPlayers = [];    // [{publicId, username}] depuis Firebase
@@ -82,8 +86,11 @@ let _liveStats = {};           // { publicId: { global: {...}, weekly: {...}, ga
 let _mergedViews = { global: [], weekly: [] };
 let _liveFetchDone = false;    // true quand toutes les stats live sont chargées
 let _liveFetchProgress = 0;    // nombre de joueurs connectés traités
-// _dashMode conservé pour compat (plus utilisé par render() — layout 2 panneaux)
-let _dashMode = "global";      // "global" | "weekly"
+let _dashMode = "global";      // "global" | "weekly" (segmenté « Arène »)
+let _dashQuery = "";           // recherche courante (filtrage client)
+let _dashShowAll = false;      // false = top 10 (podium + 4-10) · true = top 50
+let _lastUpdateTs = 0;         // fraîcheur des données (chip « Mis à jour il y a … »)
+let _lobbyLive = null;         // lobby_state.json → { games, players, avg, maps, failed }
 // Skins actifs : publicId → skinId + username → skinId
 // Chargé depuis /api/skins.php?activeMap=1 (nouveau système tfh_user_skins).
 // Permet d'afficher le pseudo en dégradé animé sur le leaderboard
@@ -199,21 +206,25 @@ function initials(name) {
   return letters.toUpperCase();
 }
 
-function rankCircleHtml(rank) {
-  let cls = "dash-rank";
-  if (rank === 1) cls += " dash-rank-1";
-  else if (rank === 2) cls += " dash-rank-2";
-  else if (rank === 3) cls += " dash-rank-3";
-  return `<span class="${cls}">${rank}</span>`;
+/** Slot de rang : trophée (1), médailles (2-3), badge carré (4+). */
+function rankSlotHtml(rank) {
+  if (rank === 1) return `<span class="dash-rank-trophy dash-rank-1"><i data-icon="trophy" data-icon-size="20"></i></span>`;
+  if (rank === 2) return `<span class="dash-rank-trophy dash-rank-2"><i data-icon="medal" data-icon-size="18"></i></span>`;
+  if (rank === 3) return `<span class="dash-rank-trophy dash-rank-3"><i data-icon="medal" data-icon-size="18"></i></span>`;
+  return `<span class="dash-rank-badge">${rank}</span>`;
 }
 
-function avatarHtml(name, size = "sm") {
-  return `<span class="dash-avatar dash-avatar-${size}" aria-hidden="true">${escapeHtml(initials(name))}</span>`;
+/** Avatar rond à initiale — même langage que profile.css v34 / sidebar. */
+function avatarHtml(name, extra = "") {
+  return `<span class="dash-avatar${extra ? " " + extra : ""}" aria-hidden="true">${escapeHtml(initials(name))}</span>`;
 }
 
-function clanBadgeHtml(clan) {
-  if (!clan) return "";
-  return `<span class="dash-clan">[${escapeHtml(clan)}]</span>`;
+/** Nom de carte affichable via i18n (window.t) — même logique que lobby.js. */
+function mapDisplayName(raw) {
+  if (!raw) return "?";
+  const key = "map." + raw;
+  const translated = (typeof window.t === "function") ? window.t(key) : null;
+  return (translated && translated !== key) ? translated : raw;
 }
 
 function showToast(msg, type = "info", duration = 4000) {
@@ -526,18 +537,69 @@ async function loadLiveStats() {
   };
 
   // Lancer tous les fetchs en parallèle
+  updateSyncChip();
   await Promise.all(toFetch.map(fetchOne));
   _liveFetchDone = true;
+  updateSyncChip();
 }
 
 function updateLastUpdateLabel(ts) {
-  if (!ts || !lastUpdateEl) return;
-  const d = new Date(typeof ts === "number" ? ts : ts);
-  if (Number.isNaN(d.getTime())) return;
-  lastUpdateEl.textContent = "Mis à jour le " + new Intl.DateTimeFormat("fr-FR", {
-    day: "2-digit", month: "2-digit", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  }).format(d);
+  let t;
+  if (typeof ts === "number") t = ts;
+  else { t = Date.parse(ts); if (Number.isNaN(t)) t = Number(ts); }
+  if (!t || Number.isNaN(t) || t <= 0) return;
+  if (t < 1e12) t *= 1000; // défensif : timestamp en secondes → ms
+  _lastUpdateTs = t;
+  renderUpdatedChip();
+}
+
+/** Label relatif : « à l'instant » / « il y a 4 min » / « il y a 3 h » … */
+function relativeUpdateLabel() {
+  const diff = Date.now() - _lastUpdateTs;
+  if (diff < 90 * 1000) return "à l'instant";
+  const mins = Math.round(diff / 60000);
+  if (mins < 60) return `il y a ${mins} min`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `il y a ${hours} h`;
+  return `il y a ${Math.round(hours / 24)} j`;
+}
+
+/** Chip « Mis à jour il y a X » de la topbar (temps relatif, + date exacte en title). */
+function renderUpdatedChip() {
+  const el = document.getElementById("dash-updated-chip");
+  if (!el || !_lastUpdateTs) return;
+  el.hidden = false;
+  el.textContent = "Mis à jour " + relativeUpdateLabel();
+  el.title = "Mis à jour le " + new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+  }).format(new Date(_lastUpdateTs));
+}
+setInterval(renderUpdatedChip, 60 * 1000);
+
+/** Chip « Synchro live · X/Y » pendant le chargement des stats live. */
+function updateSyncChip() {
+  const chip = document.getElementById("dash-sync-chip");
+  if (!chip) return;
+  const active = !_liveFetchDone && _connectedPlayers.length > 0;
+  chip.hidden = !active;
+  if (active) {
+    const label = document.getElementById("dash-sync-label");
+    if (label) label.textContent = `${_liveFetchProgress}/${_connectedPlayers.length}`;
+  }
+}
+
+/** Bouton Actualiser : vide le cache live et relance le pipeline de chargement. */
+async function refreshLive() {
+  try { localStorage.removeItem(LIVE_CACHE_KEY); } catch (e) { /* ignore */ }
+  _liveStats = {};
+  _liveFetchDone = false;
+  _liveFetchProgress = 0;
+  updateSyncChip();
+  await loadConnectedPlayers();
+  await loadLiveStats();
+  _mergedViews = buildMergedViews();
+  if (!_lastUpdateTs) updateLastUpdateLabel(Date.now());
+  render();
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -646,191 +708,420 @@ function getActiveView() {
 }
 
 /* ════════════════════════════════════════════════════════════════
-   Rendu
+   Rendu v3 « Arène » (maquette B validée)
+   ─ Bandeau de contexte SANS compteur de parties
+   ─ Segmenté Général / Cette semaine (une course à la fois)
+   ─ Recherche live + podium 2/1/3 + rangs 4-10
+   ─ Ligne « TOI » épinglée
+   ─ Colonne droite : Ta semaine · Barème · Lobby en direct
+   Le squelette n'est construit qu'UNE fois ; les mises à jour
+   progressives (fetch live) ne re-rendent que les zones internes,
+   ce qui préserve le focus de la recherche.
    ════════════════════════════════════════════════════════════════ */
 
-function render() {
-  if (!_rankedData && _mergedViews.global.length === 0 && _mergedViews.weekly.length === 0) {
-    view.innerHTML = `
-      <div class="dash-empty-state">
-        <div class="dash-empty-icon"><i data-icon="chart"></i></div>
-        <h3>Chargement…</h3>
-        <p>Récupération du classement…</p>
-      </div>`;
+const TOP_DEFAULT = 10; // podium (3) + rangs 4-10
+const TOP_MAX = 50;     // extension « Voir le top 50 »
+
+/** Normalise une chaîne pour la recherche (casse + accents). */
+function normQuery(s) {
+  return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+}
+
+/** Lien profil d'un joueur. */
+function profileUrlFor(p) {
+  return p.publicId
+    ? `profile.html?pid=${encodeURIComponent(p.publicId)}&player=${encodeURIComponent(p.username || p.publicId)}`
+    : `profile.html?player=${encodeURIComponent(p.username || "?")}`;
+}
+
+/** Ligne de classement (rangs 4+ et résultats de recherche). */
+function rowHtml(p, { me = false } = {}) {
+  const name = p.username || p.publicId;
+  const ffaWins = (p.ffaCasualWins || 0) + (p.ffaRankedWins || 0);
+  const teamWins = (p.teamCasualWins || 0) + (p.teamRankedWins || 0);
+  const breakdown = (ffaWins > 0 || teamWins > 0)
+    ? `<span class="dash-player-breakdown">
+         <span class="dash-bd-ffa">${ffaWins}<i data-icon="swords"></i></span>
+         <span class="dash-bd-sep">·</span>
+         <span class="dash-bd-team">${teamWins}<i data-icon="users"></i></span>
+       </span>`
+    : "";
+  const skinType = getSkinForPlayer(p.publicId, name);
+  const skinClass = skinType ? " " + getSkin(skinType).cssClass : "";
+  return `
+    <a class="dash-row${me ? " dash-row-me" : ""}" href="${profileUrlFor(p)}">
+      <span class="dash-rank-slot">${rankSlotHtml(p.rank)}</span>
+      <span class="dash-player">
+        <span class="dash-player-name${skinClass}">${escapeHtml(name)}${me ? ' <span class="dash-me-tag">TOI</span>' : ""}</span>
+        ${breakdown}
+      </span>
+      <span class="dash-score">
+        <span class="dash-score-val">${formatPoints(p.points)}</span><span class="dash-score-suffix">pts</span>
+      </span>
+      <span class="dash-row-arrow" aria-hidden="true">›</span>
+    </a>`;
+}
+
+/** Carte du podium — l'ordre visuel 2/1/3 est géré par CSS (order). */
+function podHtml(p, rank) {
+  const name = p.username || p.publicId;
+  const skinType = getSkinForPlayer(p.publicId, name);
+  const skinClass = skinType ? " " + getSkin(skinType).cssClass : "";
+  const ffaWins = (p.ffaCasualWins || 0) + (p.ffaRankedWins || 0);
+  const teamWins = (p.teamCasualWins || 0) + (p.teamRankedWins || 0);
+  const icn = rank === 1 ? "trophy" : "medal";
+  const label = rank === 1 ? "Champion" : rank === 2 ? "2ᵉ" : "3ᵉ";
+  return `
+    <a class="dash-pod dash-pod-${rank}" href="${profileUrlFor(p)}" aria-label="Rang ${rank} : ${escapeHtml(name)}">
+      <span class="dash-pod-medal dash-rank-${rank}" aria-hidden="true"><i data-icon="${icn}" data-icon-size="${rank === 1 ? 15 : 13}"></i></span>
+      <span class="dash-pod-rank-label">${label}</span>
+      <span class="dash-pod-avatar">${escapeHtml(initials(name))}</span>
+      <span class="dash-pod-name${skinClass}" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+      <span class="dash-pod-pts">${formatPoints(p.points)}<small>pts</small></span>
+      <span class="dash-pod-bd">${ffaWins} <i data-icon="swords" data-icon-size="11"></i> · ${teamWins} <i data-icon="users" data-icon-size="11"></i></span>
+    </a>`;
+}
+
+function currentList() {
+  return _dashMode === "weekly" ? _mergedViews.weekly : _mergedViews.global;
+}
+
+/** Re-rend UNIQUEMENT podium + liste + TOI (préserve le focus recherche). */
+function renderLeaderboard() {
+  const podiumZone = document.getElementById("dash-podium-zone");
+  const listZone = document.getElementById("dash-list-zone");
+  const subEl = document.getElementById("dash-list-sub");
+  const titleEl = document.getElementById("dash-list-title");
+  const showAllWrap = document.getElementById("dash-showall-wrap");
+  if (!listZone) return;
+
+  const all = currentList().map((p) => ({ ...p }));
+  all.forEach((p, i) => { p.rank = i + 1; });
+  const q = normQuery(_dashQuery);
+
+  if (titleEl) titleEl.textContent = _dashMode === "weekly" ? "Cette semaine" : "Général";
+  if (subEl) {
+    subEl.textContent = _dashMode === "weekly"
+      ? `Depuis le ${formatFrenchDate(getWeekStartMs(Date.now()))}`
+      : "Classement carrière — toutes saisons";
+  }
+
+  if (all.length === 0) {
+    if (podiumZone) podiumZone.innerHTML = "";
+    if (podiumZone) podiumZone.hidden = true;
+    listZone.innerHTML = `<div class="dash-empty-state"><div class="dash-empty-icon"><i data-icon="chart"></i></div><h3>${q ? "Aucun joueur trouvé" : "Chargement du classement…"}</h3><p>${q ? `Aucun résultat pour « ${escapeHtml(_dashQuery)} ».` : "Synchronisation avec OpenFront en cours…"}</p></div>`;
+    if (showAllWrap) showAllWrap.hidden = true;
     if (window.hydrateIcons) window.hydrateIcons(view);
     return;
   }
 
-  // Deux vues : globale (all time) + hebdo (cette semaine)
-  const globalView = _mergedViews.global.map((p) => ({ ...p }));
-  const weeklyView = _mergedViews.weekly.map((p) => ({ ...p }));
-  if (globalView.length === 0 && weeklyView.length === 0) {
-    view.innerHTML = `
-      <div class="dash-empty-state">
-        <div class="dash-empty-icon"><i data-icon="chart"></i></div>
-        <h3>Aucune donnée disponible</h3>
-        <p>Chargement…</p>
-      </div>`;
-    if (window.hydrateIcons) window.hydrateIcons(view);
-    return;
+  let filtered = all;
+  if (q) {
+    filtered = all.filter((p) =>
+      normQuery(p.username || "").includes(q) || normQuery(p.publicId || "").includes(q));
   }
 
-  // Ajout du rang dans chaque vue
-  globalView.forEach((p, i) => { p.rank = i + 1; });
-  weeklyView.forEach((p, i) => { p.rank = i + 1; });
+  // Ligne « TOI » — joueur connecté repéré par son publicId
+  const mePid = currentUser?.publicId || null;
+  const meAll = mePid ? filtered.find((p) => p.publicId === mePid) : null;
 
-  const globalTopN = globalView.slice(0, 50);
-  const weeklyTopN = weeklyView.slice(0, 50);
+  const limit = q ? TOP_MAX : (_dashShowAll ? TOP_MAX : TOP_DEFAULT);
+  const visible = filtered.slice(0, limit);
+  const meVisible = !!(meAll && visible.includes(meAll));
 
-  // Indicateur de chargement live — barre de progression 0-100 %
-  const total = _connectedPlayers.length || 1;
-  const done = _liveFetchProgress;
-  const pct = Math.min(100, Math.round((done / total) * 100));
-  const liveTag = "";
+  // Podium : hors recherche uniquement, et seulement avec 3 joueurs ou plus
+  const showPodium = !q && filtered.length >= 3;
+  if (podiumZone) {
+    podiumZone.hidden = !showPodium;
+    podiumZone.innerHTML = showPodium
+      ? podHtml(filtered[1], 2) + podHtml(filtered[0], 1) + podHtml(filtered[2], 3)
+      : "";
+  }
 
-  // Label "Depuis le lundi X …" — début de semaine à 00h00 (heure de Paris).
-  // Le reset est automatique : à chaque nouveau lundi, le label et les scores
-  // hebdo se réinitialisent sans aucune action manuelle (calculé côté client
-  // ET côté CI via sync-dashboard.js, même frontière Europe/Paris).
-  const weekStartMs = getWeekStartMs(Date.now());
-  const weekStartLabel = formatFrenchDate(weekStartMs);
+  const rowsStart = showPodium ? 3 : 0;
+  const rows = visible.slice(rowsStart).map((p) => rowHtml(p, { me: meAll === p })).join("");
 
-  view.innerHTML = `
-    ${liveTag}
+  const toiBlock = meAll && !meVisible
+    ? `<div class="dash-toi-sep"><span>Ton classement</span></div>${rowHtml({ ...meAll }, { me: true })}`
+    : "";
 
-    <div class="dash-intro">
-      <p class="dash-intro-sub">TheFrontHub synchronise automatiquement votre historique de parties et vos statistiques OpenFront, visualise vos conquêtes et classe vos performances à l'échelle mondiale.</p>
-      <button class="dash-help-btn" id="dash-help-btn" aria-label="Voir le barème des points" aria-expanded="false">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-      </button>
-      <div class="dash-help-popover" id="dash-help-popover" role="dialog" aria-label="Barème des points">
-        <div class="dash-help-popover-header">Barème des points</div>
-        <ul class="dash-help-popover-list">
-          <li><span class="dash-help-mode">FFA</span><span class="dash-help-pts">+10 pts</span></li>
-          <li><span class="dash-help-mode">Team</span><span class="dash-help-pts">+5 pts</span></li>
-          <li><span class="dash-help-mode">classé (1v1)</span><span class="dash-help-pts">+1 pt</span></li>
-          <li><span class="dash-help-mode">classé (2v2)</span><span class="dash-help-pts">+1 pt</span></li>
-        </ul>
-        <p class="dash-help-note">Le classé rapporte juste 1 pt, pas en plus du casual.</p>
-      </div>
+  listZone.innerHTML = `
+    <div class="dash-list" data-lenis-prevent>
+      ${rows || `<p class="dash-empty">${q ? "Aucun joueur trouvé pour cette recherche." : "Aucun joueur classé pour le moment."}</p>`}
     </div>
+    ${toiBlock}`;
 
-    <div class="dash-grid">
-      <section class="dash-panel">
-        <div class="dash-panel-header">
-          <h2 class="dash-panel-title">Top joueurs — Toutes saisons</h2>
-          <span class="dash-panel-sub">Classement cumulé · ${globalView.length} joueurs</span>
-        </div>
-        ${renderRanking(globalTopN)}
-      </section>
-      <section class="dash-panel">
-        <div class="dash-panel-header">
-          <h2 class="dash-panel-title">Top joueurs — Cette semaine</h2>
-          <span class="dash-panel-sub">Depuis le ${weekStartLabel} · ${weeklyView.length} joueurs actifs</span>
-        </div>
-        ${renderRanking(weeklyTopN)}
-      </section>
-    </div>
-  `;
+  // Fondu bas + scrollbar seulement si la liste défile vraiment
+  const listEl = listZone.querySelector(".dash-list");
+  if (listEl) {
+    requestAnimationFrame(() => {
+      listEl.classList.toggle("dash-list-scroll", listEl.scrollHeight > listEl.clientHeight + 8);
+    });
+  }
 
-  // Hydrate les icônes <i data-icon>
+  if (showAllWrap) {
+    showAllWrap.hidden = !!q || filtered.length <= TOP_DEFAULT;
+    const btn = document.getElementById("dash-show-all");
+    if (btn) {
+      btn.innerHTML = _dashShowAll
+        ? `Top ${TOP_DEFAULT} seulement <i data-icon="arrowUp" data-icon-size="14"></i>`
+        : `Voir le top ${TOP_MAX} <i data-icon="arrowDown" data-icon-size="14"></i>`;
+      btn.hidden = _dashShowAll && filtered.length <= TOP_MAX;
+    }
+  }
   if (window.hydrateIcons) window.hydrateIcons(view);
 
-  // Toggle la popover du barème
-  const helpBtn = document.getElementById("dash-help-btn");
-  const helpPopover = document.getElementById("dash-help-popover");
-  if (helpBtn && helpPopover) {
-    helpBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const isOpen = helpPopover.classList.toggle("open");
-      helpBtn.classList.toggle("active", isOpen);
-      helpBtn.setAttribute("aria-expanded", String(isOpen));
-    });
-    // Fermer au clic en dehors
-    document.addEventListener("click", (e) => {
-      if (!helpPopover.contains(e.target) && !helpBtn.contains(e.target)) {
-        helpPopover.classList.remove("open");
-        helpBtn.classList.remove("active");
-        helpBtn.setAttribute("aria-expanded", "false");
-      }
-    });
-    // Fermer avec Escape
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && helpPopover.classList.contains("open")) {
-        helpPopover.classList.remove("open");
-        helpBtn.classList.remove("active");
-        helpBtn.setAttribute("aria-expanded", "false");
-      }
-    });
-  }
-
-  // Re-init scroll reveal pour les nouveaux éléments .dash-panel / .dash-row
-  // qui viennent d'être injectés dans le DOM (animations.js tourne avant le
-  // rendu du dashboard, donc il ne les avait pas vus).
+  // Re-init scroll reveal pour les éléments fraîchement injectés
   if (window.TFH_reveal) {
     requestAnimationFrame(() => window.TFH_reveal());
   }
 }
 
+/** Carte « Ta semaine » (colonne droite) — points hebdo du joueur connecté. */
+function renderSideCards() {
+  const weekCard = document.getElementById("dash-card-week");
+  if (weekCard) {
+    if (currentUser && currentUser.publicId) {
+      const weekly = _mergedViews.weekly.map((p) => ({ ...p }));
+      weekly.forEach((p, i) => { p.rank = i + 1; });
+      const me = weekly.find((p) => p.publicId === currentUser.publicId);
+      if (me) {
+        const ffa = (me.ffaCasualWins || 0) + (me.ffaRankedWins || 0);
+        const team = (me.teamCasualWins || 0) + (me.teamRankedWins || 0);
+        weekCard.innerHTML = `
+          <h3 class="dash-side-title"><i data-icon="fire" data-icon-size="15"></i> Ta semaine</h3>
+          <div class="dash-week-main">
+            <span class="dash-week-score">${formatPoints(me.points)}<small> pts</small></span>
+            <span class="dash-week-rank">${rankSlotHtml(me.rank)} Rang ${me.rank}</span>
+          </div>
+          <div class="dash-week-bd">
+            <span>${ffa} <i data-icon="swords" data-icon-size="12"></i> FFA</span>
+            <span>${team} <i data-icon="users" data-icon-size="12"></i> Team</span>
+          </div>`;
+      } else {
+        weekCard.innerHTML = `
+          <h3 class="dash-side-title"><i data-icon="fire" data-icon-size="15"></i> Ta semaine</h3>
+          <p class="dash-week-none">Aucune victoire cette semaine. Lance une partie pour marquer tes premiers points !</p>
+          <a class="dash-lobby-link" href="https://openfront.io" target="_blank" rel="noreferrer">Jouer maintenant ↗</a>`;
+      }
+    } else {
+      weekCard.innerHTML = `
+        <h3 class="dash-side-title"><i data-icon="fire" data-icon-size="15"></i> Ta semaine</h3>
+        <p class="dash-week-none">Connecte-toi pour suivre tes points de la semaine et ta place dans la course.</p>
+        <button type="button" class="dash-side-btn" onclick="toggleAuthModal()">Connexion</button>`;
+    }
+  }
+
+  // Barème des points (statique — rendu une seule fois)
+  const bareme = document.getElementById("dash-card-bareme");
+  if (bareme && !bareme.dataset.done) {
+    bareme.dataset.done = "1";
+    bareme.innerHTML = `
+      <h3 class="dash-side-title"><i data-icon="target" data-icon-size="15"></i> Barème des points</h3>
+      <div class="dash-bareme-row"><span>Victoire FFA</span><span class="dash-bareme-pts">+10 pts</span></div>
+      <div class="dash-bareme-row"><span>Victoire Team</span><span class="dash-bareme-pts">+5 pts</span></div>
+      <div class="dash-bareme-row"><span>Classé 1v1 / 2v2</span><span class="dash-bareme-pts">+1 pt</span></div>
+      <p class="dash-bareme-note">Le classé rapporte 1 pt, pas en plus du mode casual. La course hebdo repart à zéro chaque lundi à 00h00 (Paris).</p>`;
+  }
+  if (window.hydrateIcons) window.hydrateIcons(view);
+}
+
+/* ── Lobby en direct (colonne droite) — lobby_state.json (sync 5 min) ── */
+
+function lobbyCountdownText(startsAt) {
+  if (!startsAt) return "En attente";
+  const delta = startsAt - Date.now();
+  if (delta <= 0) return "En cours";
+  const s = Math.floor(delta / 1000);
+  if (s < 60) return s <= 10 ? "Imminent" : `${s} s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `dans ${m} min`;
+  const h = Math.floor(m / 60);
+  return `dans ${h} h${m % 60 ? " " + (m % 60) + " min" : ""}`;
+}
+
+async function loadLobbyLive() {
+  let data = null;
+  try {
+    const res = await fetch(`lobby_state.json?t=${Date.now()}`, { cache: "no-store" });
+    if (res.ok) data = await res.json();
+  } catch (e) { /* hors ligne */ }
+  const buckets = (data && data.games && typeof data.games === "object") ? data.games : null;
+  if (!buckets) {
+    _lobbyLive = { games: 0, players: 0, maps: 0, next: null, failed: true };
+  } else {
+    let games = 0;
+    let players = 0;
+    const maps = new Set();
+    let next = null;
+    const now = Date.now();
+    for (const k of Object.keys(buckets)) {
+      for (const g of buckets[k] || []) {
+        games++;
+        players += Number(g.numClients) || 0;
+        const m = (g.gameConfig || {}).gameMap;
+        if (m) maps.add(m);
+        const st = Number(g.startsAt) || 0;
+        if (st > now && (!next || st < Number(next.startsAt))) next = g;
+      }
+    }
+    _lobbyLive = { games, players, maps: maps.size, next, failed: false };
+  }
+  renderLobbyCard();
+}
+
+function lobbyModeLabel(game) {
+  const cfg = game.gameConfig || {};
+  if (game.publicGameType === "special") return "Spécial";
+  if (cfg.rankedType) return cfg.rankedType === "2v2" ? "Classé 2v2" : "Classé 1v1";
+  return cfg.gameMode === "Team" ? "Team" : "FFA";
+}
+
+function renderLobbyCard() {
+  const card = document.getElementById("dash-lobby-card");
+  if (!card) return;
+  if (!_lobbyLive) {
+    card.innerHTML = `
+      <h3 class="dash-side-title"><span class="dash-live-dot"></span> Lobby en direct</h3>
+      <p class="dash-week-none">Connexion au lobby…</p>`;
+  } else if (_lobbyLive.failed) {
+    card.innerHTML = `
+      <h3 class="dash-side-title"><span class="dash-live-dot off"></span> Lobby en direct</h3>
+      <p class="dash-week-none">Lobby momentanément indisponible.</p>
+      <a class="dash-lobby-link" href="lobby.html">Ouvrir la page Lobby →</a>`;
+  } else {
+    const n = _lobbyLive.next;
+    const nextHtml = n
+      ? `<div class="dash-lobby-next">
+           <i data-icon="map" data-icon-size="16"></i>
+           <span class="dash-lobby-next-info">
+             <strong>${escapeHtml(mapDisplayName((n.gameConfig || {}).gameMap))}</strong>
+             <span>${lobbyModeLabel(n)} · ${lobbyCountdownText(Number(n.startsAt))}</span>
+           </span>
+         </div>`
+      : `<p class="dash-week-none">Aucune partie en préparation pour le moment.</p>`;
+    card.innerHTML = `
+      <h3 class="dash-side-title"><span class="dash-live-dot"></span> Lobby en direct</h3>
+      <div class="dash-lobby-stats">
+        <div class="dash-lobby-stat"><span class="dash-lobby-stat-val">${formatPoints(_lobbyLive.players)}</span><span class="dash-lobby-stat-lbl">Joueurs</span></div>
+        <div class="dash-lobby-stat"><span class="dash-lobby-stat-val">${_lobbyLive.games}</span><span class="dash-lobby-stat-lbl">Parties</span></div>
+        <div class="dash-lobby-stat"><span class="dash-lobby-stat-val">${_lobbyLive.maps}</span><span class="dash-lobby-stat-lbl">Cartes</span></div>
+      </div>
+      ${nextHtml}
+      <a class="dash-lobby-link" href="lobby.html">Ouvrir la page Lobby →</a>`;
+  }
+  if (window.hydrateIcons) window.hydrateIcons(view);
+}
+
+/* ── Squelette « Arène » + rendu principal ── */
+
+function render() {
+  const hasData = _mergedViews.global.length > 0 || _mergedViews.weekly.length > 0;
+  if (!hasData && !_rankedData && !_liveFetchDone) {
+    view.innerHTML = `<div class="dash-loading"><div class="spinner"></div><p>Chargement du classement…</p></div>`;
+    return;
+  }
+
+  // Squelette construit une seule fois (les updates progressives ne
+  // re-rendent que les zones internes → focus de la recherche préservé).
+  if (!document.getElementById("dash-arena-root")) {
+    view.innerHTML = `
+      <div id="dash-arena-root">
+        <section class="dash-hero" aria-label="Contexte du classement">
+          <div class="dash-hero-main">
+            <h2 class="dash-hero-title"><i data-icon="swords" data-icon-size="22"></i> L'Arène</h2>
+            <p class="dash-hero-sub">Le classement officiel TheFrontHub : chaque victoire OpenFront compte. La course de la semaine repart à zéro chaque lundi à 00h00 (Paris).</p>
+          </div>
+          <div class="dash-hero-chips" aria-label="Barème des points">
+            <span class="dash-pts-chip">FFA <b>+10</b></span>
+            <span class="dash-pts-chip">Team <b>+5</b></span>
+            <span class="dash-pts-chip">Classé <b>+1</b></span>
+          </div>
+        </section>
+
+        <div class="dash-toolbar">
+          <div class="dash-toggle" role="tablist" aria-label="Période du classement">
+            <button type="button" class="dash-toggle-btn${_dashMode === "global" ? " active" : ""}" data-mode-btn="global" role="tab" aria-selected="${_dashMode === "global"}">Général</button>
+            <button type="button" class="dash-toggle-btn${_dashMode === "weekly" ? " active" : ""}" data-mode-btn="weekly" role="tab" aria-selected="${_dashMode === "weekly"}">Cette semaine</button>
+          </div>
+          <label class="dash-search" for="dash-search">
+            <i data-icon="search" data-icon-size="15"></i>
+            <input id="dash-search" type="search" placeholder="Rechercher un joueur…" autocomplete="off" value="${escapeHtml(_dashQuery)}">
+          </label>
+        </div>
+
+        <div class="dash-arena">
+          <section class="dash-main-col">
+            <div class="dash-panel-header dash-main-header">
+              <h2 class="dash-panel-title" id="dash-list-title">${_dashMode === "weekly" ? "Cette semaine" : "Général"}</h2>
+              <span class="dash-panel-sub" id="dash-list-sub"></span>
+            </div>
+            <div class="dash-podium-zone" id="dash-podium-zone"></div>
+            <div class="dash-list-zone" id="dash-list-zone"></div>
+            <div class="dash-showall-wrap" id="dash-showall-wrap">
+              <button type="button" class="dash-show-all" id="dash-show-all">Voir le top ${TOP_MAX}</button>
+            </div>
+          </section>
+          <aside class="dash-side" aria-label="Panneaux latéraux">
+            <section class="dash-side-card" id="dash-card-week"></section>
+            <section class="dash-side-card" id="dash-card-bareme"></section>
+            <section class="dash-side-card" id="dash-lobby-card"></section>
+          </aside>
+        </div>
+      </div>`;
+  }
+
+  renderLeaderboard();
+  renderSideCards();
+  renderLobbyCard();
+  if (window.hydrateIcons) window.hydrateIcons(view);
+}
+
 /** Merge + render (utilisé après chaque fetch live pour mise à jour progressive). */
 function mergeAndRender() {
   _mergedViews = buildMergedViews();
+  updateSyncChip();
   render();
 }
 
-/* ── Ranking list — design épuré, une ligne par joueur ──
- *   Pas de carte champion : la liste EST le contenu. Chaque ligne affiche
- *   le rang (trophée 1-3 / badge orange 4+), le nom du joueur, un mini
- *   breakdown des victoires (FFA · Team) en texte discret, et le score
- *   total à droite. Hover = teinte orange subtile + flèche ›. */
-function renderRanking(topN) {
-  const rows = topN.map((p) => {
-    const name = p.username || p.publicId;
-    const profileUrl = p.publicId
-      ? `profile.html?pid=${encodeURIComponent(p.publicId)}&player=${encodeURIComponent(name)}`
-      : `profile.html?player=${encodeURIComponent(name)}`;
+/* ── Interactions (délégation sur #dashboard-view, liée UNE fois) ── */
 
-    // Icônes SVG pour les 3 premiers : trophy (or) / medal (argent) / medal (bronze)
-    const rankIcon = p.rank === 1 ? "trophy" : p.rank === 2 ? "medal" : p.rank === 3 ? "medal" : null;
-    const rankSlot = rankIcon
-      ? `<span class="dash-rank-trophy dash-rank-${p.rank}" aria-hidden="true"><i data-icon="${rankIcon}"></i></span>`
-      : `<span class="dash-rank-badge">${p.rank}</span>`;
+view.addEventListener("click", (e) => {
+  const modeBtn = e.target.closest("[data-mode-btn]");
+  if (modeBtn) {
+    const mode = modeBtn.dataset.modeBtn;
+    if (mode !== _dashMode) {
+      _dashMode = mode;
+      view.querySelectorAll("[data-mode-btn]").forEach((b) => {
+        const on = b.dataset.modeBtn === mode;
+        b.classList.toggle("active", on);
+        b.setAttribute("aria-selected", String(on));
+      });
+      renderLeaderboard();
+      renderSideCards();
+    }
+    return;
+  }
+  if (e.target.closest("#dash-show-all")) {
+    _dashShowAll = !_dashShowAll;
+    renderLeaderboard();
+  }
+});
 
-    // Mini breakdown des wins : FFA (casual + classé) · Team (casual + classé)
-    const ffaWins = (p.ffaCasualWins || 0) + (p.ffaRankedWins || 0);
-    const teamWins = (p.teamCasualWins || 0) + (p.teamRankedWins || 0);
-    const breakdown = (ffaWins > 0 || teamWins > 0)
-      ? `<span class="dash-player-breakdown">
-           <span class="dash-bd-ffa">${ffaWins}<i data-icon="swords"></i></span>
-           <span class="dash-bd-sep">·</span>
-           <span class="dash-bd-team">${teamWins}<i data-icon="users"></i></span>
-         </span>`
-      : "";
+view.addEventListener("input", (e) => {
+  if (e.target && e.target.id === "dash-search") {
+    _dashQuery = e.target.value || "";
+    renderLeaderboard();
+  }
+});
 
-    // Skin actif : applique la classe .skin-{id} (styles.css, chargé sur
-    // toutes les pages) sur le span du pseudo.
-    const skinType = getSkinForPlayer(p.publicId, name);
-    const skinClass = skinType ? " " + getSkin(skinType).cssClass : "";
-
-    return `
-      <a class="dash-row${p.rank <= 3 ? " dash-row-podium" : ""}${p.rank === 1 ? " dash-row-gold" : ""}" href="${profileUrl}">
-        <span class="dash-rank-slot">${rankSlot}</span>
-        <span class="dash-player">
-          <span class="dash-player-name${skinClass}">${escapeHtml(name)}</span>
-          ${breakdown}
-        </span>
-        <span class="dash-score">
-          <span class="dash-score-val">${formatPoints(p.points)}</span><span class="dash-score-suffix">pts</span>
-        </span>
-        <span class="dash-row-arrow" aria-hidden="true">›</span>
-      </a>`;
-  }).join("");
-
-  return `
-    <div class="dash-list" data-lenis-prevent>
-      ${rows || `<p class="dash-empty">Aucun joueur classé pour le moment.</p>`}
-    </div>`;
-}
+// Bouton « Actualiser » de la topbar (hors #dashboard-view → document)
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("#dash-refresh-btn");
+  if (!btn) return;
+  btn.classList.add("loading");
+  refreshLive().catch(() => {}).finally(() => btn.classList.remove("loading"));
+});
 
 /* ════════════════════════════════════════════════════════════════
    Auth UI (sidebar)
@@ -1136,21 +1427,16 @@ async function saveUserProfile(username, publicId) {
 }
 
 /* ════════════════════════════════════════════════════════════════
-   Navigation cliquable des lignes du tableau (délégation)
-   ════════════════════════════════════════════════════════════════ */
-
-document.addEventListener("click", (e) => {
-  const row = e.target.closest(".dash-row-link");
-  if (row && row.dataset.href) {
-    window.location.href = row.dataset.href;
-  }
-});
-
-/* ════════════════════════════════════════════════════════════════
    Init
    ════════════════════════════════════════════════════════════════ */
 
 (async function init() {
+  // Lobby en direct (colonne droite) — indépendant du classement.
+  // rafraîchi toutes les 2 min + compte à rebours re-rendu toutes les 30 s.
+  loadLobbyLive();
+  setInterval(loadLobbyLive, 2 * 60 * 1000);
+  setInterval(() => { if (_lobbyLive && _lobbyLive.next) renderLobbyCard(); }, 30 * 1000);
+
   try {
     // Phase 0 : Charger dashboard_scores.json.gz (pré-calculé par la sync)
     // → rendu INSTANTANÉ, pas d'appel API live
