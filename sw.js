@@ -1,4 +1,4 @@
-// sw.js — Service Worker for TheFrontHub (v8 — Stale-While-Revalidate)
+// sw.js — Service Worker for TheFrontHub (v9 — Stale-While-Revalidate)
 //
 // Strategies:
 //   • /dist/*.js (minified, versioned via ?v=N)  → CACHE-FIRST, immutable (1 year)
@@ -15,7 +15,7 @@
 //   - On next visit: user sees fresh data, still instantly
 //   - Works even on flaky 3G
 
-const CACHE_NAME = 'thefronthub-v48';
+const CACHE_NAME = 'thefronthub-v49';
 const CACHE_IMMUTABLE = 'thefronthub-imm-v15';
 const SWR_MAX_AGE_MS = 30 * 60 * 1000;  // 30 min — consider cache fresh this long
 
@@ -150,10 +150,14 @@ self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
   if (req.method !== 'GET') return;
 
-  // ── /api/* → TOUJOURS le réseau, jamais de cache ──
-  // L'API PHP (auth, profil, likes, skins) doit être fraîche et ne doit
-  // JAMAIS être servie depuis le cache (sessions, données dynamiques).
-  if (url.origin === self.location.origin && url.pathname.startsWith('/api/')) return;
+  // ── /api/* et /task/* → TOUJOURS le réseau, jamais de cache ──
+  // L'API PHP (auth, profil, likes, skins) et le panel de tâches (/task/,
+  // app dynamique : HTML de session + API JSON du kanban) doivent être frais
+  // et ne doivent JAMAIS passer par le cache SW — sinon les réponses sont
+  // figées (bug « tâches créées mais jamais affichées »).
+  if (url.origin === self.location.origin &&
+      (url.pathname.startsWith('/api/') ||
+       url.pathname === '/task' || url.pathname.startsWith('/task/'))) return;
 
   // Skip cross-origin requests entirely (OpenFront, CDN, etc.)
   if (isCrossOrigin(url)) return;
