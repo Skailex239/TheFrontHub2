@@ -11,12 +11,62 @@ declare(strict_types=1);
  */
 
 define('TFH_API', true);
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   TEMPORAIRE — journal de diagnostic du panel (à retirer une fois le bug trouvé)
+
+   Chaque requête API inscrit une ligne dans task/tfhdiag-<id>.log :
+   horodatage + événement technique. URL non devinable, aucune donnée secrète
+   (pas de cookie, pas de session, pas de mot de passe). Sert à distinguer :
+     - requête jamais reçue  → problème côté navigateur (cache / service worker)
+     - requête reçue + erreur → problème serveur, avec le message exact
+   ───────────────────────────────────────────────────────────────────────────── */
+const TASK_DIAG_ID = 'k8q2m9x4r7';
+
+function task_diag(string $event): void
+{
+    try {
+        $file = __DIR__ . '/tfhdiag-' . TASK_DIAG_ID . '.log';
+        if (@filesize($file) > 65536) {
+            @unlink($file); /* journal borné : on repart de zéro */
+        }
+        @file_put_contents(
+            $file,
+            '[' . gmdate('d/m H:i:s') . '] ' . $event . "\n",
+            FILE_APPEND | LOCK_EX
+        );
+    } catch (Throwable $e) {
+        /* le diagnostic ne doit jamais casser l'API */
+    }
+}
+
 require __DIR__ . '/lib.php';
 
 task_security_headers();
 
+task_diag('req ' . ($_SERVER['REQUEST_METHOD'] ?? '?')
+    . ' host=' . ($_SERVER['HTTP_HOST'] ?? '?')
+    . ' cookies=' . count($_COOKIE ?? []));
+
+/* TEMP — toute erreur non capturée renvoie désormais du JSON lisible
+   (au lieu d'une page HTML ou d'une réponse vide) + trace dans le journal. */
+set_exception_handler(static function (Throwable $e): void {
+    task_diag('EXC ' . get_class($e) . ': ' . $e->getMessage()
+        . ' @ ' . basename($e->getFile()) . ':' . $e->getLine());
+    if (!headers_sent()) {
+        http_response_code(500);
+        header('Content-Type: application/json; charset=utf-8');
+    }
+    echo json_encode(
+        ['ok' => false, 'error' => 'server_error', 'message' => 'Erreur serveur : ' . $e->getMessage()],
+        JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+    );
+    exit;
+});
+
 $user = current_user($pdo);
 if ($user === null) {
+    task_diag('401 non connecte');
     fail(401, 'not_logged', 'Non connecté.');
 }
 
@@ -24,6 +74,7 @@ task_ensure_schema($pdo);
 
 $access = task_access($pdo, $user);
 if (!$access['granted'] || $access['discord_id'] === null) {
+    task_diag('403 acces refuse');
     fail(403, 'forbidden', 'Accès au panel retiré.');
 }
 
@@ -112,6 +163,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         $tasks[] = $row;
     }
 
+    task_diag('state OK t=' . count($tasks) . ' p=' . count($people));
+
     json_out([
         'ok'     => true,
         'me'     => [
@@ -149,6 +202,7 @@ if (!is_array($in)) {
 }
 
 $action = (string) ($in['action'] ?? '');
+task_diag('POST ' . $action);
 
 /** Champ texte nettoyé et borné. */
 function task_req_str(array $in, string $key, int $max, bool $required): string
@@ -194,7 +248,9 @@ switch ($action) {
              VALUES (?, ?, \'todo\', ?, ?, ?, ?, NOW())'
         )->execute([$title, $desc !== '' ? $desc : null, $priority, $assigneeId, $meId, $meName]);
 
-        json_out(['ok' => true, 'id' => (int) $pdo->lastInsertId()]);
+        $newId = (int) $pdo->lastInsertId();
+        task_diag('create OK id=' . $newId);
+        json_out(['ok' => true, 'id' => $newId]);
     }
 
     case 'task.status': {
