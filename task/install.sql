@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS tfh_task_chat (
     body        TEXT NULL,
     attachments TEXT NULL,          -- JSON [{id, name, size, mime, ext, width, height, expires}]
     created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    edited_at   DATETIME NULL,      -- renseigné si le message a été modifié
     updated_at  DATETIME NULL,
     deleted_at  DATETIME NULL,      -- suppression "Discord" : le message reste visible comme supprimé
     PRIMARY KEY (id),

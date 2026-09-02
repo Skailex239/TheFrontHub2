@@ -271,6 +271,9 @@ function task_ensure_schema(PDO $pdo): void
         task_column_add($pdo, 'tfh_task_tasks', 'pinned', 'TINYINT(1) NOT NULL DEFAULT 0');
         task_column_add($pdo, 'tfh_task_tasks', 'archived_at', 'DATETIME NULL');
         task_column_add($pdo, 'tfh_task_tasks', 'milestone', "VARCHAR(80) NOT NULL DEFAULT ''");
+        /* Colonne manquante sur les installations créées avant task v7.1 :
+           le code de la discussion (édition de message) lit edited_at. */
+        task_column_add($pdo, 'tfh_task_chat', 'edited_at', 'DATETIME NULL');
 
         $pdo->exec(
             'CREATE TABLE IF NOT EXISTS tfh_task_comments (
@@ -325,6 +328,7 @@ function task_ensure_schema(PDO $pdo): void
                 body        TEXT NULL,
                 attachments TEXT NULL,
                 created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                edited_at   DATETIME NULL,
                 updated_at  DATETIME NULL,
                 deleted_at  DATETIME NULL,
                 PRIMARY KEY (id),
