@@ -23,6 +23,10 @@ CREATE TABLE IF NOT EXISTS tfh_task_tasks (
     status            VARCHAR(16) NOT NULL DEFAULT 'todo',      -- todo | in_progress | done
     priority          VARCHAR(16) NOT NULL DEFAULT 'normal',    -- low | normal | high
     assignee_id       VARCHAR(32) NULL,
+    labels            VARCHAR(250) NOT NULL DEFAULT '',         -- clés d'étiquettes en CSV
+    pinned            TINYINT(1) NOT NULL DEFAULT 0,
+    due_at            DATE NULL,
+    archived_at       DATETIME NULL,
     created_by        VARCHAR(32) NOT NULL,
     created_by_name   VARCHAR(64) NOT NULL DEFAULT '',
     created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -32,4 +36,36 @@ CREATE TABLE IF NOT EXISTS tfh_task_tasks (
     PRIMARY KEY (id),
     INDEX idx_task_status (status),
     INDEX idx_task_assignee (assignee_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Commentaires sur les tâches
+CREATE TABLE IF NOT EXISTS tfh_task_comments (
+    id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    task_id     INT UNSIGNED NOT NULL,
+    author_id   VARCHAR(32) NOT NULL,
+    author_name VARCHAR(64) NOT NULL DEFAULT '',
+    body        TEXT NOT NULL,
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    INDEX idx_c_task (task_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Historique d'activité
+CREATE TABLE IF NOT EXISTS tfh_task_activity (
+    id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    task_id    INT UNSIGNED NULL,
+    task_title VARCHAR(180) NOT NULL DEFAULT '',
+    actor_id   VARCHAR(32) NOT NULL DEFAULT '',
+    actor_name VARCHAR(64) NOT NULL DEFAULT '',
+    action     VARCHAR(24) NOT NULL,
+    detail     VARCHAR(500) NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    INDEX idx_a_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Réglages du panel (webhook Discord, etc.)
+CREATE TABLE IF NOT EXISTS tfh_task_settings (
+    skey   VARCHAR(64) NOT NULL PRIMARY KEY,
+    svalue TEXT NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

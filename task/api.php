@@ -4,55 +4,27 @@ declare(strict_types=1);
 /**
  * task/api.php — API JSON du panel (même origine que la page).
  *
- * GET  ?action=state  → état complet (moi, personnes autorisées, tâches, csrf)
+ * GET  ?action=state  → état complet (moi, personnes autorisées, tâches,
+ *                       commentaires, activité, réglages, csrf)
  * POST { action: ... } (JSON + en-tête X-CSRF-Token)
  *      task.create / task.status / task.edit / task.delete
+ *      task.pin    / task.unarchive
+ *      task.comment / comment.delete
+ *      settings.save / webhook.test
  *      admin.add   / admin.remove
+ *
+ * Toute erreur non capturée renvoie du JSON lisible (voir le handler
+ * d'exceptions ci-dessous) — jamais de page HTML ni de réponse vide.
  */
 
 define('TFH_API', true);
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   TEMPORAIRE — journal de diagnostic du panel (à retirer une fois le bug trouvé)
-
-   Chaque requête API inscrit une ligne dans task/tfhdiag-<id>.log :
-   horodatage + événement technique. URL non devinable, aucune donnée secrète
-   (pas de cookie, pas de session, pas de mot de passe). Sert à distinguer :
-     - requête jamais reçue  → problème côté navigateur (cache / service worker)
-     - requête reçue + erreur → problème serveur, avec le message exact
-   ───────────────────────────────────────────────────────────────────────────── */
-const TASK_DIAG_ID = 'k8q2m9x4r7';
-
-function task_diag(string $event): void
-{
-    try {
-        /* .txt et non .log : le .htaccess du site interdit de servir les .log */
-        $file = __DIR__ . '/tfhdiag-' . TASK_DIAG_ID . '.txt';
-        if (@filesize($file) > 65536) {
-            @unlink($file); /* journal borné : on repart de zéro */
-        }
-        @file_put_contents(
-            $file,
-            '[' . gmdate('d/m H:i:s') . '] ' . $event . "\n",
-            FILE_APPEND | LOCK_EX
-        );
-    } catch (Throwable $e) {
-        /* le diagnostic ne doit jamais casser l'API */
-    }
-}
 
 require __DIR__ . '/lib.php';
 
 task_security_headers();
 
-task_diag('req ' . ($_SERVER['REQUEST_METHOD'] ?? '?')
-    . ' host=' . ($_SERVER['HTTP_HOST'] ?? '?')
-    . ' cookies=' . count($_COOKIE ?? []));
-
-/* TEMP — toute erreur non capturée renvoie désormais du JSON lisible
-   (au lieu d'une page HTML ou d'une réponse vide) + trace dans le journal. */
 set_exception_handler(static function (Throwable $e): void {
-    task_diag('EXC ' . get_class($e) . ': ' . $e->getMessage()
+    error_log('[tfh-task] ' . get_class($e) . ': ' . $e->getMessage()
         . ' @ ' . basename($e->getFile()) . ':' . $e->getLine());
     if (!headers_sent()) {
         http_response_code(500);
@@ -67,7 +39,6 @@ set_exception_handler(static function (Throwable $e): void {
 
 $user = current_user($pdo);
 if ($user === null) {
-    task_diag('401 non connecte');
     fail(401, 'not_logged', 'Non connecté.');
 }
 
@@ -75,7 +46,6 @@ task_ensure_schema($pdo);
 
 $access = task_access($pdo, $user);
 if (!$access['granted'] || $access['discord_id'] === null) {
-    task_diag('403 acces refuse');
     fail(403, 'forbidden', 'Accès au panel retiré.');
 }
 
@@ -93,6 +63,20 @@ $meName = task_display_name(
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     if ((string) ($_GET['action'] ?? '') !== 'state') {
         fail(404, 'unknown_action', 'Action inconnue.');
+    }
+
+    /* Archive automatique : les tâches terminées depuis plus de 14 jours
+       quittent le tableau et rejoignent l'archive (consultable à part). */
+    try {
+        $pdo->exec(
+            "UPDATE tfh_task_tasks
+             SET archived_at = NOW()
+             WHERE status = 'done' AND archived_at IS NULL
+               AND completed_at IS NOT NULL
+               AND completed_at < (NOW() - INTERVAL 14 DAY)"
+        );
+    } catch (Throwable $e) {
+        error_log('[tfh-task] auto-archive: ' . $e->getMessage());
     }
 
     /* Personnes autorisées = whitelist du panel + admins du site */
@@ -149,27 +133,105 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     $tasks = [];
     $st = $pdo->query(
         "SELECT id, title, description, status, priority, assignee_id,
+                labels, pinned,
                 created_by, created_by_name,
                 UNIX_TIMESTAMP(created_at) AS created_ts,
                 completed_by, completed_by_name,
-                UNIX_TIMESTAMP(completed_at) AS completed_ts
+                UNIX_TIMESTAMP(completed_at) AS completed_ts,
+                UNIX_TIMESTAMP(due_at) AS due_ts,
+                UNIX_TIMESTAMP(archived_at) AS archived_ts
          FROM tfh_task_tasks
-         ORDER BY FIELD(status,'todo','in_progress','done'),
+         ORDER BY pinned DESC,
+                  FIELD(status,'todo','in_progress','done'),
                   FIELD(priority,'high','normal','low'),
                   created_at DESC"
     );
     foreach ($st->fetchAll() as $row) {
-        $row['id']           = (int) $row['id'];
-        $row['created_ts']   = $row['created_ts'] !== null ? (int) $row['created_ts'] : null;
-        $row['completed_ts'] = $row['completed_ts'] !== null ? (int) $row['completed_ts'] : null;
-        $tasks[] = $row;
+        $tasks[] = [
+            'id'                => (int) $row['id'],
+            'title'             => (string) $row['title'],
+            'description'       => $row['description'] !== null ? (string) $row['description'] : '',
+            'status'            => (string) $row['status'],
+            'priority'          => (string) $row['priority'],
+            'assignee_id'       => $row['assignee_id'] !== null ? (string) $row['assignee_id'] : '',
+            'labels'            => (string) $row['labels'],
+            'pinned'            => (bool) $row['pinned'],
+            'created_by'        => (string) $row['created_by'],
+            'created_by_name'   => (string) $row['created_by_name'],
+            'created_ts'        => $row['created_ts'] !== null ? (int) $row['created_ts'] : null,
+            'completed_by'      => $row['completed_by'] !== null ? (string) $row['completed_by'] : '',
+            'completed_by_name' => $row['completed_by_name'] !== null ? (string) $row['completed_by_name'] : '',
+            'completed_ts'      => $row['completed_ts'] !== null ? (int) $row['completed_ts'] : null,
+            'due_ts'            => $row['due_ts'] !== null ? (int) $row['due_ts'] : null,
+            'archived_ts'       => $row['archived_ts'] !== null ? (int) $row['archived_ts'] : null,
+        ];
     }
 
-    task_diag('state OK t=' . count($tasks) . ' p=' . count($people));
+    /* Commentaires (petite équipe : tout est renvoyé, filtré côté client). */
+    $comments = [];
+    try {
+        $st = $pdo->query(
+            "SELECT id, task_id, author_id, author_name, body,
+                    UNIX_TIMESTAMP(created_at) AS ts
+             FROM tfh_task_comments
+             ORDER BY task_id, created_at, id
+             LIMIT 2000"
+        );
+        foreach ($st->fetchAll() as $row) {
+            $comments[] = [
+                'id'          => (int) $row['id'],
+                'task_id'     => (int) $row['task_id'],
+                'author_id'   => (string) $row['author_id'],
+                'author_name' => (string) $row['author_name'],
+                'body'        => (string) $row['body'],
+                'ts'          => $row['ts'] !== null ? (int) $row['ts'] : null,
+            ];
+        }
+    } catch (Throwable $e) {
+        error_log('[tfh-task] comments: ' . $e->getMessage());
+    }
+
+    /* Historique d'activité (120 dernières entrées). */
+    $activity = [];
+    try {
+        $st = $pdo->query(
+            "SELECT id, task_id, task_title, actor_name, action, detail,
+                    UNIX_TIMESTAMP(created_at) AS ts
+             FROM tfh_task_activity
+             ORDER BY id DESC
+             LIMIT 120"
+        );
+        foreach ($st->fetchAll() as $row) {
+            $activity[] = [
+                'id'         => (int) $row['id'],
+                'task_id'    => $row['task_id'] !== null ? (int) $row['task_id'] : null,
+                'task_title' => (string) $row['task_title'],
+                'actor_name' => (string) $row['actor_name'],
+                'action'     => (string) $row['action'],
+                'detail'     => (string) $row['detail'],
+                'ts'         => $row['ts'] !== null ? (int) $row['ts'] : null,
+            ];
+        }
+    } catch (Throwable $e) {
+        error_log('[tfh-task] activity: ' . $e->getMessage());
+    }
+
+    /* Réglages du webhook — exposés uniquement aux gestionnaires. */
+    $settings = null;
+    if ($access['can_manage']) {
+        $settings = ['webhook' => null];
+        $raw = task_settings_get($pdo, 'webhook');
+        if ($raw !== null) {
+            $cfg = json_decode($raw, true);
+            if (is_array($cfg)) {
+                $settings['webhook'] = $cfg;
+            }
+        }
+    }
 
     json_out([
-        'ok'     => true,
-        'me'     => [
+        'ok'       => true,
+        'me'       => [
             'id'         => $meId,
             'name'       => $meName,
             'avatar'     => (string) ($user['avatar_url'] ?? ''),
@@ -177,9 +239,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
             'panel_role' => $access['panel_role'],
             'can_manage' => $access['can_manage'],
         ],
-        'people' => array_values($people),
-        'tasks'  => $tasks,
-        'csrf'   => task_csrf_token(),
+        'people'   => array_values($people),
+        'tasks'    => $tasks,
+        'comments' => $comments,
+        'activity' => $activity,
+        'settings' => $settings,
+        'csrf'     => task_csrf_token(),
     ]);
 }
 
@@ -204,7 +269,6 @@ if (!is_array($in)) {
 }
 
 $action = (string) ($in['action'] ?? '');
-task_diag('POST ' . $action);
 
 /** Champ texte nettoyé et borné. */
 function task_req_str(array $in, string $key, int $max, bool $required): string
@@ -232,6 +296,40 @@ function task_req_assignee(PDO $pdo, array $in): ?string
     return $id;
 }
 
+/** Liste d'étiquettes validée (clés connus, sans doublon, 4 max) → CSV. */
+function task_req_labels(array $in): string
+{
+    $keys = $in['labels'] ?? [];
+    if (!is_array($keys)) {
+        return '';
+    }
+    $out = [];
+    foreach ($keys as $k) {
+        $k = trim((string) $k);
+        if ($k !== '' && in_array($k, TASK_LABEL_KEYS, true) && !in_array($k, $out, true)) {
+            $out[] = $k;
+        }
+        if (count($out) >= 4) {
+            break;
+        }
+    }
+    return implode(',', $out);
+}
+
+/** Date d'échéance validée (YYYY-MM-DD) ou null. */
+function task_req_due(array $in): ?string
+{
+    $d = trim((string) ($in['due'] ?? ''));
+    if ($d === '') {
+        return null;
+    }
+    $dt = DateTime::createFromFormat('Y-m-d', $d);
+    if ($dt === false || $dt->format('Y-m-d') !== $d) {
+        fail(422, 'bad_due', 'Date d\'échéance invalide.');
+    }
+    return $d;
+}
+
 switch ($action) {
 
     case 'task.create': {
@@ -239,6 +337,8 @@ switch ($action) {
         $desc       = task_req_str($in, 'description', 4000, false);
         $priority   = (string) ($in['priority'] ?? 'normal');
         $assigneeId = task_req_assignee($pdo, $in);
+        $labels     = task_req_labels($in);
+        $due        = task_req_due($in);
 
         if (!in_array($priority, ['low', 'normal', 'high'], true)) {
             $priority = 'normal';
@@ -246,12 +346,35 @@ switch ($action) {
 
         $pdo->prepare(
             'INSERT INTO tfh_task_tasks
-             (title, description, status, priority, assignee_id, created_by, created_by_name, created_at)
-             VALUES (?, ?, \'todo\', ?, ?, ?, ?, NOW())'
-        )->execute([$title, $desc !== '' ? $desc : null, $priority, $assigneeId, $meId, $meName]);
+             (title, description, status, priority, assignee_id, labels, pinned,
+              created_by, created_by_name, due_at, created_at)
+             VALUES (?, ?, \'todo\', ?, ?, ?, 0, ?, ?, ?, NOW())'
+        )->execute([
+            $title,
+            $desc !== '' ? $desc : null,
+            $priority,
+            $assigneeId,
+            $labels,
+            $meId,
+            $meName,
+            $due,
+        ]);
 
         $newId = (int) $pdo->lastInsertId();
-        task_diag('create OK id=' . $newId);
+
+        task_log_activity($pdo, $newId, $title, $meId, $meName, 'create');
+
+        task_webhook_send($pdo, 'create', [
+            'id'           => $newId,
+            'title'        => $title,
+            'description'  => $desc,
+            'priority'     => $priority,
+            'assignee_id'  => (string) $assigneeId,
+            'assignee_name' => $assigneeId !== null ? task_person_name($pdo, $assigneeId) : '',
+            'due'          => $due,
+            'created_by_name' => $meName,
+        ]);
+
         json_out(['ok' => true, 'id' => $newId]);
     }
 
@@ -261,6 +384,17 @@ switch ($action) {
         if ($id <= 0 || !in_array($status, ['todo', 'in_progress', 'done'], true)) {
             fail(422, 'bad_input', 'Paramètres invalides.');
         }
+
+        $old = null;
+        $st  = $pdo->prepare(
+            'SELECT title, description, priority, assignee_id, due_at FROM tfh_task_tasks WHERE id = ? LIMIT 1'
+        );
+        $st->execute([$id]);
+        $old = $st->fetch();
+        if ($old === false) {
+            fail(404, 'not_found', 'Tâche introuvable.');
+        }
+
         if ($status === 'done') {
             $pdo->prepare(
                 "UPDATE tfh_task_tasks
@@ -274,6 +408,25 @@ switch ($action) {
                  WHERE id = ?'
             )->execute([$status, $id]);
         }
+
+        $statusLabels = ['todo' => 'À faire', 'in_progress' => 'En cours', 'done' => 'Terminé'];
+        task_log_activity($pdo, $id, (string) $old['title'], $meId, $meName, 'status',
+            '→ ' . ($statusLabels[$status] ?? $status));
+
+        if ($status === 'done') {
+            $due = $old['due_at'] !== null ? (string) $old['due_at'] : '';
+            task_webhook_send($pdo, 'done', [
+                'id'           => $id,
+                'title'        => (string) $old['title'],
+                'description'  => (string) $old['description'],
+                'priority'     => (string) $old['priority'],
+                'assignee_id'  => (string) ($old['assignee_id'] ?? ''),
+                'assignee_name' => (string) $old['assignee_id'] !== '' ? task_person_name($pdo, (string) $old['assignee_id']) : '',
+                'due'          => $due !== '' ? substr($due, 0, 10) : '',
+                'completed_by_name' => $meName,
+            ]);
+        }
+
         json_out(['ok' => true]);
     }
 
@@ -283,6 +436,8 @@ switch ($action) {
         $desc       = task_req_str($in, 'description', 4000, false);
         $priority   = (string) ($in['priority'] ?? 'normal');
         $assigneeId = task_req_assignee($pdo, $in);
+        $labels     = task_req_labels($in);
+        $due        = task_req_due($in);
 
         if ($id <= 0) {
             fail(422, 'bad_input', 'Paramètres invalides.');
@@ -291,11 +446,69 @@ switch ($action) {
             $priority = 'normal';
         }
 
+        $st = $pdo->prepare(
+            'SELECT title, description, priority, assignee_id, labels, due_at FROM tfh_task_tasks WHERE id = ? LIMIT 1'
+        );
+        $st->execute([$id]);
+        $old = $st->fetch();
+        if ($old === false) {
+            fail(404, 'not_found', 'Tâche introuvable.');
+        }
+
         $pdo->prepare(
             'UPDATE tfh_task_tasks
-             SET title = ?, description = ?, priority = ?, assignee_id = ?
+             SET title = ?, description = ?, priority = ?, assignee_id = ?, labels = ?, due_at = ?
              WHERE id = ?'
-        )->execute([$title, $desc !== '' ? $desc : null, $priority, $assigneeId, $id]);
+        )->execute([
+            $title,
+            $desc !== '' ? $desc : null,
+            $priority,
+            $assigneeId,
+            $labels,
+            $due,
+            $id,
+        ]);
+
+        /* Historique : liste concise des champs modifiés. */
+        $oldDue   = $old['due_at'] !== null ? substr((string) $old['due_at'], 0, 10) : '';
+        $changes  = [];
+        if ((string) $old['title'] !== $title) {
+            $changes[] = 'titre';
+        }
+        if ((string) ($old['description'] ?? '') !== ($desc !== '' ? $desc : '')) {
+            $changes[] = 'description';
+        }
+        if ((string) $old['priority'] !== $priority) {
+            $changes[] = 'priorité';
+        }
+        $oldAssignee = $old['assignee_id'] !== null ? (string) $old['assignee_id'] : '';
+        $newAssignee = $assigneeId ?? '';
+        if ($oldAssignee !== $newAssignee) {
+            $changes[] = 'responsable';
+        }
+        if ((string) ($old['labels'] ?? '') !== $labels) {
+            $changes[] = 'étiquettes';
+        }
+        if ($oldDue !== (string) ($due ?? '')) {
+            $changes[] = 'échéance';
+        }
+        if ($changes !== []) {
+            task_log_activity($pdo, $id, $title, $meId, $meName, 'edit', 'Modifié : ' . implode(', ', $changes));
+        }
+
+        /* Notification d'assignation uniquement quand le responsable change. */
+        if ($newAssignee !== '' && $oldAssignee !== $newAssignee) {
+            task_webhook_send($pdo, 'assign', [
+                'id'           => $id,
+                'title'        => $title,
+                'description'  => $desc,
+                'priority'     => $priority,
+                'assignee_id'  => $newAssignee,
+                'assignee_name' => task_person_name($pdo, $newAssignee),
+                'due'          => $due,
+                'created_by_name' => $meName,
+            ]);
+        }
 
         json_out(['ok' => true]);
     }
@@ -305,7 +518,162 @@ switch ($action) {
         if ($id <= 0) {
             fail(422, 'bad_input', 'Paramètres invalides.');
         }
+        $st = $pdo->prepare('SELECT title FROM tfh_task_tasks WHERE id = ? LIMIT 1');
+        $st->execute([$id]);
+        $row = $st->fetch();
+        if ($row !== false) {
+            task_log_activity($pdo, $id, (string) $row['title'], $meId, $meName, 'delete');
+        }
         $pdo->prepare('DELETE FROM tfh_task_tasks WHERE id = ?')->execute([$id]);
+        $pdo->prepare('DELETE FROM tfh_task_comments WHERE task_id = ?')->execute([$id]);
+        json_out(['ok' => true]);
+    }
+
+    case 'task.pin': {
+        $id     = (int) ($in['id'] ?? 0);
+        $pinned = !empty($in['pinned']);
+        if ($id <= 0) {
+            fail(422, 'bad_input', 'Paramètres invalides.');
+        }
+        $pdo->prepare('UPDATE tfh_task_tasks SET pinned = ? WHERE id = ?')
+            ->execute([$pinned ? 1 : 0, $id]);
+        $st = $pdo->prepare('SELECT title FROM tfh_task_tasks WHERE id = ? LIMIT 1');
+        $st->execute([$id]);
+        $row = $st->fetch();
+        if ($row !== false) {
+            task_log_activity($pdo, $id, (string) $row['title'], $meId, $meName, $pinned ? 'pin' : 'unpin');
+        }
+        json_out(['ok' => true, 'pinned' => $pinned]);
+    }
+
+    case 'task.unarchive': {
+        $id = (int) ($in['id'] ?? 0);
+        if ($id <= 0) {
+            fail(422, 'bad_input', 'Paramètres invalides.');
+        }
+        $st = $pdo->prepare('SELECT title FROM tfh_task_tasks WHERE id = ? LIMIT 1');
+        $st->execute([$id]);
+        $row = $st->fetch();
+        if ($row === false) {
+            fail(404, 'not_found', 'Tâche introuvable.');
+        }
+        $pdo->prepare(
+            "UPDATE tfh_task_tasks
+             SET archived_at = NULL, status = 'todo',
+                 completed_by = NULL, completed_by_name = NULL, completed_at = NULL
+             WHERE id = ?"
+        )->execute([$id]);
+        task_log_activity($pdo, $id, (string) $row['title'], $meId, $meName, 'unarchive');
+        json_out(['ok' => true]);
+    }
+
+    case 'task.comment': {
+        $id   = (int) ($in['id'] ?? 0);
+        $body = task_req_str($in, 'body', 2000, true);
+        if ($id <= 0) {
+            fail(422, 'bad_input', 'Paramètres invalides.');
+        }
+        $st = $pdo->prepare('SELECT title FROM tfh_task_tasks WHERE id = ? LIMIT 1');
+        $st->execute([$id]);
+        $row = $st->fetch();
+        if ($row === false) {
+            fail(404, 'not_found', 'Tâche introuvable.');
+        }
+        $pdo->prepare(
+            'INSERT INTO tfh_task_comments (task_id, author_id, author_name, body) VALUES (?, ?, ?, ?)'
+        )->execute([$id, $meId, $meName, $body]);
+        $cid = (int) $pdo->lastInsertId();
+        task_log_activity($pdo, $id, (string) $row['title'], $meId, $meName, 'comment',
+            task_mb_truncate($body, 80));
+        json_out([
+            'ok' => true,
+            'comment' => [
+                'id'          => $cid,
+                'task_id'     => $id,
+                'author_id'   => $meId,
+                'author_name' => $meName,
+                'body'        => $body,
+                'ts'          => time(),
+            ],
+        ]);
+    }
+
+    case 'comment.delete': {
+        $cid = (int) ($in['comment_id'] ?? 0);
+        if ($cid <= 0) {
+            fail(422, 'bad_input', 'Paramètres invalides.');
+        }
+        $st = $pdo->prepare('SELECT task_id, author_id, author_name, body FROM tfh_task_comments WHERE id = ? LIMIT 1');
+        $st->execute([$cid]);
+        $row = $st->fetch();
+        if ($row === false) {
+            fail(404, 'not_found', 'Commentaire introuvable.');
+        }
+        if ((string) $row['author_id'] !== $meId && !$access['can_manage']) {
+            fail(403, 'forbidden', 'Ce commentaire n\'est pas le tien.');
+        }
+        $pdo->prepare('DELETE FROM tfh_task_comments WHERE id = ?')->execute([$cid]);
+        json_out(['ok' => true]);
+    }
+
+    case 'settings.save': {
+        if (!$access['can_manage']) {
+            fail(403, 'forbidden', 'Réservé aux gestionnaires du panel.');
+        }
+        $wh = $in['webhook'] ?? null;
+        if (!is_array($wh)) {
+            fail(422, 'bad_input', 'Réglages invalides.');
+        }
+        $url = trim((string) ($wh['url'] ?? ''));
+        if ($url !== '' && !task_webhook_valid_url($url)) {
+            fail(422, 'bad_webhook_url', 'URL de webhook invalide — colle l\'URL complète d\'un webhook Discord (https://discord.com/api/webhooks/…).');
+        }
+        $events = [
+            'create' => !empty($wh['events']['create']),
+            'assign' => !empty($wh['events']['assign']),
+            'done'   => !empty($wh['events']['done']),
+        ];
+        task_settings_set($pdo, 'webhook', (string) json_encode([
+            'url'    => $url,
+            'events' => $events,
+        ], JSON_UNESCAPED_SLASHES));
+        task_log_activity($pdo, null, '', $meId, $meName, 'settings',
+            $url !== '' ? 'Notifications Discord configurées' : 'Notifications Discord désactivées');
+        json_out(['ok' => true]);
+    }
+
+    case 'webhook.test': {
+        if (!$access['can_manage']) {
+            fail(403, 'forbidden', 'Réservé aux gestionnaires du panel.');
+        }
+        $url = trim((string) ($in['url'] ?? ''));
+        if ($url === '') {
+            $raw = task_settings_get($pdo, 'webhook');
+            if ($raw !== null) {
+                $cfg = json_decode($raw, true);
+                if (is_array($cfg)) {
+                    $url = (string) ($cfg['url'] ?? '');
+                }
+            }
+        }
+        if ($url === '') {
+            fail(422, 'no_webhook', 'Colle d\'abord une URL de webhook (ou enregistre-la) puis reteste.');
+        }
+        if (!task_webhook_valid_url($url)) {
+            fail(422, 'bad_webhook_url', 'URL de webhook invalide — colle l\'URL complète d\'un webhook Discord.');
+        }
+        [$ok, $code, $err] = task_webhook_post($url, [
+            'content' => 'Test du panel de tâches TheFrontHub — si tu vois ce message, les notifications fonctionnent !',
+            'embeds'  => [[
+                'title' => 'Notifications connectées',
+                'url'   => 'https://task.thefronthub.com/',
+                'color' => 0x10B981,
+            ]],
+            'allowed_mentions' => ['parse' => []],
+        ]);
+        if (!$ok) {
+            fail(502, 'webhook_failed', 'Envoi impossible (' . ($err !== '' ? $err : 'HTTP ' . $code) . '). Vérifie l\'URL du webhook.');
+        }
         json_out(['ok' => true]);
     }
 
@@ -325,6 +693,7 @@ switch ($action) {
         }
         $pdo->prepare('INSERT INTO tfh_task_admins (discord_id, role, added_by, added_at) VALUES (?, ?, ?, NOW())')
             ->execute([$did, 'admin', $meId]);
+        task_log_activity($pdo, null, '', $meId, $meName, 'admin_add', 'Admin ajouté : ' . $did);
         json_out(['ok' => true]);
     }
 
@@ -347,6 +716,7 @@ switch ($action) {
             fail(422, 'self_remove', 'Tu ne peux pas te retirer toi-même.');
         }
         $pdo->prepare('DELETE FROM tfh_task_admins WHERE discord_id = ?')->execute([$did]);
+        task_log_activity($pdo, null, '', $meId, $meName, 'admin_remove', 'Admin retiré : ' . $did);
         json_out(['ok' => true]);
     }
 

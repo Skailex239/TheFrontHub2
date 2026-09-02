@@ -22,7 +22,13 @@ require_once __DIR__ . '/../api/config.php';
 /* ------------------------------------------------------------------ */
 
 define('TASK_CSRF_COOKIE', 'tfh_task_csrf');
-define('TASK_ASSET_VER', '3');
+define('TASK_ASSET_VER', '4');
+
+/**
+ * Étiquettes prédéfinies du panel (clés stockées en CSV dans tfh_task_tasks.labels).
+ * La liste est dupliquée côté client (app.js) pour l'affichage : garder synchronisé.
+ */
+const TASK_LABEL_KEYS = ['tournoi', 'site', 'discord', 'staff', 'urgence', 'idee', 'bug', 'divers'];
 
 /* ------------------------------------------------------------------ */
 /* Divers                                                              */
@@ -150,15 +156,14 @@ function task_align_collations(PDO $pdo): void
         if ($row !== false && !empty($row['TABLE_COLLATION'])) {
             $ref = (string) $row['TABLE_COLLATION'];
         }
-        if (function_exists('task_diag')) {
-            task_diag('align start ref=' . $ref);
-        }
 
         /* 2. Collation actuelle des tables du panel. */
         $st = $pdo->prepare(
             "SELECT TABLE_NAME, TABLE_COLLATION FROM information_schema.TABLES
              WHERE TABLE_SCHEMA = DATABASE()
-               AND TABLE_NAME IN ('tfh_task_admins','tfh_task_tasks')"
+               AND TABLE_NAME IN
+               ('tfh_task_admins','tfh_task_tasks','tfh_task_comments',
+                'tfh_task_activity','tfh_task_settings')"
         );
         $st->execute();
         $current = [];
@@ -167,32 +172,23 @@ function task_align_collations(PDO $pdo): void
         }
 
         /* 3. Conversion si nécessaire (une seule fois : ensuite ça correspond). */
-        foreach (['tfh_task_admins', 'tfh_task_tasks'] as $table) {
+        foreach (
+            ['tfh_task_admins', 'tfh_task_tasks', 'tfh_task_comments',
+             'tfh_task_activity', 'tfh_task_settings'] as $table
+        ) {
             $cur = $current[$table] ?? '';
             if ($cur === '') {
-                if (function_exists('task_diag')) {
-                    task_diag('align skip ' . $table . ' (introuvable dans information_schema)');
-                }
                 continue;
             }
             if ($cur !== $ref) {
                 $pdo->exec(
                     'ALTER TABLE ' . $table . ' CONVERT TO CHARACTER SET utf8mb4 COLLATE ' . $ref
                 );
-                if (function_exists('task_diag')) {
-                    task_diag('collation alignee ' . $table . ' : ' . $cur . ' -> ' . $ref);
-                }
-            } else {
-                if (function_exists('task_diag')) {
-                    task_diag('align ok ' . $table . ' (' . $cur . ') ref=' . $ref);
-                }
+                error_log('[tfh-task] collation alignee ' . $table . ' : ' . $cur . ' -> ' . $ref);
             }
         }
     } catch (Throwable $e) {
         error_log('[tfh-task] alignement collation: ' . $e->getMessage());
-        if (function_exists('task_diag')) {
-            task_diag('EXC collation: ' . $e->getMessage());
-        }
         /* Non bloquant : la requête du panel est de toute façon blindée
            avec un COLLATE explicite (voir api.php). */
     }
@@ -256,10 +252,335 @@ function task_ensure_schema(PDO $pdo): void
         }
     }
 
+    /* Migrations incrémentales — idempotentes, non bloquantes.          */
+    /* (colonnes ajoutées après la mise en production initiale du panel)  */
+    try {
+        task_column_add($pdo, 'tfh_task_tasks', 'due_at', 'DATE NULL');
+        task_column_add($pdo, 'tfh_task_tasks', 'labels', "VARCHAR(250) NOT NULL DEFAULT ''");
+        task_column_add($pdo, 'tfh_task_tasks', 'pinned', 'TINYINT(1) NOT NULL DEFAULT 0');
+        task_column_add($pdo, 'tfh_task_tasks', 'archived_at', 'DATETIME NULL');
+
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS tfh_task_comments (
+                id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                task_id     INT UNSIGNED NOT NULL,
+                author_id   VARCHAR(32) NOT NULL,
+                author_name VARCHAR(64) NOT NULL DEFAULT \''.'\'',
+                body        TEXT NOT NULL,
+                created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                INDEX idx_c_task (task_id)
+             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS tfh_task_activity (
+                id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                task_id    INT UNSIGNED NULL,
+                task_title VARCHAR(180) NOT NULL DEFAULT \''.'\'',
+                actor_id   VARCHAR(32) NOT NULL DEFAULT \''.'\'',
+                actor_name VARCHAR(64) NOT NULL DEFAULT \''.'\'',
+                action     VARCHAR(24) NOT NULL,
+                detail     VARCHAR(500) NOT NULL DEFAULT \''.'\'',
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                INDEX idx_a_created (created_at)
+             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS tfh_task_settings (
+                skey   VARCHAR(64) NOT NULL PRIMARY KEY,
+                svalue TEXT NOT NULL
+             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+    } catch (Throwable $e) {
+        error_log('[tfh-task] migrations: ' . $e->getMessage());
+        /* Non bloquant : les features correspondantes répondront « vide »,
+           le reste du panel continue de fonctionner. */
+    }
+
     /* TOUJOURS (tables neuves OU existantes) : aligne les collations.
        C'est ici que se réparent les tables créées avant le fix —
        l'ancien return empêchait cet appel sur une installation existante. */
     task_align_collations($pdo);
+}
+
+/**
+ * Ajoute une colonne à une table si elle n'existe pas déjà (migration
+ * idempotente — information_schema avant ALTER, donc jamais d'erreur).
+ */
+function task_column_add(PDO $pdo, string $table, string $column, string $definition): void
+{
+    $st = $pdo->prepare(
+        'SELECT COUNT(*) FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+    );
+    $st->execute([$table, $column]);
+    if ((int) $st->fetchColumn() === 0) {
+        /* $table / $column : constantes internes du panel (pas d'entrée utilisateur). */
+        $pdo->exec('ALTER TABLE ' . $table . ' ADD COLUMN ' . $column . ' ' . $definition);
+        error_log('[tfh-task] colonne ajoutée ' . $table . '.' . $column);
+    }
+}
+
+/**
+ * Tronque proprement une chaîne UTF-8 (fallback octet par octet sans mbstring).
+ */
+function task_mb_truncate(string $value, int $max): string
+{
+    if (function_exists('mb_strlen')) {
+        return mb_strlen($value, 'UTF-8') > $max ? mb_substr($value, 0, $max, 'UTF-8') : $value;
+    }
+    return strlen($value) > $max ? substr($value, 0, $max) : $value;
+}
+
+/* ------------------------------------------------------------------ */
+/* Réglages (key-value), historique d'activité, webhook Discord        */
+/* ------------------------------------------------------------------ */
+
+function task_settings_get(PDO $pdo, string $key): ?string
+{
+    try {
+        $st = $pdo->prepare('SELECT svalue FROM tfh_task_settings WHERE skey = ? LIMIT 1');
+        $st->execute([$key]);
+        $row = $st->fetch();
+        return $row !== false ? (string) $row['svalue'] : null;
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+function task_settings_set(PDO $pdo, string $key, string $value): void
+{
+    $pdo->prepare(
+        'INSERT INTO tfh_task_settings (skey, svalue) VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE svalue = VALUES(svalue)'
+    )->execute([$key, $value]);
+}
+
+/**
+ * Journal d'activité (best-effort : ne doit jamais faire échouer l'action).
+ * $taskId peut être null (ex. actions sur la liste des administrateurs).
+ */
+function task_log_activity(PDO $pdo, ?int $taskId, string $taskTitle, string $actorId, string $actorName, string $action, string $detail = ''): void
+{
+    try {
+        $pdo->prepare(
+            'INSERT INTO tfh_task_activity (task_id, task_title, actor_id, actor_name, action, detail)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        )->execute([
+            $taskId,
+            task_mb_truncate($taskTitle, 180),
+            $actorId,
+            task_mb_truncate($actorName, 64),
+            $action,
+            task_mb_truncate($detail, 500),
+        ]);
+    } catch (Throwable $e) {
+        error_log('[tfh-task] activity: ' . $e->getMessage());
+    }
+}
+
+/**
+ * URL de webhook Discord acceptée (protection SSRF : uniquement discord.com
+ * ou discordapp.com, chemin /api/webhooks/ avec un id et un token).
+ */
+function task_webhook_valid_url(string $url): bool
+{
+    return (bool) preg_match(
+        '#^https://(discord\.com|discordapp\.com)/api/webhooks/\d{5,25}/[A-Za-z0-9_\-]{20,150}$#',
+        $url
+    );
+}
+
+/**
+ * POST JSON vers un webhook. Retourne [ok, codeHttp, messageErreur].
+ */
+function task_webhook_post(string $url, array $payload): array
+{
+    $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($body === false || $body === '') {
+        return [false, 0, 'Encodage du message impossible'];
+    }
+
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $body,
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 3,
+            CURLOPT_TIMEOUT        => 5,
+        ]);
+        curl_exec($ch);
+        if (curl_errno($ch)) {
+            $err = 'Connexion impossible : ' . curl_error($ch);
+            curl_close($ch);
+            return [false, 0, $err];
+        }
+        $code = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        curl_close($ch);
+        $ok = $code >= 200 && $code < 300;
+        return [$ok, $code, $ok ? '' : 'Discord a répondu HTTP ' . $code];
+    }
+
+    $ctx = stream_context_create([
+        'http' => [
+            'method'        => 'POST',
+            'header'        => "Content-Type: application/json\r\n",
+            'content'       => $body,
+            'timeout'       => 5,
+            'ignore_errors' => true,
+        ],
+    ]);
+    @file_get_contents($url, false, $ctx);
+    $code = 0;
+    foreach ((array) ($http_response_header ?? []) as $h) {
+        if (preg_match('#^HTTP/\S+\s+(\d{3})#', (string) $h, $m)) {
+            $code = (int) $m[1];
+        }
+    }
+    if ($code === 0) {
+        return [false, 0, 'Connexion impossible'];
+    }
+    $ok = $code >= 200 && $code < 300;
+    return [$ok, $code, $ok ? '' : 'Discord a répondu HTTP ' . $code];
+}
+
+/**
+ * Envoie une notification Discord (best-effort, jamais bloquante).
+ *
+ * $event : 'create' | 'assign' | 'done'
+ * $t     : ['id', 'title', 'description', 'priority', 'assignee_id',
+ *           'assignee_name', 'due' (Y-m-d), 'created_by_name', 'completed_by_name']
+ */
+function task_webhook_send(PDO $pdo, string $event, array $t): void
+{
+    try {
+        $raw = task_settings_get($pdo, 'webhook');
+        if ($raw === null || $raw === '') {
+            return;
+        }
+        $cfg = json_decode($raw, true);
+        if (!is_array($cfg)) {
+            return;
+        }
+        $url    = (string) ($cfg['url'] ?? '');
+        $events = is_array($cfg['events'] ?? null) ? $cfg['events'] : [];
+        if (!task_webhook_valid_url($url) || empty($events[$event])) {
+            return;
+        }
+
+        $id    = (int) ($t['id'] ?? 0);
+        $title = trim((string) ($t['title'] ?? ''));
+        if ($id <= 0) {
+            return;
+        }
+
+        $prioMap = ['high' => 'Haute', 'normal' => 'Normale', 'low' => 'Basse'];
+        $prio    = $prioMap[(string) ($t['priority'] ?? 'normal')] ?? 'Normale';
+        $aid     = (string) ($t['assignee_id'] ?? '');
+        $pname   = trim((string) ($t['assignee_name'] ?? ''));
+        $link    = 'https://task.thefronthub.com/';
+
+        $fields = [
+            ['name' => 'Priorité', 'value' => $prio, 'inline' => true],
+        ];
+        if ($aid !== '') {
+            $fields[] = [
+                'name'   => 'Responsable',
+                'value'  => trim($pname . ' <@' . $aid . '>'),
+                'inline' => true,
+            ];
+        }
+        $due = trim((string) ($t['due'] ?? ''));
+        if ($due !== '') {
+            $dt = DateTime::createFromFormat('Y-m-d', $due);
+            if ($dt !== false) {
+                $fields[] = ['name' => 'Échéance', 'value' => $dt->format('d/m/Y'), 'inline' => true];
+            }
+        }
+
+        $embedTitle = '';
+        $content    = '';
+        $color      = 0xFF6B00;
+
+        if ($event === 'create') {
+            $embedTitle = 'Nouvelle tâche #' . $id;
+            $color      = 0xFF6B00;
+            if ($aid !== '') {
+                $content = '<@' . $aid . '> une nouvelle tâche t\'est assignée !';
+            }
+        } elseif ($event === 'assign') {
+            $embedTitle = 'Tâche assignée #' . $id;
+            $color      = 0x5865F2;
+            if ($aid !== '') {
+                $content = '<@' . $aid . '> tu es responsable de cette tâche.';
+            }
+        } elseif ($event === 'done') {
+            $embedTitle = 'Tâche terminée #' . $id;
+            $color      = 0x10B981;
+            $doneBy = trim((string) ($t['completed_by_name'] ?? ''));
+            if ($doneBy !== '') {
+                $fields[] = ['name' => 'Terminée par', 'value' => $doneBy, 'inline' => true];
+            }
+        } else {
+            return;
+        }
+
+        $embedTitle .= $title !== '' ? ' — ' . $title : '';
+        $embedTitle  = task_mb_truncate($embedTitle, 250);
+
+        $embed = [
+            'title'  => $embedTitle,
+            'url'    => $link,
+            'color'  => $color,
+            'fields' => $fields,
+        ];
+        $desc = trim((string) ($t['description'] ?? ''));
+        if ($desc !== '') {
+            $embed['description'] = task_mb_truncate($desc, 300);
+        }
+
+        $payload = [
+            'embeds'          => [$embed],
+            'allowed_mentions' => ['parse' => ['users']],
+        ];
+        if ($content !== '') {
+            $payload['content'] = $content;
+        }
+
+        task_webhook_post($url, $payload);
+    } catch (Throwable $e) {
+        error_log('[tfh-task] webhook: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Nom affiché d'une personne assignable (avatar/nom depuis les tables du site).
+ */
+function task_person_name(PDO $pdo, string $discordId): string
+{
+    try {
+        $st = $pdo->prepare(
+            "SELECT u.username, u.global_name
+             FROM tfh_user_identities i
+             JOIN tfh_users u ON u.id = i.user_id
+             WHERE i.provider = 'discord' AND i.provider_uid = ? LIMIT 1"
+        );
+        $st->execute([$discordId]);
+        $row = $st->fetch();
+        if ($row !== false) {
+            return task_display_name(
+                isset($row['username']) ? (string) $row['username'] : null,
+                isset($row['global_name']) ? (string) $row['global_name'] : null,
+                ''
+            );
+        }
+    } catch (Throwable $e) {
+        /* nom indisponible : chaîne vide */
+    }
+    return '';
 }
 
 /* ------------------------------------------------------------------ */
@@ -382,6 +703,13 @@ function task_page_head(string $title): void
 <meta name="robots" content="noindex, nofollow">
 <title><?= task_e($title) ?></title>
 <link rel="icon" type="image/png" href="https://thefronthub.com/favicon-32x32.png">
+<meta name="theme-color" content="#FF6B00">
+<link rel="manifest" href="<?= task_e($base) ?>/manifest.webmanifest">
+<link rel="apple-touch-icon" href="<?= task_e($base) ?>/assets/icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tâches">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
