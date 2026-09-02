@@ -22,7 +22,7 @@ require_once __DIR__ . '/../api/config.php';
 /* ------------------------------------------------------------------ */
 
 define('TASK_CSRF_COOKIE', 'tfh_task_csrf');
-define('TASK_ASSET_VER', '7');
+define('TASK_ASSET_VER', '8');
 
 /* Discussion de tâche : durée de conservation des fichiers joints (jours). */
 define('TASK_CHAT_FILE_TTL_DAYS', 30);
@@ -568,21 +568,24 @@ function task_webhook_valid_url(string $url): bool
 }
 
 /**
- * POST JSON vers un webhook. Retourne [ok, codeHttp, messageErreur].
+ * POST JSON vers Discord (webhook OU API bot). $headers : en-têtes HTTP
+ * supplémentaires (ex. Authorization pour l'API bot).
+ * Retourne [ok, codeHttp, messageErreur].
  */
-function task_webhook_post(string $url, array $payload): array
+function task_webhook_post(string $url, array $payload, array $headers = []): array
 {
     $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if ($body === false || $body === '') {
         return [false, 0, 'Encodage du message impossible'];
     }
+    $hdrs = array_merge(['Content-Type: application/json'], $headers);
 
     if (function_exists('curl_init')) {
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_POST           => true,
             CURLOPT_POSTFIELDS     => $body,
-            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+            CURLOPT_HTTPHEADER     => $hdrs,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => 3,
             CURLOPT_TIMEOUT        => 5,
@@ -602,7 +605,7 @@ function task_webhook_post(string $url, array $payload): array
     $ctx = stream_context_create([
         'http' => [
             'method'        => 'POST',
-            'header'        => "Content-Type: application/json\r\n",
+            'header'        => implode("\r\n", $hdrs) . "\r\n",
             'content'       => $body,
             'timeout'       => 5,
             'ignore_errors' => true,
@@ -620,6 +623,34 @@ function task_webhook_post(string $url, array $payload): array
     }
     $ok = $code >= 200 && $code < 300;
     return [$ok, $code, $ok ? '' : 'Discord a répondu HTTP ' . $code];
+}
+
+/**
+ * Configuration « mode bot » : token de bot Discord + ID de salon numérique.
+ */
+function task_bot_config_valid(string $token, string $channel): bool
+{
+    return (bool) preg_match('/^[A-Za-z0-9_\.\-]{50,120}$/', $token)
+        && (bool) preg_match('/^\d{15,21}$/', $channel);
+}
+
+/**
+ * Poste un message SUR L'API Discord en tant que bot (Authorization: Bot …).
+ * Le message apparaît au nom du bot (nom + avatar) même si son processus
+ * Node.js est éteint : pas besoin que le bot soit hébergé et allumé.
+ * Retourne [ok, codeHttp, messageErreur].
+ */
+function task_bot_api_post(string $token, string $channelId, array $payload): array
+{
+    if (!task_bot_config_valid($token, $channelId)) {
+        return [false, 0, 'Configuration bot incomplète'];
+    }
+    $url  = 'https://discord.com/api/v10/channels/' . $channelId . '/messages';
+    [$ok, $code, $err] = task_webhook_post($url, $payload, ['Authorization: Bot ' . $token]);
+    if (!$ok) {
+        error_log('[tfh-task] bot notify: HTTP ' . $code . ' ' . $err);
+    }
+    return [$ok, $code, $err];
 }
 
 /**
@@ -641,9 +672,19 @@ function task_webhook_send(PDO $pdo, string $event, array $t): void
         if (!is_array($cfg)) {
             return;
         }
-        $url    = (string) ($cfg['url'] ?? '');
-        $events = is_array($cfg['events'] ?? null) ? $cfg['events'] : [];
-        if (!task_webhook_valid_url($url) || empty($events[$event])) {
+        $mode       = (($cfg['mode'] ?? 'webhook') === 'bot') ? 'bot' : 'webhook';
+        $url        = (string) ($cfg['url'] ?? '');
+        $botToken   = (string) ($cfg['bot_token'] ?? '');
+        $botChannel = (string) ($cfg['channel_id'] ?? '');
+        $events     = is_array($cfg['events'] ?? null) ? $cfg['events'] : [];
+        if (empty($events[$event])) {
+            return;
+        }
+        if ($mode === 'bot') {
+            if (!task_bot_config_valid($botToken, $botChannel)) {
+                return;
+            }
+        } elseif (!task_webhook_valid_url($url)) {
             return;
         }
 
@@ -740,7 +781,17 @@ function task_webhook_send(PDO $pdo, string $event, array $t): void
             $payload['content'] = $content;
         }
 
-        task_webhook_post($url, $payload);
+        if ($mode === 'bot') {
+            /* @here optionnel sur les nouvelles tâches urgentes. */
+            if (!empty($cfg['here']) && $event === 'create'
+                && (string) ($t['priority'] ?? '') === 'high') {
+                $payload['content'] = trim('@here ' . (string) ($payload['content'] ?? ''));
+                $payload['allowed_mentions'] = ['parse' => ['users', 'everyone']];
+            }
+            task_bot_api_post($botToken, $botChannel, $payload);
+        } else {
+            task_webhook_post($url, $payload);
+        }
     } catch (Throwable $e) {
         error_log('[tfh-task] webhook: ' . $e->getMessage());
     }

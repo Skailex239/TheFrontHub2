@@ -329,7 +329,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         error_log('[tfh-task] chat_counts: ' . $e->getMessage());
     }
 
-    /* Réglages du webhook — exposés uniquement aux gestionnaires. */
+    /* Réglages des notifications — exposés uniquement aux gestionnaires.
+       Le token du bot n'est JAMAIS renvoyé en clair (masque + 4 derniers chars). */
     $settings = null;
     if ($access['can_manage']) {
         $settings = ['webhook' => null];
@@ -337,7 +338,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         if ($raw !== null) {
             $cfg = json_decode($raw, true);
             if (is_array($cfg)) {
-                $settings['webhook'] = $cfg;
+                $hasToken = !empty($cfg['bot_token']);
+                $settings['webhook'] = [
+                    'mode'       => (($cfg['mode'] ?? 'webhook') === 'bot') ? 'bot' : 'webhook',
+                    'url'        => (string) ($cfg['url'] ?? ''),
+                    'events'     => is_array($cfg['events'] ?? null) ? $cfg['events'] : [],
+                    'channel_id' => (string) ($cfg['channel_id'] ?? ''),
+                    'has_token'  => $hasToken,
+                    'token_hint' => $hasToken ? '••••' . substr((string) $cfg['bot_token'], -4) : '',
+                    'here'       => !empty($cfg['here']),
+                ];
             }
         }
     }
@@ -1150,9 +1160,20 @@ switch ($action) {
         if (!is_array($wh)) {
             fail(422, 'bad_input', 'Réglages invalides.');
         }
-        $url = trim((string) ($wh['url'] ?? ''));
-        if ($url !== '' && !task_webhook_valid_url($url)) {
+        $mode    = (($wh['mode'] ?? 'webhook') === 'bot') ? 'bot' : 'webhook';
+        $url     = trim((string) ($wh['url'] ?? ''));
+        $channel = trim((string) ($wh['channel_id'] ?? ''));
+        $tokenIn = trim((string) ($wh['bot_token'] ?? ''));
+        if ($mode === 'webhook' && $url !== '' && !task_webhook_valid_url($url)) {
             fail(422, 'bad_webhook_url', 'URL de webhook invalide — colle l\'URL complète d\'un webhook Discord (https://discord.com/api/webhooks/…).');
+        }
+        if ($mode === 'bot') {
+            if ($channel !== '' && !preg_match('/^\d{15,21}$/', $channel)) {
+                fail(422, 'bad_channel', 'ID de salon invalide — chiffres uniquement (clic droit sur le salon → « Copier l\'identifiant du salon »).');
+            }
+            if ($tokenIn !== '' && !preg_match('/^[A-Za-z0-9_\.\-]{50,120}$/', $tokenIn)) {
+                fail(422, 'bad_token', 'Token de bot invalide — copie-le depuis le Developer Portal (Bot → Reset Token) ou Render (Environment → DISCORD_TOKEN).');
+            }
         }
         $events = [
             'create' => !empty($wh['events']['create']),
@@ -1160,12 +1181,32 @@ switch ($action) {
             'start'  => !empty($wh['events']['start']),
             'done'   => !empty($wh['events']['done']),
         ];
+        /* Token : vide = conserver celui déjà enregistré. */
+        $old = [];
+        $oldRaw = task_settings_get($pdo, 'webhook');
+        if ($oldRaw !== null) {
+            $dec = json_decode($oldRaw, true);
+            if (is_array($dec)) {
+                $old = $dec;
+            }
+        }
+        $token = $tokenIn !== '' ? $tokenIn : (string) ($old['bot_token'] ?? '');
         task_settings_set($pdo, 'webhook', (string) json_encode([
-            'url'    => $url,
-            'events' => $events,
+            'mode'       => $mode,
+            'url'        => $url,
+            'events'     => $events,
+            'channel_id' => $channel,
+            'bot_token'  => $token,
+            'here'       => !empty($wh['here']),
         ], JSON_UNESCAPED_SLASHES));
-        task_log_activity($pdo, null, '', $meId, $meName, 'settings',
-            $url !== '' ? 'Notifications Discord configurées' : 'Notifications Discord désactivées');
+        if ($mode === 'bot') {
+            $label = ($token !== '' && $channel !== '')
+                ? 'Notifications Discord branchées sur le bot'
+                : 'Notifications Discord reconfigurées (mode bot)';
+        } else {
+            $label = $url !== '' ? 'Notifications Discord configurées' : 'Notifications Discord désactivées';
+        }
+        task_log_activity($pdo, null, '', $meId, $meName, 'settings', $label);
         json_out(['ok' => true]);
     }
 
@@ -1173,15 +1214,66 @@ switch ($action) {
         if (!$access['can_manage']) {
             fail(403, 'forbidden', 'Réservé aux gestionnaires du panel.');
         }
+        $mode = (($in['mode'] ?? 'webhook') === 'bot') ? 'bot' : 'webhook';
+        $cfg  = [];
+        $raw  = task_settings_get($pdo, 'webhook');
+        if ($raw !== null) {
+            $dec = json_decode($raw, true);
+            if (is_array($dec)) {
+                $cfg = $dec;
+            }
+        }
+
+        if ($mode === 'bot') {
+            $token   = trim((string) ($in['bot_token'] ?? ''));
+            if ($token === '') {
+                $token = (string) ($cfg['bot_token'] ?? '');
+            }
+            $channel = trim((string) ($in['channel_id'] ?? ''));
+            if ($channel === '') {
+                $channel = (string) ($cfg['channel_id'] ?? '');
+            }
+            if ($token === '' || $channel === '') {
+                fail(422, 'no_bot', 'Colle d\'abord le token du bot et l\'ID du salon (ou enregistre-les) puis reteste.');
+            }
+            if (!preg_match('/^\d{15,21}$/', $channel)) {
+                fail(422, 'bad_channel', 'ID de salon invalide — chiffres uniquement (clic droit sur le salon → « Copier l\'identifiant du salon »).');
+            }
+            if (!preg_match('/^[A-Za-z0-9_\.\-]{50,120}$/', $token)) {
+                fail(422, 'bad_token', 'Token de bot invalide — copie-le depuis le Developer Portal (Bot → Reset Token) ou Render (Environment → DISCORD_TOKEN).');
+            }
+            [$ok, $code, $err] = task_bot_api_post($token, $channel, [
+                'content' => '✅ Notifications branchées sur ton bot ! Test lancé par <@' . $meId . ' depuis le panel de tâches.',
+                'embeds'  => [[
+                    'title'       => 'Notifications connectées',
+                    'url'         => 'https://task.thefronthub.com/',
+                    'color'       => 0x10B981,
+                    'footer'      => ['text' => 'TheFrontHub — envoyé via l\'API du bot'],
+                ]],
+                'allowed_mentions' => ['parse' => ['users']],
+            ]);
+            if (!$ok) {
+                if ($code === 401) {
+                    fail(502, 'bot_failed', 'Token refusé par Discord (401) — réinitialise le token dans le Developer Portal et recolle-le.');
+                }
+                if ($code === 403) {
+                    fail(502, 'bot_failed', 'Le bot n\'a pas le droit d\'écrire dans ce salon (403) — ajoute le bot (ou son rôle) dans les permissions du salon.');
+                }
+                if ($code === 404) {
+                    fail(502, 'bot_failed', 'Salon introuvable (404) — vérifie l\'ID du salon (mode développeur → clic droit → Copier l\'identifiant).');
+                }
+                if ($code === 429) {
+                    fail(502, 'bot_failed', 'Trop de messages à la suite (429) — reteste dans quelques secondes.');
+                }
+                fail(502, 'bot_failed', 'Envoi impossible (' . ($err !== '' ? $err : 'HTTP ' . $code) . ').');
+            }
+            json_out(['ok' => true]);
+        }
+
+        /* Mode webhook (historique). */
         $url = trim((string) ($in['url'] ?? ''));
         if ($url === '') {
-            $raw = task_settings_get($pdo, 'webhook');
-            if ($raw !== null) {
-                $cfg = json_decode($raw, true);
-                if (is_array($cfg)) {
-                    $url = (string) ($cfg['url'] ?? '');
-                }
-            }
+            $url = (string) ($cfg['url'] ?? '');
         }
         if ($url === '') {
             fail(422, 'no_webhook', 'Colle d\'abord une URL de webhook (ou enregistre-la) puis reteste.');

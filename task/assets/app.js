@@ -2131,14 +2131,47 @@
     });
   }
 
-  /* ── Réglages (webhook Discord) ─────────────────────────────────────────── */
+  /* ── Réglages (notifications Discord : webhook ou bot) ──────────────────── */
 
   const dlgSettings = $('#dlg-settings');
+
+  function settingsMode() {
+    return $('#m-bot') && $('#m-bot').checked ? 'bot' : 'webhook';
+  }
+
+  function applySettingsMode() {
+    const bot = settingsMode() === 'bot';
+    const gw = $('#grp-webhook');
+    const gb = $('#grp-bot');
+    if (gw) gw.hidden = bot;
+    if (gb) gb.hidden = !bot;
+    const cw = $('#mc-webhook');
+    const cb = $('#mc-bot');
+    if (cw) cw.classList.toggle('on', !bot);
+    if (cb) cb.classList.toggle('on', bot);
+  }
 
   function openSettings() {
     if (!dlgSettings) return;
     const cfg = (state.settings && state.settings.webhook) || null;
+    const mode = cfg && cfg.mode === 'bot' ? 'bot' : 'webhook';
+    const mWebhook = $('#m-webhook');
+    const mBot = $('#m-bot');
+    if (mWebhook) mWebhook.checked = mode === 'webhook';
+    if (mBot) mBot.checked = mode === 'bot';
     $('#f-webhook').value = cfg && cfg.url ? cfg.url : '';
+    const chEl = $('#f-bot-channel');
+    if (chEl) chEl.value = cfg && cfg.channel_id ? cfg.channel_id : '';
+    const tokEl = $('#f-bot-token');
+    if (tokEl) tokEl.value = '';
+    const hereEl = $('#s-bot-here');
+    if (hereEl) hereEl.checked = !!(cfg && cfg.here);
+    const tokHint = $('#bot-token-hint');
+    if (tokHint) {
+      tokHint.textContent = cfg && cfg.has_token
+        ? `Token enregistré (${cfg.token_hint || '••••'}) — laisse vide pour le conserver.`
+        : 'Developer Portal → Bot → Reset Token, ou Render → Environment → DISCORD_TOKEN.';
+    }
     const ev = cfg && cfg.events ? cfg.events : { create: true, assign: true, start: true, done: true };
     $('#s-wh-create').checked = ev.create !== false;
     $('#s-wh-assign').checked = ev.assign !== false;
@@ -2147,20 +2180,34 @@
     $('#s-wh-done').checked = ev.done !== false;
     const err = $('#form-settings-error');
     if (err) err.hidden = true;
+    applySettingsMode();
     dlgSettings.showModal();
   }
 
   const btnSettings = $('#btn-settings');
   if (btnSettings) btnSettings.addEventListener('click', openSettings);
 
+  const mWebhookEl = $('#m-webhook');
+  const mBotEl = $('#m-bot');
+  if (mWebhookEl) mWebhookEl.addEventListener('change', applySettingsMode);
+  if (mBotEl) mBotEl.addEventListener('change', applySettingsMode);
+
   const btnSettingsSave = $('#btn-settings-save');
   if (btnSettingsSave) {
     btnSettingsSave.addEventListener('click', async () => {
       const err = $('#form-settings-error');
       if (err) err.hidden = true;
+      const mode = settingsMode();
+      const tokEl = $('#f-bot-token');
+      const chEl = $('#f-bot-channel');
+      const hereEl = $('#s-bot-here');
       const j = await apiAction('settings.save', {
         webhook: {
+          mode: mode,
           url: $('#f-webhook').value.trim(),
+          bot_token: mode === 'bot' && tokEl ? tokEl.value.trim() : '',
+          channel_id: mode === 'bot' && chEl ? chEl.value.trim() : '',
+          here: mode === 'bot' && hereEl ? hereEl.checked : false,
           events: {
             create: $('#s-wh-create').checked,
             assign: $('#s-wh-assign').checked,
@@ -2188,7 +2235,15 @@
       const err = $('#form-settings-error');
       if (err) err.hidden = true;
       btnWebhookTest.disabled = true;
-      const j = await apiAction('webhook.test', { url: $('#f-webhook').value.trim() });
+      const mode = settingsMode();
+      const tokEl = $('#f-bot-token');
+      const chEl = $('#f-bot-channel');
+      const j = await apiAction('webhook.test', {
+        mode: mode,
+        url: $('#f-webhook').value.trim(),
+        bot_token: mode === 'bot' && tokEl ? tokEl.value.trim() : '',
+        channel_id: mode === 'bot' && chEl ? chEl.value.trim() : ''
+      });
       btnWebhookTest.disabled = false;
       if (!j.ok) {
         if (err) {

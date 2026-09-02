@@ -260,11 +260,42 @@ task_page_head('Tâches — TheFrontHub');
 <dialog id="dlg-settings" class="dlg" aria-labelledby="dlg-settings-title">
   <div class="dlg-body">
     <h2 id="dlg-settings-title">Notifications Discord</h2>
-    <p class="dlg-hint">Reçois un message dans ton serveur Discord à chaque création, assignation ou terminaison de tâche.<br>Pour créer le webhook : sur ton serveur Discord, <strong>Paramètres du salon → Intégrations → Webhooks → Nouveau webhook → Copier l'URL</strong>.</p>
-    <label class="field">
-      <span class="field-label">URL du webhook</span>
-      <input type="url" id="f-webhook" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false">
-    </label>
+    <p class="dlg-hint">Reçois un message dans ton serveur Discord à chaque création, assignation ou terminaison de tâche. Le message est envoyé <strong>au nom de ton bot</strong> (ou d'un webhook, au choix).</p>
+    <div class="mode-cards" role="radiogroup" aria-label="Mode d'envoi des notifications">
+      <label class="mode-card" id="mc-webhook">
+        <input type="radio" name="wh-mode" id="m-webhook" value="webhook">
+        <span class="mc-title">🕸️ Webhook</span>
+        <span class="mc-desc">Simple, créé par salon, sans ton bot</span>
+      </label>
+      <label class="mode-card" id="mc-bot">
+        <input type="radio" name="wh-mode" id="m-bot" value="bot">
+        <span class="mc-title">🤖 Mon bot</span>
+        <span class="mc-desc">Ton vrai bot TheFrontHub, avec pings</span>
+      </label>
+    </div>
+    <div id="grp-webhook" role="group" aria-label="Configuration webhook">
+      <label class="field">
+        <span class="field-label">URL du webhook</span>
+        <input type="url" id="f-webhook" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false">
+        <span class="field-help">Sur ton serveur : <strong>Paramètres du salon → Intégrations → Webhooks → Nouveau webhook → Copier l'URL</strong>.</span>
+      </label>
+    </div>
+    <div id="grp-bot" role="group" aria-label="Configuration bot" hidden>
+      <label class="field">
+        <span class="field-label">Token du bot</span>
+        <input type="password" id="f-bot-token" placeholder="Colle le token pour (re)le définir" autocomplete="off" spellcheck="false">
+        <span class="field-help" id="bot-token-hint">Developer Portal → Bot → Reset Token, ou Render → Environment → DISCORD_TOKEN.</span>
+      </label>
+      <label class="field">
+        <span class="field-label">ID du salon qui recevra les notifications</span>
+        <input type="text" id="f-bot-channel" inputmode="numeric" placeholder="1234567890123456789" autocomplete="off" spellcheck="false">
+        <span class="field-help">Active le <strong>Mode développeur</strong> (Paramètres Discord → Avancés), puis clic droit sur le salon → <strong>Copier l'identifiant du salon</strong>.</span>
+      </label>
+      <label class="check">
+        <input type="checkbox" id="s-bot-here">
+        <span>🔔 @here à chaque nouvelle tâche <strong>urgente</strong></span>
+      </label>
+    </div>
     <div class="check-row" role="group" aria-label="Événements notifiés">
       <label class="check">
         <input type="checkbox" id="s-wh-create" checked>
