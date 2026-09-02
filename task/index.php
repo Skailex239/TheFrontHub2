@@ -96,6 +96,10 @@ task_page_head('Tâches — TheFrontHub');
         <option value="__me__">Mes tâches</option>
         <option value="__none__">Non assignées</option>
       </select>
+      <select id="f-milestone" aria-label="Filtrer par version">
+        <option value="">Toutes les versions</option>
+        <option value="__none__">Sans version</option>
+      </select>
       <select id="f-sort" aria-label="Trier les tâches">
         <option value="priority">Tri : priorité</option>
         <option value="due">Tri : échéance</option>
@@ -105,8 +109,15 @@ task_page_head('Tâches — TheFrontHub');
     </div>
     <div class="counts" id="counts" aria-live="polite"></div>
     <div class="toolbar-actions">
+      <button type="button" id="btn-view" class="btn ghost small" title="Basculer entre vue tableau (kanban) et vue liste" aria-pressed="false">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 5h18M3 12h18M3 19h18"/><path d="M7 3v18"/></svg>
+        <span id="btn-view-label">Vue liste</span>
+      </button>
       <button type="button" id="btn-compact" class="icon-btn" title="Vue compacte" aria-pressed="false" aria-label="Basculer la vue compacte">
-        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 5h18M3 12h18M3 19h18"/></svg>
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+      </button>
+      <button type="button" id="btn-changelog" class="icon-btn" title="Générer les patch notes / changelog" aria-label="Générer les patch notes">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
       </button>
       <button type="button" id="btn-csv" class="icon-btn" title="Exporter en CSV (Excel)" aria-label="Exporter en CSV">
         <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
@@ -135,6 +146,8 @@ task_page_head('Tâches — TheFrontHub');
   <div class="board" id="board" aria-busy="true">
     <div class="board-loading">Chargement du tableau…</div>
   </div>
+
+  <section id="listview" class="listview" hidden aria-label="Vue liste des tâches"></section>
 </main>
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
@@ -149,7 +162,7 @@ task_page_head('Tâches — TheFrontHub');
       </label>
       <label class="field">
         <span class="field-label">Description</span>
-        <textarea id="f-desc" name="description" maxlength="4000" rows="4" placeholder="Détails, liens, contexte… (facultatif)"></textarea>
+        <textarea id="f-desc" name="description" maxlength="4000" rows="4" placeholder="Détails, liens, contexte… (facultatif)&#10;Markdown simple accepté : **gras**, *italique*, `code`, listes avec « - »"></textarea>
       </label>
       <div class="field-row">
         <label class="field">
@@ -165,6 +178,11 @@ task_page_head('Tâches — TheFrontHub');
           <input type="date" id="f-due" name="due">
         </label>
       </div>
+      <label class="field">
+        <span class="field-label">Version / Jalon <span class="field-hint">(regroupe les tâches d'une même mise à jour)</span></span>
+        <input type="text" id="f-milestone-input" list="milestone-datalist" maxlength="80" autocomplete="off" placeholder="Ex. Mise à jour v2.4, Tournoi d'Automne… (facultatif)">
+        <datalist id="milestone-datalist"></datalist>
+      </label>
       <label class="field">
         <span class="field-label">Assigner à</span>
         <select id="f-assignee-dialog" name="assignee_id">
@@ -196,6 +214,15 @@ task_page_head('Tâches — TheFrontHub');
     <p class="detail-desc" id="detail-desc" hidden></p>
     <div class="detail-meta" id="detail-meta"></div>
     <div class="detail-actions" id="detail-actions"></div>
+    <div class="detail-checklist">
+      <h3 class="dc-title">Checklist <span class="dc-count" id="detail-cknum"></span></h3>
+      <div class="ck-progress" id="detail-ckprogress" hidden><div class="ck-bar" id="detail-ckbar"></div></div>
+      <ul class="ck-list" id="detail-checklist"></ul>
+      <form id="form-checklist" class="dc-form">
+        <input type="text" id="f-checklist" maxlength="200" autocomplete="off" placeholder="Ajouter une sous-tâche… (Entrée pour ajouter)" aria-label="Nouvelle sous-tâche">
+        <button type="submit" class="btn primary small" id="btn-checklist-add">Ajouter</button>
+      </form>
+    </div>
     <div class="detail-comments">
       <h3 class="dc-title">Commentaires <span class="dc-count" id="detail-cnum"></span></h3>
       <ul class="dc-list" id="detail-comments"></ul>
@@ -239,6 +266,10 @@ task_page_head('Tâches — TheFrontHub');
         <span>Assignation</span>
       </label>
       <label class="check">
+        <input type="checkbox" id="s-wh-start" checked>
+        <span>Passage « En cours »</span>
+      </label>
+      <label class="check">
         <input type="checkbox" id="s-wh-done" checked>
         <span>Tâche terminée</span>
       </label>
@@ -251,6 +282,35 @@ task_page_head('Tâches — TheFrontHub');
   <div class="dlg-actions">
     <button type="button" class="btn ghost" data-close-dialog>Fermer</button>
     <button type="button" class="btn primary" id="btn-settings-save">Enregistrer</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-changelog" class="dlg dlg-wide" aria-labelledby="dlg-changelog-title">
+  <div class="dlg-body">
+    <h2 id="dlg-changelog-title">Patch Notes / Changelog</h2>
+    <p class="dlg-hint">Rassemble les tâches terminées pour générer la note de mise à jour à publier sur TheFrontHub ou Discord.</p>
+    <div class="field-row">
+      <label class="field">
+        <span class="field-label">Version</span>
+        <select id="f-chg-milestone">
+          <option value="__all__">Toutes les versions</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">Période</span>
+        <select id="f-chg-period">
+          <option value="30">30 derniers jours</option>
+          <option value="7">7 derniers jours</option>
+          <option value="0">Tout l'historique</option>
+        </select>
+      </label>
+    </div>
+    <pre class="chg-preview" id="chg-preview" aria-label="Aperçu des patch notes"></pre>
+  </div>
+  <div class="dlg-actions">
+    <button type="button" class="btn ghost" id="btn-chg-copy">Copier le Markdown</button>
+    <button type="button" class="btn ghost" id="btn-chg-download">Télécharger .md</button>
+    <button type="button" class="btn ghost" data-close-dialog>Fermer</button>
   </div>
 </dialog>
 

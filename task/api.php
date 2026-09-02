@@ -10,6 +10,7 @@ declare(strict_types=1);
  *      task.create / task.status / task.edit / task.delete
  *      task.pin    / task.unarchive
  *      task.comment / comment.delete
+ *      checklist.add / checklist.toggle / checklist.delete
  *      settings.save / webhook.test
  *      admin.add   / admin.remove
  *
@@ -133,7 +134,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     $tasks = [];
     $st = $pdo->query(
         "SELECT id, title, description, status, priority, assignee_id,
-                labels, pinned,
+                labels, pinned, milestone,
                 created_by, created_by_name,
                 UNIX_TIMESTAMP(created_at) AS created_ts,
                 completed_by, completed_by_name,
@@ -156,6 +157,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
             'assignee_id'       => $row['assignee_id'] !== null ? (string) $row['assignee_id'] : '',
             'labels'            => (string) $row['labels'],
             'pinned'            => (bool) $row['pinned'],
+            'milestone'         => (string) ($row['milestone'] ?? ''),
             'created_by'        => (string) $row['created_by'],
             'created_by_name'   => (string) $row['created_by_name'],
             'created_ts'        => $row['created_ts'] !== null ? (int) $row['created_ts'] : null,
@@ -165,6 +167,27 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
             'due_ts'            => $row['due_ts'] !== null ? (int) $row['due_ts'] : null,
             'archived_ts'       => $row['archived_ts'] !== null ? (int) $row['archived_ts'] : null,
         ];
+    }
+
+    /* Sous-tâches / checklist (petite équipe : tout est renvoyé). */
+    $checklist = [];
+    try {
+        $st = $pdo->query(
+            'SELECT id, task_id, body, done
+             FROM tfh_task_checklist
+             ORDER BY task_id, id
+             LIMIT 3000'
+        );
+        foreach ($st->fetchAll() as $row) {
+            $checklist[] = [
+                'id'      => (int) $row['id'],
+                'task_id' => (int) $row['task_id'],
+                'body'    => (string) $row['body'],
+                'done'    => (bool) $row['done'],
+            ];
+        }
+    } catch (Throwable $e) {
+        error_log('[tfh-task] checklist: ' . $e->getMessage());
     }
 
     /* Commentaires (petite équipe : tout est renvoyé, filtré côté client). */
@@ -239,12 +262,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
             'panel_role' => $access['panel_role'],
             'can_manage' => $access['can_manage'],
         ],
-        'people'   => array_values($people),
-        'tasks'    => $tasks,
-        'comments' => $comments,
-        'activity' => $activity,
-        'settings' => $settings,
-        'csrf'     => task_csrf_token(),
+        'people'    => array_values($people),
+        'tasks'     => $tasks,
+        'checklist' => $checklist,
+        'comments'  => $comments,
+        'activity'  => $activity,
+        'settings'  => $settings,
+        'csrf'      => task_csrf_token(),
     ]);
 }
 
@@ -330,6 +354,17 @@ function task_req_due(array $in): ?string
     return $d;
 }
 
+/** Version / jalon (texte libre court) ou chaîne vide. */
+function task_req_milestone(array $in): string
+{
+    $m = trim((string) ($in['milestone'] ?? ''));
+    $m = preg_replace('/\s+/u', ' ', $m);
+    if (function_exists('mb_substr') ? mb_strlen($m, 'UTF-8') > 80 : strlen($m) > 80) {
+        $m = function_exists('mb_substr') ? mb_substr($m, 0, 80, 'UTF-8') : substr($m, 0, 80);
+    }
+    return $m;
+}
+
 switch ($action) {
 
     case 'task.create': {
@@ -339,6 +374,7 @@ switch ($action) {
         $assigneeId = task_req_assignee($pdo, $in);
         $labels     = task_req_labels($in);
         $due        = task_req_due($in);
+        $milestone  = task_req_milestone($in);
 
         if (!in_array($priority, ['low', 'normal', 'high'], true)) {
             $priority = 'normal';
@@ -346,15 +382,16 @@ switch ($action) {
 
         $pdo->prepare(
             'INSERT INTO tfh_task_tasks
-             (title, description, status, priority, assignee_id, labels, pinned,
+             (title, description, status, priority, assignee_id, labels, pinned, milestone,
               created_by, created_by_name, due_at, created_at)
-             VALUES (?, ?, \'todo\', ?, ?, ?, 0, ?, ?, ?, NOW())'
+             VALUES (?, ?, \'todo\', ?, ?, ?, 0, ?, ?, ?, ?, NOW())'
         )->execute([
             $title,
             $desc !== '' ? $desc : null,
             $priority,
             $assigneeId,
             $labels,
+            $milestone,
             $meId,
             $meName,
             $due,
@@ -372,6 +409,7 @@ switch ($action) {
             'assignee_id'  => (string) $assigneeId,
             'assignee_name' => $assigneeId !== null ? task_person_name($pdo, $assigneeId) : '',
             'due'          => $due,
+            'milestone'    => $milestone,
             'created_by_name' => $meName,
         ]);
 
@@ -387,13 +425,20 @@ switch ($action) {
 
         $old = null;
         $st  = $pdo->prepare(
-            'SELECT title, description, priority, assignee_id, due_at FROM tfh_task_tasks WHERE id = ? LIMIT 1'
+            'SELECT title, description, priority, assignee_id, milestone, status, due_at FROM tfh_task_tasks WHERE id = ? LIMIT 1'
         );
         $st->execute([$id]);
         $old = $st->fetch();
         if ($old === false) {
             fail(404, 'not_found', 'Tâche introuvable.');
         }
+
+        /* Aucun changement : ne renvoie pas de notification Discord en double. */
+        if ((string) $old['status'] === $status) {
+            json_out(['ok' => true]);
+        }
+
+        $ms = trim((string) ($old['milestone'] ?? ''));
 
         if ($status === 'done') {
             $pdo->prepare(
@@ -413,18 +458,23 @@ switch ($action) {
         task_log_activity($pdo, $id, (string) $old['title'], $meId, $meName, 'status',
             '→ ' . ($statusLabels[$status] ?? $status));
 
+        $whBase = [
+            'id'           => $id,
+            'title'        => (string) $old['title'],
+            'description'  => (string) $old['description'],
+            'priority'     => (string) $old['priority'],
+            'assignee_id'  => (string) ($old['assignee_id'] ?? ''),
+            'assignee_name' => (string) $old['assignee_id'] !== '' ? task_person_name($pdo, (string) $old['assignee_id']) : '',
+            'due'          => $old['due_at'] !== null ? substr((string) $old['due_at'], 0, 10) : '',
+            'milestone'    => $ms,
+        ];
+
+        if ($status === 'in_progress') {
+            task_webhook_send($pdo, 'start', $whBase + ['started_by_name' => $meName]);
+        }
+
         if ($status === 'done') {
-            $due = $old['due_at'] !== null ? (string) $old['due_at'] : '';
-            task_webhook_send($pdo, 'done', [
-                'id'           => $id,
-                'title'        => (string) $old['title'],
-                'description'  => (string) $old['description'],
-                'priority'     => (string) $old['priority'],
-                'assignee_id'  => (string) ($old['assignee_id'] ?? ''),
-                'assignee_name' => (string) $old['assignee_id'] !== '' ? task_person_name($pdo, (string) $old['assignee_id']) : '',
-                'due'          => $due !== '' ? substr($due, 0, 10) : '',
-                'completed_by_name' => $meName,
-            ]);
+            task_webhook_send($pdo, 'done', $whBase + ['completed_by_name' => $meName]);
         }
 
         json_out(['ok' => true]);
@@ -438,6 +488,7 @@ switch ($action) {
         $assigneeId = task_req_assignee($pdo, $in);
         $labels     = task_req_labels($in);
         $due        = task_req_due($in);
+        $milestone  = task_req_milestone($in);
 
         if ($id <= 0) {
             fail(422, 'bad_input', 'Paramètres invalides.');
@@ -447,7 +498,7 @@ switch ($action) {
         }
 
         $st = $pdo->prepare(
-            'SELECT title, description, priority, assignee_id, labels, due_at FROM tfh_task_tasks WHERE id = ? LIMIT 1'
+            'SELECT title, description, priority, assignee_id, labels, milestone, due_at FROM tfh_task_tasks WHERE id = ? LIMIT 1'
         );
         $st->execute([$id]);
         $old = $st->fetch();
@@ -457,7 +508,7 @@ switch ($action) {
 
         $pdo->prepare(
             'UPDATE tfh_task_tasks
-             SET title = ?, description = ?, priority = ?, assignee_id = ?, labels = ?, due_at = ?
+             SET title = ?, description = ?, priority = ?, assignee_id = ?, labels = ?, milestone = ?, due_at = ?
              WHERE id = ?'
         )->execute([
             $title,
@@ -465,6 +516,7 @@ switch ($action) {
             $priority,
             $assigneeId,
             $labels,
+            $milestone,
             $due,
             $id,
         ]);
@@ -489,6 +541,9 @@ switch ($action) {
         if ((string) ($old['labels'] ?? '') !== $labels) {
             $changes[] = 'étiquettes';
         }
+        if ((string) ($old['milestone'] ?? '') !== $milestone) {
+            $changes[] = 'version';
+        }
         if ($oldDue !== (string) ($due ?? '')) {
             $changes[] = 'échéance';
         }
@@ -506,6 +561,7 @@ switch ($action) {
                 'assignee_id'  => $newAssignee,
                 'assignee_name' => task_person_name($pdo, $newAssignee),
                 'due'          => $due,
+                'milestone'    => $milestone,
                 'created_by_name' => $meName,
             ]);
         }
@@ -526,6 +582,11 @@ switch ($action) {
         }
         $pdo->prepare('DELETE FROM tfh_task_tasks WHERE id = ?')->execute([$id]);
         $pdo->prepare('DELETE FROM tfh_task_comments WHERE task_id = ?')->execute([$id]);
+        try {
+            $pdo->prepare('DELETE FROM tfh_task_checklist WHERE task_id = ?')->execute([$id]);
+        } catch (Throwable $e) {
+            error_log('[tfh-task] checklist cleanup: ' . $e->getMessage());
+        }
         json_out(['ok' => true]);
     }
 
@@ -616,6 +677,52 @@ switch ($action) {
         json_out(['ok' => true]);
     }
 
+    /* ── Sous-tâches / checklist ─────────────────────────────────────────── */
+
+    case 'checklist.add': {
+        $id   = (int) ($in['id'] ?? 0);
+        $body = task_req_str($in, 'body', 200, true);
+        if ($id <= 0) {
+            fail(422, 'bad_input', 'Paramètres invalides.');
+        }
+        $st = $pdo->prepare('SELECT 1 FROM tfh_task_tasks WHERE id = ? LIMIT 1');
+        $st->execute([$id]);
+        if ($st->fetch() === false) {
+            fail(404, 'not_found', 'Tâche introuvable.');
+        }
+        $pdo->prepare('INSERT INTO tfh_task_checklist (task_id, body, done) VALUES (?, ?, 0)')
+            ->execute([$id, $body]);
+        json_out([
+            'ok'   => true,
+            'item' => [
+                'id'      => (int) $pdo->lastInsertId(),
+                'task_id' => $id,
+                'body'    => $body,
+                'done'    => false,
+            ],
+        ]);
+    }
+
+    case 'checklist.toggle': {
+        $itemId = (int) ($in['item_id'] ?? 0);
+        $done   = !empty($in['done']);
+        if ($itemId <= 0) {
+            fail(422, 'bad_input', 'Paramètres invalides.');
+        }
+        $pdo->prepare('UPDATE tfh_task_checklist SET done = ? WHERE id = ?')
+            ->execute([$done ? 1 : 0, $itemId]);
+        json_out(['ok' => true, 'done' => $done]);
+    }
+
+    case 'checklist.delete': {
+        $itemId = (int) ($in['item_id'] ?? 0);
+        if ($itemId <= 0) {
+            fail(422, 'bad_input', 'Paramètres invalides.');
+        }
+        $pdo->prepare('DELETE FROM tfh_task_checklist WHERE id = ?')->execute([$itemId]);
+        json_out(['ok' => true]);
+    }
+
     case 'settings.save': {
         if (!$access['can_manage']) {
             fail(403, 'forbidden', 'Réservé aux gestionnaires du panel.');
@@ -631,6 +738,7 @@ switch ($action) {
         $events = [
             'create' => !empty($wh['events']['create']),
             'assign' => !empty($wh['events']['assign']),
+            'start'  => !empty($wh['events']['start']),
             'done'   => !empty($wh['events']['done']),
         ];
         task_settings_set($pdo, 'webhook', (string) json_encode([

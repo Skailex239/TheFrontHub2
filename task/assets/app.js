@@ -1,11 +1,12 @@
 /* ─────────────────────────────────────────────────────────────────────────────
-   task/assets/app.js — Panel de tâches TheFrontHub (v4)
+   task/assets/app.js — Panel de tâches TheFrontHub (v6)
    Vanilla JS, sans dépendance.
    Pages auth : thème + boutons copier.
-   Page applicative (TASK_BOOT présent) : tableau + recherche/filtres/tri,
-   drag & drop, échéances, étiquettes, épinglage, détail + commentaires,
-   historique d'activité, notifications Discord (webhook), export CSV,
-   raccourcis clavier, PWA.
+   Page applicative (TASK_BOOT présent) : tableau + liste façon tableur,
+   recherche/filtres/tri, drag & drop, échéances, étiquettes, versions/jalons,
+   épinglage, checklists (sous-tâches), détail + commentaires avec Markdown,
+   historique d'activité, notifications Discord (webhook), stats de vélocité,
+   générateur de patch notes, export CSV, raccourcis clavier, PWA.
    ───────────────────────────────────────────────────────────────────────────── */
 
 (() => {
@@ -92,14 +93,18 @@
 
   /* Catalogue des étiquettes — dupliqué côté serveur (lib.php) pour la validation. */
   const LABELS = {
-    tournoi: { label: 'Tournoi', color: '#F59E0B' },
-    site:    { label: 'Site', color: '#10B981' },
-    discord: { label: 'Discord', color: '#5865F2' },
-    staff:   { label: 'Staff', color: '#8B5CF6' },
-    urgence: { label: 'Urgence', color: '#EF4444' },
-    idee:    { label: 'Idée', color: '#EAB308' },
-    bug:     { label: 'Bug', color: '#F97316' },
-    divers:  { label: 'Divers', color: '#71717A' }
+    tournoi: { label: 'Tournois & ELO',  emoji: '🏆', color: '#F59E0B' },
+    site:    { label: 'Site',            emoji: '🌐', color: '#10B981' },
+    discord: { label: 'Discord',         emoji: '💬', color: '#5865F2' },
+    staff:   { label: 'Staff',           emoji: '👥', color: '#8B5CF6' },
+    urgence: { label: 'Urgence',         emoji: '🚨', color: '#EF4444' },
+    idee:    { label: 'Idée',            emoji: '💡', color: '#EAB308' },
+    bug:     { label: 'Bugfix',          emoji: '🐛', color: '#F97316' },
+    design:  { label: 'Design / UI',     emoji: '🎨', color: '#EC4899' },
+    backend: { label: 'Backend / API',   emoji: '⚙️', color: '#0EA5E9' },
+    atlas:   { label: 'Atlas & Cartes',  emoji: '🗺️', color: '#84CC16' },
+    perf:    { label: 'Performance',     emoji: '⚡', color: '#D946EF' },
+    divers:  { label: 'Divers',          emoji: '📦', color: '#71717A' }
   };
 
   const ICONS = {
@@ -136,11 +141,13 @@
     me: BOOT.me,
     people: [],
     tasks: [],
+    checklist: [],
     comments: [],
     activity: [],
     settings: null,
     loaded: false,
-    filters: { q: '', prio: '', assignee: '', sort: 'priority', archived: false },
+    view: 'board',
+    filters: { q: '', prio: '', assignee: '', milestone: '', sort: 'priority', archived: false },
     detailId: null
   };
   let editingId = null;
@@ -320,29 +327,133 @@
     return { cls: '', label: 'Pour le ' + dayTxt };
   }
 
-  function linkify(text) {
+  function mdInline(text) {
+    /* Rendu enrichi sûr (aucun innerHTML avec l'entrée utilisateur) :
+       `code`, **gras**, *italique*, liens, et images (URL .png/.jpg/…). */
     const frag = document.createDocumentFragment();
-    const re = /(https?:\/\/[^\s<>"')\]]+)/g;
+    const re = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*|https?:\/\/[^\s<>"')\]]+)/g;
     let last = 0;
     let m;
     while ((m = re.exec(text)) !== null) {
       if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
-      const a = document.createElement('a');
-      a.href = m[1];
-      a.textContent = m[1];
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      frag.appendChild(a);
-      last = m.index + m[1].length;
+      const tok = m[1];
+      if (tok.length > 2 && tok[0] === '`' && tok[tok.length - 1] === '`') {
+        frag.appendChild(el('code', 'md-code', tok.slice(1, -1)));
+      } else if (tok.startsWith('**') && tok.endsWith('**') && tok.length > 4) {
+        frag.appendChild(el('b', '', tok.slice(2, -2)));
+      } else if (tok[0] === '*' && tok[tok.length - 1] === '*' && tok.length > 2) {
+        frag.appendChild(el('i', '', tok.slice(1, -1)));
+      } else if (/^https?:\/\//i.test(tok) && /\.(png|jpe?g|gif|webp)(\?\S*)?$/i.test(tok)) {
+        const a = el('a', 'md-imglink');
+        a.href = tok;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        const img = el('img', 'md-img');
+        img.alt = 'Image partagée';
+        img.loading = 'lazy';
+        img.src = tok;
+        img.onerror = () => { a.textContent = tok; };
+        a.appendChild(img);
+        frag.appendChild(a);
+      } else if (/^https?:\/\//i.test(tok)) {
+        const a = el('a', '', tok);
+        a.href = tok;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        frag.appendChild(a);
+      } else {
+        frag.appendChild(document.createTextNode(tok));
+      }
+      last = m.index + tok.length;
     }
     if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
     return frag;
+  }
+
+  function renderRich(text) {
+    /* Markdown minimal multi-lignes : blocs de code ```, listes « - », paragraphes. */
+    const frag = document.createDocumentFragment();
+    const lines = String(text).split(/\r?\n/);
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      if (/^\s*```/.test(line)) {
+        const buf = [];
+        i++;
+        while (i < lines.length && !/^\s*```/.test(lines[i])) {
+          buf.push(lines[i]);
+          i++;
+        }
+        i++; /* fermeture du bloc (ou fin de texte) */
+        const pre = el('pre', 'md-pre');
+        pre.appendChild(el('code', '', buf.join('\n')));
+        frag.appendChild(pre);
+        continue;
+      }
+      if (/^\s*[-*]\s+/.test(line)) {
+        const ul = el('ul', 'md-ul');
+        while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+          const li = el('li');
+          li.appendChild(mdInline(lines[i].replace(/^\s*[-*]\s+/, '')));
+          ul.appendChild(li);
+          i++;
+        }
+        frag.appendChild(ul);
+        continue;
+      }
+      if (line.trim() === '') {
+        i++;
+        continue;
+      }
+      const p = el('div', 'md-p');
+      p.appendChild(mdInline(line));
+      frag.appendChild(p);
+      i++;
+    }
+    return frag;
+  }
+
+  /* ── Versions / jalons & checklist ───────────────────────────────────────── */
+
+  function taskMilestone(t) {
+    return String((t && t.milestone) || '').trim();
+  }
+
+  function milestonesOf(list) {
+    const seen = new Set();
+    const out = [];
+    for (const t of list) {
+      const ms = taskMilestone(t);
+      if (ms && !seen.has(ms.toLowerCase())) {
+        seen.add(ms.toLowerCase());
+        out.push(ms);
+      }
+    }
+    return out.sort((a, b) => a.localeCompare(b, 'fr'));
+  }
+
+  function checklistOf(taskId) {
+    return state.checklist.filter((c) => c.task_id === taskId);
+  }
+
+  function ckProgress(taskId) {
+    const items = checklistOf(taskId);
+    return { done: items.filter((c) => c.done).length, total: items.length };
+  }
+
+  function fmtDur(seconds) {
+    const s = Math.max(0, Math.round(seconds));
+    if (s < 3600) return Math.max(1, Math.round(s / 60)) + ' min';
+    if (s < 86400 * 2) return Math.round(s / 3600) + ' h';
+    const d = s / 86400;
+    return (d < 10 ? d.toFixed(1) : Math.round(d)).toString().replace('.', ',') + ' j';
   }
 
   async function refresh() {
     const j = await apiState();
     state.people = j.people || [];
     state.tasks = j.tasks || [];
+    state.checklist = j.checklist || [];
     state.comments = j.comments || [];
     state.activity = j.activity || [];
     state.settings = j.settings || null;
@@ -366,6 +477,8 @@
     if (f.assignee === '__me__') list = list.filter((t) => t.assignee_id === state.me.id);
     else if (f.assignee === '__none__') list = list.filter((t) => !t.assignee_id);
     else if (f.assignee) list = list.filter((t) => t.assignee_id === f.assignee);
+    if (f.milestone === '__none__') list = list.filter((t) => !taskMilestone(t));
+    else if (f.milestone) list = list.filter((t) => taskMilestone(t).toLowerCase() === f.milestone.toLowerCase());
     return list;
   }
 
@@ -400,8 +513,10 @@
   function renderAll() {
     renderMe();
     fillAssigneeFilter();
+    fillMilestoneFilter();
     renderCounts();
     renderBoard();
+    if (state.view === 'list') renderListView();
     renderDetail();
     updateTabTitle();
   }
@@ -435,25 +550,50 @@
     const open = live.filter((t) => t.status !== 'done').length;
     const todayMs = startOfDayMs(Date.now());
     const late = live.filter((t) => t.status !== 'done' && t.due_ts && startOfDayMs(t.due_ts * 1000) < todayMs).length;
+    const urgent = live.filter((t) => t.status !== 'done' && t.priority === 'high').length;
     const d = new Date();
     d.setHours(0, 0, 0, 0);
     const weekMs = d.getTime() - ((d.getDay() + 6) % 7) * 86400000;
     const doneWeek = state.tasks.filter((t) => t.completed_ts && t.completed_ts * 1000 >= weekMs).length;
+
+    /* Temps moyen de résolution : tâches terminées au cours des 30 derniers jours. */
+    const sinceS = Date.now() / 1000 - 30 * 86400;
+    const resols = state.tasks
+      .filter((t) => t.completed_ts && t.created_ts && t.completed_ts >= sinceS)
+      .map((t) => t.completed_ts - t.created_ts)
+      .filter((s) => s >= 0);
+    const avg = resols.length ? resols.reduce((a, b) => a + b, 0) / resols.length : null;
 
     box.textContent = '';
     const parts = [
       [el('b', '', String(open)), el('span', '', open === 1 ? ' ouverte' : ' ouvertes')]
     ];
     if (late > 0) parts.push([el('b', 'late', String(late)), el('span', '', ' en retard')]);
+    if (urgent > 0) parts.push([el('b', 'urgent', String(urgent)), el('span', '', urgent === 1 ? ' urgente' : ' urgentes')]);
     parts.push([
       el('b', '', String(doneWeek)),
       el('span', '', doneWeek === 1 ? ' terminée cette semaine' : ' terminées cette semaine')
     ]);
+    if (avg !== null) parts.push([el('b', '', fmtDur(avg)), el('span', '', ' de résolution moy.')]);
     parts.forEach((pair, i) => {
       if (i > 0) box.appendChild(el('span', 'dot', '·'));
       box.appendChild(pair[0]);
       box.appendChild(pair[1]);
     });
+  }
+
+  function fillMilestoneFilter() {
+    const sel = $('#f-milestone');
+    if (!sel) return;
+    const cur = state.filters.milestone;
+    while (sel.options.length > 2) sel.remove(2);
+    for (const ms of milestonesOf(state.tasks.filter((t) => !t.archived_ts))) {
+      const o = el('option', '', ms);
+      o.value = ms;
+      sel.appendChild(o);
+    }
+    const has = Array.from(sel.options).some((o) => o.value === cur);
+    sel.value = has ? cur : '';
   }
 
   function fillAssigneeFilter() {
@@ -475,8 +615,15 @@
     if (!meta) return null;
     const s = el('span', 'lchip');
     s.style.setProperty('--lc', meta.color);
-    s.appendChild(el('span', 'lchip-dot'));
+    if (meta.emoji) s.appendChild(el('span', 'lchip-emoji', meta.emoji));
+    else s.appendChild(el('span', 'lchip-dot'));
     s.appendChild(el('span', '', meta.label));
+    return s;
+  }
+
+  function milestoneChip(ms) {
+    const s = el('span', 'mchip', '🏷️ ' + ms);
+    s.title = 'Version / jalon : ' + ms;
     return s;
   }
 
@@ -534,7 +681,9 @@
 
     const due = dueInfo(t);
     const cCount = state.comments.filter((c) => c.task_id === t.id).length;
-    if (due || cCount > 0 || t.archived_ts) {
+    const ck = ckProgress(t.id);
+    const ms = taskMilestone(t);
+    if (due || cCount > 0 || ck.total > 0 || ms || t.archived_ts) {
       const flags = el('div', 'task-flags');
       if (due) {
         const f = el('span', 'due ' + due.cls);
@@ -542,12 +691,20 @@
         f.appendChild(el('span', '', due.label));
         flags.appendChild(f);
       }
+      if (ck.total > 0) {
+        const ckb = el('span', 'due ck' + (ck.done >= ck.total ? ' full' : ''));
+        ckb.appendChild(svg(ICONS.check, 12));
+        ckb.appendChild(el('span', '', ck.done + '/' + ck.total));
+        ckb.title = 'Checklist : ' + ck.done + ' sur ' + ck.total + ' terminée(s)';
+        flags.appendChild(ckb);
+      }
       if (cCount > 0) {
         const cb = el('span', 'due cm');
         cb.appendChild(svg(ICONS.comment, 12));
         cb.appendChild(el('span', '', String(cCount)));
         flags.appendChild(cb);
       }
+      if (ms) flags.appendChild(milestoneChip(ms));
       if (t.archived_ts) {
         const ab = el('span', 'due arch');
         ab.appendChild(svg(ICONS.box, 12));
@@ -659,6 +816,164 @@
     board.setAttribute('aria-busy', 'false');
     board.textContent = '';
     for (const s of STATUSES) board.appendChild(column(s));
+  }
+
+  function renderCurrentView() {
+    renderBoard();
+    if (state.view === 'list') renderListView();
+  }
+
+  /* ── Vue liste (façon tableur) ──────────────────────────────────────────── */
+
+  function lvStatusSelect(t) {
+    const sel = el('select', 'lv-status');
+    sel.setAttribute('aria-label', 'Statut de la tâche');
+    for (const s of STATUSES) {
+      const o = el('option', '', s.label);
+      o.value = s.key;
+      sel.appendChild(o);
+    }
+    sel.value = t.status;
+    sel.disabled = !!t.archived_ts;
+    sel.addEventListener('click', (ev) => ev.stopPropagation());
+    sel.addEventListener('change', () => {
+      if (sel.value !== t.status) doStatus(t.id, sel.value);
+    });
+    return sel;
+  }
+
+  function renderListView() {
+    const wrap = $('#listview');
+    if (!wrap) return;
+    const list = sortList(visibleTasks());
+    wrap.textContent = '';
+
+    const table = el('table', 'lv-table');
+    const thead = el('thead');
+    const hr = el('tr');
+    for (const h of ['Tâche', 'Statut', 'Priorité', 'Étiquettes', 'Version', 'Échéance', 'Checklist', '💬', 'Responsable', '']) {
+      hr.appendChild(el('th', '', h));
+    }
+    thead.appendChild(hr);
+    table.appendChild(thead);
+
+    const tbody = el('tbody');
+    if (list.length === 0) {
+      const tr = el('tr', 'lv-empty');
+      const td = el('td', '', state.filters.archived
+        ? 'Aucune tâche archivée.'
+        : 'Aucune tâche — clique sur « Nouvelle tâche » ou appuie sur N.');
+      td.colSpan = 10;
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+    for (const t of list) {
+      const tr = el('tr', 'lv-row' + (t.archived_ts ? ' arch' : ''));
+      tr.dataset.id = String(t.id);
+
+      const tdTitle = el('td', 'lv-title');
+      const tMain = el('div', 'lv-tmain');
+      tMain.appendChild(el('span', 'task-num', '#' + t.id));
+      tMain.appendChild(el('b', '', t.title));
+      if (t.pinned) tMain.appendChild(svg(ICONS.pin, 11));
+      tdTitle.appendChild(tMain);
+      if (t.description) {
+        tdTitle.appendChild(el('div', 'lv-desc', t.description.split(/\r?\n/)[0]));
+      }
+      tr.appendChild(tdTitle);
+
+      const tdStatus = el('td');
+      tdStatus.appendChild(lvStatusSelect(t));
+      tr.appendChild(tdStatus);
+
+      tr.appendChild(el('td', 'lv-prio')).appendChild(el('span', 'prio prio-' + t.priority, PRIORITY[t.priority] || 'Normale'));
+
+      const labels = labelKeys(t);
+      const tdLabels = el('td', 'lv-labels');
+      for (const k of labels.slice(0, 2)) {
+        const c = labelChip(k);
+        if (c) tdLabels.appendChild(c);
+      }
+      if (labels.length > 2) tdLabels.appendChild(el('span', 'lv-more', '+' + (labels.length - 2)));
+      tr.appendChild(tdLabels);
+
+      const ms = taskMilestone(t);
+      tr.appendChild(el('td', 'lv-ms')).appendChild(ms ? milestoneChip(ms) : document.createTextNode('—'));
+
+      const due = dueInfo(t);
+      const tdDue = el('td');
+      if (due) {
+        const f = el('span', 'due inline ' + due.cls);
+        f.appendChild(svg(ICONS.cal, 11));
+        f.appendChild(el('span', '', due.label));
+        tdDue.appendChild(f);
+      } else {
+        tdDue.appendChild(el('span', 'lv-none', '—'));
+      }
+      tr.appendChild(tdDue);
+
+      const ck = ckProgress(t.id);
+      const tdCk = el('td', 'lv-ck');
+      if (ck.total > 0) {
+        tdCk.appendChild(el('span', 'lv-ckn' + (ck.done >= ck.total ? ' full' : ''), ck.done + '/' + ck.total));
+        const bar = el('div', 'ck-progress mini');
+        const fill = el('div', 'ck-bar');
+        fill.style.width = Math.round((ck.done / ck.total) * 100) + '%';
+        bar.appendChild(fill);
+        tdCk.appendChild(bar);
+      } else {
+        tdCk.appendChild(el('span', 'lv-none', '—'));
+      }
+      tr.appendChild(tdCk);
+
+      const cCount = state.comments.filter((c) => c.task_id === t.id).length;
+      tr.appendChild(el('td', 'lv-cm', cCount > 0 ? String(cCount) : '—'));
+
+      const tdWho = el('td', 'lv-who');
+      if (t.assignee_id) {
+        const p = personById(t.assignee_id);
+        const img = el('img');
+        img.alt = '';
+        img.loading = 'lazy';
+        img.src = avatarUrl(p) || defaultAvatar(t.assignee_id);
+        img.onerror = () => { img.style.visibility = 'hidden'; };
+        tdWho.appendChild(img);
+        tdWho.appendChild(el('span', '', p && p.name ? p.name : 'ID ' + t.assignee_id));
+      } else {
+        tdWho.appendChild(el('span', 'lv-none', '—'));
+      }
+      tr.appendChild(tdWho);
+
+      const tdAct = el('td', 'lv-act');
+      const eb = el('button', 'tbtn');
+      eb.type = 'button';
+      eb.title = 'Modifier la tâche';
+      eb.setAttribute('aria-label', 'Modifier la tâche');
+      eb.appendChild(svg(ICONS.pencil, 13));
+      eb.dataset.act = 'edit';
+      eb.dataset.id = String(t.id);
+      tdAct.appendChild(eb);
+      tr.appendChild(tdAct);
+
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+
+    tbody.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-act="edit"]');
+      if (btn) {
+        const id = parseInt(btn.dataset.id, 10);
+        const t = state.tasks.find((x) => x.id === id);
+        if (t) openTaskDialog(t);
+        return;
+      }
+      const row = ev.target.closest('.lv-row[data-id]');
+      if (row) {
+        const t = state.tasks.find((x) => x.id === parseInt(row.dataset.id, 10));
+        if (t) openDetail(t);
+      }
+    });
   }
 
   /* ── Actions ────────────────────────────────────────────────────────────── */
@@ -864,11 +1179,25 @@
     $('#f-desc').value = task ? (task.description || '') : '';
     $('#f-priority').value = task ? task.priority : 'normal';
     $('#f-due').value = task && task.due_ts ? isoDate(task.due_ts) : '';
+    const msInput = $('#f-milestone-input');
+    if (msInput) msInput.value = task ? taskMilestone(task) : '';
+    fillMilestoneDatalist();
     fillAssigneesDialog(task ? (task.assignee_id || '') : '');
     buildLabelPicks(editingLabels);
     $('#form-task-error').hidden = true;
     dlgTask.showModal();
     $('#f-title').focus();
+  }
+
+  function fillMilestoneDatalist() {
+    const dl = $('#milestone-datalist');
+    if (!dl) return;
+    dl.textContent = '';
+    for (const ms of milestonesOf(state.tasks)) {
+      const o = el('option');
+      o.value = ms;
+      dl.appendChild(o);
+    }
   }
 
   const btnNew = $('#btn-new');
@@ -896,7 +1225,8 @@
         priority: $('#f-priority').value,
         assignee_id: $('#f-assignee-dialog') ? ($('#f-assignee-dialog').value || '') : '',
         labels: editingLabels.slice(),
-        due: $('#f-due') ? $('#f-due').value : ''
+        due: $('#f-due') ? $('#f-due').value : '',
+        milestone: $('#f-milestone-input') ? $('#f-milestone-input').value.trim() : ''
       };
       const j = await apiAction(editingId ? 'task.edit' : 'task.create',
         editingId ? Object.assign({ id: editingId }, payload) : payload);
@@ -985,7 +1315,7 @@
     const descEl = $('#detail-desc');
     if (t.description) {
       descEl.textContent = '';
-      descEl.appendChild(linkify(t.description));
+      descEl.appendChild(renderRich(t.description));
       descEl.hidden = false;
     } else {
       descEl.hidden = true;
@@ -1017,6 +1347,8 @@
       dEl.appendChild(el('span', '', due.label));
       meta.appendChild(metaRow('Échéance', dEl));
     }
+    const ms = taskMilestone(t);
+    if (ms) meta.appendChild(metaRow('Version', milestoneChip(ms)));
     if (t.status === 'done' && (t.completed_by_name || t.completed_ts)) {
       meta.appendChild(metaRow('Terminée par',
         document.createTextNode((t.completed_by_name || '—') + (t.completed_ts ? ' · ' + fmtDate(t.completed_ts) : ''))));
@@ -1095,11 +1427,70 @@
         }
         body.appendChild(head);
         const txt = el('div', 'dc-text');
-        txt.appendChild(linkify(c.body));
+        txt.appendChild(renderRich(c.body));
         body.appendChild(txt);
         li.appendChild(body);
         list.appendChild(li);
       }
+    }
+
+    renderChecklist(t);
+  }
+
+  function renderChecklist(t) {
+    const ul = $('#detail-checklist');
+    if (!ul) return;
+    const items = checklistOf(t.id);
+    const doneN = items.filter((c) => c.done).length;
+    const num = $('#detail-cknum');
+    if (num) num.textContent = items.length ? '(' + doneN + '/' + items.length + ')' : '';
+    const prog = $('#detail-ckprogress');
+    if (prog) {
+      if (items.length) {
+        prog.hidden = false;
+        const bar = $('#detail-ckbar');
+        if (bar) bar.style.width = Math.round((doneN / items.length) * 100) + '%';
+      } else {
+        prog.hidden = true;
+      }
+    }
+    ul.textContent = '';
+    if (items.length === 0) {
+      ul.appendChild(el('li', 'ck-empty', 'Aucune sous-tâche — découpe le travail si besoin.'));
+      return;
+    }
+    for (const c of items) {
+      const li = el('li', 'ck-item' + (c.done ? ' done' : ''));
+      const cb = el('input');
+      cb.type = 'checkbox';
+      cb.checked = !!c.done;
+      cb.setAttribute('aria-label', c.body);
+      cb.addEventListener('change', async () => {
+        const j = await apiAction('checklist.toggle', { item_id: c.id, done: cb.checked });
+        if (!j.ok) {
+          toast(j.message || 'Erreur', 'error');
+          cb.checked = !cb.checked;
+          return;
+        }
+        refresh().catch(() => {});
+      });
+      li.appendChild(cb);
+      li.appendChild(el('span', 'ck-body', c.body));
+      const rm = el('button', 'ck-del');
+      rm.type = 'button';
+      rm.title = 'Retirer cette sous-tâche';
+      rm.setAttribute('aria-label', 'Retirer cette sous-tâche');
+      rm.appendChild(svg(ICONS.trash, 12));
+      rm.addEventListener('click', async () => {
+        const j = await apiAction('checklist.delete', { item_id: c.id });
+        if (!j.ok) {
+          toast(j.message || 'Erreur', 'error');
+          return;
+        }
+        refresh().catch(() => {});
+      });
+      li.appendChild(rm);
+      ul.appendChild(li);
     }
   }
 
@@ -1147,6 +1538,36 @@
         if (ev.key === 'Enter' && !ev.shiftKey) {
           ev.preventDefault();
           formComment.requestSubmit();
+        }
+      });
+    }
+  }
+
+  /* ── Sous-tâches (checklist) ────────────────────────────────────────────── */
+
+  const formChecklist = $('#form-checklist');
+  if (formChecklist) {
+    formChecklist.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      if (!state.detailId) return;
+      const input = $('#f-checklist');
+      const body = input.value.trim();
+      if (!body) return;
+      const j = await apiAction('checklist.add', { id: state.detailId, body: body });
+      if (!j.ok) {
+        toast(j.message || 'Ajout impossible', 'error');
+        return;
+      }
+      input.value = '';
+      refresh().catch(() => {});
+    });
+
+    const ci = $('#f-checklist');
+    if (ci) {
+      ci.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          formChecklist.requestSubmit();
         }
       });
     }
@@ -1202,9 +1623,11 @@
     if (!dlgSettings) return;
     const cfg = (state.settings && state.settings.webhook) || null;
     $('#f-webhook').value = cfg && cfg.url ? cfg.url : '';
-    const ev = cfg && cfg.events ? cfg.events : { create: true, assign: true, done: true };
+    const ev = cfg && cfg.events ? cfg.events : { create: true, assign: true, start: true, done: true };
     $('#s-wh-create').checked = ev.create !== false;
     $('#s-wh-assign').checked = ev.assign !== false;
+    const startEl = $('#s-wh-start');
+    if (startEl) startEl.checked = ev.start !== false;
     $('#s-wh-done').checked = ev.done !== false;
     const err = $('#form-settings-error');
     if (err) err.hidden = true;
@@ -1225,6 +1648,7 @@
           events: {
             create: $('#s-wh-create').checked,
             assign: $('#s-wh-assign').checked,
+            start: $('#s-wh-start') ? $('#s-wh-start').checked : true,
             done: $('#s-wh-done').checked
           }
         }
@@ -1267,26 +1691,29 @@
   if (fSearch) {
     fSearch.addEventListener('input', debounce(() => {
       state.filters.q = fSearch.value.trim();
-      renderBoard();
+      renderCurrentView();
     }, 150));
     fSearch.addEventListener('keydown', (ev) => {
       if (ev.key === 'Escape') {
         fSearch.value = '';
         state.filters.q = '';
-        renderBoard();
+        renderCurrentView();
         fSearch.blur();
       }
     });
   }
 
   const fPrio = $('#f-prio');
-  if (fPrio) fPrio.addEventListener('change', () => { state.filters.prio = fPrio.value; renderBoard(); });
+  if (fPrio) fPrio.addEventListener('change', () => { state.filters.prio = fPrio.value; renderCurrentView(); });
 
   const fAssignee = $('#f-assignee');
-  if (fAssignee) fAssignee.addEventListener('change', () => { state.filters.assignee = fAssignee.value; renderBoard(); });
+  if (fAssignee) fAssignee.addEventListener('change', () => { state.filters.assignee = fAssignee.value; renderCurrentView(); });
+
+  const fMilestone = $('#f-milestone');
+  if (fMilestone) fMilestone.addEventListener('change', () => { state.filters.milestone = fMilestone.value; renderCurrentView(); });
 
   const fSort = $('#f-sort');
-  if (fSort) fSort.addEventListener('change', () => { state.filters.sort = fSort.value; renderBoard(); });
+  if (fSort) fSort.addEventListener('change', () => { state.filters.sort = fSort.value; renderCurrentView(); });
 
   const btnCompact = $('#btn-compact');
   if (btnCompact) {
@@ -1305,6 +1732,29 @@
     });
   }
 
+  const btnView = $('#btn-view');
+  if (btnView) {
+    try { state.view = localStorage.getItem('tfh-task-view') === 'list' ? 'list' : 'board'; } catch (e) { state.view = 'board'; }
+    const applyView = () => {
+      const isList = state.view === 'list';
+      const b = $('#board');
+      const l = $('#listview');
+      if (b) b.hidden = isList;
+      if (l) l.hidden = !isList;
+      btnView.classList.toggle('active', isList);
+      btnView.setAttribute('aria-pressed', isList ? 'true' : 'false');
+      const lbl = $('#btn-view-label');
+      if (lbl) lbl.textContent = isList ? 'Vue tableau' : 'Vue liste';
+      if (isList) renderListView();
+    };
+    applyView();
+    btnView.addEventListener('click', () => {
+      state.view = state.view === 'list' ? 'board' : 'list';
+      try { localStorage.setItem('tfh-task-view', state.view === 'list' ? 'list' : 'board'); } catch (e) { /* ignore */ }
+      applyView();
+    });
+  }
+
   const btnArchive = $('#btn-archive');
   if (btnArchive) {
     btnArchive.addEventListener('click', () => {
@@ -1312,23 +1762,25 @@
       btnArchive.classList.toggle('active', state.filters.archived);
       const lbl = $('#btn-archive-label');
       if (lbl) lbl.textContent = state.filters.archived ? 'Retour au tableau' : 'Archive';
-      renderBoard();
+      renderCurrentView();
     });
   }
 
   function exportCsv() {
     const rows = [[
-      'ID', 'Titre', 'Statut', 'Priorité', 'Étiquettes', 'Responsable', 'Échéance',
-      'Créée par', 'Créée le', 'Terminée par', 'Terminée le', 'Archivée', 'Description'
+      'ID', 'Titre', 'Statut', 'Priorité', 'Étiquettes', 'Version', 'Responsable', 'Échéance',
+      'Créée par', 'Créée le', 'Terminée par', 'Terminée le', 'Archivée', 'Checklist', 'Description'
     ]];
     for (const t of state.tasks) {
       const p = t.assignee_id ? personById(t.assignee_id) : null;
+      const ck = ckProgress(t.id);
       rows.push([
         t.id,
         t.title || '',
         (t.archived_ts ? 'Archivée — ' : '') + (STATUS_LABEL[t.status] || t.status),
         PRIORITY[t.priority] || 'Normale',
         labelKeys(t).map((k) => (LABELS[k] ? LABELS[k].label : k)).join(' + '),
+        taskMilestone(t),
         p && p.name ? p.name : (t.assignee_id ? 'ID ' + t.assignee_id : ''),
         t.due_ts ? fmtDay(t.due_ts) : '',
         t.created_by_name || '',
@@ -1336,6 +1788,7 @@
         t.completed_by_name || '',
         t.completed_ts ? fmtDay(t.completed_ts) : '',
         t.archived_ts ? 'oui' : 'non',
+        ck.total > 0 ? ck.done + '/' + ck.total : '',
         t.description || ''
       ]);
     }
@@ -1356,6 +1809,108 @@
   const btnCsv = $('#btn-csv');
   if (btnCsv) btnCsv.addEventListener('click', exportCsv);
 
+  /* ── Patch notes / changelog ────────────────────────────────────────────── */
+
+  const dlgChangelog = $('#dlg-changelog');
+
+  function buildChangelog() {
+    const msSel = $('#f-chg-milestone');
+    const perSel = $('#f-chg-period');
+    const ms = msSel ? msSel.value : '__all__';
+    const period = perSel ? parseInt(perSel.value, 10) : 30;
+    const nowS = Date.now() / 1000;
+    let done = state.tasks.filter((t) => t.status === 'done' && t.completed_ts);
+    if (period > 0) done = done.filter((t) => t.completed_ts >= nowS - period * 86400);
+    if (ms === '__none__') done = done.filter((t) => !taskMilestone(t));
+    else if (ms !== '__all__') done = done.filter((t) => taskMilestone(t).toLowerCase() === ms.toLowerCase());
+    done = done.slice().sort((a, b) => (b.completed_ts || 0) - (a.completed_ts || 0));
+
+    const groups = new Map();
+    for (const t of done) {
+      const g = taskMilestone(t) || 'Sans version';
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(t);
+    }
+
+    const dateStr = new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date());
+    const lines = ['# Patch Notes TheFrontHub — ' + dateStr, ''];
+    lines.push('*' + done.length + ' ' + (done.length === 1 ? 'tâche terminée' : 'tâches terminées') + '*', '');
+    for (const [g, arr] of groups) {
+      lines.push('## ' + g, '');
+      for (const t of arr) {
+        const d = t.completed_ts
+          ? new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: '2-digit' }).format(new Date(t.completed_ts * 1000))
+          : '';
+        const by = t.completed_by_name ? ' — *' + t.completed_by_name + '*' : '';
+        const title = String(t.title || '').replace(/[*#]/g, '').trim();
+        lines.push('- ✅ **' + title + '**' + by + (d ? ' · ' + d : ''));
+      }
+      lines.push('');
+    }
+    if (done.length === 0) lines.push('_Aucune tâche terminée sur cette période._', '');
+    return lines.join('\n').trim() + '\n';
+  }
+
+  function renderChangelogPreview() {
+    const p = $('#chg-preview');
+    if (p) p.textContent = buildChangelog();
+  }
+
+  function openChangelog() {
+    if (!dlgChangelog) return;
+    const sel = $('#f-chg-milestone');
+    if (sel) {
+      const cur = sel.value || '__all__';
+      sel.textContent = '';
+      const all = el('option', '', 'Toutes les versions');
+      all.value = '__all__';
+      sel.appendChild(all);
+      for (const m of milestonesOf(state.tasks)) {
+        const o = el('option', '', m);
+        o.value = m;
+        sel.appendChild(o);
+      }
+      const none = el('option', '', '(sans version)');
+      none.value = '__none__';
+      sel.appendChild(none);
+      const has = Array.from(sel.options).some((o) => o.value === cur);
+      sel.value = has ? cur : '__all__';
+    }
+    renderChangelogPreview();
+    dlgChangelog.showModal();
+  }
+
+  const btnChangelog = $('#btn-changelog');
+  if (btnChangelog) btnChangelog.addEventListener('click', openChangelog);
+
+  const fChgMs = $('#f-chg-milestone');
+  if (fChgMs) fChgMs.addEventListener('change', renderChangelogPreview);
+
+  const fChgPeriod = $('#f-chg-period');
+  if (fChgPeriod) fChgPeriod.addEventListener('change', renderChangelogPreview);
+
+  const btnChgCopy = $('#btn-chg-copy');
+  if (btnChgCopy) {
+    btnChgCopy.addEventListener('click', async () => {
+      const ok = await copyText(buildChangelog());
+      toast(ok ? 'Patch notes copiés — colle-les sur Discord ou le site !' : 'Copie impossible', ok ? 'success' : 'error');
+    });
+  }
+
+  const btnChgDownload = $('#btn-chg-download');
+  if (btnChgDownload) {
+    btnChgDownload.addEventListener('click', () => {
+      const blob = new Blob([buildChangelog()], { type: 'text/markdown;charset=utf-8;' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'patch-notes-' + new Date().toISOString().slice(0, 10) + '.md';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    });
+  }
+
   /* ── Raccourcis clavier ─────────────────────────────────────────────────── */
 
   document.addEventListener('keydown', (ev) => {
@@ -1363,12 +1918,16 @@
     const t = ev.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
     if (anyDialogOpen()) return;
-    if (ev.key === 'n' || ev.key === 'N') {
+    if (ev.key === 'n' || ev.key === 'N' || ev.key === 'c' || ev.key === 'C') {
       ev.preventDefault();
       openTaskDialog(null);
     } else if (ev.key === '/') {
       ev.preventDefault();
       const s = $('#f-search');
+      if (s) s.focus();
+    } else if (ev.key === 'f' || ev.key === 'F') {
+      ev.preventDefault();
+      const s = $('#f-assignee');
       if (s) s.focus();
     }
   });

@@ -1061,3 +1061,202 @@ code { font-family: var(--mono); font-size: 12.5px; }
   .meta-label { width: 84px; }
   .act-time { display: none; }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   v6 — versions/jalons, checklists, vue liste, Markdown, patch notes
+   ───────────────────────────────────────────────────────────────────────────── */
+
+[hidden] { display: none !important; }
+
+.counts b.urgent { color: var(--red); }
+
+/* Chip version / jalon */
+.mchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--fg-secondary);
+  background: var(--bg-muted);
+  border: 1px dashed var(--border-strong);
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+
+/* Badge checklist sur les cartes */
+.due.ck.full { color: var(--green); border-color: var(--green); background: var(--green-subtle); }
+
+/* Checklist (détail de tâche) */
+.detail-checklist { margin-top: 18px; }
+
+.ck-progress {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--bg-muted);
+  overflow: hidden;
+  margin: 8px 0 10px;
+}
+.ck-progress.mini { height: 4px; margin: 4px 0 0; width: 72px; }
+.ck-bar {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--green);
+  transition: width .25s ease;
+}
+
+.ck-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.ck-empty { color: var(--fg-subtle); font-size: 13px; padding: 4px 2px; }
+.ck-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  background: var(--bg-subtle);
+}
+.ck-item input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--green); cursor: pointer; flex: none; }
+.ck-body { flex: 1; min-width: 0; font-size: 13.5px; overflow-wrap: anywhere; }
+.ck-item.done .ck-body { color: var(--fg-subtle); text-decoration: line-through; }
+.ck-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg-subtle);
+  cursor: pointer;
+  flex: none;
+}
+.ck-del:hover { color: var(--red); background: var(--red-subtle); }
+
+.dc-form input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 14px;
+  color: var(--fg);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.dc-form input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-subtle);
+}
+
+/* Markdown riche (descriptions + commentaires) */
+.md-p { margin: 0 0 4px; }
+.md-p:last-child { margin-bottom: 0; }
+.md-ul { margin: 2px 0 4px; padding-left: 20px; display: flex; flex-direction: column; gap: 2px; }
+.md-code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 1px 5px;
+}
+.md-pre {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 4px 0 8px;
+}
+.md-pre code { background: none; border: 0; padding: 0; }
+.md-imglink { display: inline-block; }
+.md-img {
+  max-width: 220px;
+  max-height: 140px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  display: block;
+  margin: 4px 0;
+}
+
+/* Vue liste (façon tableur) */
+.listview { overflow-x: auto; }
+
+.lv-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.lv-table th {
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--fg-subtle);
+  padding: 8px 10px;
+  border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+}
+.lv-table td { padding: 9px 10px; border-bottom: 1px solid var(--border-subtle); vertical-align: middle; }
+.lv-row { cursor: pointer; transition: background .12s ease; }
+.lv-row:hover { background: var(--bg-subtle); }
+.lv-row.arch { opacity: .65; }
+
+.lv-tmain { display: flex; align-items: center; gap: 6px; min-width: 180px; }
+.lv-tmain b { font-size: 13.5px; }
+.lv-desc {
+  color: var(--fg-muted);
+  font-size: 12px;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+.lv-status {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 4px 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.lv-labels { max-width: 170px; }
+.lv-labels .lchip { margin: 1px 3px 1px 0; }
+.lv-more { font-size: 11px; color: var(--fg-subtle); font-weight: 700; }
+.lv-none { color: var(--fg-subtle); }
+.lv-who { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.lv-who img { width: 20px; height: 20px; border-radius: 50%; }
+.lv-ckn { font-size: 12px; font-weight: 700; }
+.lv-ckn.full { color: var(--green); }
+.lv-act { white-space: nowrap; }
+.lv-empty td { text-align: center; color: var(--fg-subtle); padding: 26px 10px; }
+
+/* Patch notes / changelog */
+.chg-preview {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin: 12px 0 4px;
+  max-height: 46vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .lv-desc { display: none; }
+  .lv-table th:nth-child(4), .lv-table td.lv-labels { display: none; }
+  .lv-table th:nth-child(5), .lv-table td.lv-ms { display: none; }
+  .ck-body { font-size: 13px; }
+}

@@ -22,13 +22,16 @@ require_once __DIR__ . '/../api/config.php';
 /* ------------------------------------------------------------------ */
 
 define('TASK_CSRF_COOKIE', 'tfh_task_csrf');
-define('TASK_ASSET_VER', '5');
+define('TASK_ASSET_VER', '6');
 
 /**
  * Étiquettes prédéfinies du panel (clés stockées en CSV dans tfh_task_tasks.labels).
  * La liste est dupliquée côté client (app.js) pour l'affichage : garder synchronisé.
  */
-const TASK_LABEL_KEYS = ['tournoi', 'site', 'discord', 'staff', 'urgence', 'idee', 'bug', 'divers'];
+const TASK_LABEL_KEYS = [
+    'tournoi', 'site', 'discord', 'staff', 'urgence', 'idee', 'bug',
+    'design', 'backend', 'atlas', 'perf', 'divers',
+];
 
 /* ------------------------------------------------------------------ */
 /* Divers                                                              */
@@ -163,7 +166,7 @@ function task_align_collations(PDO $pdo): void
              WHERE TABLE_SCHEMA = DATABASE()
                AND TABLE_NAME IN
                ('tfh_task_admins','tfh_task_tasks','tfh_task_comments',
-                'tfh_task_activity','tfh_task_settings')"
+                'tfh_task_activity','tfh_task_settings','tfh_task_checklist')"
         );
         $st->execute();
         $current = [];
@@ -174,7 +177,7 @@ function task_align_collations(PDO $pdo): void
         /* 3. Conversion si nécessaire (une seule fois : ensuite ça correspond). */
         foreach (
             ['tfh_task_admins', 'tfh_task_tasks', 'tfh_task_comments',
-             'tfh_task_activity', 'tfh_task_settings'] as $table
+             'tfh_task_activity', 'tfh_task_settings', 'tfh_task_checklist'] as $table
         ) {
             $cur = $current[$table] ?? '';
             if ($cur === '') {
@@ -259,6 +262,7 @@ function task_ensure_schema(PDO $pdo): void
         task_column_add($pdo, 'tfh_task_tasks', 'labels', "VARCHAR(250) NOT NULL DEFAULT ''");
         task_column_add($pdo, 'tfh_task_tasks', 'pinned', 'TINYINT(1) NOT NULL DEFAULT 0');
         task_column_add($pdo, 'tfh_task_tasks', 'archived_at', 'DATETIME NULL');
+        task_column_add($pdo, 'tfh_task_tasks', 'milestone', "VARCHAR(80) NOT NULL DEFAULT ''");
 
         $pdo->exec(
             'CREATE TABLE IF NOT EXISTS tfh_task_comments (
@@ -290,6 +294,17 @@ function task_ensure_schema(PDO $pdo): void
             'CREATE TABLE IF NOT EXISTS tfh_task_settings (
                 skey   VARCHAR(64) NOT NULL PRIMARY KEY,
                 svalue TEXT NOT NULL
+             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS tfh_task_checklist (
+                id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                task_id    INT UNSIGNED NOT NULL,
+                body       VARCHAR(200) NOT NULL,
+                done       TINYINT(1) NOT NULL DEFAULT 0,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                INDEX idx_ck_task (task_id)
              ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
         );
     } catch (Throwable $e) {
@@ -450,9 +465,10 @@ function task_webhook_post(string $url, array $payload): array
 /**
  * Envoie une notification Discord (best-effort, jamais bloquante).
  *
- * $event : 'create' | 'assign' | 'done'
+ * $event : 'create' | 'assign' | 'start' | 'done'
  * $t     : ['id', 'title', 'description', 'priority', 'assignee_id',
- *           'assignee_name', 'due' (Y-m-d), 'created_by_name', 'completed_by_name']
+ *           'assignee_name', 'due' (Y-m-d), 'milestone',
+ *           'created_by_name', 'started_by_name', 'completed_by_name']
  */
 function task_webhook_send(PDO $pdo, string $event, array $t): void
 {
@@ -500,25 +516,39 @@ function task_webhook_send(PDO $pdo, string $event, array $t): void
                 $fields[] = ['name' => 'Échéance', 'value' => $dt->format('d/m/Y'), 'inline' => true];
             }
         }
+        $ms = trim((string) ($t['milestone'] ?? ''));
+        if ($ms !== '') {
+            $fields[] = ['name' => 'Version', 'value' => task_mb_truncate($ms, 80), 'inline' => true];
+        }
 
         $embedTitle = '';
         $content    = '';
         $color      = 0xFF6B00;
 
         if ($event === 'create') {
-            $embedTitle = 'Nouvelle tâche #' . $id;
+            $embedTitle = '🆕 Nouvelle tâche #' . $id;
             $color      = 0xFF6B00;
             if ($aid !== '') {
                 $content = '<@' . $aid . '> une nouvelle tâche t\'est assignée !';
             }
         } elseif ($event === 'assign') {
-            $embedTitle = 'Tâche assignée #' . $id;
+            $embedTitle = '📌 Tâche assignée #' . $id;
             $color      = 0x5865F2;
             if ($aid !== '') {
                 $content = '<@' . $aid . '> tu es responsable de cette tâche.';
             }
+        } elseif ($event === 'start') {
+            $embedTitle = '🚀 Tâche en cours #' . $id;
+            $color      = 0xF59E0B;
+            $startedBy = trim((string) ($t['started_by_name'] ?? ''));
+            if ($startedBy !== '') {
+                $fields[] = ['name' => 'Démarrée par', 'value' => $startedBy, 'inline' => true];
+            }
+            if ($aid !== '') {
+                $content = '<@' . $aid . '> c\'est parti ! 🚀';
+            }
         } elseif ($event === 'done') {
-            $embedTitle = 'Tâche terminée #' . $id;
+            $embedTitle = '✅ Tâche terminée #' . $id;
             $color      = 0x10B981;
             $doneBy = trim((string) ($t['completed_by_name'] ?? ''));
             if ($doneBy !== '') {

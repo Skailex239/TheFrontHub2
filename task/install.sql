@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS tfh_task_tasks (
     assignee_id       VARCHAR(32) NULL,
     labels            VARCHAR(250) NOT NULL DEFAULT '',         -- clés d'étiquettes en CSV
     pinned            TINYINT(1) NOT NULL DEFAULT 0,
+    milestone         VARCHAR(80) NOT NULL DEFAULT '',          -- version / jalon (texte libre)
     due_at            DATE NULL,
     archived_at       DATETIME NULL,
     created_by        VARCHAR(32) NOT NULL,
@@ -36,6 +37,17 @@ CREATE TABLE IF NOT EXISTS tfh_task_tasks (
     PRIMARY KEY (id),
     INDEX idx_task_status (status),
     INDEX idx_task_assignee (assignee_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Sous-tâches / checklists des tâches
+CREATE TABLE IF NOT EXISTS tfh_task_checklist (
+    id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    task_id    INT UNSIGNED NOT NULL,
+    body       VARCHAR(200) NOT NULL,
+    done       TINYINT(1) NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    INDEX idx_ck_task (task_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Commentaires sur les tâches
