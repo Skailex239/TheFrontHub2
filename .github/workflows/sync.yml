@@ -153,7 +153,8 @@ jobs:
         run: |
           chmod +x scripts/data-release.sh
           # sync-dashboard.js consomme le ranked.json produit par le job précédent
-          ./scripts/data-release.sh pull ranked.json
+          # + weekly_history.json.gz = historique hebdo persistant (profil S1→S53)
+          ./scripts/data-release.sh pull ranked.json weekly_history.json.gz
       - run: node sync-dashboard.js
         env:
           OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
@@ -162,7 +163,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           chmod +x scripts/data-release.sh
-          ./scripts/data-release.sh push dashboard_scores.json dashboard_scores.json.gz dashboard_ranking.json dashboard_player_games.json
+          ./scripts/data-release.sh push dashboard_scores.json dashboard_scores.json.gz dashboard_ranking.json dashboard_player_games.json weekly_history.json.gz weekly_history.json
 
   sync-player-games:
     needs: [sync-dashboard]

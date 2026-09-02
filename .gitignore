@@ -119,6 +119,8 @@ dashboard-*.png
 /teams_public.json.gz
 /dashboard_scores.json
 /dashboard_scores.json.gz
+/weekly_history.json
+/weekly_history.json.gz
 /dashboard_ranking.json
 /dashboard_player_games.json
 /checkpoint.json

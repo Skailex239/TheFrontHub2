@@ -22,6 +22,8 @@ import { API_BASE, openFrontFetch, hasExemption } from "./openfront-api.js";
 
 const PLAYERS_FILE = "data/players.json";
 const OUTPUT_FILE = "dashboard_scores.json";
+const HISTORY_FILE = "weekly_history.json";
+const HISTORY_MAX_WEEKS = 53; // ~1 an de colonnes S1→S53, puis purge des plus vieilles
 const CONCURRENCY = 8;
 const TFH_ALIASES_URL = "https://thefronthub.com/api/public-aliases.php";
 
@@ -352,6 +354,46 @@ async function main() {
   const json = JSON.stringify(output);
   fs.writeFileSync(OUTPUT_FILE, json);
   fs.writeFileSync(OUTPUT_FILE + ".gz", zlib.gzipSync(json));
+
+  // ═══ Historique hebdomadaire (weekly_history.json.gz) ═══
+  // Un snapshot par semaine, clé = lundi 00h00 Paris (date UTC du lundi).
+  // La semaine EN COURS est mise à jour à chaque exécution ; les semaines
+  // passées sont figées → le graphique du profil accumule S1, S2, S3…
+  // Transport : asset de la release data-latest (même pattern que
+  // ranked_history) — pull au début du job, push à la fin, et
+  // pull-data.sh le rapatrie sur o2switch pour le site.
+  let history = { version: 1, weeks: {} };
+  try {
+    if (fs.existsSync(HISTORY_FILE + ".gz")) {
+      history = JSON.parse(zlib.gunzipSync(fs.readFileSync(HISTORY_FILE + ".gz")));
+    } else if (fs.existsSync(HISTORY_FILE)) {
+      history = JSON.parse(fs.readFileSync(HISTORY_FILE, "utf8"));
+    }
+  } catch (e) {
+    console.warn("[dashboard-sync] Historique hebdo illisible, on repart de zéro :", e.message);
+  }
+  if (!history || typeof history !== "object" || !history.weeks) history = { version: 1, weeks: {} };
+
+  const weekKey = weekStartIso.slice(0, 10); // "YYYY-MM-DD" (lundi, frontière Paris)
+  const weeklySorted = [...results].sort((a, b) => (b.weekly_points || 0) - (a.weekly_points || 0));
+  const snapshot = {};
+  weeklySorted.forEach((p, idx) => {
+    // Champs compacts : t=total, f=FFA, te=Team, r=Classé, k=rang hebdo
+    snapshot[p.publicId] = {
+      t: p.weekly_points || 0,
+      f: (p.weekly_ffa_casual || 0) + (p.weekly_ffa_ranked || 0),
+      te: (p.weekly_team_casual || 0) + (p.weekly_team_ranked || 0),
+      r: (p.weekly_ffa_ranked || 0) + (p.weekly_team_ranked || 0),
+      k: idx + 1,
+    };
+  });
+  history.weeks[weekKey] = { start: weekStartIso, players: snapshot };
+  const histKeys = Object.keys(history.weeks).sort();
+  while (histKeys.length > HISTORY_MAX_WEEKS) delete history.weeks[histKeys.shift()];
+  const histJson = JSON.stringify(history);
+  fs.writeFileSync(HISTORY_FILE, histJson);
+  fs.writeFileSync(HISTORY_FILE + ".gz", zlib.gzipSync(histJson));
+  console.log(`[dashboard-sync] 🗓️ Historique hebdo : ${histKeys.length} semaine(s) conservée(s) (${weekKey} actualisée)`);
 
   console.log(`[dashboard-sync] ✅ ${results.length} joueurs — ${(zlib.gzipSync(json).length / 1024).toFixed(1)} KB`);
   console.log(`[dashboard-sync] 🏁 Top 3:`);

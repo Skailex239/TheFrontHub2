@@ -546,6 +546,7 @@ async function loadStats(publicId) {
 
           // Store for the chart
           window._profileWeekData = {
+            publicId: publicId,
             ffa: weekFFA,
             team: weekTeam,
             total: weekScore,
@@ -567,6 +568,23 @@ async function loadStats(publicId) {
     } catch (e) {
       console.warn("[profile] Week stats load failed:", e.message);
     }
+
+    // ── Historique hebdo (weekly_history.json.gz) — non-blocking ──
+    // Alimenté par sync-dashboard.js : un snapshot figé par semaine écoulée,
+    // la semaine en cours est rafraîchie toutes les 5 min. Chaque lundi,
+    // une nouvelle colonne S1, S2, S3… s'ajoute au graphique du profil.
+    fetch("weekly_history.json.gz", { cache: "no-cache" })
+      .then(async (res) => {
+        if (res.ok) {
+          const ds = new DecompressionStream("gzip");
+          window._profileWeekHistory = await new Response(res.body.pipeThrough(ds)).json();
+        } else {
+          const fb = await fetch("weekly_history.json", { cache: "no-cache" });
+          if (fb.ok) window._profileWeekHistory = await fb.json();
+        }
+        if (window._profileWeekHistory) renderWeeklyChart();
+      })
+      .catch(() => { /* pas encore d'historique (1re semaine) → courbe à 1 point */ });
 
     // All-time score
     const allTimeScore = stats.wins * 4 + (stats.total - stats.wins);
@@ -1042,19 +1060,64 @@ document.addEventListener("click", (e) => {
 
 
 /* ═══ Weekly Performance Chart — Line chart ═══
-   Graphique en lignes: semaines sur l'axe X (horizontal), score sur
+   Graphique en lignes : semaines sur l'axe X (S1, S2, S3… — l'historique
+   s'accumule semaine après semaine, voir sync-dashboard.js), score sur
    l'axe Y gauche, position sur l'axe Y droite (inversé).
-   Lignes colorées par mode: FFA=rouge, Team=bleu, Total=noir.
-   Points avec cercle contenant le rang (#X). */
+   Lignes colorées par mode : FFA=rouge, Team=bleu, Classé=violet, Total=noir.
+   Points avec cercle contenant le rang (#X) sur la série Total. */
+
+/* Construit la liste chronologique des semaines :
+   historique figé (weekly_history.json) + point live (semaine en cours,
+   données les plus fraîches) en dernière position. */
+function buildWeeklyWeeks(data) {
+  const weeks = [];
+  const hist = window._profileWeekHistory;
+  const histWeeks = hist && hist.weeks ? Object.entries(hist.weeks).sort((a, b) => a[0].localeCompare(b[0])) : [];
+  for (const [key, wk] of histWeeks) {
+    const p = wk && wk.players ? wk.players[data.publicId] : null;
+    weeks.push({
+      key,
+      start: (wk && wk.start) || key,
+      total: p ? p.t || 0 : 0,
+      ffa: p ? p.f || 0 : 0,
+      team: p ? p.te || 0 : 0,
+      ranked: p ? p.r || 0 : 0,
+      rank: p && p.k ? p.k : "—",
+    });
+  }
+  // Semaine en cours : refresh avec les données live (dashboard_scores)
+  const liveKey = (data.weekStart || "").slice(0, 10);
+  const liveIdx = weeks.findIndex((w) => w.key === liveKey);
+  if (liveIdx >= 0) {
+    const w = weeks[liveIdx];
+    w.total = data.total;
+    w.ffa = data.ffa;
+    w.team = data.team;
+    w.ranked = data.ffaRanked + data.teamRanked;
+    w.rank = data.rank;
+  } else {
+    weeks.push({
+      key: liveKey || "live",
+      start: data.weekStart || new Date().toISOString(),
+      total: data.total,
+      ffa: data.ffa,
+      team: data.team,
+      ranked: data.ffaRanked + data.teamRanked,
+      rank: data.rank,
+    });
+  }
+  weeks.forEach((w, i) => { w.label = "S" + (i + 1); });
+  return weeks;
+}
 
 function renderWeeklyChart() {
   const data = window._profileWeekData;
-  if (!data) return;
+  if (!data || !data.publicId) return;
 
   let wrap = document.getElementById("weekly-chart-card");
   if (!wrap) {
-    // Try cockpit mount first, then fallback to career-stats-section
-    const mount = document.getElementById("pf2-below") || document.getElementById("career-stats-section") || document.getElementById("playtime-section-mount");
+    // En HAUT du profil (sous les cartes de stats), puis fallbacks historiques
+    const mount = document.getElementById("pf2-weekly-top") || document.getElementById("pf2-below") || document.getElementById("career-stats-section") || document.getElementById("playtime-section-mount");
     if (!mount) return;
     wrap = document.createElement("div");
     wrap.id = "weekly-chart-card";
@@ -1063,7 +1126,7 @@ function renderWeeklyChart() {
       <header class="pf2-panel-head">
         <h3>Points par semaine</h3>
         <i class="pf2-panel-rule"></i>
-        <span class="pf2-panel-sub">Performance hebdomadaire (FFA, Team, Classé)</span>
+        <span class="pf2-panel-sub">Performance hebdomadaire (FFA, Team, Classé) — une nouvelle semaine s'ajoute chaque lundi</span>
       </header>
       <canvas id="weekly-chart-canvas" style="width:100%;height:300px;display:block"></canvas>
     `;
@@ -1082,14 +1145,16 @@ function renderWeeklyChart() {
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, W, H);
 
-  // ── Data: 1 week for now (Week 1). Will expand as history accumulates. ──
-  const weeks = ["Week 1"];
+  // ── Data : S1 → Sn (historique) + semaine en cours en dernier point ──
+  const weeks = buildWeeklyWeeks(data);
+  if (weeks.length === 0) return;
   const rankedScore = data.ffaRanked + data.teamRanked;
+  const isLive = (i) => i === weeks.length - 1; // dernier point = semaine en cours (live)
   const series = [
-    { label: "FFA", color: "#ef4444", points: [{ score: data.ffa, rank: data.rank, detail: { wins: data.ffaCasual } }] },
-    { label: "Team", color: "#2196f3", points: [{ score: data.team, rank: data.rank, detail: { wins: data.teamCasual } }] },
-    { label: "Class\u00e9", color: "#9333ea", points: [{ score: rankedScore, rank: data.rank, detail: { ffa1v1: data.ffaRanked, team2v2: data.teamRanked } }] },
-    { label: "Total", color: "#111827", points: [{ score: data.total, rank: data.rank, detail: { ffa: data.ffa, team: data.team, ranked: rankedScore, allTime: data.allTimePoints } }] },
+    { label: "FFA", color: "#ef4444", points: weeks.map((w, i) => ({ score: w.ffa, rank: w.rank, detail: isLive(i) ? { wins: data.ffaCasual } : {}, date: w.start })) },
+    { label: "Team", color: "#2196f3", points: weeks.map((w, i) => ({ score: w.team, rank: w.rank, detail: isLive(i) ? { wins: data.teamCasual } : {}, date: w.start })) },
+    { label: "Class\u00e9", color: "#9333ea", points: weeks.map((w, i) => ({ score: w.ranked, rank: w.rank, detail: isLive(i) ? { ffa1v1: data.ffaRanked, team2v2: data.teamRanked } : {}, date: w.start })) },
+    { label: "Total", color: "#111827", points: weeks.map((w, i) => ({ score: w.total, rank: w.rank, detail: isLive(i) ? { ffa: data.ffa, team: data.team, ranked: rankedScore, allTime: data.allTimePoints } : { ffa: w.ffa, team: w.team, ranked: w.ranked }, date: w.start })) },
   ];
 
   // Store point positions for hover detection
@@ -1140,18 +1205,21 @@ function renderWeeklyChart() {
   ctx.fillText("Score", 0, 0);
   ctx.restore();
 
-  // ── X-axis labels (weeks) ──
+  // ── X-axis labels (S1, S2, … — échantillonnés si trop nombreuses) ──
   ctx.fillStyle = "#6b7280";
   ctx.font = "11px Inter, sans-serif";
   ctx.textAlign = "center";
-  weeks.forEach((label, i) => {
-    ctx.fillText(label, xForIndex(i), padding.top + chartH + 20);
+  const labelStep = weeks.length > 12 ? Math.ceil(weeks.length / 12) : 1;
+  weeks.forEach((w, i) => {
+    if (i % labelStep === 0 || i === weeks.length - 1) {
+      ctx.fillText(w.label, xForIndex(i), padding.top + chartH + 20);
+    }
   });
 
-  // "Week" label centered
+  // "Semaines" label centered
   ctx.fillStyle = "#9ca3af";
   ctx.font = "10px Inter, sans-serif";
-  ctx.fillText("Week", padding.left + chartW / 2, H - 8);
+  ctx.fillText("Semaines", padding.left + chartW / 2, H - 8);
 
   // ── Draw lines + points for each series ──
   series.forEach(s => {
@@ -1281,23 +1349,25 @@ function renderWeeklyChart() {
 
     if (found) {
       const d = found.point.detail || {};
-      const wk = weeks[found.weekIndex] || "";
-      let html = `<div style="font-weight:700;color:#fff;margin-bottom:4px">${found.series.label} \u2014 ${wk}</div>`;
+      const wMeta = weeks[found.weekIndex] || {};
+      const dateStr = wMeta.start ? new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" }).format(new Date(wMeta.start)) : "";
+      const wkTitle = `${wMeta.label || ""}${dateStr ? ` <span style=\"color:#9ca3af;font-weight:400\">· semaine du ${dateStr}</span>` : ""}`;
+      let html = `<div style="font-weight:700;color:#fff;margin-bottom:4px">${found.series.label} — ${wkTitle}</div>`;
       html += `<div style="color:#9ca3af;font-size:11px;margin-bottom:6px">Score: <span style="color:${found.series.color};font-weight:700">${found.point.score} pts</span></div>`;
 
       if (found.series.label === "FFA") {
-        html += `<div style="font-size:11px;color:#a89480">Wins FFA: ${d.wins || 0}</div>`;
+        if (d.wins !== undefined) html += `<div style="font-size:11px;color:#a89480">Wins FFA: ${d.wins || 0}</div>`;
       } else if (found.series.label === "Team") {
-        html += `<div style="font-size:11px;color:#a89480">Wins Team: ${d.wins || 0}</div>`;
+        if (d.wins !== undefined) html += `<div style="font-size:11px;color:#a89480">Wins Team: ${d.wins || 0}</div>`;
       } else if (found.series.label === "Class\u00e9") {
-        html += `<div style="font-size:11px;color:#a89480">1v1: ${d.ffa1v1 || 0} wins</div>`;
-        html += `<div style="font-size:11px;color:#a89480">2v2: ${d.team2v2 || 0} wins</div>`;
+        if (d.ffa1v1 !== undefined) html += `<div style="font-size:11px;color:#a89480">1v1: ${d.ffa1v1 || 0} wins</div>`;
+        if (d.team2v2 !== undefined) html += `<div style="font-size:11px;color:#a89480">2v2: ${d.team2v2 || 0} wins</div>`;
       } else if (found.series.label === "Total") {
         html += `<div style="font-size:11px;color:#a89480">FFA: ${d.ffa || 0} pts</div>`;
         html += `<div style="font-size:11px;color:#a89480">Team: ${d.team || 0} pts</div>`;
         html += `<div style="font-size:11px;color:#a89480">Class\u00e9: ${d.ranked || 0} pts</div>`;
-        html += `<div style="font-size:11px;color:#a89480">Rang: #${found.point.rank}</div>`;
-        html += `<div style="font-size:11px;color:#a89480;margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.1)">All-time: ${d.allTime || 0} pts</div>`;
+        if (found.point.rank && found.point.rank !== "—") html += `<div style="font-size:11px;color:#a89480">Rang hebdo: #${found.point.rank}</div>`;
+        if (d.allTime !== undefined) html += `<div style="font-size:11px;color:#a89480;margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.1)">All-time: ${d.allTime || 0} pts</div>`;
       }
 
       tooltip.innerHTML = html;
