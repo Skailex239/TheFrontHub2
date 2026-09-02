@@ -119,6 +119,71 @@ function task_security_headers(): void
 /* Schéma MySQL (tables dédiées au panel, préfixe tfh_task_)           */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Aligne la collation des tables du panel sur celle des tables du site
+ * (référence : tfh_user_identities, jointe par l'API du panel).
+ *
+ * Sans cela, un serveur MySQL dont le défaut est utf8mb4_general_ci crée les
+ * tables du panel en general_ci alors que le site est en unicode_ci : toute
+ * jointure entre les deux échoue avec l'erreur MySQL 1267 « Illegal mix of
+ * collations » (symptôme : les tâches ne s'affichent jamais). La conversion
+ * est sans risque : les données du panel sont des IDs ASCII et du texte UTF-8.
+ */
+function task_align_collations(PDO $pdo): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+
+    try {
+        /* 1. Collation de référence : celle de la table du site jointe au panel. */
+        $ref = 'utf8mb4_unicode_ci';
+        $st  = $pdo->prepare(
+            "SELECT TABLE_COLLATION FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tfh_user_identities'
+             LIMIT 1"
+        );
+        $st->execute();
+        $row = $st->fetch();
+        if ($row !== false && !empty($row['TABLE_COLLATION'])) {
+            $ref = (string) $row['TABLE_COLLATION'];
+        }
+
+        /* 2. Collation actuelle des tables du panel. */
+        $st = $pdo->prepare(
+            "SELECT TABLE_NAME, TABLE_COLLATION FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME IN ('tfh_task_admins','tfh_task_tasks')"
+        );
+        $st->execute();
+        $current = [];
+        foreach ($st->fetchAll() as $r) {
+            $current[(string) $r['TABLE_NAME']] = (string) $r['TABLE_COLLATION'];
+        }
+
+        /* 3. Conversion si nécessaire (une seule fois : ensuite ça correspond). */
+        foreach (['tfh_task_admins', 'tfh_task_tasks'] as $table) {
+            $cur = $current[$table] ?? '';
+            if ($cur !== '' && $cur !== $ref) {
+                $pdo->exec(
+                    'ALTER TABLE ' . $table . ' CONVERT TO CHARACTER SET utf8mb4 COLLATE ' . $ref
+                );
+                if (function_exists('task_diag')) {
+                    task_diag('collation alignee ' . $table . ' -> ' . $ref);
+                }
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('[tfh-task] alignement collation: ' . $e->getMessage());
+        if (function_exists('task_diag')) {
+            task_diag('EXC collation: ' . $e->getMessage());
+        }
+        /* Non bloquant : sans alignement, l'erreur SQL restera visible en clair. */
+    }
+}
+
 function task_ensure_schema(PDO $pdo): void
 {
     static $checked = false;
@@ -142,7 +207,7 @@ function task_ensure_schema(PDO $pdo): void
                 role       VARCHAR(16) NOT NULL DEFAULT \'admin\',
                 added_by   VARCHAR(32) NOT NULL DEFAULT \'\',
                 added_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
         );
         $pdo->exec(
             'CREATE TABLE IF NOT EXISTS tfh_task_tasks (
@@ -161,7 +226,7 @@ function task_ensure_schema(PDO $pdo): void
                 PRIMARY KEY (id),
                 INDEX idx_task_status (status),
                 INDEX idx_task_assignee (assignee_id)
-             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
         );
     } catch (Throwable $e) {
         error_log('[tfh-task] schema: ' . $e->getMessage());
@@ -172,6 +237,9 @@ function task_ensure_schema(PDO $pdo): void
             . 'Détail technique : ' . $e->getMessage()
         );
     }
+
+    /* Les tables existantes (créées avant ce fix) sont alignées ici. */
+    task_align_collations($pdo);
 }
 
 /* ------------------------------------------------------------------ */

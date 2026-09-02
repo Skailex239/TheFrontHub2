@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS tfh_task_admins (
     role       VARCHAR(16) NOT NULL DEFAULT 'admin',   -- 'owner' | 'admin'
     added_by   VARCHAR(32) NOT NULL DEFAULT '',
     added_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Tâches
 CREATE TABLE IF NOT EXISTS tfh_task_tasks (
@@ -32,4 +32,4 @@ CREATE TABLE IF NOT EXISTS tfh_task_tasks (
     PRIMARY KEY (id),
     INDEX idx_task_status (status),
     INDEX idx_task_assignee (assignee_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
