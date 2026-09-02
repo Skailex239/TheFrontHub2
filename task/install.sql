@@ -81,3 +81,40 @@ CREATE TABLE IF NOT EXISTS tfh_task_settings (
     skey   VARCHAR(64) NOT NULL PRIMARY KEY,
     svalue TEXT NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Discussion de tâche (style Discord) : messages
+CREATE TABLE IF NOT EXISTS tfh_task_chat (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    task_id     INT UNSIGNED NOT NULL,
+    author_id   VARCHAR(32) NOT NULL,
+    author_name VARCHAR(64) NOT NULL DEFAULT '',
+    body        TEXT NULL,
+    attachments TEXT NULL,          -- JSON [{id, name, size, mime, ext, width, height, expires}]
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  DATETIME NULL,
+    deleted_at  DATETIME NULL,      -- suppression "Discord" : le message reste visible comme supprimé
+    PRIMARY KEY (id),
+    INDEX idx_chat_task (task_id, id),
+    INDEX idx_chat_updated (updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Pièces jointes de la discussion (fichiers stockés HORS du dossier web,
+-- servis uniquement par task/file.php après vérification de session).
+-- Les fichiers expirent au bout de 30 jours (purge automatique).
+CREATE TABLE IF NOT EXISTS tfh_task_chat_files (
+    id         CHAR(16) NOT NULL PRIMARY KEY,
+    task_id    INT UNSIGNED NOT NULL,
+    msg_id     BIGINT UNSIGNED NULL,
+    path       VARCHAR(300) NOT NULL,
+    name       VARCHAR(200) NOT NULL,
+    mime       VARCHAR(120) NOT NULL DEFAULT '',
+    ext        VARCHAR(10) NOT NULL DEFAULT '',
+    size       INT UNSIGNED NOT NULL DEFAULT 0,
+    width      INT UNSIGNED NULL,
+    height     INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME NOT NULL,
+    INDEX idx_cf_task (task_id),
+    INDEX idx_cf_msg (msg_id),
+    INDEX idx_cf_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

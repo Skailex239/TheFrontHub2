@@ -1,12 +1,13 @@
 /* ─────────────────────────────────────────────────────────────────────────────
-   task/assets/app.js — Panel de tâches TheFrontHub (v6)
+   task/assets/app.js — Panel de tâches TheFrontHub (v7)
    Vanilla JS, sans dépendance.
    Pages auth : thème + boutons copier.
    Page applicative (TASK_BOOT présent) : tableau + liste façon tableur,
    recherche/filtres/tri, drag & drop, échéances, étiquettes, versions/jalons,
-   épinglage, checklists (sous-tâches), détail + commentaires avec Markdown,
-   historique d'activité, notifications Discord (webhook), stats de vélocité,
-   générateur de patch notes, export CSV, raccourcis clavier, PWA.
+   épinglage, checklists (sous-tâches), détail + discussion style Discord
+   (texte, liens, images, vidéos, fichiers joints 30 j), historique d'activité,
+   notifications Discord (webhook), stats de vélocité, générateur de patch
+   notes, export CSV, raccourcis clavier, PWA.
    ───────────────────────────────────────────────────────────────────────────── */
 
 (() => {
@@ -113,6 +114,8 @@
     back: 'M9 14L4 9l5-5M4 9h16',
     pencil: 'M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z',
     trash: 'M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14',
+    copy: 'M20 9h-9a2 2 0 00-2 2v9a2 2 0 002 2h9a2 2 0 002-2v-9a2 2 0 00-2-2zM5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1',
+    download: 'M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3',
     pin: 'M9 3h6m-5 0v5.6L6.8 12a4.2 4.2 0 003 7.17h4.4a4.2 4.2 0 003-7.17L14 8.6V3',
     comment: 'M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z',
     cal: 'M8 2v4m8-4v4M3 10h18M5 4h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z',
@@ -148,7 +151,8 @@
     loaded: false,
     view: 'board',
     filters: { q: '', prio: '', assignee: '', milestone: '', sort: 'priority', archived: false },
-    detailId: null
+    detailId: null,
+    chat: { taskId: null, messages: [], lastId: 0, counts: {}, ttlDays: 30, pending: [], editId: null, sending: false }
   };
   let editingId = null;
   let editingLabels = [];
@@ -458,6 +462,8 @@
     state.activity = j.activity || [];
     state.settings = j.settings || null;
     state.me = j.me || state.me;
+    if (j.chat_counts && typeof j.chat_counts === 'object') state.chat.counts = j.chat_counts;
+    if (j.chat_ttl_days) state.chat.ttlDays = j.chat_ttl_days;
     state.loaded = true;
     renderAll();
   }
@@ -680,7 +686,7 @@
     }
 
     const due = dueInfo(t);
-    const cCount = state.comments.filter((c) => c.task_id === t.id).length;
+    const cCount = chatCountOf(t.id);
     const ck = ckProgress(t.id);
     const ms = taskMilestone(t);
     if (due || cCount > 0 || ck.total > 0 || ms || t.archived_ts) {
@@ -702,6 +708,7 @@
         const cb = el('span', 'due cm');
         cb.appendChild(svg(ICONS.comment, 12));
         cb.appendChild(el('span', '', String(cCount)));
+        cb.title = cCount + ' message(s) dans la discussion';
         flags.appendChild(cb);
       }
       if (ms) flags.appendChild(milestoneChip(ms));
@@ -926,7 +933,7 @@
       }
       tr.appendChild(tdCk);
 
-      const cCount = state.comments.filter((c) => c.task_id === t.id).length;
+      const cCount = chatCountOf(t.id);
       tr.appendChild(el('td', 'lv-cm', cCount > 0 ? String(cCount) : '—'));
 
       const tdWho = el('td', 'lv-who');
@@ -1260,10 +1267,6 @@
       } else if (btn.dataset.act === 'del') doDelete(id);
       else if (btn.dataset.act === 'pin') doPin(id);
       else if (btn.dataset.act === 'unarchive') doUnarchive(id);
-      else if (btn.dataset.act === 'cdel') {
-        const cid = parseInt(btn.dataset.cid, 10);
-        if (cid) deleteComment(cid);
-      }
     });
   }
 
@@ -1394,45 +1397,9 @@
     b.dataset.act = 'del'; b.dataset.id = String(t.id);
     actions.appendChild(b);
 
-    /* Commentaires */
-    const list = $('#detail-comments');
-    const all = state.comments.filter((c) => c.task_id === t.id);
-    $('#detail-cnum').textContent = '(' + all.length + ')';
-    list.textContent = '';
-    if (all.length === 0) {
-      list.appendChild(el('li', 'dc-empty', 'Aucun commentaire — écris le premier !'));
-    } else {
-      for (const c of all) {
-        const li = el('li', 'dc-item');
-        const img = el('img');
-        img.alt = '';
-        img.loading = 'lazy';
-        img.src = avatarUrl(personById(c.author_id)) || defaultAvatar(c.author_id);
-        img.onerror = () => { img.style.visibility = 'hidden'; };
-        li.appendChild(img);
-
-        const body = el('div', 'dc-body');
-        const head = el('div', 'dc-head');
-        head.appendChild(el('span', 'dc-name', c.author_name || 'Discord'));
-        head.appendChild(el('span', 'dc-time', fmtRel(c.ts)));
-        if ((c.author_id === state.me.id) || state.me.can_manage) {
-          const rm = el('button', 'dc-del');
-          rm.type = 'button';
-          rm.dataset.act = 'cdel';
-          rm.dataset.cid = String(c.id);
-          rm.title = 'Supprimer ce commentaire';
-          rm.setAttribute('aria-label', 'Supprimer ce commentaire');
-          rm.appendChild(svg(ICONS.trash, 12));
-          head.appendChild(rm);
-        }
-        body.appendChild(head);
-        const txt = el('div', 'dc-text');
-        txt.appendChild(renderRich(c.body));
-        body.appendChild(txt);
-        li.appendChild(body);
-        list.appendChild(li);
-      }
-    }
+    /* Discussion — le contenu est géré à part (section Discussion ci-dessous) :
+       on ne touche ici qu'au compteur, pour préserver le défilement. */
+    renderChatMeta();
 
     renderChecklist(t);
   }
@@ -1500,47 +1467,596 @@
     /* showModal d'abord : renderDetail ne remplit que si le dialogue est ouvert */
     dlgDetail.showModal();
     renderDetail();
+    loadChat(t.id);
   }
 
-  async function deleteComment(cid) {
-    if (!window.confirm('Supprimer ce commentaire ?')) return;
-    const j = await apiAction('comment.delete', { comment_id: cid });
-    if (!j.ok) {
-      toast(j.message || 'Suppression impossible', 'error');
-      return;
-    }
-    refresh().catch(() => {});
+  /* ── Discussion de tâche (style Discord) ───────────────────────────── */
+
+  const chatScroll = $('#chat-scroll');
+  const chatChips = $('#chat-chips');
+  const chatWrap = $('#chat-wrap');
+  const chatNewPill = $('#chat-newpill');
+  const formChat = $('#form-chat');
+  const fChat = $('#f-chat');
+  const fChatFiles = $('#f-chat-files');
+  const btnChatAttach = $('#btn-chat-attach');
+  const btnChatSend = $('#btn-chat-send');
+
+  const CHAT_COLORS = ['#E5598C', '#F2A33C', '#3BA55D', '#3E9CD9', '#8B5CF6', '#EB6A4B', '#4FA8C7', '#C878C9'];
+  const CHAT_GROUP_SECONDS = 420; /* Discord : regroupe les messages rapprochés d'un même auteur */
+
+  function chatCountOf(taskId) {
+    return (state.chat.counts && state.chat.counts[String(taskId)]) || 0;
   }
 
-  const formComment = $('#form-comment');
-  if (formComment) {
-    formComment.addEventListener('submit', async (ev) => {
-      ev.preventDefault();
-      if (!state.detailId) return;
-      const ta = $('#f-comment');
-      const body = ta.value.trim();
-      if (!body) return;
-      const btn = $('#btn-comment-send');
-      btn.disabled = true;
-      const j = await apiAction('task.comment', { id: state.detailId, body: body });
-      btn.disabled = false;
-      if (!j.ok) {
-        toast(j.message || 'Envoi impossible', 'error');
-        return;
-      }
-      ta.value = '';
-      refresh().catch(() => {});
-    });
+  function chatColor(id) {
+    let h = 0;
+    const s = String(id || '');
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return CHAT_COLORS[h % CHAT_COLORS.length];
+  }
 
-    const ta = $('#f-comment');
-    if (ta) {
-      ta.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter' && !ev.shiftKey) {
-          ev.preventDefault();
-          formComment.requestSubmit();
+  function fmtSize(n) {
+    if (n === null || n === undefined) return '';
+    const u = ['o', 'Ko', 'Mo', 'Go'];
+    let i = 0;
+    let v = n;
+    while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+    return (i ? (v >= 10 || i > 1 ? Math.round(v) : v.toFixed(1)) : v) + ' ' + u[i];
+  }
+
+  function chatDayLabel(ts) {
+    const t = startOfDayMs(ts * 1000);
+    const today = startOfDayMs(Date.now());
+    if (t === today) return "Aujourd'hui";
+    if (t === today - 86400000) return 'Hier';
+    try {
+      return new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+        .format(new Date(ts * 1000));
+    } catch (e) { return fmtDay(ts); }
+  }
+
+  function chatFullTime(ts) {
+    try {
+      const today = startOfDayMs(Date.now());
+      const t = startOfDayMs(ts * 1000);
+      const hm = new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit' }).format(new Date(ts * 1000));
+      if (t === today) return "Aujourd'hui à " + hm;
+      if (t === today - 86400000) return 'Hier à ' + hm;
+      return new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+        .format(new Date(ts * 1000)) + ' à ' + hm;
+    } catch (e) { return fmtDate(ts); }
+  }
+
+  function chatFileUrl(att, dl) {
+    return BASE + '/file.php?id=' + encodeURIComponent(att.id) + (dl ? '&dl=1' : '');
+  }
+
+  function chatAttExpired(att) {
+    return !!att.expires && att.expires > 0 && att.expires * 1000 < Date.now();
+  }
+
+  function isImageAtt(att) {
+    return att.mime
+      ? (att.mime.indexOf('image/') === 0 && att.ext !== 'svg')
+      : /\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(att.name || '');
+  }
+
+  function isVideoAtt(att) {
+    return att.mime ? att.mime.indexOf('video/') === 0 : /\.(mp4|webm|mov|m4v|mkv)$/i.test(att.name || '');
+  }
+
+  function isAudioAtt(att) {
+    return att.mime ? att.mime.indexOf('audio/') === 0 : /\.(mp3|ogg|wav|m4a|flac)$/i.test(att.name || '');
+  }
+
+  function renderChatMeta() {
+    if (state.chat.taskId === null) return;
+    const numEl = $('#detail-chatnum');
+    if (numEl) numEl.textContent = '(' + chatCountOf(state.chat.taskId) + ')';
+  }
+
+  function chatNearBottom() {
+    if (!chatScroll) return true;
+    return chatScroll.scrollHeight - chatScroll.scrollTop - chatScroll.clientHeight < 90;
+  }
+
+  function chatScrollBottom() {
+    if (chatScroll) chatScroll.scrollTop = chatScroll.scrollHeight;
+  }
+
+  function loadChat(taskId) {
+    const tid = Number(taskId);
+    if (!chatScroll || !tid) return;
+    state.chat.taskId = tid;
+    state.chat.pending = [];
+    state.chat.editId = null;
+    state.chat.lastId = 0;
+    if (chatNewPill) chatNewPill.hidden = true;
+    renderChatChips();
+    chatScroll.textContent = '';
+    chatScroll.appendChild(el('div', 'chat-loading', 'Chargement de la discussion…'));
+
+    fetch(BASE + '/api.php?action=chat.list&task_id=' + tid, {
+      headers: { Accept: 'application/json' }, cache: 'no-store'
+    })
+      .then((r) => r.json())
+      .then((j) => {
+        if (!j || !j.ok) throw new Error(j && j.message ? j.message : 'erreur');
+        if (state.chat.taskId !== tid) return; /* l'utilisateur a changé de tâche entre-temps */
+        state.chat.messages = j.messages || [];
+        state.chat.lastId = state.chat.messages.reduce((mx, m) => Math.max(mx, m.id), 0);
+        state.chat.counts[String(tid)] = j.count || 0;
+        if (j.ttl_days) state.chat.ttlDays = j.ttl_days;
+        renderChatMeta();
+        renderChat(true);
+      })
+      .catch(() => {
+        if (state.chat.taskId === tid && chatScroll) {
+          chatScroll.textContent = '';
+          chatScroll.appendChild(el('div', 'chat-loading', 'Discussion indisponible — referme et rouvre la tâche.'));
         }
       });
+  }
+
+  /** Fusionne un message (nouveau ou mis à jour) dans la liste locale. */
+  function chatApplyMessage(m) {
+    if (!m || !m.id) return false;
+    const idx = state.chat.messages.findIndex((x) => x.id === m.id);
+    if (idx >= 0) {
+      state.chat.messages[idx] = m;
+      return true;
     }
+    state.chat.messages.push(m);
+    if (m.id > state.chat.lastId) state.chat.lastId = m.id;
+    return true;
+  }
+
+  function renderChat(scrollDown) {
+    if (!chatScroll || state.chat.taskId === null) return;
+    const tid = state.chat.taskId;
+    const msgs = state.chat.messages.filter((m) => m.task_id === tid);
+    const stick = scrollDown === true || chatNearBottom();
+    const prevTop = chatScroll.scrollTop;
+    const prevHeight = chatScroll.scrollHeight;
+
+    chatScroll.textContent = '';
+
+    if (msgs.length === 0) {
+      const empty = el('div', 'chat-empty');
+      empty.appendChild(el('div', 'chat-empty-title', 'Aucun message pour l\'instant'));
+      empty.appendChild(el('div', 'chat-empty-sub', 'Lance la discussion : écris, colle ou dépose des fichiers.'));
+      chatScroll.appendChild(empty);
+    }
+
+    let prev = null;
+    for (const m of msgs) {
+      if (!prev || startOfDayMs((m.ts || 0) * 1000) !== startOfDayMs((prev.ts || 0) * 1000)) {
+        chatScroll.appendChild(el('div', 'chat-day', chatDayLabel(m.ts || 0)));
+        prev = null;
+      }
+      const grouped = !!(prev
+        && !m.deleted && !prev.deleted
+        && prev.author_id === m.author_id
+        && Math.abs((m.ts || 0) - (prev.ts || 0)) < CHAT_GROUP_SECONDS);
+      chatScroll.appendChild(chatMsgNode(m, grouped));
+      prev = m;
+    }
+
+    if (stick) {
+      chatScrollBottom();
+      if (chatNewPill) chatNewPill.hidden = true;
+    } else {
+      /* préserve la position après une édition / suppression */
+      chatScroll.scrollTop = prevTop + (chatScroll.scrollHeight - prevHeight);
+    }
+  }
+
+  function chatMsgNode(m, grouped) {
+    const wrap = el('div', 'chat-msg' + (grouped ? ' grouped' : '') + (m.deleted ? ' deleted' : ''));
+    if (m.ts) wrap.title = chatFullTime(m.ts);
+
+    /* Actions rapides au survol (copier / modifier / supprimer) */
+    const tools = el('div', 'chat-tools');
+    if (!m.deleted && m.body) {
+      const cp = el('button', 'chat-tool');
+      cp.type = 'button';
+      cp.title = 'Copier le texte';
+      cp.setAttribute('aria-label', 'Copier le texte du message');
+      cp.appendChild(svg(ICONS.copy, 13));
+      cp.addEventListener('click', () => {
+        copyText(m.body).then((ok) => toast(ok ? 'Texte copié' : 'Copie impossible', ok ? 'success' : 'error'));
+      });
+      tools.appendChild(cp);
+    }
+    if (!m.deleted && m.author_id === state.me.id) {
+      const ed = el('button', 'chat-tool');
+      ed.type = 'button';
+      ed.title = 'Modifier';
+      ed.setAttribute('aria-label', 'Modifier le message');
+      ed.appendChild(svg(ICONS.pencil, 13));
+      ed.addEventListener('click', () => {
+        state.chat.editId = m.id;
+        renderChat(false);
+      });
+      tools.appendChild(ed);
+    }
+    if (!m.deleted && (m.author_id === state.me.id || state.me.can_manage)) {
+      const rm = el('button', 'chat-tool danger');
+      rm.type = 'button';
+      rm.title = 'Supprimer';
+      rm.setAttribute('aria-label', 'Supprimer le message');
+      rm.appendChild(svg(ICONS.trash, 13));
+      rm.addEventListener('click', () => chatDelete(m.id));
+      tools.appendChild(rm);
+    }
+    if (tools.childElementCount > 0) wrap.appendChild(tools);
+
+    const img = el('img', 'chat-avatar');
+    img.alt = '';
+    img.loading = 'lazy';
+    img.src = avatarUrl(personById(m.author_id)) || defaultAvatar(m.author_id);
+    img.onerror = () => { img.style.visibility = 'hidden'; };
+    wrap.appendChild(img);
+
+    const main = el('div', 'chat-main');
+
+    if (!grouped) {
+      const head = el('div', 'chat-head');
+      const name = el('span', 'chat-name', m.author_name || 'Discord');
+      name.style.color = chatColor(m.author_id);
+      head.appendChild(name);
+      if (m.edited_ts) head.appendChild(el('span', 'chat-edited', '(modifié)'));
+      if (m.ts) head.appendChild(el('span', 'chat-time', chatFullTime(m.ts)));
+      main.appendChild(head);
+    }
+
+    if (m.deleted) {
+      main.appendChild(el('div', 'chat-text chat-deleted', 'Message supprimé'));
+    } else if (state.chat.editId === m.id) {
+      main.appendChild(chatEditForm(m));
+    } else {
+      if (m.body) {
+        const txt = el('div', 'chat-text');
+        txt.appendChild(renderRich(m.body));
+        if (m.edited_ts && grouped) txt.appendChild(el('span', 'chat-edited', ' (modifié)'));
+        main.appendChild(txt);
+      }
+      if (m.attachments && m.attachments.length > 0) {
+        main.appendChild(chatAttsNode(m.attachments));
+      }
+      if (!m.body && (!m.attachments || m.attachments.length === 0)) {
+        main.appendChild(el('div', 'chat-text chat-deleted', '—'));
+      }
+    }
+
+    wrap.appendChild(main);
+    return wrap;
+  }
+
+  function chatEditForm(m) {
+    const ef = el('form', 'chat-editform');
+    const ta = el('textarea', 'chat-edit');
+    ta.value = m.body || '';
+    ta.rows = Math.min(6, String(m.body || '').split('\n').length + 1);
+    ta.setAttribute('aria-label', 'Modifier le message');
+    const row = el('div', 'chat-editrow');
+    const save = el('button', 'btn primary small', 'Enregistrer');
+    save.type = 'submit';
+    const cancel = el('button', 'btn ghost small', 'Annuler');
+    cancel.type = 'button';
+    cancel.addEventListener('click', () => {
+      state.chat.editId = null;
+      renderChat(false);
+    });
+    row.appendChild(save);
+    row.appendChild(cancel);
+    ef.appendChild(ta);
+    ef.appendChild(row);
+    ef.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const body = ta.value.trim();
+      if (!body) return;
+      const j = await apiAction('chat.edit', { message_id: m.id, body: body });
+      if (!j || !j.ok) {
+        toast((j && j.message) || 'Modification impossible', 'error');
+        return;
+      }
+      state.chat.editId = null;
+      chatApplyMessage(j.message);
+      renderChat(false);
+    });
+    ta.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' && !ev.shiftKey) {
+        ev.preventDefault();
+        ef.requestSubmit();
+      }
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        state.chat.editId = null;
+        renderChat(false);
+      }
+    });
+    setTimeout(() => {
+      try { ta.focus(); ta.selectionStart = ta.value.length; } catch (e) { /* ignore */ }
+    }, 0);
+    return ef;
+  }
+
+  function chatAttsNode(atts) {
+    const box = el('div', 'chat-atts');
+    for (const att of atts) {
+      if (chatAttExpired(att)) {
+        box.appendChild(chatFileCard(att, true));
+        continue;
+      }
+      if (isImageAtt(att)) {
+        const a = el('a', 'chat-imglink');
+        a.href = chatFileUrl(att, false);
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.title = (att.name || 'Image') + ' — cliquer pour agrandir';
+        const im = el('img', 'chat-att-img');
+        im.alt = att.name || 'Image partagée';
+        im.loading = 'lazy';
+        im.src = chatFileUrl(att, false);
+        a.appendChild(im);
+        box.appendChild(a);
+      } else if (isVideoAtt(att)) {
+        const v = el('video', 'chat-att-video');
+        v.controls = true;
+        v.preload = 'metadata';
+        v.src = chatFileUrl(att, false);
+        box.appendChild(v);
+      } else if (isAudioAtt(att)) {
+        const au = el('audio', 'chat-att-audio');
+        au.controls = true;
+        au.preload = 'metadata';
+        au.src = chatFileUrl(att, false);
+        box.appendChild(au);
+      } else {
+        box.appendChild(chatFileCard(att, false));
+      }
+    }
+    return box;
+  }
+
+  function chatFileCard(att, expired) {
+    const a = el('a', 'chat-filecard' + (expired ? ' expired' : ''));
+    if (expired) {
+      a.href = '#';
+      a.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        toast('Fichier expiré — les fichiers sont conservés ' + (state.chat.ttlDays || 30) + ' jours', 'error');
+      });
+    } else {
+      a.href = chatFileUrl(att, true);
+      a.title = 'Télécharger ' + (att.name || 'fichier');
+    }
+    const ico = el('span', 'chat-fc-ico', (att.ext || '?').toUpperCase().slice(0, 4));
+    a.appendChild(ico);
+    const meta = el('span', 'chat-fc-meta');
+    meta.appendChild(el('span', 'chat-fc-name', att.name || 'fichier'));
+    meta.appendChild(el('span', 'chat-fc-size', expired
+      ? 'Fichier expiré — conservé ' + (state.chat.ttlDays || 30) + ' jours'
+      : [fmtSize(att.size), att.width && att.height ? att.width + '×' + att.height : ''].filter(Boolean).join(' · ')));
+    a.appendChild(meta);
+    if (!expired) {
+      const dl = el('span', 'chat-fc-dl');
+      dl.appendChild(svg(ICONS.download, 15));
+      a.appendChild(dl);
+    }
+    return a;
+  }
+
+  async function chatPoll() {
+    if (!chatScroll || state.chat.taskId === null || state.chat.sending || state.chat.editId !== null) return;
+    const tid = state.chat.taskId;
+    const qs = BASE + '/api.php?action=chat.list&task_id=' + tid
+      + '&after=' + state.chat.lastId
+      + (chatPollTs > 0 ? '&changed_since=' + chatPollTs : '');
+    const reqTs = Math.floor(Date.now() / 1000);
+    const r = await fetch(qs, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+    const j = await r.json().catch(() => null);
+    chatPollTs = reqTs;
+    if (!j || !j.ok || state.chat.taskId !== tid) return;
+    let added = 0;
+    let updated = 0;
+    for (const m of (j.messages || [])) {
+      const idx = state.chat.messages.findIndex((x) => x.id === m.id);
+      if (idx >= 0) { state.chat.messages[idx] = m; updated++; }
+      else if (chatApplyMessage(m)) added++;
+    }
+    if (added || updated) {
+      state.chat.counts[String(tid)] = j.count || 0;
+      renderChatMeta();
+      const wasNear = chatNearBottom();
+      renderChat(wasNear);
+      if (added && !wasNear && chatNewPill) chatNewPill.hidden = false;
+      if (added) renderCurrentView(); /* badges des cartes */
+    }
+  }
+
+  let chatPollTs = 0;
+
+  async function chatSend() {
+    if (!state.chat.taskId || state.chat.sending || !formChat) return;
+    const body = fChat ? fChat.value.trim() : '';
+    const files = state.chat.pending.slice();
+    if (!body && files.length === 0) return;
+
+    state.chat.sending = true;
+    if (btnChatSend) btnChatSend.disabled = true;
+    try {
+      let j = null;
+      if (files.length > 0) {
+        const fd = new FormData();
+        fd.append('action', 'chat.upload');
+        fd.append('id', String(state.chat.taskId));
+        fd.append('body', body);
+        for (const f of files) fd.append('files[]', f, f.name);
+        const r = await fetch(BASE + '/api.php', {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': csrf(), Accept: 'application/json' },
+          body: fd,
+          cache: 'no-store'
+        });
+        j = await r.json().catch(() => null);
+      } else {
+        j = await apiAction('chat.send', { id: state.chat.taskId, body: body });
+      }
+      if (!j || !j.ok) {
+        toast((j && j.message) || 'Envoi impossible', 'error');
+        return;
+      }
+      if (fChat) { fChat.value = ''; chatAutoGrow(); }
+      state.chat.pending = [];
+      renderChatChips();
+      chatApplyMessage(j.message);
+      state.chat.counts[String(state.chat.taskId)] = j.count || 0;
+      renderChatMeta();
+      renderChat(true);
+      renderCurrentView();
+    } catch (e) {
+      toast('Envoi impossible — réessaie', 'error');
+    } finally {
+      state.chat.sending = false;
+      if (btnChatSend) btnChatSend.disabled = false;
+    }
+  }
+
+  async function chatDelete(mid) {
+    if (!window.confirm('Supprimer ce message ?')) return;
+    const j = await apiAction('chat.delete', { message_id: mid });
+    if (!j || !j.ok) {
+      toast((j && j.message) || 'Suppression impossible', 'error');
+      return;
+    }
+    const idx = state.chat.messages.findIndex((x) => x.id === mid);
+    if (idx >= 0) {
+      state.chat.messages[idx] = Object.assign({}, state.chat.messages[idx], {
+        deleted: true, body: '', attachments: []
+      });
+    }
+    if (state.chat.taskId !== null) {
+      state.chat.counts[String(state.chat.taskId)] = j.count || 0;
+    }
+    renderChatMeta();
+    renderChat(false);
+    renderCurrentView();
+  }
+
+  function chatStageFiles(fileList) {
+    for (const f of Array.from(fileList || [])) {
+      if (state.chat.pending.length >= 6) {
+        toast('6 fichiers maximum par message', 'error');
+        break;
+      }
+      if (f.size > 10 * 1024 * 1024) {
+        toast('« ' + f.name + ' » dépasse 10 Mo', 'error');
+        continue;
+      }
+      state.chat.pending.push(f);
+    }
+    renderChatChips();
+  }
+
+  function renderChatChips() {
+    if (!chatChips) return;
+    chatChips.textContent = '';
+    chatChips.hidden = state.chat.pending.length === 0;
+    state.chat.pending.forEach((f, i) => {
+      const chip = el('span', 'chat-chip');
+      chip.appendChild(el('span', 'chat-chip-name', f.name));
+      chip.appendChild(el('span', 'chat-chip-size', fmtSize(f.size)));
+      const rm = el('button', 'chat-chip-rm');
+      rm.type = 'button';
+      rm.title = 'Retirer ce fichier';
+      rm.setAttribute('aria-label', 'Retirer ' + f.name);
+      rm.appendChild(svg(ICONS.trash, 12));
+      rm.addEventListener('click', () => {
+        state.chat.pending.splice(i, 1);
+        renderChatChips();
+      });
+      chip.appendChild(rm);
+      chatChips.appendChild(chip);
+    });
+  }
+
+  function chatAutoGrow() {
+    if (!fChat) return;
+    fChat.style.height = 'auto';
+    fChat.style.height = Math.min(fChat.scrollHeight, 132) + 'px';
+  }
+
+  if (formChat && fChat) {
+    formChat.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      chatSend();
+    });
+    fChat.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' && !ev.shiftKey) {
+        ev.preventDefault();
+        formChat.requestSubmit();
+      }
+    });
+    fChat.addEventListener('input', chatAutoGrow);
+    fChat.addEventListener('paste', (ev) => {
+      const files = ev.clipboardData && ev.clipboardData.files;
+      if (files && files.length > 0) {
+        ev.preventDefault();
+        chatStageFiles(files);
+        toast('Fichier collé — vérifie puis clique Envoyer', 'success');
+      }
+    });
+  }
+
+  if (btnChatAttach && fChatFiles) {
+    btnChatAttach.addEventListener('click', () => fChatFiles.click());
+    fChatFiles.addEventListener('change', () => {
+      chatStageFiles(fChatFiles.files);
+      fChatFiles.value = '';
+    });
+  }
+
+  if (chatWrap) {
+    let dragDepth = 0;
+    const hasFiles = (ev) => !!(ev.dataTransfer && Array.from(ev.dataTransfer.types || []).indexOf('Files') !== -1);
+    chatWrap.addEventListener('dragenter', (ev) => {
+      if (!hasFiles(ev)) return;
+      ev.preventDefault();
+      dragDepth++;
+      chatWrap.classList.add('dragging');
+    });
+    chatWrap.addEventListener('dragover', (ev) => {
+      if (dragDepth > 0) ev.preventDefault();
+    });
+    chatWrap.addEventListener('dragleave', () => {
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) chatWrap.classList.remove('dragging');
+    });
+    chatWrap.addEventListener('drop', (ev) => {
+      dragDepth = 0;
+      chatWrap.classList.remove('dragging');
+      if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length > 0) {
+        ev.preventDefault();
+        chatStageFiles(ev.dataTransfer.files);
+        if (fChat) fChat.focus();
+      }
+    });
+  }
+
+  if (chatScroll) {
+    chatScroll.addEventListener('scroll', () => {
+      if (chatNewPill && chatNearBottom()) chatNewPill.hidden = true;
+    });
+  }
+
+  if (chatNewPill) {
+    chatNewPill.addEventListener('click', () => {
+      chatNewPill.hidden = true;
+      chatScrollBottom();
+    });
   }
 
   /* ── Sous-tâches (checklist) ────────────────────────────────────────────── */
@@ -2033,6 +2549,13 @@
       refresh().catch(() => { /* silencieux : réseau momentanément indisponible */ });
     }
   }, 30000);
+
+  /* Discussion : nouveaux messages des autres membres (5 s, dialogue ouvert). */
+  setInterval(() => {
+    if (!document.hidden && dlgDetail && dlgDetail.open && state.detailId !== null) {
+      chatPoll().catch(() => { /* silencieux */ });
+    }
+  }, 5000);
 
   /* ── Démarrage ──────────────────────────────────────────────────────────── */
 

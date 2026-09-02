@@ -22,7 +22,13 @@ require_once __DIR__ . '/../api/config.php';
 /* ------------------------------------------------------------------ */
 
 define('TASK_CSRF_COOKIE', 'tfh_task_csrf');
-define('TASK_ASSET_VER', '6');
+define('TASK_ASSET_VER', '7');
+
+/* Discussion de tâche : durée de conservation des fichiers joints (jours). */
+define('TASK_CHAT_FILE_TTL_DAYS', 30);
+/* Discussion : limites d'upload par message. */
+define('TASK_CHAT_MAX_FILES', 6);
+define('TASK_CHAT_MAX_BYTES', 10 * 1024 * 1024); /* 10 Mo par fichier */
 
 /**
  * Étiquettes prédéfinies du panel (clés stockées en CSV dans tfh_task_tasks.labels).
@@ -166,7 +172,8 @@ function task_align_collations(PDO $pdo): void
              WHERE TABLE_SCHEMA = DATABASE()
                AND TABLE_NAME IN
                ('tfh_task_admins','tfh_task_tasks','tfh_task_comments',
-                'tfh_task_activity','tfh_task_settings','tfh_task_checklist')"
+                'tfh_task_activity','tfh_task_settings','tfh_task_checklist',
+                'tfh_task_chat','tfh_task_chat_files')"
         );
         $st->execute();
         $current = [];
@@ -177,7 +184,8 @@ function task_align_collations(PDO $pdo): void
         /* 3. Conversion si nécessaire (une seule fois : ensuite ça correspond). */
         foreach (
             ['tfh_task_admins', 'tfh_task_tasks', 'tfh_task_comments',
-             'tfh_task_activity', 'tfh_task_settings', 'tfh_task_checklist'] as $table
+             'tfh_task_activity', 'tfh_task_settings', 'tfh_task_checklist',
+             'tfh_task_chat', 'tfh_task_chat_files'] as $table
         ) {
             $cur = $current[$table] ?? '';
             if ($cur === '') {
@@ -307,6 +315,58 @@ function task_ensure_schema(PDO $pdo): void
                 INDEX idx_ck_task (task_id)
              ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
         );
+        /* Discussion de tâche (style Discord) : messages + pièces jointes.     */
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS tfh_task_chat (
+                id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                task_id     INT UNSIGNED NOT NULL,
+                author_id   VARCHAR(32) NOT NULL,
+                author_name VARCHAR(64) NOT NULL DEFAULT \'\',
+                body        TEXT NULL,
+                attachments TEXT NULL,
+                created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at  DATETIME NULL,
+                deleted_at  DATETIME NULL,
+                PRIMARY KEY (id),
+                INDEX idx_chat_task (task_id, id),
+                INDEX idx_chat_updated (updated_at)
+             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS tfh_task_chat_files (
+                id         CHAR(16) NOT NULL PRIMARY KEY,
+                task_id    INT UNSIGNED NOT NULL,
+                msg_id     BIGINT UNSIGNED NULL,
+                path       VARCHAR(300) NOT NULL,
+                name       VARCHAR(200) NOT NULL,
+                mime       VARCHAR(120) NOT NULL DEFAULT \'\',
+                ext        VARCHAR(10) NOT NULL DEFAULT \'\',
+                size       INT UNSIGNED NOT NULL DEFAULT 0,
+                width      INT UNSIGNED NULL,
+                height     INT UNSIGNED NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                expires_at DATETIME NOT NULL,
+                INDEX idx_cf_task (task_id),
+                INDEX idx_cf_msg (msg_id),
+                INDEX idx_cf_expires (expires_at)
+             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+
+        /* Migration unique : les anciens commentaires deviennent des messages
+           de discussion (uniquement la première fois — clé de réglages).     */
+        if (task_settings_get($pdo, 'chat_migrated') === null) {
+            try {
+                $pdo->exec(
+                    'INSERT INTO tfh_task_chat (task_id, author_id, author_name, body, created_at)
+                     SELECT task_id, author_id, author_name, body, created_at
+                     FROM tfh_task_comments ORDER BY id'
+                );
+                task_settings_set($pdo, 'chat_migrated', '1');
+                error_log('[tfh-task] commentaires migrés vers la discussion');
+            } catch (Throwable $e2) {
+                error_log('[tfh-task] migration commentaires: ' . $e2->getMessage());
+            }
+        }
     } catch (Throwable $e) {
         error_log('[tfh-task] migrations: ' . $e->getMessage());
         /* Non bloquant : les features correspondantes répondront « vide »,
@@ -346,6 +406,102 @@ function task_mb_truncate(string $value, int $max): string
         return mb_strlen($value, 'UTF-8') > $max ? mb_substr($value, 0, $max, 'UTF-8') : $value;
     }
     return strlen($value) > $max ? substr($value, 0, $max) : $value;
+}
+
+/* ------------------------------------------------------------------ */
+/* Discussion : stockage des fichiers joints                           */
+/*                                                                     */
+/* Les fichiers sont stockés HORS du dossier web (jamais servis        */
+/* directement par Apache) : ils survivent au git clean du déploiement */
+/* et ne sont accessibles qu'via task/file.php (session requise).      */
+/* ------------------------------------------------------------------ */
+
+function task_upload_dir(): string
+{
+    static $dir = null;
+    if ($dir !== null) {
+        return $dir;
+    }
+    $candidates = [];
+    $home = getenv('HOME');
+    if (is_string($home) && $home !== '') {
+        $candidates[] = rtrim($home, '/') . '/.tfh_task_uploads';
+    }
+    /* task/ → webroot → parent → home (même logique que api/config.php). */
+    $candidates[] = dirname(__DIR__, 2) . '/.tfh_task_uploads';
+    $candidates[] = sys_get_temp_dir() . '/tfh-task-uploads';
+    foreach ($candidates as $c) {
+        if (@is_dir($c) || @mkdir($c, 0755, true)) {
+            $dir = $c;
+            break;
+        }
+    }
+    if ($dir === null) {
+        $dir = sys_get_temp_dir() . '/tfh-task-uploads';
+    }
+    return $dir;
+}
+
+function task_upload_files_dir(): string
+{
+    $d = task_upload_dir() . '/files';
+    if (!@is_dir($d)) {
+        @mkdir($d, 0755, true);
+    }
+    return $d;
+}
+
+/**
+ * Extensions autorisées en pièce jointe de discussion.
+ * (le service file.php force le téléchargement pour tout type douteux,
+ *  mais on refuse d'emblée ce qui n'a aucun intérêt ou est dangereux).
+ */
+function task_chat_ext_allowed(string $ext): bool
+{
+    static $allowed = [
+        /* images */ 'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'ico',
+        /* vidéo  */ 'mp4', 'webm', 'mov', 'm4v', 'mkv',
+        /* audio  */ 'mp3', 'ogg', 'wav', 'm4a', 'flac',
+        /* docs   */ 'pdf', 'txt', 'md', 'csv', 'json', 'log',
+        /* arch   */ 'zip', 'rar', '7z', 'tar', 'gz',
+        /* design */ 'psd', 'xd', 'fig',
+    ];
+    return in_array($ext, $allowed, true);
+}
+
+/**
+ * Supprime les fichiers joints expirés (TTL TASK_CHAT_FILE_TTL_DAYS).
+ * Best-effort et throttlé (1 fois/heure max) : appelé depuis chat.list.
+ */
+function task_chat_prune_files(PDO $pdo): void
+{
+    try {
+        $last = task_settings_get($pdo, 'chat_prune_last');
+        if ($last !== null && (time() - (int) $last) < 3600) {
+            return;
+        }
+        task_settings_set($pdo, 'chat_prune_last', (string) time());
+
+        $st = $pdo->prepare(
+            'SELECT id, path FROM tfh_task_chat_files WHERE expires_at < NOW() LIMIT 200'
+        );
+        $st->execute();
+        $rows = $st->fetchAll();
+        if (!$rows) {
+            return;
+        }
+        $del = $pdo->prepare('DELETE FROM tfh_task_chat_files WHERE id = ?');
+        foreach ($rows as $r) {
+            $abs = task_upload_dir() . '/' . ltrim((string) $r['path'], '/');
+            if (strpos($abs, task_upload_dir()) === 0 && is_file($abs)) {
+                @unlink($abs);
+            }
+            $del->execute([(string) $r['id']]);
+        }
+        error_log('[tfh-task] purge fichiers discussion : ' . count($rows) . ' fichier(s) expiré(s)');
+    } catch (Throwable $e) {
+        error_log('[tfh-task] prune fichiers: ' . $e->getMessage());
+    }
 }
 
 /* ------------------------------------------------------------------ */

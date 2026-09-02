@@ -6,11 +6,16 @@ declare(strict_types=1);
  *
  * GET  ?action=state  → état complet (moi, personnes autorisées, tâches,
  *                       commentaires, activité, réglages, csrf)
+ * GET  ?action=chat.list&task_id=…[&after=…&changed_since=…]
+ *                     → messages de discussion d'une tâche
  * POST { action: ... } (JSON + en-tête X-CSRF-Token)
  *      task.create / task.status / task.edit / task.delete
  *      task.pin    / task.unarchive
  *      task.comment / comment.delete
  *      checklist.add / checklist.toggle / checklist.delete
+ *      chat.send / chat.edit / chat.delete (discussion de tâche)
+ *      POST multipart (form-data + X-CSRF-Token)
+ *      chat.upload → message avec fichiers joints (images, vidéos, …)
  *      settings.save / webhook.test
  *      admin.add   / admin.remove
  *
@@ -62,8 +67,79 @@ $meName = task_display_name(
 /* ------------------------------------------------------------------ */
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
-    if ((string) ($_GET['action'] ?? '') !== 'state') {
+    $getAction = (string) ($_GET['action'] ?? '');
+    if ($getAction !== 'state' && $getAction !== 'chat.list') {
         fail(404, 'unknown_action', 'Action inconnue.');
+    }
+
+    if ($getAction === 'chat.list') {
+        $chatTaskId = (int) ($_GET['task_id'] ?? 0);
+        if ($chatTaskId <= 0) {
+            fail(422, 'bad_input', 'Tâche invalide.');
+        }
+        $st = $pdo->prepare('SELECT id, title FROM tfh_task_tasks WHERE id = ? LIMIT 1');
+        $st->execute([$chatTaskId]);
+        if ($st->fetch() === false) {
+            fail(404, 'not_found', 'Tâche introuvable.');
+        }
+
+        /* Purge des fichiers expirés (throttlée, best-effort). */
+        task_chat_prune_files($pdo);
+
+        $after = (int) ($_GET['after'] ?? 0);
+        $changedSince = (int) ($_GET['changed_since'] ?? 0);
+
+        $params = [$chatTaskId];
+        $where = 'task_id = ?';
+        if ($after > 0) {
+            $where .= ' AND (id > ?';
+            $params[] = $after;
+            if ($changedSince > 0) {
+                $where .= ' OR (updated_at IS NOT NULL AND updated_at >= FROM_UNIXTIME(?))';
+                $params[] = $changedSince;
+            }
+            $where .= ')';
+        }
+
+        $rows = [];
+        try {
+            $st = $pdo->prepare(
+                'SELECT id, task_id, author_id, author_name, body, attachments,
+                        UNIX_TIMESTAMP(created_at) AS ts,
+                        UNIX_TIMESTAMP(edited_at) AS edited_ts,
+                        deleted_at IS NOT NULL AS deleted
+                 FROM tfh_task_chat
+                 WHERE ' . $where . '
+                 ORDER BY id DESC
+                 LIMIT 400'
+            );
+            $st->execute($params);
+            $rows = $st->fetchAll();
+        } catch (Throwable $e) {
+            error_log('[tfh-task] chat.list: ' . $e->getMessage());
+        }
+        $messages = [];
+        foreach (array_reverse($rows) as $row) {
+            $messages[] = task_chat_shape($row);
+        }
+
+        $count = 0;
+        try {
+            $st = $pdo->prepare(
+                'SELECT COUNT(*) AS n FROM tfh_task_chat WHERE task_id = ? AND deleted_at IS NULL'
+            );
+            $st->execute([$chatTaskId]);
+            $count = (int) ($st->fetch()['n'] ?? 0);
+        } catch (Throwable $e) {
+            /* compte indisponible : 0 */
+        }
+
+        json_out([
+            'ok'       => true,
+            'messages' => $messages,
+            'count'    => $count,
+            'ttl_days' => TASK_CHAT_FILE_TTL_DAYS,
+        ]);
     }
 
     /* Archive automatique : les tâches terminées depuis plus de 14 jours
@@ -239,6 +315,20 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         error_log('[tfh-task] activity: ' . $e->getMessage());
     }
 
+    /* Discussion : nombre de messages par tâche (badges des cartes). */
+    $chatCounts = [];
+    try {
+        $st = $pdo->query(
+            'SELECT task_id, COUNT(*) AS n FROM tfh_task_chat
+             WHERE deleted_at IS NULL GROUP BY task_id'
+        );
+        foreach ($st->fetchAll() as $row) {
+            $chatCounts[(string) (int) $row['task_id']] = (int) $row['n'];
+        }
+    } catch (Throwable $e) {
+        error_log('[tfh-task] chat_counts: ' . $e->getMessage());
+    }
+
     /* Réglages du webhook — exposés uniquement aux gestionnaires. */
     $settings = null;
     if ($access['can_manage']) {
@@ -267,6 +357,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         'checklist' => $checklist,
         'comments'  => $comments,
         'activity'  => $activity,
+        'chat_counts' => $chatCounts,
+        'chat_ttl_days' => TASK_CHAT_FILE_TTL_DAYS,
         'settings'  => $settings,
         'csrf'      => task_csrf_token(),
     ]);
@@ -281,18 +373,130 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
 }
 
 $ctype = (string) ($_SERVER['CONTENT_TYPE'] ?? '');
-if (strpos($ctype, 'application/json') === false) {
-    fail(415, 'bad_content_type', 'Type de contenu non autorisé.');
+if (strpos($ctype, 'multipart/form-data') === 0) {
+    /* Requête d'upload (discussion) : corps multipart/form-data.          */
+    task_csrf_verify();
+    $in = $_POST;
+    $action = (string) ($in['action'] ?? '');
+    if ($action !== 'chat.upload') {
+        fail(415, 'bad_content_type', 'Cette action n\'accepte pas de fichiers.');
+    }
+} else {
+    if (strpos($ctype, 'application/json') === false) {
+        fail(415, 'bad_content_type', 'Type de contenu non autorisé.');
+    }
+    task_csrf_verify();
+    $in = json_decode((string) file_get_contents('php://input'), true);
+    if (!is_array($in)) {
+        fail(400, 'bad_json', 'Requête invalide.');
+    }
+    $action = (string) ($in['action'] ?? '');
 }
 
-task_csrf_verify();
-
-$in = json_decode((string) file_get_contents('php://input'), true);
-if (!is_array($in)) {
-    fail(400, 'bad_json', 'Requête invalide.');
+/**
+ * Met en forme un message de discussion pour le client
+ * (décodage des pièces jointes, horodatages). Attend un row SQL.
+ */
+function task_chat_shape(array $row): array
+{
+    $atts = [];
+    $raw = (string) ($row['attachments'] ?? '');
+    if ($raw !== '') {
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            foreach ($decoded as $a) {
+                if (!is_array($a) || !isset($a['id'])) {
+                    continue;
+                }
+                $atts[] = [
+                    'id'      => (string) $a['id'],
+                    'name'    => (string) ($a['name'] ?? 'fichier'),
+                    'size'    => (int) ($a['size'] ?? 0),
+                    'mime'    => (string) ($a['mime'] ?? ''),
+                    'ext'     => (string) ($a['ext'] ?? ''),
+                    'width'   => isset($a['width']) ? (int) $a['width'] : null,
+                    'height'  => isset($a['height']) ? (int) $a['height'] : null,
+                    'expires' => isset($a['expires']) ? (int) $a['expires'] : null,
+                ];
+            }
+        }
+    }
+    return [
+        'id'          => (int) $row['id'],
+        'task_id'     => (int) $row['task_id'],
+        'author_id'   => (string) $row['author_id'],
+        'author_name' => (string) $row['author_name'],
+        'body'        => (string) ($row['body'] ?? ''),
+        'attachments' => $atts,
+        'ts'          => isset($row['ts']) && $row['ts'] !== null ? (int) $row['ts'] : null,
+        'edited_ts'   => isset($row['edited_ts']) && $row['edited_ts'] !== null ? (int) $row['edited_ts'] : null,
+        'deleted'     => !empty($row['deleted']),
+    ];
 }
 
-$action = (string) ($in['action'] ?? '');
+/** Nombre de messages actifs d'une discussion (0 si la table est indispo). */
+function task_chat_count(PDO $pdo, int $taskId): int
+{
+    try {
+        $st = $pdo->prepare(
+            'SELECT COUNT(*) AS n FROM tfh_task_chat WHERE task_id = ? AND deleted_at IS NULL'
+        );
+        $st->execute([$taskId]);
+        return (int) ($st->fetch()['n'] ?? 0);
+    } catch (Throwable $e) {
+        return 0;
+    }
+}
+
+/** Recharge un message SQL complet (pour renvoyer sa forme au client). */
+function task_chat_fetch_row(PDO $pdo, int $msgId): ?array
+{
+    $st = $pdo->prepare(
+        'SELECT id, task_id, author_id, author_name, body, attachments,
+                UNIX_TIMESTAMP(created_at) AS ts,
+                UNIX_TIMESTAMP(edited_at) AS edited_ts,
+                deleted_at IS NOT NULL AS deleted
+         FROM tfh_task_chat WHERE id = ? LIMIT 1'
+    );
+    $st->execute([$msgId]);
+    $row = $st->fetch();
+    return $row !== false ? $row : null;
+}
+
+/** Insère un message de discussion et renvoie sa forme client. */
+function task_chat_insert(PDO $pdo, int $taskId, string $authorId, string $authorName, string $body, array $atts): array
+{
+    $pdo->prepare(
+        'INSERT INTO tfh_task_chat (task_id, author_id, author_name, body, attachments)
+         VALUES (?, ?, ?, ?, ?)'
+    )->execute([
+        $taskId,
+        $authorId,
+        task_mb_truncate($authorName, 64),
+        $body !== '' ? $body : null,
+        $atts !== [] ? (string) json_encode($atts, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null,
+    ]);
+    $mid = (int) $pdo->lastInsertId();
+    $row = task_chat_fetch_row($pdo, $mid);
+    if ($row !== null) {
+        return task_chat_shape($row);
+    }
+    return [
+        'id' => $mid, 'task_id' => $taskId, 'author_id' => $authorId,
+        'author_name' => $authorName, 'body' => $body, 'attachments' => $atts,
+        'ts' => time(), 'edited_ts' => null, 'deleted' => false,
+    ];
+}
+
+/** Anti-spam léger : 30 messages/minute/personne (best-effort, jamais bloquant si indispo). */
+function task_chat_rate_limit(PDO $pdo, string $meId): void
+{
+    try {
+        rate_limit($pdo, 'task-chat-' . $meId, 30, 60);
+    } catch (Throwable $e) {
+        /* table de rate-limit absente : la discussion continue de fonctionner */
+    }
+}
 
 /** Champ texte nettoyé et borné. */
 function task_req_str(array $in, string $key, int $max, bool $required): string
@@ -721,6 +925,221 @@ switch ($action) {
         }
         $pdo->prepare('DELETE FROM tfh_task_checklist WHERE id = ?')->execute([$itemId]);
         json_out(['ok' => true]);
+    }
+
+    /* ── Discussion de tâche (style Discord) ─────────────────────────────── */
+
+    case 'chat.send': {
+        $id   = (int) ($in['id'] ?? 0);
+        $body = task_req_str($in, 'body', 4000, true);
+        if ($id <= 0) {
+            fail(422, 'bad_input', 'Paramètres invalides.');
+        }
+        $st = $pdo->prepare('SELECT id, title FROM tfh_task_tasks WHERE id = ? LIMIT 1');
+        $st->execute([$id]);
+        if ($st->fetch() === false) {
+            fail(404, 'not_found', 'Tâche introuvable.');
+        }
+        task_chat_rate_limit($pdo, $meId);
+        $msg = task_chat_insert($pdo, $id, $meId, $meName, $body, []);
+        json_out(['ok' => true, 'message' => $msg, 'count' => task_chat_count($pdo, $id)]);
+    }
+
+    case 'chat.upload': {
+        $id = (int) ($in['id'] ?? 0);
+        if ($id <= 0) {
+            fail(422, 'bad_input', 'Paramètres invalides.');
+        }
+        $st = $pdo->prepare('SELECT id, title FROM tfh_task_tasks WHERE id = ? LIMIT 1');
+        $st->execute([$id]);
+        if ($st->fetch() === false) {
+            fail(404, 'not_found', 'Tâche introuvable.');
+        }
+
+        $body = trim((string) ($in['body'] ?? ''));
+        if ((function_exists('mb_strlen') ? mb_strlen($body, 'UTF-8') : strlen($body)) > 4000) {
+            fail(422, 'too_long_body', 'Message trop long (4000 caractères maximum).');
+        }
+
+        $files = $_FILES['files'] ?? null;
+        if (!is_array($files) || !is_array($files['name'] ?? null) || count($files['name']) === 0) {
+            fail(422, 'no_files', 'Aucun fichier reçu.');
+        }
+        $n = count($files['name']);
+        if ($n > TASK_CHAT_MAX_FILES) {
+            fail(422, 'too_many_files', TASK_CHAT_MAX_FILES . ' fichiers maximum par message.');
+        }
+
+        task_chat_rate_limit($pdo, $meId);
+
+        $dir = task_upload_files_dir();
+        if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
+            fail(500, 'storage', 'Stockage des fichiers indisponible sur le serveur.');
+        }
+
+        $expiresTs = time() + TASK_CHAT_FILE_TTL_DAYS * 86400;
+        $expires   = date('Y-m-d H:i:s', $expiresTs);
+        $atts      = [];
+        $fileRows  = []; /* [id, path, name, mime, ext, size, w, h] */
+
+        for ($i = 0; $i < $n; $i++) {
+            $err  = (int) ($files['error'][$i] ?? UPLOAD_ERR_NO_FILE);
+            $orig = (string) ($files['name'][$i] ?? '');
+            $tmp  = (string) ($files['tmp_name'][$i] ?? '');
+            $size = (int) ($files['size'][$i] ?? 0);
+
+            if ($err === UPLOAD_ERR_NO_FILE) {
+                continue;
+            }
+            if ($err === UPLOAD_ERR_INI_SIZE || $err === UPLOAD_ERR_FORM_SIZE) {
+                fail(422, 'file_too_big', '« ' . $orig . ' » dépasse la limite d\'upload du serveur.');
+            }
+            if ($err !== UPLOAD_ERR_OK || $tmp === '' || !is_uploaded_file($tmp)) {
+                fail(500, 'upload_failed', 'Envoi impossible pour « ' . $orig . ' » — réessaie.');
+            }
+            if ($size > TASK_CHAT_MAX_BYTES) {
+                fail(422, 'file_too_big', '« ' . $orig . ' » dépasse 10 Mo.');
+            }
+            $ext = strtolower((string) pathinfo($orig, PATHINFO_EXTENSION));
+            $ext = preg_replace('/[^a-z0-9]/', '', substr($ext, 0, 10));
+            if ($ext === '' || !task_chat_ext_allowed($ext)) {
+                fail(422, 'bad_file_type', 'Type de fichier non autorisé : « ' . $orig . ' ».');
+            }
+            $orig = preg_replace('/[\x00-\x1F\x7F]+/', '', $orig);
+            $orig = trim((string) $orig);
+            if ($orig === '') {
+                $orig = 'fichier.' . $ext;
+            }
+            $orig = task_mb_truncate($orig, 150);
+
+            /* Type MIME réel détecté (jamais celui annoncé par le navigateur). */
+            $mime = '';
+            if (function_exists('finfo_open')) {
+                $fi = finfo_open(FILEINFO_MIME_TYPE);
+                if ($fi) {
+                    $mime = (string) finfo_file($fi, $tmp);
+                    finfo_close($fi);
+                }
+            }
+            if ($mime === '' || $mime === 'application/octet-stream') {
+                $map = [
+                    'png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg',
+                    'gif' => 'image/gif', 'webp' => 'image/webp', 'pdf' => 'application/pdf',
+                    'mp4' => 'video/mp4', 'webm' => 'video/webm', 'mp3' => 'audio/mpeg',
+                    'txt' => 'text/plain', 'md' => 'text/plain', 'csv' => 'text/plain',
+                    'json' => 'application/json', 'zip' => 'application/zip',
+                ];
+                $mime = $map[$ext] ?? 'application/octet-stream';
+            }
+
+            $fid  = bin2hex(random_bytes(8));
+            $disk = date('Ymd') . '_' . $fid . '.' . $ext;
+            $dest = $dir . '/' . $disk;
+            if (!@move_uploaded_file($tmp, $dest)) {
+                fail(500, 'storage', 'Écriture impossible pour « ' . $orig . ' ».');
+            }
+            @chmod($dest, 0644);
+
+            $w = null;
+            $h = null;
+            if (in_array($ext, ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'], true)) {
+                $info = @getimagesize($dest);
+                if (is_array($info)) {
+                    $w = (int) $info[0];
+                    $h = (int) $info[1];
+                }
+            }
+
+            $fileRows[] = [$fid, 'files/' . $disk, $orig, $mime, $ext, $size, $w, $h];
+            $atts[] = [
+                'id'      => $fid,
+                'name'    => $orig,
+                'size'    => $size,
+                'mime'    => $mime,
+                'ext'     => $ext,
+                'width'   => $w,
+                'height'  => $h,
+                'expires' => $expiresTs,
+            ];
+        }
+
+        if ($fileRows === []) {
+            fail(422, 'no_files', 'Aucun fichier reçu.');
+        }
+
+        $msg = task_chat_insert($pdo, $id, $meId, $meName, $body, $atts);
+        $ins = $pdo->prepare(
+            'INSERT INTO tfh_task_chat_files
+             (id, task_id, msg_id, path, name, mime, ext, size, width, height, expires_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        foreach ($fileRows as $r) {
+            try {
+                $ins->execute([$r[0], $id, $msg['id'], $r[1], $r[2], $r[3], $r[4], $r[5], $r[6], $r[7], $expires]);
+            } catch (Throwable $e) {
+                error_log('[tfh-task] chat file row: ' . $e->getMessage());
+            }
+        }
+
+        json_out(['ok' => true, 'message' => $msg, 'count' => task_chat_count($pdo, $id)]);
+    }
+
+    case 'chat.edit': {
+        $mid  = (int) ($in['message_id'] ?? 0);
+        $body = task_req_str($in, 'body', 4000, true);
+        if ($mid <= 0) {
+            fail(422, 'bad_input', 'Paramètres invalides.');
+        }
+        $row = task_chat_fetch_row($pdo, $mid);
+        if ($row === null) {
+            fail(404, 'not_found', 'Message introuvable.');
+        }
+        if ((string) $row['author_id'] !== $meId) {
+            fail(403, 'forbidden', 'Seul l\'auteur peut modifier son message.');
+        }
+        if (!empty($row['deleted'])) {
+            fail(410, 'deleted', 'Ce message a été supprimé.');
+        }
+        $pdo->prepare('UPDATE tfh_task_chat SET body = ?, edited_at = NOW(), updated_at = NOW() WHERE id = ?')
+            ->execute([$body, $mid]);
+        $row = task_chat_fetch_row($pdo, $mid);
+        json_out(['ok' => true, 'message' => task_chat_shape($row)]);
+    }
+
+    case 'chat.delete': {
+        $mid = (int) ($in['message_id'] ?? 0);
+        if ($mid <= 0) {
+            fail(422, 'bad_input', 'Paramètres invalides.');
+        }
+        $row = task_chat_fetch_row($pdo, $mid);
+        if ($row === null) {
+            fail(404, 'not_found', 'Message introuvable.');
+        }
+        if ((string) $row['author_id'] !== $meId && !$access['can_manage']) {
+            fail(403, 'forbidden', 'Tu ne peux supprimer que tes propres messages.');
+        }
+        if (empty($row['deleted'])) {
+            $pdo->prepare(
+                'UPDATE tfh_task_chat
+                 SET deleted_at = NOW(), updated_at = NOW(), body = NULL, attachments = NULL
+                 WHERE id = ?'
+            )->execute([$mid]);
+            try {
+                $st = $pdo->prepare('SELECT id, path FROM tfh_task_chat_files WHERE msg_id = ?');
+                $st->execute([$mid]);
+                $del = $pdo->prepare('DELETE FROM tfh_task_chat_files WHERE id = ?');
+                foreach ($st->fetchAll() as $f) {
+                    $abs = task_upload_dir() . '/' . ltrim((string) $f['path'], '/');
+                    if (strpos($abs, task_upload_dir()) === 0 && is_file($abs)) {
+                        @unlink($abs);
+                    }
+                    $del->execute([(string) $f['id']]);
+                }
+            } catch (Throwable $e) {
+                error_log('[tfh-task] chat.delete files: ' . $e->getMessage());
+            }
+        }
+        json_out(['ok' => true, 'count' => task_chat_count($pdo, (int) $row['task_id'])]);
     }
 
     case 'settings.save': {

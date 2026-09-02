@@ -223,12 +223,21 @@ task_page_head('Tâches — TheFrontHub');
         <button type="submit" class="btn primary small" id="btn-checklist-add">Ajouter</button>
       </form>
     </div>
-    <div class="detail-comments">
-      <h3 class="dc-title">Commentaires <span class="dc-count" id="detail-cnum"></span></h3>
-      <ul class="dc-list" id="detail-comments"></ul>
-      <form id="form-comment" class="dc-form">
-        <textarea id="f-comment" rows="2" maxlength="2000" placeholder="Écrire un commentaire… (Entrée pour envoyer)" aria-label="Nouveau commentaire"></textarea>
-        <button type="submit" class="btn primary small" id="btn-comment-send">Envoyer</button>
+    <div class="detail-chat" id="chat-wrap">
+      <h3 class="dc-title">Discussion <span class="dc-count" id="detail-chatnum"></span></h3>
+      <p class="chat-hint">Comme sur Discord : texte, liens, images, vidéos, fichiers (10 Mo max, conservés 30 jours). Glisse-dépose ou colle des fichiers directement.</p>
+      <div class="chat-scroll" id="chat-scroll" role="log" aria-label="Discussion de la tâche"></div>
+      <button type="button" class="chat-newpill" id="chat-newpill" hidden>Nouveaux messages ↓</button>
+      <div class="chat-chips" id="chat-chips" hidden></div>
+      <form id="form-chat" class="chat-composer">
+        <button type="button" class="chat-ico" id="btn-chat-attach" title="Joindre des fichiers" aria-label="Joindre des fichiers (images, vidéos, documents…)">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+        </button>
+        <textarea id="f-chat" rows="1" maxlength="4000" placeholder="Écrire un message… (Entrée pour envoyer)" aria-label="Message de discussion"></textarea>
+        <button type="submit" class="chat-ico send" id="btn-chat-send" title="Envoyer (Entrée)" aria-label="Envoyer le message">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        </button>
+        <input type="file" id="f-chat-files" multiple hidden aria-hidden="true" tabindex="-1">
       </form>
     </div>
   </div>
