@@ -150,6 +150,9 @@ function task_align_collations(PDO $pdo): void
         if ($row !== false && !empty($row['TABLE_COLLATION'])) {
             $ref = (string) $row['TABLE_COLLATION'];
         }
+        if (function_exists('task_diag')) {
+            task_diag('align start ref=' . $ref);
+        }
 
         /* 2. Collation actuelle des tables du panel. */
         $st = $pdo->prepare(
@@ -166,12 +169,22 @@ function task_align_collations(PDO $pdo): void
         /* 3. Conversion si nécessaire (une seule fois : ensuite ça correspond). */
         foreach (['tfh_task_admins', 'tfh_task_tasks'] as $table) {
             $cur = $current[$table] ?? '';
-            if ($cur !== '' && $cur !== $ref) {
+            if ($cur === '') {
+                if (function_exists('task_diag')) {
+                    task_diag('align skip ' . $table . ' (introuvable dans information_schema)');
+                }
+                continue;
+            }
+            if ($cur !== $ref) {
                 $pdo->exec(
                     'ALTER TABLE ' . $table . ' CONVERT TO CHARACTER SET utf8mb4 COLLATE ' . $ref
                 );
                 if (function_exists('task_diag')) {
-                    task_diag('collation alignee ' . $table . ' -> ' . $ref);
+                    task_diag('collation alignee ' . $table . ' : ' . $cur . ' -> ' . $ref);
+                }
+            } else {
+                if (function_exists('task_diag')) {
+                    task_diag('align ok ' . $table . ' (' . $cur . ') ref=' . $ref);
                 }
             }
         }
@@ -180,7 +193,8 @@ function task_align_collations(PDO $pdo): void
         if (function_exists('task_diag')) {
             task_diag('EXC collation: ' . $e->getMessage());
         }
-        /* Non bloquant : sans alignement, l'erreur SQL restera visible en clair. */
+        /* Non bloquant : la requête du panel est de toute façon blindée
+           avec un COLLATE explicite (voir api.php). */
     }
 }
 
@@ -192,13 +206,16 @@ function task_ensure_schema(PDO $pdo): void
     }
     $checked = true;
 
+    $tablesOk = false;
     try {
         $pdo->query('SELECT 1 FROM tfh_task_admins LIMIT 1');
         $pdo->query('SELECT 1 FROM tfh_task_tasks LIMIT 1');
-        return;
+        $tablesOk = true;
     } catch (Throwable $e) {
         /* Tables absentes : tentative de création automatique ci-dessous. */
     }
+
+    if (!$tablesOk) {
 
     try {
         $pdo->exec(
@@ -228,17 +245,20 @@ function task_ensure_schema(PDO $pdo): void
                 INDEX idx_task_assignee (assignee_id)
              ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
         );
-    } catch (Throwable $e) {
-        error_log('[tfh-task] schema: ' . $e->getMessage());
-        task_fatal(
-            'Initialisation impossible',
-            'Les tables MySQL du panel n\'ont pas pu être créées. '
-            . 'Exécute le fichier task/install.sql dans phpMyAdmin (o2switch), puis recharge cette page. '
-            . 'Détail technique : ' . $e->getMessage()
-        );
+        } catch (Throwable $e) {
+            error_log('[tfh-task] schema: ' . $e->getMessage());
+            task_fatal(
+                'Initialisation impossible',
+                'Les tables MySQL du panel n\'ont pas pu être créées. '
+                . 'Exécute le fichier task/install.sql dans phpMyAdmin (o2switch), puis recharge cette page. '
+                . 'Détail technique : ' . $e->getMessage()
+            );
+        }
     }
 
-    /* Les tables existantes (créées avant ce fix) sont alignées ici. */
+    /* TOUJOURS (tables neuves OU existantes) : aligne les collations.
+       C'est ici que se réparent les tables créées avant le fix —
+       l'ancien return empêchait cet appel sur une installation existante. */
     task_align_collations($pdo);
 }
 

@@ -101,7 +101,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     $st = $pdo->prepare(
         "SELECT ta.discord_id, ta.role AS panel_role, u.username, u.global_name, u.avatar_url
          FROM tfh_task_admins ta
-         LEFT JOIN tfh_user_identities i ON i.provider = 'discord' AND i.provider_uid = ta.discord_id
+         LEFT JOIN tfh_user_identities i ON i.provider = 'discord'
+              AND i.provider_uid = ta.discord_id COLLATE utf8mb4_unicode_ci
          LEFT JOIN tfh_users u ON u.id = i.user_id
          ORDER BY CASE ta.role WHEN 'owner' THEN 0 ELSE 1 END, u.global_name, u.username"
     );
