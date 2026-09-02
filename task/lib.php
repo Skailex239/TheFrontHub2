@@ -22,7 +22,7 @@ require_once __DIR__ . '/../api/config.php';
 /* ------------------------------------------------------------------ */
 
 define('TASK_CSRF_COOKIE', 'tfh_task_csrf');
-define('TASK_ASSET_VER', '4');
+define('TASK_ASSET_VER', '5');
 
 /**
  * Étiquettes prédéfinies du panel (clés stockées en CSV dans tfh_task_tasks.labels).

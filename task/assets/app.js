@@ -1106,8 +1106,9 @@
   function openDetail(t) {
     if (!dlgDetail) return;
     state.detailId = t.id;
-    renderDetail();
+    /* showModal d'abord : renderDetail ne remplit que si le dialogue est ouvert */
     dlgDetail.showModal();
+    renderDetail();
   }
 
   async function deleteComment(cid) {

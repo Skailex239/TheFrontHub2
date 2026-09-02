@@ -613,8 +613,9 @@ code { font-family: var(--mono); font-size: 12.5px; }
   .topbar { padding: 10px 14px; }
   .brand-chip { display: none; }
   .me span { display: none; }
-  .toolbar-actions { width: 100%; }
-  .toolbar-actions .btn { flex: 1; justify-content: center; }
+  .toolbar-actions { width: 100%; flex-wrap: wrap; }
+  #btn-new { flex: 1 1 100%; justify-content: center; }
+  .toolbar-actions .btn { flex: 1 1 auto; justify-content: center; }
   .field-row { grid-template-columns: 1fr; }
   .dlg-actions { flex-wrap: wrap; }
   .add-row { flex-direction: column; }
