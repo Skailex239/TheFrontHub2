@@ -1599,7 +1599,7 @@ function renderLeaderboard(d){
       <span id="gg-count-${esc(r.id)}">${ggCount > 0 ? ggCount : ''}</span>
     </button>`;
 
-    return '<div class="run-row '+isMeClass+'"><div class="run-rank '+rc+'">'+(i+1)+'</div><div class="run-player">'+nameHtml+diff+isNew+'</div><a class="run-replay" href="'+getRunUrl(r)+'" target="_blank" title="Voir le replay">&#9654;</a><div class="run-time">'+formatTime(r.duration_s)+'</div><div class="run-gap">'+gap+'</div>'+ggBtn+'</div>';
+    return '<div class="run-row '+isMeClass+'" style="cursor:pointer" onclick="showPlayer('+jsq(r.player)+')"><div class="run-rank '+rc+'">'+(i+1)+'</div><div class="run-player">'+nameHtml+diff+isNew+'</div><a class="run-replay" href="'+getRunUrl(r)+'" target="_blank" title="Voir le replay">&#9654;</a><div class="run-time">'+formatTime(r.duration_s)+'</div><div class="run-gap">'+gap+'</div>'+ggBtn+'</div>';
   }).join("");
   if(d.runs.length>show)html+='<button class="see-more-btn" onclick="seeMore(\''+esc(d.map)+'\')">Voir plus ('+(d.runs.length-show)+' restants)</button>';
   document.getElementById("leaderboard").innerHTML=html;
@@ -1705,7 +1705,7 @@ function renderFeed(){
     const nameHtml=parts.map(n=>
       '<span class="run-player-name'+skinClassFor(n)+'" onclick="event.stopPropagation();openPlayerProfile('+jsq(n)+')" title="'+esc(n)+'">'+esc(displayNameFor(n))+'</span>'
     ).join('<span class="run-team-sep">+</span>');
-    return '<div class="feed-item"><div class="feed-rank">'+(i+1)+'</div><div class="feed-info"><div class="feed-player">'+nameHtml+isNew+rankBadge+'</div><div class="feed-map">'+getMapDisplayName(r.map)+' · '+timeAgo(r.timestamp)+'</div></div><div class="feed-time">'+formatTime(r.duration_s)+'</div><a class="feed-replay" href="'+getRunUrl(r)+'" target="_blank" title="Voir le replay">&#9654;</a></div>';
+    return '<div class="feed-item" style="cursor:pointer" onclick="showPlayer('+jsq(r.player)+')"><div class="feed-rank">'+(i+1)+'</div><div class="feed-info"><div class="feed-player">'+nameHtml+isNew+rankBadge+'</div><div class="feed-map">'+getMapDisplayName(r.map)+' · '+timeAgo(r.timestamp)+'</div></div><div class="feed-time">'+formatTime(r.duration_s)+'</div><a class="feed-replay" href="'+getRunUrl(r)+'" target="_blank" title="Voir le replay">&#9654;</a></div>';
   }).join("");
 }
 function renderGlobal(){
@@ -1735,7 +1735,7 @@ function renderGlobal(){
       const playerInner=parts.map(n=>
         '<span class="global-player'+skinClassFor(n)+'" onclick="event.stopPropagation();showPlayer('+jsq(n)+')" title="'+esc(n)+'">'+esc(displayNameFor(n))+'</span>'
       ).join('<span class="run-team-sep">+</span>');
-      return '<tr class="'+isMeClass+'" style="cursor:pointer"><td class="global-rank '+rc+'">'+(i+1)+'</td><td class="global-player-cell" onclick="showPlayer('+jsq(p.player)+')">'+playerInner+'</td><td class="global-points">'+p.points+'</td><td class="global-wins">'+p.wins+'</td></tr>';
+      return '<tr class="'+isMeClass+'" style="cursor:pointer" onclick="showPlayer('+jsq(p.player)+')"><td class="global-rank '+rc+'">'+(i+1)+'</td><td class="global-player-cell">'+playerInner+'</td><td class="global-points">'+p.points+'</td><td class="global-wins">'+p.wins+'</td></tr>';
     }).join("")+'</tbody></table>';
 }
 function renderHof(){
