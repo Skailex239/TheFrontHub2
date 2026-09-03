@@ -1455,34 +1455,80 @@ function selectMap(name){
   document.getElementById("share-btn").style.display='inline-flex';
   renderLeaderboard(d);updateURL();
 }
-// ── Player overlays (plaque nominative style Discord) ──
-// Returns overlay image path if the player has one, null otherwise.
-// One image per context (dashboard, ranked, speedruns, profile) with exact dimensions.
-const PLAYER_OVERLAYS = [
-  { match: /skailex/i, theme: "green", images: {
-    dashboard: "green_original_dashboard_48x16.webp",
-    ranked:    "green_original_ranked_144x48.webp",
-    speedruns: "green_original_speedruns_171x57.webp",
-    profile:   "green_original_profil_304x48.webp",
-  }},
-  { match: /varxard/i, theme: "fire", images: {
-    dashboard: "fire_dashboard_48x16.webp",
-    ranked:    "fire_ranked_144x48.webp",
-    speedruns: "fire_speedruns_171x57.webp",
-    profile:   "fire_profil_304x48.webp",
-  }},
-  // Available themes for future players: water, earth, air
-];
-function getPlayerOverlay(username, context) {
-  if (!username) return null;
-  for (const o of PLAYER_OVERLAYS) {
-    if (o.match.test(username)) {
-      if (context && o.images && o.images[context]) return o.images[context];
-      return o.images ? o.images.dashboard : null;
-    }
+// ── Noms de joueurs cliquables → PROFIL (connecté ou pas) ──
+// (2026-09-03) Les overlays trèfles/flammes (PLAYER_OVERLAYS) ont été retirés
+// à la demande de l'utilisateur ; les skins cosmétiques (dégradés .skin-*) restent.
+
+/**
+ * Résout le publicId d'un pseudo (exact d'abord, puis insensible à la casse
+ * via aliasMap — les alias Discord incluent les pseudos en jeu).
+ */
+function resolvePlayerPublicId(name){
+  if(!name) return null;
+  const exact = usernameToPid.get(name);
+  if (exact) return exact;
+  const target = String(name).toLowerCase();
+  for (const [pid, data] of Object.entries(aliasMap)) {
+    if (String(data.name||'').toLowerCase() === target) return pid;
+    if ((data.aliases||[]).some(a => String(a).toLowerCase() === target)) return pid;
   }
+  if (currentUser && currentUser.publicId && String(currentUser.name||'').toLowerCase() === target) return currentUser.publicId;
   return null;
 }
+
+/**
+ * Rassemble les runs d'un pseudo : stats agrégées (FFA) + runs d'équipe où
+ * le pseudo est membre de la composition (recherche dans _rawRuns du mode
+ * courant). Dédoublonné par id de partie.
+ */
+function collectPlayerRunData(name){
+  const runs=[]; const seen=new Set();
+  const p=playerStats[name];
+  if(p && Array.isArray(p.runs)){
+    for(const r of p.runs){
+      if(seen.has(r.id)) continue;
+      seen.add(r.id);
+      runs.push({ map:r.map, duration_s:r.duration_s, difficulty:r.difficulty, timestamp:r.timestamp, mode:'solo', url:getRunUrl(r) });
+    }
+  }
+  for(const r of (_rawRuns||[])){
+    if(seen.has(r.id)) continue;
+    const parts=String(r.player||'').split(' + ').map(s=>s.trim());
+    if(parts.length>1 && parts.includes(name)){
+      seen.add(r.id);
+      runs.push({ map:r.map, duration_s:r.duration_s, difficulty:r.difficulty, timestamp:r.timestamp, mode:'team', url:getRunUrl(r) });
+    }
+  }
+  runs.sort((a,b)=>a.duration_s-b.duration_s);
+  return runs;
+}
+
+/**
+ * Ouvre le PROFIL d'un joueur, connecté ou pas :
+ *  - lié (publicId résolu) → profil complet (API + stats serveur) ;
+ *  - non lié → profil public « speedrun » sur profile.html?player=NOM
+ *    (les runs sont passés via sessionStorage, fallback payload sinon).
+ */
+window.openPlayerProfile = function(name){
+  name=String(name||'').trim();
+  if(!name) return;
+  const pid=resolvePlayerPublicId(name);
+  const runs=collectPlayerRunData(name);
+  try{
+    sessionStorage.setItem('tfh_speedrun_profile', JSON.stringify({
+      v:1, name, ts:Date.now(),
+      stats:{
+        wins:runs.length,
+        mapsCount:new Set(runs.map(r=>r.map)).size,
+        best:runs.length?runs[0].duration_s:null,
+        runs:runs.slice(0,60),
+      },
+    }));
+  }catch(e){/* sessionStorage indisponible — le fallback payload prend le relais */}
+  const pidParam=pid?('&publicId='+encodeURIComponent(pid)):'';
+  window.location.href='profile.html?player='+encodeURIComponent(name)+pidParam;
+};
+
 function renderLeaderboard(d){
   const show=mapShowCount[d.map]||10;const best=d.runs[0]?.duration_s||0;
   const now=Date.now();
@@ -1493,9 +1539,13 @@ function renderLeaderboard(d){
     const age=now-new Date(r.timestamp).getTime();
     const isNew=age<3600000?'<span class="badge-new" data-i18n="run.new">NEW</span>':'';
     const isMeClass = r._isMe ? 'is-me' : '';
-    // Skin actif du joueur → classe .skin-* (définie dans styles.css)
-    const cosmeticNameClass = skinClassFor(r.player);
-    // Pas de tag/badge rectangle — juste le dégradé sur le pseudo
+    // ── Pseudos individuels cliquables (duos/trios/quads : "A + B") ──
+    // Skin actif par PSEUDO (classe .skin-*, définie dans styles.css) —
+    // chaque membre d'équipe garde son propre cosmétique.
+    const parts=String(r.player||'').split(' + ').map(s=>s.trim()).filter(Boolean);
+    const nameHtml=parts.map(n=>
+      '<span class="run-player-name'+skinClassFor(n)+'" onclick="event.stopPropagation();openPlayerProfile('+jsq(n)+')">'+esc(n)+'</span>'
+    ).join('<span class="run-team-sep">+</span>');
     
     // GG Button Logic
     const ggData = globalLikes[r.id];
@@ -1511,10 +1561,7 @@ function renderLeaderboard(d){
       <span id="gg-count-${esc(r.id)}">${ggCount > 0 ? ggCount : ''}</span>
     </button>`;
 
-    const overlayImg = getPlayerOverlay(r.player, "speedruns");
-    const overlayClass = overlayImg ? ' has-overlay' : '';
-    const overlayStyle = overlayImg ? ` style="--overlay-img:url('${overlayImg.replace(/'/g,"%27")}')"` : '';
-    return '<div class="run-row '+isMeClass+'"><div class="run-rank '+rc+'">'+(i+1)+'</div><div class="run-player'+cosmeticNameClass+overlayClass+'"'+overlayStyle+' onclick="showPlayer(\''+esc(r.player)+'\')">'+r.player+diff+isNew+'</div><a class="run-replay" href="'+getRunUrl(r)+'" target="_blank" title="Voir le replay">&#9654;</a><div class="run-time">'+formatTime(r.duration_s)+'</div><div class="run-gap">'+gap+'</div>'+ggBtn+'</div>';
+    return '<div class="run-row '+isMeClass+'"><div class="run-rank '+rc+'">'+(i+1)+'</div><div class="run-player">'+nameHtml+diff+isNew+'</div><a class="run-replay" href="'+getRunUrl(r)+'" target="_blank" title="Voir le replay">&#9654;</a><div class="run-time">'+formatTime(r.duration_s)+'</div><div class="run-gap">'+gap+'</div>'+ggBtn+'</div>';
   }).join("");
   if(d.runs.length>show)html+='<button class="see-more-btn" onclick="seeMore(\''+esc(d.map)+'\')">Voir plus ('+(d.runs.length-show)+' restants)</button>';
   document.getElementById("leaderboard").innerHTML=html;
@@ -1614,7 +1661,12 @@ function renderFeed(){
     const rankBadge=isTop3?'<span class="feed-rank-badge rank-'+rank+'">#'+rank+'</span>':'';
     const age=Date.now()-new Date(r.timestamp).getTime();
     const isNew=age<3600000?'<span class="badge-new">NEW</span>':'';
-    return '<div class="feed-item"><div class="feed-rank">'+(i+1)+'</div><div class="feed-info"><div class="feed-player'+skinClassFor(r.player)+'" onclick="showPlayer(\''+esc(r.player)+'\')">'+r.player+isNew+rankBadge+'</div><div class="feed-map">'+getMapDisplayName(r.map)+' · '+timeAgo(r.timestamp)+'</div></div><div class="feed-time">'+formatTime(r.duration_s)+'</div><a class="feed-replay" href="'+getRunUrl(r)+'" target="_blank" title="Voir le replay">&#9654;</a></div>';
+    // Pseudos individuels cliquables (équipe : "A + B") — skin par pseudo
+    const parts=String(r.player||'').split(' + ').map(s=>s.trim()).filter(Boolean);
+    const nameHtml=parts.map(n=>
+      '<span class="run-player-name'+skinClassFor(n)+'" onclick="event.stopPropagation();openPlayerProfile('+jsq(n)+')">'+esc(n)+'</span>'
+    ).join('<span class="run-team-sep">+</span>');
+    return '<div class="feed-item"><div class="feed-rank">'+(i+1)+'</div><div class="feed-info"><div class="feed-player">'+nameHtml+isNew+rankBadge+'</div><div class="feed-map">'+getMapDisplayName(r.map)+' · '+timeAgo(r.timestamp)+'</div></div><div class="feed-time">'+formatTime(r.duration_s)+'</div><a class="feed-replay" href="'+getRunUrl(r)+'" target="_blank" title="Voir le replay">&#9654;</a></div>';
   }).join("");
 }
 function renderGlobal(){
@@ -1635,10 +1687,7 @@ function renderGlobal(){
       const rc = i===0?'gold':i===1?'silver':i===2?'bronze':'';
       const isMeClass = p._isMe ? 'is-me' : '';
       const cosmeticNameClass = skinClassFor(p.player);
-      const overlayImg = getPlayerOverlay(p.player, "dashboard");
-      const overlayClass = overlayImg ? ' has-overlay' : '';
-      const overlayStyle = overlayImg ? ` style="--overlay-img:url('${overlayImg.replace(/'/g,"%27")}')"` : '';
-      const playerInner = '<span class="global-player'+cosmeticNameClass+overlayClass+'"'+overlayStyle+' onclick="showPlayer(\''+esc(p.player)+'\')">'+p.player+'</span>';
+      const playerInner = '<span class="global-player'+cosmeticNameClass+'" onclick="showPlayer(\''+esc(p.player)+'\')">'+p.player+'</span>';
       return '<tr class="'+isMeClass+'"><td class="global-rank '+rc+'">'+(i+1)+'</td><td class="global-player-cell" onclick="showPlayer(\''+esc(p.player)+'\')">'+playerInner+'</td><td class="global-points">'+p.points+'</td><td class="global-wins">'+p.wins+'</td></tr>';
     }).join("")+'</tbody></table>';
 }
@@ -1730,24 +1779,25 @@ function searchPlayer(){
   }).join("")+'</div>';
 }
 function showPlayer(name){
-  const p=playerStats[name];if(!p)return;
-
-  // Check if this player has a registered account and get their publicId
-  let targetPublicId = null;
-  for (const [pid, data] of Object.entries(aliasMap)) {
-    if (data.name === name || (data.aliases || []).includes(name)) {
-      targetPublicId = pid;
-      break;
-    }
-  }
-
-  if(connectedUsernames.has(name) || targetPublicId){
-    const pidParam = targetPublicId ? `&publicId=${encodeURIComponent(targetPublicId)}` : '';
-    window.location.href="profile.html?player="+encodeURIComponent(name) + pidParam;
+  // (2026-09-03) Comportement unifié : tout clic sur un pseudo ouvre son PROFIL.
+  //  - composition d'équipe ("A + B") → stats d'équipe (modal, inchangée) ;
+  //  - pseudo individuel → profil (complet si lié, public speedrun sinon),
+  //    que le visiteur soit connecté ou pas.
+  const p=playerStats[name];
+  if(!p){ openPlayerProfile(name); return; }
+  if(String(name).includes(' + ')){
+    showTeamStatsModal(name, p);
     return;
   }
+  openPlayerProfile(name);
+}
 
-  // Not connected — show modal with "non connecté" message
+/**
+ * Modal « stats d'équipe » — ancien rendu de showPlayer, conservé pour les
+ * compositions (le leaderboard global/HoF en mode équipe clé les stats par
+ * équipe, pas par membre).
+ */
+function showTeamStatsModal(name, p){
   const rank=getRank(p.points);
   document.getElementById("modal-player-name").innerHTML=esc(name)+' <span class="rank-badge" style="color:'+esc(rank.color)+'">'+esc(rank.name)+'</span>';
   document.getElementById("modal-player-stats").textContent=window.t("ui.player_stats", { wins: p.wins, maps: p.maps.size, points: p.points });
@@ -1770,19 +1820,10 @@ function showPlayer(name){
     return '<div class="player-run-row"><div class="player-run-map">'+getMapDisplayName(r.map)+'</div><div class="player-run-rank">#'+rank2+'</div><div class="player-run-time">'+formatTime(r.duration_s)+'</div><a class="run-replay" href="'+getRunUrl(r)+'" target="_blank" title="Voir le replay" style="width:26px;height:26px;font-size:11px">&#9654;</a></div>';
   }).join("");
 
-  // Show "non connecté" notice
-  const existingNotice = document.getElementById("modal-not-connected");
-  if(!existingNotice){
-    const notice = document.createElement("div");
-    notice.id = "modal-not-connected";
-    notice.style.cssText = "text-align:center;padding:12px;margin-top:8px;border-radius:8px;background:var(--bg2);color:var(--text3);font-size:13px";
-    notice.textContent = "Ce joueur n'est pas encore connecté à un compte TheFrontHub.";
-    document.querySelector("#player-modal .modal-section").appendChild(notice);
-  }
-
   document.getElementById("player-modal").classList.add("active");
   updateURL();
 }
+
 function closeModal(e){
   if(!e||e.target.id==="player-modal")document.getElementById("player-modal").classList.remove("active");
   updateURL();
@@ -2216,11 +2257,6 @@ function renderRankedTable(players) {
     // Skin actif — matching par PUBLIC ID (prioritaire), fallback username
     const cosmeticNameClass = skinClassFor(p.username, p.public_id, p.accountUsername);
 
-    // Player overlay (plaque nominative)
-    const overlayImg = getPlayerOverlay(p.username, "ranked");
-    const overlayClass = overlayImg ? ' has-overlay' : '';
-    const overlayStyle = overlayImg ? ` style="--overlay-img:url('${overlayImg.replace(/'/g,"%27")}')"` : '';
-
     html += `
       <tr data-pid="${esc(p.public_id)}" style="border-bottom: 1px solid var(--border); transition: background 0.2s; cursor:pointer;"
           onmouseover="this.style.background='var(--bg2)'"
@@ -2230,7 +2266,7 @@ function renderRankedTable(players) {
         <td style="padding: 12px 8px;">
           <div style="display:flex;align-items:center;gap:6px">
             ${favBtn}
-            <span class="${cosmeticNameClass} ranked-player-name${overlayClass}"${overlayStyle} style="color: var(--text); text-decoration: none; font-weight: 500; position: relative; display: inline-block; padding-right: ${overlayImg ? '120px' : '0'};">
+            <span class="${cosmeticNameClass} ranked-player-name" style="color: var(--text); text-decoration: none; font-weight: 500; position: relative; display: inline-block;">
               ${p.clanTag ? `<span style="color:var(--text3);font-size:0.9em;margin-right:4px;">[${esc(p.clanTag)}]</span>` : ''}${esc(p.username)}
             </span>
           </div>

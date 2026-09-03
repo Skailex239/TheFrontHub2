@@ -791,3 +791,33 @@
     animation-duration: .01ms !important;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════
+   PROFIL PUBLIC « SPEEDRUN » (2026-09-03) — carte Records Speedrun
+   affichée pour les joueurs non liés (?player=NOM sans publicId).
+   Montée dans #pf2-weekly-top par renderSpeedrunPublicProfile().
+   ════════════════════════════════════════════════════════════════ */
+.pfsr-loading{padding:24px;text-align:center;color:var(--text3);font-size:14px}
+.pfsr-card .pfsr-chips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 16px}
+.pfsr-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;background:var(--bg2,rgba(127,127,127,.12));border:1px solid var(--border);font-size:12.5px;color:var(--text2)}
+.pfsr-chip b{font-family:'JetBrains Mono',monospace;color:var(--fg);font-weight:700}
+.pfsr-runs{display:flex;flex-direction:column}
+.pfsr-row{display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--border);font-size:13px}
+.pfsr-row:last-child{border-bottom:none}
+.pfsr-map{flex:1;min-width:0;display:flex;align-items:center;gap:8px;font-weight:500;color:var(--fg);overflow:hidden}
+.pfsr-map span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pfsr-thumb{width:34px;height:22px;object-fit:cover;border-radius:4px;border:1px solid var(--border);flex:none}
+.pfsr-mode{flex:none;font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--text3);background:var(--bg2,rgba(127,127,127,.12));padding:2px 7px;border-radius:999px}
+.pfsr-diff{flex:none;font-size:11px;color:var(--text3)}
+.pfsr-time{flex:none;font-family:'JetBrains Mono',monospace;font-weight:700;color:var(--fg);min-width:52px;text-align:right}
+.pfsr-date{flex:none;font-size:11.5px;color:var(--text3);min-width:86px;text-align:right}
+.pfsr-replay{flex:none;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:var(--bg2,rgba(127,127,127,.12));color:var(--fg-muted);text-decoration:none;font-size:11px;border:1px solid var(--border)}
+a.pfsr-replay:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+.pfsr-empty{padding:20px;text-align:center;color:var(--text3);font-size:13.5px}
+.pfsr-note{margin-top:14px;padding:10px 12px;border-radius:8px;background:var(--bg2,rgba(127,127,127,.1));color:var(--text3);font-size:12.5px;line-height:1.5}
+.pfsr-note a{color:var(--accent);text-decoration:none;font-weight:600}
+.pfsr-note a:hover{text-decoration:underline}
+@media(max-width:640px){
+  .pfsr-date{display:none}
+  .pfsr-row{gap:7px;font-size:12.5px}
+}

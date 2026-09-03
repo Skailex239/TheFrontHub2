@@ -24,7 +24,7 @@ import {
 } from "./skins.js?v=1";
 import {
   fetchOwnedSkins, redeemCode, activateSkin, applySkinToElement,
-  invalidateActiveSkinCache,
+  invalidateActiveSkinCache, fetchActiveSkinMap, normPlayerName,
 } from "./reward-codes.js?v=1";
 import {
   computePlaytimeStats, extractCareerWins, totalWins, pointsFor,
@@ -43,33 +43,6 @@ function mapThumbUrl(name) {
   return slug
     ? `https://raw.githubusercontent.com/openfrontio/OpenFrontIO/main/resources/maps/${slug}/thumbnail.webp`
     : null;
-}
-
-/* ── Player overlays (plaque nominative) ── */
-const PLAYER_OVERLAYS = [
-  { match: /skailex/i, theme: "green", images: {
-    dashboard: "green_original_dashboard_48x16.webp",
-    ranked:    "green_original_ranked_144x48.webp",
-    speedruns: "green_original_speedruns_171x57.webp",
-    profile:   "green_original_profil_304x48.webp",
-  }},
-  { match: /varxard/i, theme: "fire", images: {
-    dashboard: "fire_dashboard_48x16.webp",
-    ranked:    "fire_ranked_144x48.webp",
-    speedruns: "fire_speedruns_171x57.webp",
-    profile:   "fire_profil_304x48.webp",
-  }},
-  // Available themes for future players: water, earth, air
-];
-function getPlayerOverlay(username, context) {
-  if (!username) return null;
-  for (const o of PLAYER_OVERLAYS) {
-    if (o.match.test(username)) {
-      if (context && o.images && o.images[context]) return o.images[context];
-      return o.images ? o.images.profile : null;
-    }
-  }
-  return null;
 }
 
 /* ── State ── */
@@ -199,6 +172,11 @@ function getPublicProfileRequest() {
   if (pid && /^[A-Za-z0-9]{8}$/.test(pid)) {
     return { publicId: pid, username: name || pid };
   }
+  // (2026-09-03) ?player=NOM sans publicId → profil public « speedrun » :
+  // tout joueur cliqué depuis les speedruns obtient une page profil, lié ou pas.
+  if (name) {
+    return { publicId: null, username: name };
+  }
   return null;
 }
 
@@ -208,6 +186,18 @@ onAuthStateChanged(auth, async (user) => {
   // même si l'utilisateur n'est pas connecté.
   const pubReq = getPublicProfileRequest();
   if (pubReq) {
+    // ── Cas 1-bis : joueur NON lié (?player=NOM sans publicId) → profil
+    // public « speedrun » (records issus des données du site). Fonctionne
+    // pour tout le monde, visiteur connecté ou non.
+    if (!pubReq.publicId) {
+      currentUser = user;
+      currentProfile = null;
+      updateSidebarUI(user, null);
+      showView("profile-main");
+      await renderSpeedrunPublicProfile(pubReq.username);
+      return;
+    }
+
     // Lecture du propre profil de l'utilisateur courant (s'il est connecté)
     // pour détecter s'il visualise son PROPRE profil → flux normal.
     let ownProfile = null;
@@ -295,12 +285,6 @@ function renderPublicProfile(username, publicId) {
     nameEl.innerHTML = "";
     const skinSpan = document.createElement("span");
     skinSpan.textContent = username;
-    // Apply overlay if the player has one
-    const overlayImg = getPlayerOverlay(username, "profile");
-    if (overlayImg) {
-      skinSpan.classList.add("has-overlay");
-      skinSpan.style.setProperty("--overlay-img", `url('${overlayImg}')`);
-    }
     nameEl.appendChild(skinSpan);
     applySkinToElement(skinSpan, publicId, true);
   }
@@ -346,6 +330,153 @@ function renderPublicProfile(username, publicId) {
   applyProfileSkin(virtualProfile, null);
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+   PROFIL PUBLIC « SPEEDRUN » (2026-09-03)
+   Pour un joueur NON lié (?player=NOM sans publicId) : affiche ses records
+   de speedrun issus des données du site. Chaque joueur cliqué depuis les
+   speedruns obtient ainsi une page profil, visiteur connecté ou non.
+   ───────────────────────────────────────────────────────────────────────── */
+
+const SPEEDRUN_PROFILE_SESSION_KEY = "tfh_speedrun_profile";
+const SPEEDRUN_PROFILE_SESSION_TTL = 15 * 60 * 1000; // 15 min
+
+/**
+ * Charge les runs d'un pseudo :
+ *  1. sessionStorage (passés par la page speedrun au clic — instantané) ;
+ *  2. fallback : payloads publics runs_public.json (FFA) + teams_public.json
+ *     (duos/trios/quads/hvn, recherche par appartenance à la composition).
+ */
+async function loadSpeedrunPublicData(name) {
+  try {
+    const raw = sessionStorage.getItem(SPEEDRUN_PROFILE_SESSION_KEY);
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (p && p.name === name && p.stats && Array.isArray(p.stats.runs)
+          && Date.now() - (p.ts || 0) < SPEEDRUN_PROFILE_SESSION_TTL) {
+        return { source: "session", runs: p.stats.runs };
+      }
+    }
+  } catch (e) { /* sessionStorage indisponible */ }
+
+  const runs = [];
+  // FFA (format compact k/r)
+  try {
+    const res = await fetch("runs_public.json", { cache: "no-store" });
+    if (res.ok) {
+      const d = await res.json();
+      if (d.k && Array.isArray(d.r)) {
+        for (const row of d.r) {
+          const o = {}; d.k.forEach((k, i) => o[k] = row[i]);
+          if (String(o.player || "").trim() === name) {
+            runs.push({ map: o.map, duration_s: o.duration_s, difficulty: o.difficulty,
+                        timestamp: o.timestamp, mode: "solo",
+                        url: o.id ? "https://openfront.io/game/" + o.id : null });
+          }
+        }
+      }
+    }
+  } catch (e) { /* payload indisponible */ }
+  // Équipes (composition "A + B")
+  try {
+    const res = await fetch("teams_public.json", { cache: "no-store" });
+    if (res.ok) {
+      const d = await res.json();
+      for (const cat of ["duos", "trios", "quads", "hvn"]) {
+        const sub = d[cat] || {};
+        for (const map of Object.keys(sub)) {
+          for (const r of sub[map]) {
+            const parts = String(r.t || "").split(" + ").map(s => s.trim());
+            if (parts.includes(name)) {
+              runs.push({ map, duration_s: r.d, difficulty: r.f, timestamp: r.ts,
+                          mode: "team",
+                          url: r.g ? "https://openfront.io/game/" + r.g : null });
+            }
+          }
+        }
+      }
+    }
+  } catch (e) { /* payload indisponible */ }
+
+  // Dédoublonnage par URL de replay, tri par temps croissant
+  const seen = new Set(); const out = [];
+  for (const r of runs.sort((a, b) => a.duration_s - b.duration_s)) {
+    const k = r.url || (r.map + "|" + r.duration_s);
+    if (!seen.has(k)) { seen.add(k); out.push(r); }
+  }
+  return { source: "payload", runs: out };
+}
+
+function formatSpeedrunTime(s) {
+  if (s == null || isNaN(s)) return "—";
+  const m = Math.floor(s / 60);
+  const sec = Math.round(s % 60);
+  return m + ":" + String(sec).padStart(2, "0");
+}
+
+/**
+ * Rendu du profil public speedrun dans la vue profile-main :
+ * hero (renderPublicProfile sans publicId) + carte « Records Speedrun »
+ * montée dans #pf2-weekly-top. Les blocs du profil complet qui resteraient
+ * vides (cartes stats, colonnes) sont masqués.
+ */
+async function renderSpeedrunPublicProfile(username) {
+  renderPublicProfile(username, null);
+
+  // Masque les sections réservées au profil complet (données API absentes ici)
+  document.querySelectorAll("#profile-main .pf2-stats, #profile-main .pf2-columns")
+    .forEach(el => { el.style.display = "none"; });
+
+  // Skin cosmétique par PSEUDO (joueurs VIP non liés) — map publique des skins actifs
+  try {
+    const { byNorm } = await fetchActiveSkinMap();
+    const skinId = byNorm && byNorm.get(normPlayerName(username));
+    if (skinId) {
+      const span = document.querySelector("#profile-title-name span");
+      if (span) span.classList.add(getSkin(skinId).cssClass);
+    }
+  } catch (e) { /* skins indisponibles — non bloquant */ }
+
+  const mount = document.getElementById("pf2-weekly-top");
+  if (!mount) return;
+  mount.innerHTML = '<div class="pfsr-loading">Chargement des records speedrun…</div>';
+
+  const { runs } = await loadSpeedrunPublicData(username);
+  const mapsCount = new Set(runs.map(r => r.map)).size;
+  const best = runs.length ? runs[0].duration_s : null;
+
+  const MODE_LABEL = { solo: "Solo", team: "Équipe" };
+  const rowsHtml = runs.length
+    ? runs.slice(0, 40).map(r => {
+        const thumb = mapThumbUrl(r.map);
+        const date = r.timestamp
+          ? new Date(r.timestamp).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })
+          : "";
+        return '<div class="pfsr-row">'
+          + '<div class="pfsr-map">' + (thumb ? '<img class="pfsr-thumb" src="' + thumb + '" alt="" loading="lazy">' : '')
+          + '<span>' + esc(r.map) + '</span></div>'
+          + '<span class="pfsr-mode">' + (MODE_LABEL[r.mode] || "") + '</span>'
+          + (r.difficulty ? '<span class="pfsr-diff">' + esc(r.difficulty) + '</span>' : '')
+          + '<span class="pfsr-time">' + formatSpeedrunTime(r.duration_s) + '</span>'
+          + '<span class="pfsr-date">' + esc(date) + '</span>'
+          + (r.url ? '<a class="pfsr-replay" href="' + esc(r.url) + '" target="_blank" rel="noopener" title="Voir le replay">▶</a>' : '<span class="pfsr-replay"></span>')
+          + '</div>';
+      }).join("")
+    : '<div class="pfsr-empty">Aucun record trouvé dans les données publiées pour ce pseudo.</div>';
+
+  mount.innerHTML = ''
+    + '<section class="pf2-panel pfsr-card" aria-label="Records speedrun">'
+    +   '<header class="pf2-panel-head"><h3>Records Speedrun</h3><i class="pf2-panel-rule"></i></header>'
+    +   '<div class="pfsr-chips">'
+    +     '<span class="pfsr-chip"><b>' + runs.length + '</b> victoire' + (runs.length > 1 ? 's' : '') + '</span>'
+    +     '<span class="pfsr-chip"><b>' + mapsCount + '</b> carte' + (mapsCount > 1 ? 's' : '') + '</span>'
+    +     '<span class="pfsr-chip"><b>' + formatSpeedrunTime(best) + '</b> meilleur temps</span>'
+    +   '</div>'
+    +   '<div class="pfsr-runs">' + rowsHtml + '</div>'
+    +   '<p class="pfsr-note">Profil public limité aux speedruns — ce joueur n\'a pas encore lié son compte TheFrontHub. '
+    +     '<a href="index.html">Me connecter avec Discord</a> pour un profil complet (Elo, niveau, historique).</p>'
+    + '</section>';
+}
+
 /* ── Sidebar / dropdown UI ── */
 
 function updateSidebarUI(user, profile) {
@@ -387,12 +518,6 @@ function renderHero(user, profile) {
     nameEl.innerHTML = "";
     const skinSpan = document.createElement("span");
     skinSpan.textContent = profile.username || user.displayName || "Joueur";
-    // Apply overlay if the player has one
-    const overlayImg = getPlayerOverlay(profile.username || user.displayName, "profile");
-    if (overlayImg) {
-      skinSpan.classList.add("has-overlay");
-      skinSpan.style.setProperty("--overlay-img", `url('${overlayImg}')`);
-    }
     nameEl.appendChild(skinSpan);
     applySkinToElement(skinSpan, profile.publicId, true);
   }

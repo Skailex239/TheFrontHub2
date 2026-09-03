@@ -461,8 +461,11 @@ body{
 .run-rank.gold{color:var(--gold);font-weight:700}
 .run-rank.silver{color:var(--silver);font-weight:700}
 .run-rank.bronze{color:var(--bronze);font-weight:700}
-.run-player{font-weight:500;font-size:13px;display:flex;align-items:center;gap:8px;cursor:pointer;flex-wrap:wrap;transition:color var(--dur-fast) var(--ease)}
-.run-player:hover{color:var(--accent)}
+.run-player{font-weight:500;font-size:13px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;transition:color var(--dur-fast) var(--ease)}
+/* Pseudo individuel cliquable → profil (2026-09-03) */
+.run-player-name{cursor:pointer;transition:color var(--dur-fast) var(--ease)}
+.run-player-name:hover{color:var(--accent);text-decoration:underline;text-underline-offset:3px}
+.run-team-sep{opacity:.45;font-weight:400;margin:0 2px}
 .run-time{font-family:var(--mono);font-weight:700;font-size:13px;text-align:right;color:var(--fg)}
 .run-gap{font-family:var(--mono);font-size:11px;color:var(--fg-muted);text-align:right}
 .run-replay{
@@ -1170,84 +1173,6 @@ input[type="text"].global-player-search,
     display:flex;
     align-items:center;
     justify-content:center;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   PLAYER OVERLAY (plaque nominative style Discord)
-   4 images pixel art, une par contexte, dimensions exactes.
-   Do not touch — overlay positioning system relies on these rules.
-   ════════════════════════════════════════════════════════════════ */
-
-/* Dashboard (global leaderboard) — 48x16px image */
-.global-player.has-overlay{
-    position:relative!important;
-    display:inline-block!important;
-    padding-right:52px!important;
-}
-.global-player.has-overlay::after{
-    content:"";
-    position:absolute;
-    right:0;
-    top:50%;
-    transform:translateY(-50%);
-    width:48px;
-    height:16px;
-    background-image:var(--overlay-img);
-    background-size:contain;
-    background-position:center;
-    background-repeat:no-repeat;
-    opacity:.7;
-    pointer-events:none;
-}
-
-/* Speedruns leaderboard — 171x57px image */
-.run-player.has-overlay{position:relative!important;padding-right:175px!important}
-.run-player.has-overlay::after{
-    content:"";
-    position:absolute;
-    right:0;
-    top:50%;
-    transform:translateY(-50%);
-    width:171px;
-    height:57px;
-    background-image:var(--overlay-img);
-    background-size:contain;
-    background-position:center;
-    background-repeat:no-repeat;
-    opacity:.7;
-    pointer-events:none;
-}
-
-/* Ranked table — 144x48px image */
-.ranked-player-name.has-overlay{
-    position:relative!important;
-    display:inline-block!important;
-    padding-right:148px!important;
-}
-.ranked-player-name.has-overlay::after{
-    content:"";
-    position:absolute;
-    right:0;
-    top:50%;
-    transform:translateY(-50%);
-    width:144px;
-    height:48px;
-    background-image:var(--overlay-img);
-    background-size:contain;
-    background-position:center;
-    background-repeat:no-repeat;
-    opacity:.7;
-    pointer-events:none;
-}
-
-/* Mobile */
-@media(max-width:768px){
-    .global-player.has-overlay{padding-right:38px}
-    .global-player.has-overlay::after{width:36px;height:12px;opacity:.6}
-    .run-player.has-overlay{padding-right:100px}
-    .run-player.has-overlay::after{width:100px;height:33px;opacity:.6}
-    .ranked-player-name.has-overlay{padding-right:90px!important}
-    .ranked-player-name.has-overlay::after{width:90px;height:30px;opacity:.6}
 }
 
 /* ═══ B022: Focus rings (accessibility WCAG 2.2 AA) ═══ */
