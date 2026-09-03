@@ -144,7 +144,7 @@ export function normPlayerName(s) {
  * résolu côté serveur avec cache 5 min) qui alimente byNorm — c'est ce
  * qui fait matcher "[LBU] Skailex" (nom en partie) avec le compte
  * skailex_yt.
- * Retourne { byPid: Map, byUser: Map, byNorm: Map }.
+ * Retourne { byPid: Map, byUser: Map, byNorm: Map, byNormPid: Map }.
  */
 export async function fetchActiveSkinMap(force = false) {
   const now = Date.now();
@@ -156,20 +156,24 @@ export async function fetchActiveSkinMap(force = false) {
     const byPid = new Map();
     const byUser = new Map();
     const byNorm = new Map();
+    const byNormPid = new Map(); // pseudo normalisé → publicId (résolution profil)
     for (const row of data.active || []) {
       if (!row.publicId || !row.skinId) continue;
       byPid.set(row.publicId, row.skinId);
       if (row.username) {
         byUser.set(row.username, row.skinId);
         byNorm.set(normPlayerName(row.username), row.skinId);
+        byNormPid.set(normPlayerName(row.username), row.publicId);
       }
       if (row.openfrontUsername) {
         byNorm.set(normPlayerName(row.openfrontUsername), row.skinId);
+        byNormPid.set(normPlayerName(row.openfrontUsername), row.publicId);
       }
     }
     activeMapCache.byPid = byPid;
     activeMapCache.byUser = byUser;
     activeMapCache.byNorm = byNorm;
+    activeMapCache.byNormPid = byNormPid;
     activeMapCache.at = now;
     return activeMapCache;
   } catch (e) {
@@ -178,6 +182,7 @@ export async function fetchActiveSkinMap(force = false) {
       activeMapCache.byPid = new Map();
       activeMapCache.byUser = new Map();
       activeMapCache.byNorm = new Map();
+      activeMapCache.byNormPid = new Map();
       activeMapCache.at = now;
     }
     return activeMapCache;

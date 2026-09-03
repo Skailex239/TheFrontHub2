@@ -1473,6 +1473,12 @@ function resolvePlayerPublicId(name){
     if ((data.aliases||[]).some(a => String(a).toLowerCase() === target)) return pid;
   }
   if (currentUser && currentUser.publicId && String(currentUser.name||'').toLowerCase() === target) return currentUser.publicId;
+  // Map des skins actifs (pseudo normalisé, sans tag de clan ni discriminateur)
+  // → publicId : fait matcher "[MSC] Skailex" / "VarXard" avec le compte lié
+  try {
+    const pidNorm = activeMapCacheRef.byNormPid && activeMapCacheRef.byNormPid.get(normPlayerName(name));
+    if (pidNorm) return pidNorm;
+  } catch (e) { /* map non chargée */ }
   return null;
 }
 
