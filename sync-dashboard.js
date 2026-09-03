@@ -148,9 +148,18 @@ function calculatePoints(apiResponse) {
       const mode = cat[modeKey];
       if (!mode || typeof mode !== "object") continue;
       let modeWins = 0;
-      for (const diffKey of Object.keys(mode)) {
-        const diff = mode[diffKey];
-        if (diff && typeof diff === "object" && diff.wins != null) modeWins += parseInt(diff.wins, 10) || 0;
+      if (mode.wins != null) {
+        // Structure PLATE (ex: Ranked.1v1 = {"wins":"148",...}) — le mode porte
+        // directement son total de victoires, sans niveaux de difficulté.
+        // (fix 2026-09-03 : sinon TOUTES les victoires classées carrière
+        //  étaient ignorées → 0 pt pour les joueurs classés mixtes)
+        modeWins = parseInt(mode.wins, 10) || 0;
+      } else {
+        // Structure à niveaux de difficulté (ex: Public["Free For All"].Medium.wins)
+        for (const diffKey of Object.keys(mode)) {
+          const diff = mode[diffKey];
+          if (diff && typeof diff === "object" && diff.wins != null) modeWins += parseInt(diff.wins, 10) || 0;
+        }
       }
       if (catKey === "Public" || catKey === "Private") {
         if (modeKey === "Free For All") ffaCasualWins += modeWins;
@@ -175,9 +184,14 @@ function calculatePoints(apiResponse) {
 // rang final de la semaine dernière). La pagination est la même qu'avant :
 // on pousse juste la frontière d'arrêt au lundi PRÉCÉDENT au lieu du lundi
 // en cours → aucune requête supplémentaire, juste 1-3 pages de plus pour
-// les joueurs actifs (plafond 10 pages conservé).
+// les joueurs actifs.
 // SEMAINE FIXE : quand une nouvelle semaine démarre (lundi 00h00 Paris),
 // les frontières avancent automatiquement → reset sans intervention.
+// ⚠️ PLAFOND (fix 2026-09-03) : l'API renvoie 10 games/page QUEL QUE SOIT le
+// paramètre limit → l'ancien plafond de 10 pages ne scannait que 100 games.
+// Un joueur actif fait 200-400 games en 2 semaines → sous-comptage possible.
+// 40 pages = 400 games ; l'arrêt anticipé (game < lundi précédent) protège
+// les joueurs normaux qui s'arrêtent bien avant.
 async function fetchWeeklyWins(publicId) {
   try {
     const weekStartMs = getWeekStartMs(Date.now());
@@ -188,7 +202,7 @@ async function fetchWeeklyWins(publicId) {
     let ffaCasual = 0, ffaRanked = 0, teamCasual = 0, teamRanked = 0;
     let pFfaCasual = 0, pFfaRanked = 0, pTeamCasual = 0, pTeamRanked = 0;
     
-    for (let page = 0; page < 10; page++) {
+    for (let page = 0; page < 40; page++) {
       let url = `${API_BASE}/public/player/${encodeURIComponent(publicId)}/games?limit=50`;
       if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
       

@@ -109,7 +109,7 @@ let _loginInProgress = false;
 // Cache key bumped to v3 : la semaine est désormais fixe (lundi→lundi 00h00
 // Paris) au lieu d'une fenêtre flottante de 7 jours. Les entrées v2
 // contiennent des wins hebdo calculées en fenêtre flottante → à invalider.
-const LIVE_CACHE_KEY = "dash_live_stats_v3";
+const LIVE_CACHE_KEY = "dash_live_stats_v4"; // v4 : clés ffaCasualWins… (anciennes entrées invalidées)
 const LIVE_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 const WEEKLY_MS = 7 * 24 * 60 * 60 * 1000; // conservé pour compat arrière
 // Fuseau horaire de référence pour le découpage hebdomadaire (reset lundi 00h00 Paris).
@@ -446,8 +446,22 @@ async function fetchPlayerStats(player) {
     publicId: player.publicId,
     username,
     games: weeklyGames.slice(-20), // 20 plus récentes pour le profil
-    global,
-    weekly,
+    // Clés avec suffixe « Wins » : IDENTIQUES à celles du chemin
+    // dashboard_scores (init) et attendues par buildForMode()/pointsFor().
+    // (fix 2026-09-03 : les clés sans suffixe rendaient buildForMode muet
+    //  → 0 pt pour tous les joueurs en mode live de secours)
+    global: {
+      ffaCasualWins: global.ffaCasual,
+      ffaRankedWins: global.ffaRanked,
+      teamCasualWins: global.teamCasual,
+      teamRankedWins: global.teamRanked,
+    },
+    weekly: {
+      ffaCasualWins: weekly.ffaCasual,
+      ffaRankedWins: weekly.ffaRanked,
+      teamCasualWins: weekly.teamCasual,
+      teamRankedWins: weekly.teamRanked,
+    },
     totalGames: 0, // non disponible simplement depuis l'API agrégée
     fetchedAt: Date.now(),
   };
