@@ -25,6 +25,16 @@
 // re-derive the tables below from Schemas.ts / Game.ts / Maps.gen.ts.
 // Unknown enum ordinals (e.g. a newly added map) decode to "unknown#<n>"
 // instead of throwing, so a map addition alone doesn't kill the dashboard.
+//
+// ── Historique de synchro schéma ────────────────────────────────────────────
+//   2026-09-03 : v5.13 — GameConfig gagne `trusted: boolean.optional()`
+//   (entre allowedPublicIds et maxTimerValue, commit #5127) → décalage de +2
+//   bits dans le header de présence pour TOUTES les fields suivantes
+//   (maxTimerValue, playerTeams, goldMultiplier…). Symptôme : toutes les
+//   frames contenant au moins une partie équipe/hosted échouaient avec
+//   « Failed to execute 'decode' on 'TextDecoder' » → plus aucune carte dans
+//   le lobby. PublicGameModifiers perd aussi `isOvertime` (overtime devenu
+//   le défaut, commit #5159) — dernier champ, sans effet de décalage.
 (function (global) {
   "use strict";
 
@@ -296,7 +306,9 @@
     f("isPeaceTime", "bool", { opt: true }),
     f("isWaterNukes", "bool", { opt: true }),
     f("isDoomsdayClock", "bool", { opt: true }),
-    f("isOvertime", "bool", { opt: true }),
+    // ⚠️ `isOvertime` retiré du schéma amont (v5.13, overtime par défaut) —
+    // ne PAS le réajouter : c'était le dernier champ, sans effet de décalage,
+    // mais il fausserait la lecture des bits à venir.
   ]);
 
   const HostCheats = obj([
@@ -334,6 +346,10 @@
     f("randomSpawn", "bool"),
     f("maxPlayers", "uint", { opt: true }),
     f("allowedPublicIds", { arr: "str" }, { opt: true }),
+    // ⚠️ v5.13 : `trusted` (lobbies réservés aux comptes de confiance).
+    // bool optionnel → 2 bits (présence + valeur) INSÉRÉS ici : toutes les
+    // fields suivantes sont décalées de 2 bits par rapport à l'ancien layout.
+    f("trusted", "bool", { opt: true }),
     f("maxTimerValue", "uint", { opt: true, nul: true }),
     f("customAllianceDuration", "uint", { opt: true, nul: true }),
     f("startDelay", "uint", { opt: true, nul: true }),

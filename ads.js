@@ -12,6 +12,17 @@
 //   - ad-sidebar-bottom → sidebar en bas (300x600 ou responsive)
 //   - ad-in-content     → dans le contenu principal (responsive)
 //   - ad-footer         → bannière en bas (728x90 ou responsive)
+//
+// ⚠️ TOUT le fichier est enveloppé dans une IIFE : ce script est chargé en
+// <script> CLASSIQUE sur toutes les pages ; des déclarations top-level
+// (`const PAGES_SANS_PUB` → minifié `const l`) entraient en collision avec
+// les globales d'autres scripts classiques chargés avant lui (i18n.min.js
+// expose `function setLanguage` → minifié `function l`) →
+// « Uncaught SyntaxError: Identifier 'l' has already been declared » et
+// mort du script pub sur TOUTES les pages. L'IIFE supprime la classe entière
+// de bug, quelle que soit la minification.
+(function () {
+"use strict";
 
 const ADSENSE_CLIENT_ID = "ca-pub-2991878097014222";
 
@@ -230,3 +241,5 @@ function getAdSlotId(slotId) {
   };
   return ids[slotId] || "0000000000";
 }
+
+})(); // ─ fin IIFE ads.js ─

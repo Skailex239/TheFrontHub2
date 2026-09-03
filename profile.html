@@ -24,8 +24,8 @@
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=70" as="style">
 <link rel="preload" href="profile.css?v=38" as="style">
-<link rel="preload" href="dist/profile.min.js?v=16" as="script" crossorigin>
-<link rel="preload" href="dist/icons.min.js?v=3" as="script" crossorigin>
+<link rel="preload" href="dist/profile.min.js?v=17" as="script" crossorigin>
+<link rel="preload" href="dist/icons.min.js?v=4" as="script" crossorigin>
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Orbitron:wght@900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
@@ -47,7 +47,7 @@
     .skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}
     .skip-link:focus{top:0}
   </style>
-  <script type="module" src="dist/icons.min.js?v=3"></script>
+  <script type="module" src="dist/icons.min.js?v=4"></script>
 </head>
 <body>
 <a href="#profile-loading" class="skip-link">Aller au contenu principal</a>
@@ -373,13 +373,13 @@
   </div>
 </div>
 
-<script src="dist/i18n.min.js?v=2"></script>
-<script src="dist/toast.min.js?v=1" defer></script>
-<script src="dist/lenis.min.js?v=6"></script>
-<script src="dist/animations.min.js?v=1" defer></script>
-<script src="dist/profile.min.js?v=16" type="module"></script>
+<script src="dist/i18n.min.js?v=3"></script>
+<script src="dist/toast.min.js?v=2" defer></script>
+<script src="dist/lenis.min.js?v=7"></script>
+<script src="dist/animations.min.js?v=2" defer></script>
+<script src="dist/profile.min.js?v=17" type="module"></script>
 
-<script type="module" src="dist/tutorial.min.js?v=2"></script>
+<script type="module" src="dist/tutorial.min.js?v=3"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {

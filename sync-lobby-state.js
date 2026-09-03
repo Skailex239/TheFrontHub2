@@ -120,8 +120,17 @@ function fetchLobbySnapshot() {
     try {
       ws = new WebSocket(WS_URL, {
         headers: {
+          // Cloudflare devant openfront.io rejette les upgrades WS sans
+          // allure navigateur (403 "Unexpected server response" depuis les
+          // runners GitHub Actions — IP datacenter + TLS non-navigateur).
+          // Ces headers ne suffisent pas toujours, mais ils maximisent les
+          // chances et ne coûtent rien. Le fallback garde le site fonctionnel
+          // (games vides, ranked/heatmap OK via l'API HTTP).
           Origin: "https://openfront.io",
-          "User-Agent": "Mozilla/5.0",
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
         },
       });
     } catch (e) {

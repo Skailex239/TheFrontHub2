@@ -78,13 +78,18 @@ async function run() {
     const opts = {
       entryPoints: [path.join(ROOT, t.entry)],
       outfile: path.join(DIST, t.out),
-      minify: true,
-      // Keep identifiers readable for debugging + avoid tree-shaking bugs.
-      // minifyIdentifiers=false keeps original variable names (e.g. MAP_NORMALIZATION)
-      // so cross-module references can't be accidentally dropped.
-      minifyIdentifiers: false,
-      minifySyntax: true,
+      // ⚠️ NE PAS utiliser `minify: true` : avec esbuild ≥ 0.28, le raccourci
+      // ÉCRASE minifyIdentifiers:false passé à côté (testé 0.28.2) → les noms
+      // top-level (function setLanguage, const PAGES_SANS_PUB…) étaient
+      // renommés en l/i/o… et deux scripts CLASSIques chargés sur la même
+      // page entraient en collision :
+      //   « Uncaught SyntaxError: Identifier 'l' has already been declared »
+      // (i18n.min.js `function l` vs ads.min.js `const l`) → le script ads
+      // mourait sur toutes les pages. On minifie donc via les 3 flags, en
+      // laissant les identifiants d'origine (lisibles + zéro collision).
       minifyWhitespace: true,
+      minifySyntax: true,
+      minifyIdentifiers: false,
       target: "es2020",
       format: "esm",
       sourcemap: false,
