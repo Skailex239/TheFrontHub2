@@ -576,8 +576,10 @@ body{
 .hof-1{border-color:var(--gold)}
 .hof-2{border-color:var(--silver)}
 .hof-3{border-color:var(--bronze)}
-.hof-name{font-size:16px;font-weight:600;cursor:pointer;margin-bottom:4px;transition:color var(--dur-fast) var(--ease);color:var(--fg)}
+.hof-name{font-size:16px;font-weight:600;cursor:pointer;margin-bottom:4px;transition:color var(--dur-fast) var(--ease);color:var(--fg);min-width:0}
 .hof-name:hover{color:var(--accent)}
+/* Noms HoF : jamais de débordement horizontal (mots longs / équipe) — 2026-09-03 */
+.hof-name .hof-player-name{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 .hof-rank{font-size:12px;font-weight:500;margin-bottom:8px;color:var(--fg-muted)}
 .hof-pts{font-family:var(--mono);font-size:24px;font-weight:700;margin-bottom:6px;color:var(--accent)}
 .hof-detail{font-size:12px;color:var(--fg-muted)}
@@ -1955,6 +1957,18 @@ button:active:not(:disabled),
     height: 20px !important;
   }
 
+  /* Très petits écrans : la bottom-nav doit contenir 7 liens + le toggle.
+     min-width:0 + ellipsis laissent flex:1 répartir l'espace. */
+  .sidebar nav .nav-item {
+    min-width: 0;
+  }
+  .sidebar nav .nav-item span:not(.icon) {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   /* Buttons full-width sur mobile par défaut (sauf .btn-icon et .btn-sm) */
   .auth-btn,
   .pf-primary-btn,
@@ -1972,6 +1986,23 @@ button:active:not(:disabled),
   }
   .filter-bar::-webkit-scrollbar {
     display: none;
+  }
+}
+
+/* ── TRÈS PETIT MOBILE (≤ 359px — iPhone SE 1re gén. / petits Android) ────
+   La bottom-nav accueille 7 liens + le toggle thème : on compresse pour
+   tenir dans 320px sans débordement. (2026-09-03) */
+@media (max-width: 359px) {
+  .sidebar nav .nav-item {
+    padding: 8px 2px;
+  }
+  .sidebar nav .nav-item span:not(.icon) {
+    font-size: 8px;
+  }
+  .theme-toggle {
+    width: 36px !important;
+    height: 52px !important;
+    padding: 6px !important;
   }
 }
 
