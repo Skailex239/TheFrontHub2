@@ -1997,13 +1997,19 @@ button:active:not(:disabled),
 
 /* ── TRÈS PETIT MOBILE (≤ 359px — iPhone SE 1re gén. / petits Android) ────
    La bottom-nav accueille 7 liens + le toggle thème : on compresse pour
-   tenir dans 320px sans débordement. (2026-09-03) */
+   tenir dans 320px sans débordement. Les labels sont des nœuds texte bruts
+   (pas des <span>) → on clippe au niveau de l'item lui-même. (2026-09-03) */
 @media (max-width: 359px) {
   .sidebar nav .nav-item {
     padding: 8px 2px;
+    font-size: 8px;
+    overflow: hidden;
   }
   .sidebar nav .nav-item span:not(.icon) {
-    font-size: 8px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .theme-toggle {
     width: 36px !important;
