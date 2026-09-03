@@ -8,6 +8,12 @@
 
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 
+/* Reset [hidden] (2026-09-03) : les classes avec display:flex/grid écrasaient
+   l'attribut HTML hidden (style UA moins spécifique) → des éléments censés être
+   masqués (crayon d'édition, badges…) restaient visibles. Rend l'attribut
+   `hidden` immédiatement effectif partout. */
+[hidden]{display:none !important}
+
 :root{
     /* ── Design system — primary tokens ── */
     --bg:#FFFFFF;                /* app background */

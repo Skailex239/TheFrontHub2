@@ -8,6 +8,16 @@
    Design tokens : styles.css (accent #FF6B00, rayons 6/8/12/16).
    ============================================================ */
 
+/* ── RESET [hidden] (2026-09-03 — FIX SÉCURITÉ) ──────────────
+ * Les règles `display:flex` des classes (.pf2-id-iconbtn crayon,
+ * etc.) écrasaient l'attribut HTML `hidden` (le style UA
+ * [hidden]{display:none} a une spécificité plus faible que les
+ * règles auteur) → le crayon « Modifier mon pseudo » RESTAIT
+ * VISIBLE sur les profils publics/étrangers. Ce reset rend
+ * l'attribut `hidden` immédiatement effectif, quel que soit le
+ * display de la classe. JS : cacher = el.hidden = true. */
+[hidden] { display: none !important; }
+
 /* ── Vues (gate / setup / main) ───────────────────────────── */
 
 .pf-main { animation: pf-fade .3s ease; }
