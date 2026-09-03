@@ -1,7 +1,16 @@
 name: Auto Sync
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ⚡ UNIFIED SYNC PIPELINE — 7 syncs en série → publication via GitHub Release
+# ⚡ UNIFIED SYNC PIPELINE — 7 syncs en PARALLÈLE → publication via GitHub Release
+# (v4 — 2026-09-03 : boucle continue vraie — le run suivant démarre dès que
+#  le précédent est TERMINÉ, pause 20 s seulement. Avant : 7 jobs en série
+#  + sleep 120 → cycle ~24 min. Après : jobs indépendants en parallèle →
+#  cycle ~7-8 min = le plus long des syncs, données 3× plus fraîches.)
+#
+# SÉCURITÉ PARALLÈLE : chaque job pousse ses PROPRES assets (ensembles
+# disjoints, aucun nom partagé) — les uploads concurrents sur la même release
+# ne se marchent pas dessus. Seule vraie dépendance : sync-dashboard lit le
+# ranked.json PUBLIÉ PAR sync-ranked du même run (needs conservé).
 #
 # Chaque sync génère des fichiers DIFFÉRENTS dans le runner :
 #   - sync-standard     → runs_public.json.gz (payload optimisé), runs.json.gz
@@ -45,7 +54,9 @@ jobs:
         with: { fetch-depth: 1, ref: main }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
-      - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      # Scripts en ESM → type=module dans package.json (npm init sans réseau,
+      # fetch natif Node 20 : pas besoin de node-fetch)
+      - run: npm init -y --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
       - name: État depuis la release
         run: |
           chmod +x scripts/data-release.sh
@@ -64,7 +75,6 @@ jobs:
           ./scripts/data-release.sh push runs_public.json.gz runs_public.json clans.json news.json seen.json checkpoint.json runs.json.gz
 
   sync-compact:
-    needs: [sync-standard]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -73,7 +83,7 @@ jobs:
         with: { fetch-depth: 1, ref: main }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
-      - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - run: npm init -y --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
       - name: État depuis la release
         run: |
           chmod +x scripts/data-release.sh
@@ -90,7 +100,6 @@ jobs:
           ./scripts/data-release.sh push runs_compact_public.json.gz runs_compact_public.json seen_compact.json checkpoint_compact.json runs_compact.json.gz
 
   sync-teams:
-    needs: [sync-compact]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -99,7 +108,7 @@ jobs:
         with: { fetch-depth: 1, ref: main }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
-      - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - run: npm init -y --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
       - name: État depuis la release
         run: |
           chmod +x scripts/data-release.sh
@@ -115,7 +124,6 @@ jobs:
           ./scripts/data-release.sh push teams_runs.json teams_seen.json teams_checkpoint.json teams_public.json teams_public.json.gz
 
   sync-ranked:
-    needs: [sync-teams]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -124,7 +132,7 @@ jobs:
         with: { fetch-depth: 1, ref: main }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
-      - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - run: npm init -y --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
       - name: État depuis la release
         run: |
           chmod +x scripts/data-release.sh
@@ -153,7 +161,7 @@ jobs:
         with: { fetch-depth: 1, ref: main }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
-      - run: npm init -y --silent && npm install node-fetch@2 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - run: npm init -y --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
       - name: Entrées depuis la release
         run: |
           chmod +x scripts/data-release.sh
@@ -171,7 +179,6 @@ jobs:
           ./scripts/data-release.sh push dashboard_scores.json dashboard_scores.json.gz dashboard_ranking.json dashboard_player_games.json weekly_history.json.gz weekly_history.json
 
   sync-player-games:
-    needs: [sync-dashboard]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -208,7 +215,6 @@ jobs:
           ./scripts/data-release.sh push player-files.tar.gz sync-players.json
 
   sync-lobby-state:
-    needs: [sync-player-games]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -230,36 +236,47 @@ jobs:
           ./scripts/data-release.sh push lobby_state.json
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # RECHAIN — auto-relance du pipeline (fiabilité 2026-09-03)
+  # RECHAIN — BOUCLE CONTINUE (v4, 2026-09-03)
   #
-  # PROBLÈME : le schedule GitHub (cron */5) est massivement retardé en charge
-  # — écarts constatés de 2 à 5 h entre les runs (12 runs en 2 jours au lieu
-  # de ~576). Résultat : des données vieillissent jusqu'à 4 h sur le site.
+  # Le cycle suivant est déclenché DÈS QUE tout le monde a fini (20 s de
+  # garde seulement). C'est une vraie boucle : fin de sync → relance.
+  # Avant (v3) : pause fixe de 2 min + jobs en série → cycle ~24 min.
+  # Après (v4) : jobs parallèles + relance immédiate → cycle ~7-8 min.
   #
-  # SOLUTION : le pipeline s'auto-relance en CHAÎNE — chaque run réussi
-  # re-déclenche le suivant immédiatement via workflow_dispatch (API, hors du
-  # scheduler GitHub donc sans délai). Le schedule */5 reste en secours si la
-  # boucle s'interrompt (échec de publication, maintenance GitHub).
+  # ROBUSTESSE :
+  #   - if: always() → même si un sync échoue, la boucle CONTINUE (pause de
+  #     5 min pour ne pas marteler l'API en cas d'échec rapide répété).
+  #   - !cancelled() → un Cancel manuel de l'utilisateur stoppe la boucle.
+  #   - Le schedule */5 reste en secours (maintenance GitHub, token expiré…).
+  #
+  # PROBLÈME HISTORIQUE (v3) : le schedule GitHub (cron */5) est massivement
+  # retardé en charge — écarts de 2 à 5 h constatés. La boucle via
+  # workflow_dispatch (API, hors scheduler) contourne complètement ça.
   #
   # Prérequis : secret GH_SYNC_TOKEN = PAT du propriétaire (scopes repo).
   # Pour stopper la boucle : onglet Actions → « Auto Sync » → ⋯ → Disable.
   # ═══════════════════════════════════════════════════════════════════════════
   rechain:
     needs: [sync-standard, sync-compact, sync-teams, sync-ranked, sync-dashboard, sync-player-games, sync-lobby-state]
-    if: success()
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
     permissions:
       actions: write
       contents: read
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
-      - name: Auto-relance du cycle de sync (workflow_dispatch)
+      - name: Relance immédiate du cycle suivant (workflow_dispatch)
         env:
           GH_TOKEN: ${{ secrets.GH_SYNC_TOKEN }}
+          ANY_FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
         run: |
-          # Pause anti-emballement : si le pipeline devenait instantanément
-          # rapide/échouant, on évite de marteler l'API en boucle serrée.
-          sleep 120
+          if [ "$ANY_FAILED" = "true" ]; then
+            echo "⚠️ Au moins un sync a échoué — pause 5 min (anti-emballement) puis relance"
+            sleep 300
+          else
+            echo "✅ Cycle complet réussi — relance dans 20 s (boucle continue)"
+            sleep 20
+          fi
           code=$(curl -s -o /tmp/dispatch.out -w "%{http_code}" -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
