@@ -60,6 +60,31 @@ if ($newPublicId !== null && $existingPublicId !== null && $newPublicId !== $exi
     fail(409, 'public_id_locked', 'Le Public ID OpenFront ne peut plus etre modifie.');
 }
 
+/* ── Protections serveur (2026-09-03) ────────────────────────────────
+ * Le check frontend peut etre contourne (appel API direct) ou echouer
+ * (API aliases indisponible). Le serveur fait donc lui-meme respecter :
+ *  1. un publicId ne peut pas etre lie a deux comptes ;
+ *  2. un pseudo hub ne peut pas etre pris par deux comptes.            */
+if ($newPublicId !== null && $newPublicId !== $existingPublicId) {
+    $st = $pdo->prepare('SELECT id FROM tfh_users WHERE public_id = ? AND id <> ? LIMIT 1');
+    $st->execute([$newPublicId, $user['id']]);
+    if ($st->fetch()) {
+        fail(409, 'public_id_taken', 'Ce Public ID est deja lie a un autre compte.');
+    }
+    $st = $pdo->prepare('SELECT user_id FROM tfh_public_aliases WHERE public_id = ? AND user_id <> ? LIMIT 1');
+    $st->execute([$newPublicId, $user['id']]);
+    if ($st->fetch()) {
+        fail(409, 'public_id_taken', 'Ce Public ID est deja lie a un autre compte.');
+    }
+}
+if ($newUsername !== null && strcasecmp($newUsername, (string) ($user['username'] ?? '')) !== 0) {
+    $st = $pdo->prepare('SELECT user_id FROM tfh_public_aliases WHERE LOWER(username) = LOWER(?) AND user_id <> ? LIMIT 1');
+    $st->execute([$newUsername, $user['id']]);
+    if ($st->fetch()) {
+        fail(409, 'already_taken', 'Ce pseudo est deja utilise par un autre compte.');
+    }
+}
+
 $username = $newUsername ?? $user['username'];
 $publicId = $newPublicId ?? $existingPublicId;
 

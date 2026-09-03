@@ -159,6 +159,39 @@ function formatDateTime(iso) {
 let viewingPublicId = null;
 let viewingUsername = null;
 
+/* ── Sécurité éditeur (2026-09-03) ─────────────────────────────────
+ * UN SEUL état décide si l'édition (pseudo / codes cosmétiques) est
+ * possible : editingAllowed. Il passe à true UNIQUEMENT quand le héros
+ * affiché est celui du compte connecté (renderHero), et à false dès
+ * qu'on rend un profil public/étranger (renderPublicProfile). Tous les
+ * points d'entrée d'édition (crayon, éditeur, save, codes) consultent
+ * ce drapeau — aucune séquence de rendu ne peut le contourner. */
+let editingAllowed = false;
+
+function setEditingAllowed(allowed) {
+  editingAllowed = !!allowed;
+  const editBtn = document.getElementById("pseudo-edit-btn");
+  if (editBtn) editBtn.hidden = !editingAllowed;
+  if (!editingAllowed) {
+    // Referme l'éditeur s'il était ouvert (défense bfcache / re-rendus)
+    const ed = document.getElementById("pseudo-editor");
+    if (ed) ed.hidden = true;
+    // Purge toute carte « codes cosmétiques » résiduelle d'un contexte précédent
+    const rw = document.getElementById("reward-code-section");
+    if (rw) rw.innerHTML = "";
+  }
+}
+
+// Restauration depuis le cache navigateur (bfcache) : le DOM affiché peut
+// être celui d'un ancien contexte (ex. son propre profil puis profil d'un
+// autre). On force un rechargement complet pour réévaluer l'auth state.
+window.addEventListener("pageshow", (e) => {
+  if (e.persisted) {
+    console.info("[profile] Page restaurée depuis le bfcache — rechargement");
+    window.location.reload();
+  }
+});
+
 /* ── Pseudos « hub » (2026-09-03) ─────────────────────────────────────
  * Map publicId → pseudo choisi dans le profil TheFrontHub. Utilisée pour
  * afficher LE MÊME pseudo partout (héros du profil, « Autour de toi »),
@@ -220,6 +253,9 @@ onAuthStateChanged(auth, async (user) => {
     if (!pubReq.publicId) {
       currentUser = user;
       currentProfile = null;
+      // Vue d'un profil étranger (speedrun) : l'édition est verrouillée et le
+      // contexte « profil consulté » est déclaré pour les listeners (VIP…).
+      viewingUsername = pubReq.username;
       updateSidebarUI(user, null);
       showView("profile-main");
       await renderSpeedrunPublicProfile(pubReq.username);
@@ -345,10 +381,10 @@ function renderPublicProfile(username, publicId) {
   const verifiedEl = document.getElementById("profile-verified");
   if (verifiedEl) verifiedEl.hidden = true;
 
-  // Éditeur de pseudo : réservé au PROPRE profil (masqué sur un profil public)
-  const editBtn = document.getElementById("pseudo-edit-btn");
-  if (editBtn) editBtn.hidden = true;
-  togglePseudoEditor(false);
+  // Éditeur de pseudo + carte cosmétiques : réservés au PROPRE profil.
+  // setEditingAllowed(false) masque le crayon, referme l'éditeur et purge
+  // la carte codes — aucune action d'édition possible sur un profil public.
+  setEditingAllowed(false);
 
   // Date d'arrivée : masquée sur un profil public (donnée non chargée)
   const joinedEl = document.getElementById("profile-joined-text");
@@ -477,6 +513,10 @@ async function renderSpeedrunPublicProfile(username) {
     const { byNormPid } = await fetchActiveSkinMap();
     resolvedPid = (byNormPid && byNormPid.get(normPlayerName(username))) || null;
   } catch (e) { /* skins indisponibles — non bloquant */ }
+  // Déclare le profil consulté comme ÉTRANGER : viewingPublicId non null
+  // verrouille editingAllowed (reward card, éditeur) même si le joueur est lié.
+  viewingPublicId = resolvedPid || "__speedrun__";
+  viewingUsername = username;
   renderPublicProfile(username, resolvedPid);
   if (resolvedPid) {
     const badgeText = document.getElementById("profile-public-badge-text");
@@ -598,9 +638,9 @@ function renderHero(user, profile) {
   const verifiedEl = document.getElementById("profile-verified");
   if (verifiedEl) verifiedEl.hidden = !profile.verified;
 
-  // Éditeur de pseudo : disponible sur son propre profil (compte vérifié)
-  const editBtn = document.getElementById("pseudo-edit-btn");
-  if (editBtn) editBtn.hidden = !profile.publicId;
+  // Éditeur de pseudo : SEULEMENT si le profil affiché est celui du compte
+  // connecté (connecté + publicId lié). Tout autre cas reste verrouillé.
+  setEditingAllowed(!!currentUser && !!profile.publicId);
 
   // Date d'arrivée (profile.createdAt)
   const joinedEl = document.getElementById("profile-joined-text");
@@ -655,6 +695,11 @@ window.copyPublicId = function (btn) {
  * (profil, classements hebdo/all-time, classé, speedruns, feed) via la
  * table publique tfh_public_aliases (pseudo hub ↔ publicId). */
 window.togglePseudoEditor = function (show) {
+  if (show && !editingAllowed) {
+    // Verrou : l'édition n'est possible que sur SON propre profil, connecté.
+    showToast("Tu ne peux modifier que ton propre pseudo — connecte-toi et va sur ton profil.", "warning");
+    return;
+  }
   const ed = document.getElementById("pseudo-editor");
   if (!ed) return;
   ed.hidden = !show;
@@ -668,6 +713,10 @@ window.togglePseudoEditor = function (show) {
 };
 
 window.savePseudoChange = async function () {
+  if (!editingAllowed) {
+    showToast("Tu ne peux modifier que ton propre pseudo — connecte-toi et va sur ton profil.", "warning");
+    return;
+  }
   if (!currentUser) { showToast("Connecte-toi d'abord.", "warning"); return; }
   const input = document.getElementById("edit-pseudo-input");
   const newPseudo = (input?.value || "").trim();
@@ -768,8 +817,11 @@ async function loadStats(publicId) {
 
   // ── Render reward card + career stats + start games loading IMMEDIATELY ──
   // Don't wait for dashboard_scores, ELO, or recent games — those are secondary.
-  // Only show reward code card on OWN profile (not when viewing someone else's public profile)
-  const isOwnProfile = !viewingPublicId || (currentProfile && currentProfile.publicId === publicId);
+  // Only show reward code card on OWN profile (not when viewing someone else's public profile).
+  // editingAllowed est posé par renderHero/renderPublicProfile AVANT loadStats :
+  // il garantit que la carte n'apparaît que sur le profil du compte connecté.
+  const isOwnProfile = editingAllowed && !viewingPublicId
+    && currentProfile && currentProfile.publicId === publicId;
   if (isOwnProfile) {
     renderRewardCodeCard(publicId);
   }
@@ -1135,22 +1187,57 @@ window.startOwnershipVerification = async () => {
   // (fix 2026-08-29 : FIRESTORE_BASE n'existe plus depuis la migration MySQL —
   //  la vérification pointait vers une variable undefined → ReferenceError
   //  avalé par le catch, check mort. Remplacé par l'API MySQL public-aliases.)
+  // (fix 2026-09-03 : comparaison uid cassée — alias.uid (id MySQL) ne peut
+  //  JAMAIS égaler currentUser.uid (id Discord) → le check ne servait à rien.
+  //  En setup le compte n'est pas encore lié : si le pid figure dans les
+  //  alias publics, il appartient forcément à un autre compte → refus.)
   try {
     const aliasesRes = await fetch("/api/public-aliases.php", { cache: "no-store" });
     if (aliasesRes.ok) {
       const aliasesData = await aliasesRes.json();
       const aliases = aliasesData.aliases || [];
       for (const alias of aliases) {
-        if (alias.publicId === publicId && String(alias.uid) !== String(currentUser.uid)) {
+        if (alias.publicId && alias.publicId === publicId) {
           showToast("Ce Public ID est déjà lié à un autre compte.", "error");
           return;
         }
       }
     }
-  } catch (e) { /* non-blocking */ }
+  } catch (e) { /* API indisponible — le défi en jeu ci-dessous reste la preuve de propriété */ }
 
-  // Directly save — no challenge code needed, public ID is unique
-  await saveUserProfile(username, publicId);
+  // ── Défi de propriété (2026-09-03 — remplace « Directly save ») ──────
+  // Lier un Public ID = revendiquer une identité OpenFront. Sans preuve,
+  // n'importe qui pouvait réclamer le pid d'un joueur non lié puis piloter
+  // « son » profil (pseudo public, cosmétiques). Désormais : un code unique
+  // doit apparaître dans une partie récente jouée avec ce compte — seule la
+  // personne qui le CONTRÔLE peut le faire apparaître.
+  const CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sans O/0 ni I/1
+  let code = "TFH";
+  for (let i = 0; i < 4; i++) code += CHARS[Math.floor(Math.random() * CHARS.length)];
+  _ownershipCode = code;
+  _ownershipPublicId = publicId;
+  _ownershipUsername = username;
+  const codeEl = document.getElementById("ownership-code-display");
+  if (codeEl) codeEl.textContent = code;
+  const s1 = document.getElementById("profile-setup-step1");
+  const s2 = document.getElementById("profile-setup-step2");
+  if (s1) s1.style.display = "none";
+  if (s2) s2.style.display = "block";
+  showToast("Joue une partie avec le code " + code + " dans ton pseudo, puis clique sur Vérifier.", "info", 7000);
+};
+
+/** Copie le code de vérification dans le presse-papiers (étape 2 du setup). */
+window.copyOwnershipCode = function () {
+  const code = _ownershipCode
+    || document.getElementById("ownership-code-display")?.textContent
+    || "";
+  if (!code || code === "—") return;
+  const done = () => showToast("Code copié : " + code, "success");
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(code).then(done).catch(() => showToast("Code : " + code, "info"));
+  } else {
+    showToast("Code : " + code, "info");
+  }
 };
 
 window.confirmOwnershipVerification = async () => {
@@ -1164,7 +1251,9 @@ window.confirmOwnershipVerification = async () => {
     // parties récentes via l'endpoint dédié /public/player/{id}/games.
     const gamesData = await fetchOpenFront(`/public/player/${encodeURIComponent(_ownershipPublicId)}/games`);
     const games = Array.isArray(gamesData?.results) ? gamesData.results : [];
-    let found = games.some((g) => g.username && g.username.includes(_ownershipCode));
+    // Comparaison insensible à la casse : le code peut être tapé en minuscules.
+    const needle = String(_ownershipCode).toUpperCase();
+    let found = games.some((g) => String(g.username || "").toUpperCase().includes(needle));
     if (!found) {
       showToast("Code non trouvé dans vos parties récentes. Jouez une partie avec le code dans votre pseudo, puis confirmez.", "error", 6000);
       if (btn) { btn.disabled = false; btn.textContent = original; }
@@ -1798,6 +1887,8 @@ function renderOwnedSkins(ownedSkins, activeSkinId) {
 }
 
 async function handleRedeem() {
+  // Verrou : les codes cosmétiques ne concernent que le profil du compte connecté
+  if (!editingAllowed) { showToast("Les codes cosmétiques se saisissent sur ton propre profil.", "warning"); return; }
   const input = document.getElementById("reward-code-input");
   const btn = document.getElementById("reward-code-submit");
   const label = btn ? btn.querySelector(".rw-submit-label") : null;
@@ -1848,6 +1939,8 @@ async function handleRedeem() {
 }
 
 async function handleActivate(skinId) {
+  // Verrou : activer un skin ne concerne que le profil du compte connecté
+  if (!editingAllowed) { showToast("Les cosmétiques s’activent sur ton propre profil.", "warning"); return; }
   const publicId = _rewardCardState.publicId;
   if (!publicId) return;
   try {

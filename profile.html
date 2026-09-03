@@ -23,8 +23,8 @@
 
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=67" as="style">
-<link rel="preload" href="profile.css?v=36" as="style">
-<link rel="preload" href="dist/profile.min.js?v=14" as="script" crossorigin>
+<link rel="preload" href="profile.css?v=37" as="style">
+<link rel="preload" href="dist/profile.min.js?v=16" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=3" as="script" crossorigin>
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
@@ -35,7 +35,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="favicon-180x180.png">
   <link rel="stylesheet" href="styles.css?v=67">
   <link rel="stylesheet" href="auth.css?v=19">
-  <link rel="stylesheet" href="profile.css?v=36">
+  <link rel="stylesheet" href="profile.css?v=37">
   <link rel="stylesheet" href="skins.css?v=6">
   <link rel="stylesheet" href="animations.css?v=6" media="print" onload="this.media='all'">
   <noscript><link rel="stylesheet" href="animations.css?v=6"></noscript>
@@ -215,6 +215,29 @@
             Lier mon compte
           </button>
         </div>
+
+        <!-- Step 2: preuve de propriété (défi en jeu) — le code doit apparaître
+             dans une partie récente jouée avec ce Public ID. -->
+        <div id="profile-setup-step2" style="display:none">
+          <div class="pf-form-group">
+            <label>Étape 2 — Prouve que ce compte OpenFront est bien le tien</label>
+            <p class="pf-form-hint" style="margin:8px 0 12px">
+              1. Copie ce code, puis joue <b>une partie</b> sur OpenFront avec ce code
+              ajouté à la fin de ton pseudo (ex&nbsp;: <i>TonPseudo<b id="ownership-code-inline">TFHXXXX</b></i>).<br>
+              2. Reviens ici et clique sur «&nbsp;Vérifier&nbsp;» — ta dernière partie sera analysée.
+            </p>
+            <div class="pf-ownership-code-row">
+              <code class="pf-ownership-code" id="ownership-code-display">—</code>
+              <button type="button" class="pf2-id-iconbtn" onclick="copyOwnershipCode(this)" title="Copier le code" aria-label="Copier le code">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+              </button>
+            </div>
+          </div>
+          <button class="pf-primary-btn" id="confirm-ownership-btn" onclick="confirmOwnershipVerification()">
+            J'ai joué ma partie — Vérifier
+          </button>
+          <button type="button" class="pf-ownership-back" onclick="cancelOwnershipVerification()">← Modifier mes infos</button>
+        </div>
       </div>
     </div>
 
@@ -354,7 +377,7 @@
 <script src="dist/toast.min.js?v=1" defer></script>
 <script src="dist/lenis.min.js?v=6"></script>
 <script src="dist/animations.min.js?v=1" defer></script>
-<script src="dist/profile.min.js?v=14" type="module"></script>
+<script src="dist/profile.min.js?v=16" type="module"></script>
 
 <script type="module" src="dist/tutorial.min.js?v=2"></script>
 <script>

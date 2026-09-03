@@ -862,3 +862,38 @@ a.pfsr-replay:hover{background:var(--accent);color:#fff;border-color:var(--accen
 .pf2-pseudo-cancel:hover { border-color: var(--text3); color: var(--fg); }
 .pf2-pseudo-hint { flex-basis: 100%; font-size: 11.5px; color: var(--text3); line-height: 1.45; }
 #pseudo-edit-btn { cursor: pointer; }
+
+/* ── Setup : défi de propriété (étape 2) — 2026-09-03 ─────────────── */
+.pf-ownership-code-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 14px;
+}
+.pf-ownership-code {
+  flex: 1;
+  display: inline-block;
+  padding: 10px 14px;
+  border: 1px dashed var(--accent, #ffb547);
+  border-radius: 10px;
+  background: rgba(255, 181, 71, .07);
+  color: var(--fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-align: center;
+  user-select: all;
+}
+.pf-ownership-back {
+  display: block;
+  margin-top: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text3);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.pf-ownership-back:hover { color: var(--fg); text-decoration: underline; }
