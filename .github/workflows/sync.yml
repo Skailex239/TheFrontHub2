@@ -30,7 +30,10 @@ on:
 
 concurrency:
   group: auto-sync-v2
-  cancel-in-progress: true
+  # FIABILITÉ (2026-09-03) : avant = true → chaque nouveau run annulait le
+  # courant. En chaîne continue (job rechain ci-dessous), il faut au contraire
+  # laisser finir le run en cours ; le group conserve 1 run en attente max.
+  cancel-in-progress: false
 
 jobs:
   sync-standard:
@@ -47,7 +50,9 @@ jobs:
         run: |
           chmod +x scripts/data-release.sh
           ./scripts/data-release.sh pull runs.json.gz seen.json checkpoint.json
-      - run: node sync.js
+      # TOLÉRANT : un échec transitoire d'API ne doit pas casser la chaîne
+      # (l'état étant publié en release, le run suivant rattrape la fenêtre)
+      - run: node sync.js || echo "::warning::sync.js a échoué — rattrapé au prochain cycle"
         env:
           OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
           SYNC_HISTORY_WINDOWS: "500"
@@ -73,7 +78,7 @@ jobs:
         run: |
           chmod +x scripts/data-release.sh
           ./scripts/data-release.sh pull runs_compact.json.gz seen_compact.json checkpoint_compact.json
-      - run: node sync.js --mode=compact
+      - run: node sync.js --mode=compact || echo "::warning::sync compact a échoué — rattrapé au prochain cycle"
         env:
           OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
           COMPACT_HISTORY_WINDOWS: "500"
@@ -99,7 +104,7 @@ jobs:
         run: |
           chmod +x scripts/data-release.sh
           ./scripts/data-release.sh pull teams_runs.json teams_seen.json teams_checkpoint.json
-      - run: node sync-teams.js
+      - run: node sync-teams.js || echo "::warning::sync-teams a échoué — rattrapé au prochain cycle"
         env:
           OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
       - name: Publier les données (release data-latest)
@@ -128,7 +133,7 @@ jobs:
           for f in ranked_history ranked_2v2_history; do
             if [[ -f "$f.json.gz" && ! -f "$f.json" ]]; then gunzip -k "$f.json.gz"; fi
           done
-      - run: node sync-ranked.js
+      - run: node sync-ranked.js || echo "::warning::sync-ranked a échoué — rattrapé au prochain cycle"
         env:
           OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
       - name: Publier les données (release data-latest)
@@ -155,7 +160,7 @@ jobs:
           # sync-dashboard.js consomme le ranked.json produit par le job précédent
           # + weekly_history.json.gz = historique hebdo persistant (profil S1→S53)
           ./scripts/data-release.sh pull ranked.json weekly_history.json.gz
-      - run: node sync-dashboard.js
+      - run: node sync-dashboard.js || echo "::warning::sync-dashboard a échoué — rattrapé au prochain cycle"
         env:
           OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
       - name: Publier les données (release data-latest)
@@ -188,12 +193,12 @@ jobs:
         run: node detect-new-players.js || true
         env:
           OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
-      - name: Sync player games
-        run: node sync-player-games.js
+      - name: Sync player games (tolérant — rattrapé au prochain cycle sinon)
+        run: node sync-player-games.js || echo "::warning::sync-player-games a échoué"
         env:
           SKAILEX_ACCESS_TOKEN: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
       - name: Compute player stats
-        run: node compute-player-stats.js
+        run: node compute-player-stats.js || echo "::warning::compute-player-stats a échoué"
       - name: Publier les données (release data-latest)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -214,7 +219,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
       - run: npm init -y --silent && npm install node-fetch@2 ws@8 --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
-      - run: node sync-lobby-state.js
+      - run: node sync-lobby-state.js || echo "::warning::sync-lobby-state a échoué — rattrapé au prochain cycle"
         env:
           OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
       - name: Publier les données (release data-latest)
@@ -223,3 +228,45 @@ jobs:
         run: |
           chmod +x scripts/data-release.sh
           ./scripts/data-release.sh push lobby_state.json
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # RECHAIN — auto-relance du pipeline (fiabilité 2026-09-03)
+  #
+  # PROBLÈME : le schedule GitHub (cron */5) est massivement retardé en charge
+  # — écarts constatés de 2 à 5 h entre les runs (12 runs en 2 jours au lieu
+  # de ~576). Résultat : des données vieillissent jusqu'à 4 h sur le site.
+  #
+  # SOLUTION : le pipeline s'auto-relance en CHAÎNE — chaque run réussi
+  # re-déclenche le suivant immédiatement via workflow_dispatch (API, hors du
+  # scheduler GitHub donc sans délai). Le schedule */5 reste en secours si la
+  # boucle s'interrompt (échec de publication, maintenance GitHub).
+  #
+  # Prérequis : secret GH_SYNC_TOKEN = PAT du propriétaire (scopes repo).
+  # Pour stopper la boucle : onglet Actions → « Auto Sync » → ⋯ → Disable.
+  # ═══════════════════════════════════════════════════════════════════════════
+  rechain:
+    needs: [sync-standard, sync-compact, sync-teams, sync-ranked, sync-dashboard, sync-player-games, sync-lobby-state]
+    if: success()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: Auto-relance du cycle de sync (workflow_dispatch)
+        env:
+          GH_TOKEN: ${{ secrets.GH_SYNC_TOKEN }}
+        run: |
+          # Pause anti-emballement : si le pipeline devenait instantanément
+          # rapide/échouant, on évite de marteler l'API en boucle serrée.
+          sleep 120
+          code=$(curl -s -o /tmp/dispatch.out -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/sync.yml/dispatches" \
+            -d '{"ref":"main"}')
+          echo "dispatch HTTP $code"
+          cat /tmp/dispatch.out 2>/dev/null || true
+          if [ "$code" != "204" ]; then
+            echo "::warning::dispatch a échoué (HTTP $code) — le schedule */5 reprendra la relève"
+          fi

@@ -1,15 +1,16 @@
-// sync-teams.js — Team speedrun sync (Duos, Trios, Quads, Team Custom, HvN)
+// sync-teams.js — Team speedrun sync (Duos, Trios, Quads, HvN)
 // Same accumulation logic as sync.js: loads existing runs, adds new ones, saves back.
 // Scans last 2h each run, accumulates over time.
 //
-// BUG FIXED (2026-08-20): OpenFront API now returns playerTeams as BOTH:
-//   - "Duos", "Trios", "Quads" (text, old games)
-//   - "2", "3", "4" (numeric, new games — same meaning)
-//   - "5", "6", "7" (numeric, custom team sizes)
-//   - "Humans Vs Nations" (special mode)
-// Previously we only fetched the text format → missed ~76% of Team games.
-// Now we fetch ALL Team games with one request (Option B — clean sync) and
-// classify them in extractTeamRun based on playerTeams value.
+// ⚠️ FIX MAJEUR (2026-09-03) : le commentaire du fix 2026-08-20 affirmait que
+// playerTeams numérique ("2", "3", "4"…) avait « la même signification » que
+// le texte — FAUX. Audit sur games réelles : NUMBER N = N grandes équipes de
+// couleur (Blue/Red…) répartissant tous les humains ; STRING = taille d'équipe
+// fixe ("Duos"/"Trios"/"Quads") + "Humans Vs Nations". Les modes numériques
+// sont désormais REJETÉS (équipes gagnantes de 10 à 57 joueurs dans les
+// onglets Duos/Trios/Quads) et une migration purge les runs déjà pollués.
+// Les tailles d'équipe custom (5+) n'existent pas côté OpenFront : le mode
+// "team_custom" historique n'était que des games à 5/6/7 grandes équipes.
 //
 // Usage: node sync-teams.js
 // Files: teams_runs.json (full accumulated), teams_seen.json (de-dupe),
@@ -24,16 +25,24 @@ import {
 } from "./openfront-api.js";
 
 // ── Mode definitions ──────────────────────────────────────────────────────
-// Each mode maps to a key in teams_runs.json and to a set of playerTeams values.
-// We accept BOTH the text format (legacy) and the numeric format (new).
+// ⚠️ SÉMANTIQUE RÉELLE DE playerTeams (audit 2026-09-03, vérifié sur 13 games
+// réelles de l'API OpenFront) :
+//   - STRING "Duos" / "Trios" / "Quads"  → équipes de 2 / 3 / 4 joueurs
+//     (winner = ["team", "Team N", id1, id2, …] avec ≤ N IDs)
+//   - NUMBER 2 / 3 / 4 / 5 / 7 …         → N GRANDES ÉQUIPES de couleur
+//     ("Blue", "Red", …) répartissant TOUS les humains (ex. playerTeams=2
+//     avec 30 humains → 2 camps de 15, winner "Blue" avec 10+ IDs).
+//     Ce ne sont PAS des duos/trios/quads → rejetés.
+//   - STRING "Humans Vs Nations"          → mode spécial humains vs bots.
+// L'ancien commentaire (« numeric — same meaning ») était FAUX : il a causé
+// la pollution des onglets Duos/Trios/Quads par des équipes de 10-57 joueurs.
 const MODES = {
-  duos:        { name: "Duos",              playerTeamsValues: ["Duos", "2"] },
-  trios:       { name: "Trios",            playerTeamsValues: ["Trios", "3"] },
-  quads:       { name: "Quads",            playerTeamsValues: ["Quads", "4"] },
-  team_custom: { name: "Team Custom",      playerTeamsValues: ["5", "6", "7"] },
+  duos:        { name: "Duos",              playerTeamsValues: ["Duos"] },
+  trios:       { name: "Trios",             playerTeamsValues: ["Trios"] },
+  quads:       { name: "Quads",             playerTeamsValues: ["Quads"] },
   hvn:         { name: "Humans Vs Nations", playerTeamsValues: ["Humans Vs Nations"] },
 };
-const MODE_KEYS = Object.keys(MODES); // ["duos", "trios", "quads", "team_custom", "hvn"]
+const MODE_KEYS = Object.keys(MODES); // ["duos", "trios", "quads", "hvn"]
 
 // Reverse map: API playerTeams value → mode key
 const PLAYER_TEAMS_TO_MODE = {};
@@ -58,7 +67,7 @@ const TARGET_DATE = new Date("2025-11-01").getTime(); // backfill jusqu'à nov 2
 const DEFAULT_HISTORY_WINDOWS = 10000; // fenêtres par cycle de backfill
 
 // ── File paths ──
-const RUNS_FILE = "teams_runs.json";        // { duos, trios, quads, team_custom, hvn }
+const RUNS_FILE = "teams_runs.json";        // { duos, trios, quads, hvn }
 const SEEN_FILE = "teams_seen.json";        // ["gameId1", "gameId2", ...]
 const CHECKPOINT_FILE = "teams_checkpoint.json";
 
@@ -106,6 +115,42 @@ function loadCheckpoint() {
 
 function saveCheckpoint(cp) {
   fs.writeFileSync(CHECKPOINT_FILE, JSON.stringify(cp, null, 2));
+}
+
+/**
+ * Migration 2026-09-03 — purge des runs mal classifiés.
+ *
+ * Retire de chaque mode les runs dont playerTeams n'est PAS la string attendue.
+ * Les runs SANS champ playerTeams (collectés avant le 20-08 via le filtre
+ * texte de l'API, donc uniquement Duos/Trios/Quads) sont conservés :
+ * vérifié sur échantillon (audit 2026-09-03 : 5/5 games réellement
+ * "Duos"/"Trios"/"Quads" avec le bon nombre de gagnants).
+ * Les runs avec playerTeams NUMÉRIQUE (2/3/4/5/6/7 = N grandes équipes de
+ * couleur) sont supprimés — ils polluaient Duos/Trios/Quads avec des
+ * équipes gagnantes de 10 à 57 joueurs.
+ */
+function purgeInvalidRuns(runs) {
+  let purged = 0;
+  // Clés inconnues de MODES (ex. l'ancien bucket "team_custom", qui n'était
+  // que des games à 5/6/7 grandes équipes) → supprimées entièrement.
+  for (const k of Object.keys(runs)) {
+    if (!MODE_KEYS.includes(k)) {
+      purged += Array.isArray(runs[k]) ? runs[k].length : 0;
+      delete runs[k];
+    }
+  }
+  for (const modeKey of MODE_KEYS) {
+    const valid = new Set(MODES[modeKey].playerTeamsValues);
+    const before = runs[modeKey].length;
+    runs[modeKey] = runs[modeKey].filter(r => {
+      // Sans champ (anciens runs, filtre texte de l'époque) → garder
+      if (r.playerTeams === undefined || r.playerTeams === null) return true;
+      // String exacte attendue pour ce mode → garder
+      return valid.has(r.playerTeams);
+    });
+    purged += before - runs[modeKey].length;
+  }
+  return purged;
 }
 
 async function fetchWithRetry(url, retries = 3) {
@@ -377,6 +422,7 @@ function generatePublicPayload(runs) {
           d: r.duration_s,
           g: r.id,
           n: playerCount,
+          f: r.difficulty || "Medium",
           ts: r.timestamp,
         };
       });
@@ -391,7 +437,7 @@ function generatePublicPayload(runs) {
   for (const k of MODE_KEYS) totals[k] = Object.keys(payload[k]).length;
   let totalRuns = 0;
   for (const k of MODE_KEYS) totalRuns += runs[k].length;
-  console.log(`[teams] 📦 Public payload: ${(zlib.gzipSync(json).length / 1024).toFixed(1)} KB, ${totalRuns} runs total, maps: duos=${totals.duos} trio=${totals.trios} quad=${totals.quads} custom=${totals.team_custom} hvn=${totals.hvn}`);
+  console.log(`[teams] 📦 Public payload: ${(zlib.gzipSync(json).length / 1024).toFixed(1)} KB, ${totalRuns} runs total, maps: duos=${totals.duos} trios=${totals.trios} quads=${totals.quads} hvn=${totals.hvn}`);
 }
 
 // ── History backfill (remonte dans le temps, comme sync.js) ──
@@ -504,9 +550,22 @@ async function syncHistory(maxWindows = DEFAULT_HISTORY_WINDOWS) {
 
 // ── Main ──
 async function main() {
-  console.log("[teams] 🚀 Démarrage — Team Speedrun Sync (5 modes: duos, trios, quads, team_custom, hvn)");
+  console.log("[teams] 🚀 Démarrage — Team Speedrun Sync (4 modes: duos, trios, quads, hvn)");
   if (hasExemption()) console.log("[teams] 🔑 Exemption Skailex active");
   else console.log("[teams] ⚠️ Pas d'exemption — rate limits peuvent s'appliquer");
+
+  // 0. Migration : purger les runs mal classifiés (playerTeams numériques)
+  {
+    const preRuns = loadRuns();
+    const purged = purgeInvalidRuns(preRuns);
+    if (purged > 0) {
+      saveRuns(preRuns);
+      generatePublicPayload(preRuns);
+      console.log(`[teams] 🧹 Migration : ${purged} runs mal classifiés purgés (playerTeams numériques = N grandes équipes)`);
+    } else {
+      console.log("[teams] ✅ Migration : aucune donnée à purger");
+    }
+  }
 
   // 1. Sync recent (last 2h)
   await syncRecent();

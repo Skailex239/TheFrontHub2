@@ -42,11 +42,12 @@ async function main() {
 
   // Load the new sync-teams.js to use its extractTeamRun function
   // Since it's an ES module, we'll just simulate the logic inline
+  // Fix 2026-09-03 : NUMBER N = N grandes équipes de couleur → REJETÉ.
+  // Seules les strings ("Duos"/"Trios"/"Quads"/"Humans Vs Nations") sont valides.
   const PLAYER_TEAMS_TO_MODE = {
-    "Duos": "duos", "2": "duos",
-    "Trios": "trios", "3": "trios",
-    "Quads": "quads", "4": "quads",
-    "5": "team_custom", "6": "team_custom", "7": "team_custom",
+    "Duos": "duos",
+    "Trios": "trios",
+    "Quads": "quads",
     "Humans Vs Nations": "hvn",
   };
 
@@ -98,9 +99,9 @@ async function main() {
     { playerTeams: "2", expected: "duos" },
     { playerTeams: "3", expected: "trios" },
     { playerTeams: "4", expected: "quads" },
-    { playerTeams: "5", expected: "team_custom" },
-    { playerTeams: "6", expected: "team_custom" },
-    { playerTeams: "7", expected: "team_custom" },
+    { playerTeams: 5, expected: null },
+    { playerTeams: 6, expected: null },
+    { playerTeams: 7, expected: null },
     { playerTeams: "Humans Vs Nations", expected: "hvn" },
     { playerTeams: "Duos", expected: "duos" },
     { playerTeams: "Trios", expected: "trios" },

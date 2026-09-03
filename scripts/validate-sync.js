@@ -23,12 +23,11 @@ import https from "https";
 const API_BASE = "https://api.openfront.io";
 const SKAILEX_TOKEN = process.env.OPENFRONT_SKAILEX_ACCESS || "";
 
-// Must match sync-teams.js
+// Must match sync-teams.js (fix 2026-09-03 : number = N grandes équipes → rejeté)
 const MODES = {
-  duos:        { name: "Duos",              playerTeamsValues: ["Duos", "2"] },
-  trios:       { name: "Trios",            playerTeamsValues: ["Trios", "3"] },
-  quads:       { name: "Quads",            playerTeamsValues: ["Quads", "4"] },
-  team_custom: { name: "Team Custom",      playerTeamsValues: ["5", "6", "7"] },
+  duos:        { name: "Duos",              playerTeamsValues: ["Duos"] },
+  trios:       { name: "Trios",             playerTeamsValues: ["Trios"] },
+  quads:       { name: "Quads",             playerTeamsValues: ["Quads"] },
   hvn:         { name: "Humans Vs Nations", playerTeamsValues: ["Humans Vs Nations"] },
 };
 const MODE_KEYS = Object.keys(MODES);

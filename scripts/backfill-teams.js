@@ -25,10 +25,9 @@ import {
 
 // ── Mode definitions (must match sync-teams.js) ──
 const MODES = {
-  duos:        { playerTeamsValues: ["Duos", "2"] },
-  trios:       { playerTeamsValues: ["Trios", "3"] },
-  quads:       { playerTeamsValues: ["Quads", "4"] },
-  team_custom: { playerTeamsValues: ["5", "6", "7"] },
+  duos:        { playerTeamsValues: ["Duos"] },
+  trios:       { playerTeamsValues: ["Trios"] },
+  quads:       { playerTeamsValues: ["Quads"] },
   hvn:         { playerTeamsValues: ["Humans Vs Nations"] },
 };
 const MODE_KEYS = Object.keys(MODES);
