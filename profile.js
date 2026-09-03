@@ -159,6 +159,34 @@ function formatDateTime(iso) {
 let viewingPublicId = null;
 let viewingUsername = null;
 
+/* ── Pseudos « hub » (2026-09-03) ─────────────────────────────────────
+ * Map publicId → pseudo choisi dans le profil TheFrontHub. Utilisée pour
+ * afficher LE MÊME pseudo partout (héros du profil, « Autour de toi »),
+ * même quand le pseudo en jeu diffère. */
+const _hubNamesByPid = new Map();   // publicId → pseudo hub
+const _hubNamesByNorm = new Map();  // pseudo hub normalisé → publicId
+let _hubNamesPromise = null;
+function loadHubNames() {
+  if (_hubNamesPromise) return _hubNamesPromise;
+  _hubNamesPromise = fetch("/api/public-aliases.php", { cache: "no-store" })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      for (const a of (data && data.aliases) || []) {
+        if (a.publicId && a.username) {
+          _hubNamesByPid.set(String(a.publicId), String(a.username));
+          _hubNamesByNorm.set(normPlayerName(String(a.username)), String(a.publicId));
+        }
+      }
+    })
+    .catch(() => { /* non bloquant — pseudos en jeu affichés tels quels */ });
+  return _hubNamesPromise;
+}
+/** Pseudo hub d'un publicId (ou null). La map est chargée en tâche de fond. */
+function hubNameForPid(publicId) {
+  return publicId ? (_hubNamesByPid.get(String(publicId)) || null) : null;
+}
+loadHubNames();
+
 /**
  * Détecte si l'URL demande de visualiser le profil PUBLIC d'un autre joueur.
  * Format: profile.html?player=NAME&publicId=XXXXXXXX
@@ -281,12 +309,28 @@ onAuthStateChanged(auth, async (user) => {
  */
 function renderPublicProfile(username, publicId) {
   const nameEl = document.getElementById("profile-title-name");
-  if (nameEl) {
+  // Pseudo AFFICHÉ : pseudo choisi sur TheFrontHub (même pseudo partout)
+  // sinon pseudo en jeu. Le pseudo en jeu reste visible en info-bulle.
+  const applyHeroName = (shownName, inGameName) => {
+    if (!nameEl) return;
     nameEl.innerHTML = "";
     const skinSpan = document.createElement("span");
-    skinSpan.textContent = username;
+    skinSpan.textContent = shownName;
+    if (inGameName && inGameName !== shownName) {
+      skinSpan.title = "En jeu : " + inGameName;
+    }
     nameEl.appendChild(skinSpan);
     applySkinToElement(skinSpan, publicId, true);
+  };
+  const hubName = hubNameForPid(publicId);
+  applyHeroName(hubName || username, username);
+  if (!hubName && publicId) {
+    // La map des pseudos hub arrive peut-être après le premier rendu :
+    // on met à jour le héros quand elle est chargée.
+    loadHubNames().then(() => {
+      const h = hubNameForPid(publicId);
+      if (h) applyHeroName(h, username);
+    });
   }
 
   const badgeEl = document.getElementById("profile-public-badge-text");
@@ -300,6 +344,11 @@ function renderPublicProfile(username, publicId) {
   // Badge « vérifié » : masqué par défaut sur un profil public (donnée non chargée)
   const verifiedEl = document.getElementById("profile-verified");
   if (verifiedEl) verifiedEl.hidden = true;
+
+  // Éditeur de pseudo : réservé au PROPRE profil (masqué sur un profil public)
+  const editBtn = document.getElementById("pseudo-edit-btn");
+  if (editBtn) editBtn.hidden = true;
+  togglePseudoEditor(false);
 
   // Date d'arrivée : masquée sur un profil public (donnée non chargée)
   const joinedEl = document.getElementById("profile-joined-text");
@@ -420,7 +469,21 @@ function formatSpeedrunTime(s) {
  * vides (cartes stats, colonnes) sont masqués.
  */
 async function renderSpeedrunPublicProfile(username) {
-  renderPublicProfile(username, null);
+  // Résolution d'un éventuel compte lié : si ce pseudo en jeu correspond
+  // (normalisé) à un compte avec skin actif, on affine le héros (pseudo hub
+  // + badge Public ID) tout en gardant la carte Records Speedrun.
+  let resolvedPid = null;
+  try {
+    const { byNormPid } = await fetchActiveSkinMap();
+    resolvedPid = (byNormPid && byNormPid.get(normPlayerName(username))) || null;
+  } catch (e) { /* skins indisponibles — non bloquant */ }
+  renderPublicProfile(username, resolvedPid);
+  if (resolvedPid) {
+    const badgeText = document.getElementById("profile-public-badge-text");
+    const badgeBtn = document.getElementById("profile-public-badge");
+    if (badgeText) badgeText.textContent = resolvedPid;
+    if (badgeBtn) { badgeBtn.dataset.pid = resolvedPid; badgeBtn.style.display = ""; }
+  }
 
   // Masque les sections réservées au profil complet (données API absentes ici)
   document.querySelectorAll("#profile-main .pf2-stats, #profile-main .pf2-columns")
@@ -535,6 +598,10 @@ function renderHero(user, profile) {
   const verifiedEl = document.getElementById("profile-verified");
   if (verifiedEl) verifiedEl.hidden = !profile.verified;
 
+  // Éditeur de pseudo : disponible sur son propre profil (compte vérifié)
+  const editBtn = document.getElementById("pseudo-edit-btn");
+  if (editBtn) editBtn.hidden = !profile.publicId;
+
   // Date d'arrivée (profile.createdAt)
   const joinedEl = document.getElementById("profile-joined-text");
   if (joinedEl) {
@@ -580,6 +647,71 @@ window.copyPublicId = function (btn) {
     });
   } else {
     showToast("Public ID : " + pid, "info");
+  }
+};
+
+/* ── Éditeur de pseudo (2026-09-03) ───────────────────────────────
+ * Le pseudo choisi ici devient LE pseudo du joueur PARTOUT sur le site
+ * (profil, classements hebdo/all-time, classé, speedruns, feed) via la
+ * table publique tfh_public_aliases (pseudo hub ↔ publicId). */
+window.togglePseudoEditor = function (show) {
+  const ed = document.getElementById("pseudo-editor");
+  if (!ed) return;
+  ed.hidden = !show;
+  if (show) {
+    const input = document.getElementById("edit-pseudo-input");
+    if (input) {
+      input.value = (currentProfile && currentProfile.username) || "";
+      setTimeout(() => input.focus(), 30);
+    }
+  }
+};
+
+window.savePseudoChange = async function () {
+  if (!currentUser) { showToast("Connecte-toi d'abord.", "warning"); return; }
+  const input = document.getElementById("edit-pseudo-input");
+  const newPseudo = (input?.value || "").trim();
+  const current = (currentProfile && currentProfile.username) || "";
+  if (!newPseudo) { showToast("Entre un pseudo.", "warning"); return; }
+  if (newPseudo === current) { togglePseudoEditor(false); return; }
+  if (!/^[A-Za-z0-9_.\- ]{3,32}$/.test(newPseudo)) {
+    showToast("Pseudo : 3 à 32 caractères (lettres, chiffres, . _ - espace).", "warning");
+    return;
+  }
+  const pid = currentProfile && currentProfile.publicId;
+  if (!pid) {
+    showToast("Lie d'abord ton Public ID OpenFront avant de choisir un pseudo.", "warning");
+    return;
+  }
+  const saveBtn = document.querySelector("#pseudo-editor .pf2-pseudo-save");
+  const original = saveBtn?.textContent || "Enregistrer";
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "Enregistrement…"; }
+  try {
+    // → POST /api/profile.php (via le pont auth.js) : met à jour tfh_users
+    // + tfh_public_aliases (pseudo public) + tfh_public_rewards.
+    await setDoc(doc(db, "users", currentUser.uid), {
+      username: newPseudo,
+      publicId: pid,
+    }, { merge: true });
+    currentProfile = { ...(currentProfile || {}), username: newPseudo, publicId: pid };
+    // Rafraîchit la map locale des pseudos hub (affichage immédiat)
+    _hubNamesByPid.set(String(pid), newPseudo);
+    _hubNamesByNorm.set(normPlayerName(newPseudo), String(pid));
+    showToast("Pseudo mis à jour : " + newPseudo + " — il s'affiche maintenant partout !", "success", 5000);
+    togglePseudoEditor(false);
+    updateSidebarUI(currentUser, currentProfile);
+    renderHero(currentUser, currentProfile);
+  } catch (e) {
+    console.error("[profile] Changement de pseudo échoué:", e);
+    if (e?.code === "already_taken") {
+      showToast("Ce pseudo est déjà utilisé par un autre compte.", "error");
+    } else if (e?.code === "invalid_username") {
+      showToast("Pseudo invalide : 3 à 32 caractères (lettres, chiffres, . _ - espace).", "error");
+    } else {
+      showToast("Impossible de modifier le pseudo. Réessaie.", "error");
+    }
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = original; }
   }
 };
 
@@ -743,11 +875,16 @@ async function loadStats(publicId) {
         peersList.innerHTML = rows.map((p, i) => {
           const rank = from + i + 1;
           const isMe = p.publicId === publicId;
-          return `<div class="pf2-peer${isMe ? " is-me" : ""}">
+          // Pseudo hub (même pseudo partout) + ligne cliquable → profil
+          const shownName = hubNameForPid(p.publicId) || p.username || p.publicId || "Joueur";
+          const peerUrl = p.publicId
+            ? `profile.html?pid=${encodeURIComponent(p.publicId)}&player=${encodeURIComponent(shownName)}`
+            : `profile.html?player=${encodeURIComponent(shownName)}`;
+          return `<a class="pf2-peer${isMe ? " is-me" : ""}" href="${peerUrl}" style="text-decoration:none;color:inherit;cursor:pointer">
             <span class="pf2-peer-rank">${rank}</span>
-            <span class="pf2-peer-name">${esc(p.username || p.publicId || "Joueur")}</span>
+            <span class="pf2-peer-name">${esc(shownName)}</span>
             <span class="pf2-peer-score">${new Intl.NumberFormat("fr-FR").format(p.weekly_points || 0)}</span>
-          </div>`;
+          </a>`;
         }).join("");
         peersPanel.hidden = false;
       }

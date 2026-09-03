@@ -38,6 +38,28 @@ function skinIdForPlayer(name) {
     || null;
 }
 
+/* ── Pseudos « hub » (2026-09-03) : même pseudo partout sur le site ──
+ * hubNameByPid : publicId → pseudo choisi dans le profil TheFrontHub ;
+ * hubNameToPid : pseudo hub (lowercase) → publicId ;
+ * pidByNormName : pseudo en jeu normalisé → publicId (map des skins actifs,
+ *   champ openfrontUsername — fait matcher "[MSC] Skailex" avec son compte). */
+var hubNameByPid = {};
+var hubNameToPid = {};
+var pidByNormName = {};
+
+/** Résout le publicId d'un pseudo en jeu : pseudo hub exact → map skins normalisée. */
+function resolvePidForName(name) {
+  if (!name) return null;
+  return hubNameToPid[String(name).toLowerCase()] || pidByNormName[normPlayerName(name)] || null;
+}
+
+/** Nom AFFICHÉ : pseudo hub (profil TheFrontHub) sinon pseudo en jeu tel quel. */
+function displayNameFor(name) {
+  if (!name) return name;
+  var pid = resolvePidForName(name);
+  return (pid && hubNameByPid[pid]) || name;
+}
+
 // Charge en 1 requête la map publique des skins actifs puis patche le
 // tableau si déjà rendu (non bloquant). L'endpoint renvoie aussi
 // openfrontUsername (username OpenFront actuel, résolu côté serveur —
@@ -54,9 +76,11 @@ async function loadActiveSkins() {
       if (row.username) {
         activeSkinsByName.set(row.username, row.skinId);
         activeSkinsByNorm.set(normPlayerName(row.username), row.skinId);
+        pidByNormName[normPlayerName(row.username)] = String(row.publicId);
       }
       if (row.openfrontUsername) {
         activeSkinsByNorm.set(normPlayerName(row.openfrontUsername), row.skinId);
+        pidByNormName[normPlayerName(row.openfrontUsername)] = String(row.publicId);
       }
     });
     applySkinsToDom();
@@ -65,14 +89,19 @@ async function loadActiveSkins() {
   }
 }
 
-// Patch DOM : ajoute la classe .skin-* aux pseudos du tableau déjà rendu
-// (utile quand la map arrive APRÈS le premier rendu).
+// Patch DOM : skins + pseudos hub sur les lignes déjà rendues (utile quand
+// la map des skins / des alias arrive APRÈS le premier rendu).
 function applySkinsToDom() {
-  if (activeSkinsByName.size === 0 && activeSkinsByNorm.size === 0) return;
   document.querySelectorAll('td.global-player a').forEach(function(a) {
-    const name = (a.textContent || '').trim();
-    const skinId = skinIdForPlayer(name);
+    const raw = a.getAttribute('data-player') || (a.textContent || '').trim();
+    if (!raw) return;
+    const skinId = skinIdForPlayer(raw);
     if (skinId) a.classList.add('skin-' + skinId);
+    const shown = displayNameFor(raw);
+    if (shown && shown !== raw && a.textContent !== shown) {
+      a.textContent = shown;
+      a.title = 'En jeu : ' + raw;
+    }
   });
 }
 
@@ -122,12 +151,19 @@ async function loadConnectedUsernames() {
       });
     }, function() {});
 
-    // From public-aliases
+    // From public-aliases — alimenta aussi les maps pseudo hub ↔ publicId
     onSnapshot(collection(db, 'public-aliases'), function(snap) {
       snap.forEach(function(docSnap) {
         var data = docSnap.data();
-        if (data.username) connectedUsernames.add(data.username);
+        if (data.username) {
+          connectedUsernames.add(data.username);
+          if (data.publicId) {
+            hubNameByPid[String(data.publicId)] = data.username;
+            hubNameToPid[String(data.username).toLowerCase()] = String(data.publicId);
+          }
+        }
       });
+      applySkinsToDom();
     }, function() {});
   } catch (e) {
     console.warn('[runs] Could not load connected usernames:', e);
@@ -135,11 +171,13 @@ async function loadConnectedUsernames() {
 }
 
 function handlePlayerClick(name) {
-  if (connectedUsernames.has(name)) {
-    window.location.href = 'profile.html?player=' + encodeURIComponent(name);
-  } else {
-    showToast("Ce joueur n'est pas encore connecté à un compte TheFrontHub.", "warning");
-  }
+  // Liaison PARTOUT : tout clic sur un pseudo ouvre son profil.
+  //  - publicId résolu (compte lié) → profil COMPLET ;
+  //  - sinon → profil public « speedrun » (records du joueur).
+  var pid = resolvePidForName(name);
+  var url = 'profile.html?player=' + encodeURIComponent(name);
+  if (pid) url += '&publicId=' + encodeURIComponent(pid);
+  window.location.href = url;
 }
 window.handlePlayerClick = handlePlayerClick;
 
@@ -210,11 +248,12 @@ async function loadTopRuns({ limit, windowDays }) {
       // Skin actif du joueur (si possédé ET activé) → classe .skin-*
       var skinId = skinIdForPlayer(playerName) || '';
       var skinAttr = skinId ? ' class="skin-' + skinId + '"' : '';
-      if (connectedUsernames.has(playerName)) {
-        tdPlayer.innerHTML = '<a' + skinAttr + ' href="#" onclick="handlePlayerClick(\'' + escapeHtml(playerName).replace(/'/g, "\\'") + "');return false\" style=\"cursor:pointer;text-decoration:underline;color:var(--orange)\">" + escapeHtml(playerName) + '</a>';
-      } else {
-        tdPlayer.innerHTML = '<a' + skinAttr + ' href="#" onclick="handlePlayerClick(\'' + escapeHtml(playerName).replace(/'/g, "\\'") + "');return false\" style=\"cursor:pointer;text-decoration:none\">" + escapeHtml(playerName) + '</a>';
-      }
+      // Pseudo AFFICHÉ : pseudo hub (profil TheFrontHub) sinon pseudo en jeu.
+      // data-player garde le pseudo original pour les patchs asynchrones
+      // (skins / aliases) et handlePlayerClick utilise le pseudo original.
+      var shownName = displayNameFor(playerName);
+      var titleAttr = shownName !== playerName ? ' title="En jeu : ' + escapeHtml(playerName) + '"' : '';
+      tdPlayer.innerHTML = '<a' + skinAttr + ' data-player="' + escapeHtml(playerName) + '" href="#" onclick="handlePlayerClick(\'' + escapeHtml(playerName).replace(/'/g, "\\'") + "');return false\"" + titleAttr + ' style="cursor:pointer;text-decoration:none">' + escapeHtml(shownName) + '</a>';
 
       const tdMap = document.createElement('td');
       tdMap.innerHTML = escapeHtml(mapDisplayName(r.map));

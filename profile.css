@@ -821,3 +821,44 @@ a.pfsr-replay:hover{background:var(--accent);color:#fff;border-color:var(--accen
   .pfsr-date{display:none}
   .pfsr-row{gap:7px;font-size:12.5px}
 }
+
+/* ── Éditeur de pseudo (2026-09-03) — modifier son pseudo TheFrontHub ── */
+.pf2-pseudo-editor {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg2, rgba(127, 127, 127, .08));
+}
+.pf2-pseudo-editor[hidden] { display: none; }
+.pf2-pseudo-editor input {
+  flex: 1;
+  min-width: 160px;
+  max-width: 260px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card, #1a1a1a);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13.5px;
+}
+.pf2-pseudo-editor input:focus { outline: none; border-color: var(--accent); }
+.pf2-pseudo-save { padding: 8px 14px; font-size: 13px; }
+.pf2-pseudo-save:disabled { opacity: .55; cursor: wait; }
+.pf2-pseudo-cancel {
+  padding: 8px 12px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+}
+.pf2-pseudo-cancel:hover { border-color: var(--text3); color: var(--fg); }
+.pf2-pseudo-hint { flex-basis: 100%; font-size: 11.5px; color: var(--text3); line-height: 1.45; }
+#pseudo-edit-btn { cursor: pointer; }

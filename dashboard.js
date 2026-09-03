@@ -77,6 +77,13 @@ const lastUpdateEl = document.getElementById("last-update");
 
 let _rankedData = null;        // ranked.json décodé (ranked wins carrière)
 let _connectedPlayers = [];    // [{publicId, username}] depuis Firebase
+let _hubNamesByPid = new Map(); // publicId → pseudo hub (profil TheFrontHub) — affiché partout
+
+/** Pseudo AFFICHÉ d'un joueur du classement : pseudo hub (profil) sinon
+ *  pseudo OpenFront. « Même pseudo sur le profil/leaderboard/classé ». */
+function hubNameForPid(publicId) {
+  return (publicId && _hubNamesByPid.get(String(publicId))) || null;
+}
 let _liveStats = {};           // { publicId: { global: {...}, weekly: {...}, games: [], fetchedAt } }
 // Layout 2 panneaux : on maintient deux vues (global + weekly) en parallèle
 let _mergedViews = { global: [], weekly: [] };
@@ -272,6 +279,11 @@ async function loadConnectedPlayers() {
         seen.add(p.publicId);
         return true;
       });
+    // Map publicId → pseudo hub (pseudo choisi dans le profil) : affiché
+    // PARTOUT à la place du pseudo OpenFront (même pseudo sur tout le site).
+    _hubNamesByPid = new Map(
+      _connectedPlayers.map((p) => [p.publicId, p.username])
+    );
     console.log(`[dashboard] API: ${_connectedPlayers.length} joueurs connectés (sur ${docs.length} alias)`);
   } catch (e) {
     console.warn("[dashboard] API indisponible:", e.message);
@@ -942,7 +954,8 @@ function weeklyPlutoniumBadge() {
  *   opts.searching : état recherche (message vide personnalisé). */
 function renderRanking(topN, opts = {}) {
   const rows = topN.map((p) => {
-    const name = p.username || p.publicId;
+    const hubName = hubNameForPid(p.publicId);
+    const name = hubName || p.username || p.publicId;
     const profileUrl = p.publicId
       ? `profile.html?pid=${encodeURIComponent(p.publicId)}&player=${encodeURIComponent(name)}`
       : `profile.html?player=${encodeURIComponent(name)}`;
@@ -983,7 +996,7 @@ function renderRanking(topN, opts = {}) {
     const puBadge = opts.weekly && p.rank === 1 && _pointFilter === "all"
       ? weeklyPlutoniumBadge()
       : "";
-    const nameHtml = `<span class="dash-player-name${skinClass}">${escapeHtml(name)}</span>`;
+    const nameHtml = `<span class="dash-player-name${skinClass}"${hubName && p.username && hubName !== p.username ? ` title="En jeu : ${escapeHtml(p.username)}"` : ""}>${escapeHtml(name)}</span>`;
     const nameLine = (meChip || puBadge)
       ? `<span class="dash-player-line">${nameHtml}${meChip}${puBadge}</span>`
       : nameHtml;
@@ -1045,7 +1058,7 @@ function rankOrdinalSuffix(n) {
  *   Rendue SOUS la liste (hors zone scrollable) → toujours visible sans
  *   scroller. Le rang affiché est le rang RÉEL dans la vue courante. */
 function mePinnedRowHtml(me) {
-  const name = me.username || me.publicId;
+  const name = hubNameForPid(me.publicId) || me.username || me.publicId;
   const profileUrl = `profile.html?pid=${encodeURIComponent(me.publicId)}&player=${encodeURIComponent(name)}`;
   return `
     <a class="dash-row dash-row-me dash-me-pinned" href="${profileUrl}" aria-label="Votre position : ${me.rank} avec ${formatPoints(me.points)} points">
@@ -1083,7 +1096,9 @@ function updateLists() {
   const searching = _searchQuery.length > 0;
   const computeShown = (fullView) => {
     if (!searching) return { shown: fullView.slice(0, 50), total: fullView.length };
-    const matches = fullView.filter((p) => nameMatches(p.username, _searchQuery));
+    const matches = fullView.filter((p) =>
+      nameMatches(p.username, _searchQuery) || nameMatches(hubNameForPid(p.publicId), _searchQuery)
+    );
     return { shown: matches.slice(0, 20), total: matches.length };
   };
 

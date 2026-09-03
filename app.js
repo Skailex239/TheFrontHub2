@@ -96,6 +96,7 @@ let vipPlayersByPid = new Map(); // publicId → reward type (matching par PUBLI
 let vipRewardsRaw = []; // snapshot brut des docs public-rewards (pour rebuild quand les bridges changent)
 let usernameToPid = new Map(); // bridge: username/accountUsername → publicId (depuis ranked.json + public-aliases)
 let uidToPid = new Map(); // bridge: uid → publicId (depuis public-aliases si publicId présent)
+let pidToHubName = new Map(); // publicId → pseudo choisi sur TheFrontHub (affiché PARTOUT à la place du pseudo en jeu)
 let connectedUsernames = new Set(); // usernames having a registered TheFrontHub account
 
 // Enregistrer les fonctions de navigation IMMÉDIATEMENT pour qu'elles
@@ -357,6 +358,7 @@ function loadPublicAliases() {
     onSnapshot(collection(db, "public-aliases"), (snap) => {
       let changed = false;
       let pidBridgeChanged = false;
+      let hubNameChanged = false;
       snap.forEach((docSnap) => {
         const data = docSnap.data();
 
@@ -375,6 +377,12 @@ function loadPublicAliases() {
               usernameToPid.set(n, pidVal);
               pidBridgeChanged = true;
             }
+          }
+          // --- Pseudo « hub » (choisi dans le profil TheFrontHub) ---
+          // Affiché à la place du pseudo en jeu sur TOUS les leaderboards.
+          if (data.username && pidToHubName.get(pidVal) !== String(data.username)) {
+            pidToHubName.set(pidVal, String(data.username));
+            hubNameChanged = true;
           }
         }
 
@@ -404,17 +412,18 @@ function loadPublicAliases() {
         changed = true;
       });
 
-      if (changed && _rawRuns.length > 0) {
+      if ((changed || hubNameChanged) && _rawRuns.length > 0) {
         debouncedRender();
       }
-      // Si le bridge publicId a changé, on reconstruit la map VIP-par-publicId
-      // et on re-render le leaderboard ranked si déjà chargé.
+      // Si le bridge publicId a changé, on reconstruit la map VIP-par-publicId ;
+      // si les pseudos hub ont changé (ou le bridge), on re-render le
+      // leaderboard ranked si déjà chargé (noms affichés + skins).
       if (pidBridgeChanged) {
         rebuildVipByPid();
-        if (window._rankedPlayers) {
-          renderRankedTable(window._rankedPlayers);
-          renderMyRank(window._rankedPlayers);
-        }
+      }
+      if ((pidBridgeChanged || hubNameChanged) && window._rankedPlayers) {
+        renderRankedTable(window._rankedPlayers);
+        renderMyRank(window._rankedPlayers);
       }
       publicAliasesLoaded = true;
     }, (error) => {
@@ -1483,6 +1492,28 @@ function resolvePlayerPublicId(name){
 }
 
 /**
+ * Pseudo « hub » (choisi dans le profil TheFrontHub) pour un publicId.
+ * Renvoie null si le joueur n'a pas de compte lié avec pseudo défini.
+ */
+function hubNameForPublicId(publicId){
+  if(!publicId) return null;
+  return pidToHubName.get(String(publicId)) || null;
+}
+
+/**
+ * Nom AFFICHÉ d'un joueur : le pseudo choisi sur TheFrontHub (publicId
+ * résolu depuis le pseudo en jeu) sinon le pseudo en jeu tel quel.
+ * Les clés de données (playerStats, runs, teams) restent les pseudos en
+ * jeu — seule l'étiquette visible change (même pseudo sur profil /
+ * leaderboards / classé / speedruns).
+ */
+function displayNameFor(rawName){
+  if(!rawName) return rawName;
+  const pid = resolvePlayerPublicId(rawName);
+  return (pid && pidToHubName.get(pid)) || rawName;
+}
+
+/**
  * Rassemble les runs d'un pseudo : stats agrégées (FFA) + runs d'équipe où
  * le pseudo est membre de la composition (recherche dans _rawRuns du mode
  * courant). Dédoublonné par id de partie.
@@ -1548,9 +1579,10 @@ function renderLeaderboard(d){
     // ── Pseudos individuels cliquables (duos/trios/quads : "A + B") ──
     // Skin actif par PSEUDO (classe .skin-*, définie dans styles.css) —
     // chaque membre d'équipe garde son propre cosmétique.
+    // Affichage : pseudo hub (profil TheFrontHub) sinon pseudo en jeu.
     const parts=String(r.player||'').split(' + ').map(s=>s.trim()).filter(Boolean);
     const nameHtml=parts.map(n=>
-      '<span class="run-player-name'+skinClassFor(n)+'" onclick="event.stopPropagation();openPlayerProfile('+jsq(n)+')">'+esc(n)+'</span>'
+      '<span class="run-player-name'+skinClassFor(n)+'" onclick="event.stopPropagation();openPlayerProfile('+jsq(n)+')" title="'+esc(n)+'">'+esc(displayNameFor(n))+'</span>'
     ).join('<span class="run-team-sep">+</span>');
     
     // GG Button Logic
@@ -1667,10 +1699,11 @@ function renderFeed(){
     const rankBadge=isTop3?'<span class="feed-rank-badge rank-'+rank+'">#'+rank+'</span>':'';
     const age=Date.now()-new Date(r.timestamp).getTime();
     const isNew=age<3600000?'<span class="badge-new">NEW</span>':'';
-    // Pseudos individuels cliquables (équipe : "A + B") — skin par pseudo
+    // Pseudos individuels cliquables (équipe : "A + B") — skin par pseudo,
+    // affichage du pseudo hub (profil TheFrontHub) sinon pseudo en jeu
     const parts=String(r.player||'').split(' + ').map(s=>s.trim()).filter(Boolean);
     const nameHtml=parts.map(n=>
-      '<span class="run-player-name'+skinClassFor(n)+'" onclick="event.stopPropagation();openPlayerProfile('+jsq(n)+')">'+esc(n)+'</span>'
+      '<span class="run-player-name'+skinClassFor(n)+'" onclick="event.stopPropagation();openPlayerProfile('+jsq(n)+')" title="'+esc(n)+'">'+esc(displayNameFor(n))+'</span>'
     ).join('<span class="run-team-sep">+</span>');
     return '<div class="feed-item"><div class="feed-rank">'+(i+1)+'</div><div class="feed-info"><div class="feed-player">'+nameHtml+isNew+rankBadge+'</div><div class="feed-map">'+getMapDisplayName(r.map)+' · '+timeAgo(r.timestamp)+'</div></div><div class="feed-time">'+formatTime(r.duration_s)+'</div><a class="feed-replay" href="'+getRunUrl(r)+'" target="_blank" title="Voir le replay">&#9654;</a></div>';
   }).join("");
@@ -1692,9 +1725,17 @@ function renderGlobal(){
     globalLeaderboard.slice(0,50).map((p,i)=>{
       const rc = i===0?'gold':i===1?'silver':i===2?'bronze':'';
       const isMeClass = p._isMe ? 'is-me' : '';
-      const cosmeticNameClass = skinClassFor(p.player);
-      const playerInner = '<span class="global-player'+cosmeticNameClass+'" onclick="showPlayer(\''+esc(p.player)+'\')">'+p.player+'</span>';
-      return '<tr class="'+isMeClass+'"><td class="global-rank '+rc+'">'+(i+1)+'</td><td class="global-player-cell" onclick="showPlayer(\''+esc(p.player)+'\')">'+playerInner+'</td><td class="global-points">'+p.points+'</td><td class="global-wins">'+p.wins+'</td></tr>';
+      // ── Liaison des pseudos PARTOUT (2026-09-03) ──
+      // Composition d'équipe ("A + B") : chaque pseudo individuel est
+      // cliquable → PROFIL (openPlayerProfile) ; un clic AILLEURS sur la
+      // ligne ouvre la « pancarte » (modal stats de l'équipe, via
+      // showPlayer qui route les compositions vers showTeamStatsModal).
+      // Solo : ligne entière → profil.
+      const parts=String(p.player||'').split(' + ').map(s=>s.trim()).filter(Boolean);
+      const playerInner=parts.map(n=>
+        '<span class="global-player'+skinClassFor(n)+'" onclick="event.stopPropagation();showPlayer('+jsq(n)+')" title="'+esc(n)+'">'+esc(displayNameFor(n))+'</span>'
+      ).join('<span class="run-team-sep">+</span>');
+      return '<tr class="'+isMeClass+'" style="cursor:pointer"><td class="global-rank '+rc+'">'+(i+1)+'</td><td class="global-player-cell" onclick="showPlayer('+jsq(p.player)+')">'+playerInner+'</td><td class="global-points">'+p.points+'</td><td class="global-wins">'+p.wins+'</td></tr>';
     }).join("")+'</tbody></table>';
 }
 function renderHof(){
@@ -1702,7 +1743,13 @@ function renderHof(){
   if(globalLeaderboard.length<1){c.innerHTML='<div class="empty-state"><p>Pas encore de joueurs</p></div>';return}
   c.innerHTML=globalLeaderboard.slice(0,3).map((p,i)=>{
     const rank=getRank(p.points);
-    return '<div class="hof-card hof-'+(i+1)+'"><div class="hof-name'+skinClassFor(p.player)+'" onclick="showPlayer(\''+esc(p.player)+'\')">'+p.player+'</div><div class="hof-rank" style="color:'+rank.color+'">'+rank.name+'</div><div class="hof-pts">'+p.points+' pts</div><div class="hof-detail">'+p.golds+' 1er · '+p.silvers+' 2e · '+p.bronzes+' 3e</div></div>';
+    // Même logique que renderGlobal : pseudos membres cliquables → profil,
+    // clic sur la carte → pancarte (modal stats, gérée par showPlayer).
+    const parts=String(p.player||'').split(' + ').map(s=>s.trim()).filter(Boolean);
+    const nameHtml=parts.map(n=>
+      '<span class="hof-player-name'+skinClassFor(n)+'" onclick="event.stopPropagation();showPlayer('+jsq(n)+')" title="'+esc(n)+'">'+esc(displayNameFor(n))+'</span>'
+    ).join('<span class="run-team-sep">+</span>');
+    return '<div class="hof-card hof-'+(i+1)+'"><div class="hof-name'+skinClassFor(p.player)+'" onclick="showPlayer('+jsq(p.player)+')">'+nameHtml+'</div><div class="hof-rank" style="color:'+rank.color+'">'+rank.name+'</div><div class="hof-pts">'+p.points+' pts</div><div class="hof-detail">'+p.golds+' 1er · '+p.silvers+' 2e · '+p.bronzes+' 3e</div></div>';
   }).join("");
 }
 function renderCompare(){
@@ -1728,7 +1775,7 @@ function renderCompare(){
     {label:window.t("compare.avg_time"),v1:formatTime(Math.round(p1.totalTime/p1.wins)),v2:formatTime(Math.round(p2.totalTime/p2.wins))},
     {label:window.t("compare.max_streak"),v1:p1.maxStreak,v2:p2.maxStreak}
   ];
-  c.innerHTML='<table class="global-table"><thead><tr><th></th><th class="global-player" onclick="showPlayer(\''+esc(p1.player)+'\')">'+p1.player+'</th><th class="global-player" onclick="showPlayer(\''+esc(p2.player)+'\')">'+p2.player+'</th></tr></thead><tbody>'+
+  c.innerHTML='<table class="global-table"><thead><tr><th></th><th class="global-player" onclick="showPlayer('+jsq(p1.player)+')" title="'+esc(p1.player)+'">'+esc(displayNameFor(p1.player))+'</th><th class="global-player" onclick="showPlayer('+jsq(p2.player)+')" title="'+esc(p2.player)+'">'+esc(displayNameFor(p2.player))+'</th></tr></thead><tbody>'+
     rows.map(r=>'<tr><td class="compare-label">'+r.label+'</td><td class="compare-val">'+r.v1+'</td><td class="compare-val">'+r.v2+'</td></tr>').join("")+
     '</tbody></table>';
 }
@@ -1781,7 +1828,7 @@ function searchPlayer(){
   c.innerHTML='<div class="feed-card">'+matches.map(p=>{
     const rank=getRank(p.points);
     const desc = window.t("search.player_desc", { rank: rank.name, wins: p.wins, maps: p.maps.size });
-    return '<div class="feed-item" onclick="showPlayer(\''+esc(p.player)+'\')"><div class="feed-rank">'+p.points+'</div><div class="feed-info"><div class="feed-player">'+p.player+'</div><div class="feed-map">'+desc+'</div></div></div>';
+    return '<div class="feed-item" onclick="showPlayer('+jsq(p.player)+')"><div class="feed-rank">'+p.points+'</div><div class="feed-info"><div class="feed-player">'+esc(displayNameFor(p.player))+'</div><div class="feed-map">'+desc+'</div></div></div>';
   }).join("")+'</div>';
 }
 function showPlayer(name){
@@ -2263,17 +2310,24 @@ function renderRankedTable(players) {
     // Skin actif — matching par PUBLIC ID (prioritaire), fallback username
     const cosmeticNameClass = skinClassFor(p.username, p.public_id, p.accountUsername);
 
+    // Pseudo AFFICHÉ : pseudo choisi sur TheFrontHub (même pseudo partout)
+    // sinon pseudo OpenFront. title = pseudo en jeu d'origine.
+    const shownName = hubNameForPublicId(p.public_id) || p.username;
+
+    // ── Liaison classé (2026-09-03) ──
+    // Clic sur le PSEUDO → profil complet (viewRankedProfile) ;
+    // clic AILLEURS sur la ligne → « pancarte » (modal historique ranked).
     html += `
       <tr data-pid="${esc(p.public_id)}" style="border-bottom: 1px solid var(--border); transition: background 0.2s; cursor:pointer;"
           onmouseover="this.style.background='var(--bg2)'"
           onmouseout="this.style.background='transparent'"
-          onclick="viewRankedProfile(${jsq(p.public_id)}, ${jsq(p.username)})">
+          onclick="showRankedPlayerModal(${jsq(p.public_id)}, ${jsq(p.username)})">
         <td style="padding: 12px 8px; font-weight: bold; color: ${p.rank <= 3 ? 'var(--accent)' : 'var(--text)'};">#${p.rank}</td>
         <td style="padding: 12px 8px;">
           <div style="display:flex;align-items:center;gap:6px">
             ${favBtn}
-            <span class="${cosmeticNameClass} ranked-player-name" style="color: var(--text); text-decoration: none; font-weight: 500; position: relative; display: inline-block;">
-              ${p.clanTag ? `<span style="color:var(--text3);font-size:0.9em;margin-right:4px;">[${esc(p.clanTag)}]</span>` : ''}${esc(p.username)}
+            <span class="${cosmeticNameClass} ranked-player-name" onclick="event.stopPropagation();viewRankedProfile(${jsq(p.public_id)}, ${jsq(p.username)})" title="${esc(p.username)}" style="color: var(--text); text-decoration: none; font-weight: 500; position: relative; display: inline-block; cursor: pointer;">
+              ${p.clanTag ? `<span style="color:var(--text3);font-size:0.9em;margin-right:4px;">[${esc(p.clanTag)}]</span>` : ''}${esc(shownName)}
             </span>
           </div>
         </td>
@@ -2314,10 +2368,11 @@ function renderNewcomersDropouts(data, mode = '1v1') {
     else {
       newEl.innerHTML = newcomers.map(n => {
         const nameClass = skinClassFor(n.username, n.public_id, n.accountUsername).trim();
+        const shown = hubNameForPublicId(n.public_id) || n.username;
         return `
-        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-light)">
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-light)" title="${esc(n.username)}">
           <span style="font-weight:700;color:var(--accent);min-width:32px">#${n.rank}</span>
-          <span class="${nameClass}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${esc(n.username)}</span>
+          <span class="${nameClass}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${esc(shown)}</span>
           <span style="font-family:JetBrains Mono,monospace;font-size:12px;color:var(--muted)">${n.elo}</span>
         </div>`;
       }).join('');
@@ -2329,10 +2384,11 @@ function renderNewcomersDropouts(data, mode = '1v1') {
     else {
       dropEl.innerHTML = dropouts.map(d => {
         const nameClass = skinClassFor(d.username, d.public_id, d.accountUsername).trim();
+        const shown = hubNameForPublicId(d.public_id) || d.username;
         return `
-        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-light)">
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-light)" title="${esc(d.username)}">
           <span style="font-weight:700;color:var(--text3);min-width:32px">#${d.rank}</span>
-          <span class="${nameClass}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.username)}</span>
+          <span class="${nameClass}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(shown)}</span>
           <span style="font-family:JetBrains Mono,monospace;font-size:12px;color:var(--muted)">${d.elo}</span>
         </div>`;
       }).join('');
@@ -2640,7 +2696,7 @@ async function showRankedPlayerModal(publicId, username) {
   const statsEl = document.getElementById('ranked-modal-player-stats');
   const gamesEl = document.getElementById('ranked-modal-games');
   
-  if (nameEl) nameEl.textContent = username;
+  if (nameEl) nameEl.textContent = hubNameForPublicId(publicId) || username;
   // Skin actif — matching par PUBLIC ID (prioritaire), fallback username
   const rewardType = getRankedRewardType(publicId, username, null);
   nameEl.className = rewardType ? getSkin(rewardType).cssClass : '';

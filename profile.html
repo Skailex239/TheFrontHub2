@@ -23,8 +23,8 @@
 
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=67" as="style">
-<link rel="preload" href="profile.css?v=35" as="style">
-<link rel="preload" href="dist/profile.min.js?v=13" as="script" crossorigin>
+<link rel="preload" href="profile.css?v=36" as="style">
+<link rel="preload" href="dist/profile.min.js?v=14" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=3" as="script" crossorigin>
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
@@ -35,7 +35,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="favicon-180x180.png">
   <link rel="stylesheet" href="styles.css?v=67">
   <link rel="stylesheet" href="auth.css?v=19">
-  <link rel="stylesheet" href="profile.css?v=35">
+  <link rel="stylesheet" href="profile.css?v=36">
   <link rel="stylesheet" href="skins.css?v=6">
   <link rel="stylesheet" href="animations.css?v=6" media="print" onload="this.media='all'">
   <noscript><link rel="stylesheet" href="animations.css?v=6"></noscript>
@@ -238,6 +238,15 @@
             <span class="pf2-id-verified" id="profile-verified" title="Compte vérifié — Public ID lié" hidden>
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
             </span>
+            <button type="button" class="pf2-id-iconbtn" id="pseudo-edit-btn" onclick="togglePseudoEditor(true)" title="Modifier mon pseudo" aria-label="Modifier mon pseudo" hidden>
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+            </button>
+          </div>
+          <div class="pf2-pseudo-editor" id="pseudo-editor" hidden>
+            <input type="text" id="edit-pseudo-input" maxlength="32" autocomplete="off" placeholder="Ton pseudo TheFrontHub" aria-label="Nouveau pseudo" onkeydown="if(event.key==='Enter'){event.preventDefault();savePseudoChange();}">
+            <button type="button" class="pf-primary-btn pf2-pseudo-save" onclick="savePseudoChange()">Enregistrer</button>
+            <button type="button" class="pf2-pseudo-cancel" onclick="togglePseudoEditor(false)">Annuler</button>
+            <span class="pf2-pseudo-hint">3 à 32 caractères (lettres, chiffres, . _ - espace). Ce pseudo s'affiche partout : profil, classements, classé, speedruns.</span>
           </div>
           <div class="pf2-id-meta-row">
             <button type="button" class="pf2-id-pid" id="profile-public-badge" onclick="copyPublicId(this)" title="Copier le Public ID" aria-label="Copier le Public ID">
@@ -345,7 +354,7 @@
 <script src="dist/toast.min.js?v=1" defer></script>
 <script src="dist/lenis.min.js?v=6"></script>
 <script src="dist/animations.min.js?v=1" defer></script>
-<script src="dist/profile.min.js?v=13" type="module"></script>
+<script src="dist/profile.min.js?v=14" type="module"></script>
 
 <script type="module" src="dist/tutorial.min.js?v=2"></script>
 <script>
