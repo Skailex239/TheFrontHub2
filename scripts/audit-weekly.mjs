@@ -33,13 +33,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const headers = { "User-Agent": UA };
 
 async function api(path) {
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 6; attempt++) {
     try {
       const res = await fetch(`${API}${path}`, { headers });
-      if (res.status === 429) { await sleep(2000 * (attempt + 1)); continue; }
-      if (!res.ok) return null;
+      if (res.status === 429) { await sleep(8000 * (attempt + 1)); continue; }
+      if (!res.ok) { await sleep(2000); continue; }
       return await res.json();
-    } catch { await sleep(1000); }
+    } catch { await sleep(3000); }
   }
   return null;
 }
@@ -79,7 +79,7 @@ async function auditPlayer(publicId, weekStartMs, prevWeekStartMs) {
     if (hitPrev) break;
     cursor = data.nextCursor || data.cursor;
     if (!cursor) break;
-    await sleep(120);
+    await sleep(300);
   }
   const points = wins.ffa_casual * SCORE.ffa_casual + wins.ffa_ranked * SCORE.ffa_ranked +
                  wins.team_casual * SCORE.team_casual + wins.team_ranked * SCORE.team_ranked;
@@ -125,7 +125,7 @@ async function main() {
     console.log(`   publié  : ${storedPts} pts  [FFA ${storedW.ffa_casual} · FFA classé ${storedW.ffa_ranked} · Team ${storedW.team_casual} · Team classé ${storedW.team_ranked}]`);
     console.log(`   recalcul: ${a.points} pts  [FFA ${a.wins.ffa_casual} · FFA classé ${a.wins.ffa_ranked} · Team ${a.wins.team_casual} · Team classé ${a.wins.team_ranked}]  · ${a.gamesThisWeek} games semaine · ${a.pages} pages · scan compl.${a.hitPrev ? "OK" : "STOP 30 pages"}`);
     if (wDiff) console.log(`   écarts wins: ${JSON.stringify(diffW)}`);
-    await sleep(150);
+    await sleep(300);
   }
 
   // 3. Rangs publiés vs recalculés
