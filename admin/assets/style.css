@@ -1629,3 +1629,176 @@ code { font-family: var(--mono); font-size: 12.5px; }
   .lv-table th:nth-child(5), .lv-table td.lv-ms { display: none; }
   .ck-body { font-size: 13px; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Espace admin — onglets Tâches / Chat + chat plein écran (chat.js)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.view-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 3px;
+  margin-left: auto;
+}
+
+.view-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-subtle);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+  white-space: nowrap;
+}
+
+.view-tab:hover { color: var(--fg); background: var(--bg); }
+
+.view-tab.is-active {
+  color: var(--accent);
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / .12), 0 0 0 1px var(--border);
+}
+
+.view-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #EF4444;
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* ── Vue chat plein écran ─────────────────────────────────────────────────── */
+
+.wrap-chat {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 61px);
+  padding-bottom: 14px;
+}
+
+.gchat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  position: relative;
+}
+
+.gchat-head {
+  padding: 12px 18px 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.gchat-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+}
+
+.gchat-title h1 {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -.01em;
+  margin: 0;
+  color: var(--fg);
+}
+
+.gchat-hint {
+  font-size: 12px;
+  color: var(--fg-subtle);
+  margin: 0;
+}
+
+.gchat-scroll {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  padding: 12px 18px 10px;
+}
+
+/* Avatar de repli (initiale colorée) quand l'avatar Discord est absent */
+.chat-avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 800;
+  font-size: 14px;
+  user-select: none;
+}
+
+/* Indication de dépôt de fichiers sur toute la zone */
+.gchat.dragging::after {
+  content: 'Dépose tes fichiers ici';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 2px dashed var(--accent-border);
+  border-radius: 14px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* Le composeur du chat général reste collé en bas de la zone visible */
+.gchat .chat-composer {
+  margin: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--bg);
+}
+
+.gchat .chat-chips {
+  position: static;
+  margin: 0 18px;
+  border-radius: 0;
+}
+
+.gchat .chat-newpill {
+  position: absolute;
+  bottom: 74px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+}
+
+@media (max-width: 760px) {
+  .view-tabs { order: 3; width: 100%; justify-content: stretch; margin-left: 0; }
+  .view-tab { flex: 1; justify-content: center; padding: 7px 10px; }
+  .wrap-chat { height: calc(100dvh - 96px); padding: 0 10px 10px; }
+  .gchat-head { padding: 10px 12px 8px; gap: 8px; }
+  .gchat-hint { display: none; }
+  .gchat-scroll { padding: 10px 12px 8px; }
+}

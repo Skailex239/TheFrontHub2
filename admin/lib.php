@@ -2,13 +2,14 @@
 declare(strict_types=1);
 
 /**
- * TheFrontHub — Panel de tâches (task.thefronthub.com)
+ * TheFrontHub — Espace admin (admin.thefronthub.com)
  *
  * Charge la configuration API commune (secrets hors webroot, PDO MySQL,
  * helpers sessions/Discord depuis api/), puis définit les utilitaires
- * propres au panel : schéma, droits d'accès, CSRF, rendu des écrans.
+ * propres à l'espace admin : schéma, droits d'accès, CSRF, rendu des écrans.
  *
- * Inclus par tous les points d'entrée du panel (task/*.php).
+ * Inclus par tous les points d'entrée (admin/*.php).
+ * NB : l'ancien emplacement task.thefronthub.com redirige vers ici (stub task/).
  */
 
 if (!defined('TFH_API')) {
@@ -22,7 +23,7 @@ require_once __DIR__ . '/../api/config.php';
 /* ------------------------------------------------------------------ */
 
 define('TASK_CSRF_COOKIE', 'tfh_task_csrf');
-define('TASK_ASSET_VER', '8');
+define('TASK_ASSET_VER', '9');
 
 /* Discussion de tâche : durée de conservation des fichiers joints (jours). */
 define('TASK_CHAT_FILE_TTL_DAYS', 30);
@@ -65,24 +66,24 @@ function task_display_name(?string $username, ?string $globalName, string $fallb
 }
 
 /**
- * URI de retour Discord du panel : task.thefronthub.com en priorité,
- * ou https://thefronthub.com/task/auth/callback.php en secours.
- * Les deux doivent être enregistrées dans le portail Discord (OAuth2).
+ * URI de retour Discord de l'espace admin : admin.thefronthub.com en priorité,
+ * ou task.thefronthub.com / thefronthub.com/admin/auth/callback.php en secours.
+ * Les hôtes utilisés doivent être enregistrés dans le portail Discord (OAuth2).
  */
 function task_redirect_uri(): string
 {
-    $host = (string) ($_SERVER['HTTP_HOST'] ?? 'task.thefronthub.com');
+    $host = (string) ($_SERVER['HTTP_HOST'] ?? 'admin.thefronthub.com');
     $host = preg_replace('/[^a-z0-9.\-]/i', '', $host);
     if ($host === '' ) {
-        $host = 'task.thefronthub.com';
+        $host = 'admin.thefronthub.com';
     }
     $dir = str_replace('\\', '/', (string) dirname($_SERVER['SCRIPT_NAME'] ?? '/auth/login.php'));
     return 'https://' . $host . rtrim($dir, '/') . '/callback.php';
 }
 
 /**
- * Préfixe de chemin du panel : '' sur le sous-domaine,
- * '/task' quand il est servi via thefronthub.com/task/.
+ * Préfixe de chemin de l'espace admin : '' sur le sous-domaine,
+ * '/admin' quand il est servi via thefronthub.com/admin/.
  */
 function task_base_path(): string
 {
@@ -698,7 +699,7 @@ function task_webhook_send(PDO $pdo, string $event, array $t): void
         $prio    = $prioMap[(string) ($t['priority'] ?? 'normal')] ?? 'Normale';
         $aid     = (string) ($t['assignee_id'] ?? '');
         $pname   = trim((string) ($t['assignee_name'] ?? ''));
-        $link    = 'https://task.thefronthub.com/';
+        $link    = 'https://admin.thefronthub.com/';
 
         $fields = [
             ['name' => 'Priorité', 'value' => $prio, 'inline' => true],
@@ -1042,4 +1043,71 @@ function task_render_denied(array $profile): never
 </html>
 <?php
     exit;
+}
+
+/* ------------------------------------------------------------------ */
+/* Chat général de l'espace admin (task_id = 0 dans tfh_task_chat)     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Carte des personnes autorisées (whitelist panel + admins du site),
+ * pour afficher noms/avatars dans le chat général sans charger tout l'état.
+ *
+ * @return array<string, array{id:string,name:string,avatar:string,panel_role:string}>
+ */
+function task_people_map(PDO $pdo): array
+{
+    $people = [];
+
+    try {
+        $st = $pdo->prepare(
+            "SELECT ta.discord_id, ta.role AS panel_role, u.username, u.global_name, u.avatar_url
+             FROM tfh_task_admins ta
+             LEFT JOIN tfh_user_identities i ON i.provider = 'discord'
+                  AND i.provider_uid = ta.discord_id COLLATE utf8mb4_unicode_ci
+             LEFT JOIN tfh_users u ON u.id = i.user_id
+             ORDER BY CASE ta.role WHEN 'owner' THEN 0 ELSE 1 END, u.global_name, u.username"
+        );
+        $st->execute();
+        foreach ($st->fetchAll() as $row) {
+            $people[(string) $row['discord_id']] = [
+                'id'         => (string) $row['discord_id'],
+                'name'       => task_display_name(
+                    isset($row['username']) ? (string) $row['username'] : null,
+                    isset($row['global_name']) ? (string) $row['global_name'] : null,
+                    ''
+                ),
+                'avatar'     => (string) ($row['avatar_url'] ?? ''),
+                'panel_role' => (string) $row['panel_role'],
+            ];
+        }
+
+        $st = $pdo->prepare(
+            "SELECT i.provider_uid AS discord_id, u.username, u.global_name, u.avatar_url
+             FROM tfh_users u
+             JOIN tfh_user_identities i ON i.user_id = u.id AND i.provider = 'discord'
+             WHERE u.role = 'admin'"
+        );
+        $st->execute();
+        foreach ($st->fetchAll() as $row) {
+            $id = (string) $row['discord_id'];
+            if (isset($people[$id])) {
+                continue;
+            }
+            $people[$id] = [
+                'id'         => $id,
+                'name'       => task_display_name(
+                    isset($row['username']) ? (string) $row['username'] : null,
+                    isset($row['global_name']) ? (string) $row['global_name'] : null,
+                    ''
+                ),
+                'avatar'     => (string) ($row['avatar_url'] ?? ''),
+                'panel_role' => '',
+            ];
+        }
+    } catch (Throwable $e) {
+        error_log('[tfh-admin] task_people_map: ' . $e->getMessage());
+    }
+
+    return $people;
 }

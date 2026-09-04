@@ -74,13 +74,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
 
     if ($getAction === 'chat.list') {
         $chatTaskId = (int) ($_GET['task_id'] ?? 0);
-        if ($chatTaskId <= 0) {
+        if ($chatTaskId < 0) {
             fail(422, 'bad_input', 'Tâche invalide.');
         }
-        $st = $pdo->prepare('SELECT id, title FROM tfh_task_tasks WHERE id = ? LIMIT 1');
-        $st->execute([$chatTaskId]);
-        if ($st->fetch() === false) {
-            fail(404, 'not_found', 'Tâche introuvable.');
+        /* task_id = 0 → chat général de l'espace admin (pas de tâche associée). */
+        if ($chatTaskId > 0) {
+            $st = $pdo->prepare('SELECT id, title FROM tfh_task_tasks WHERE id = ? LIMIT 1');
+            $st->execute([$chatTaskId]);
+            if ($st->fetch() === false) {
+                fail(404, 'not_found', 'Tâche introuvable.');
+            }
         }
 
         /* Purge des fichiers expirés (throttlée, best-effort). */
@@ -139,7 +142,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
             'messages' => $messages,
             'count'    => $count,
             'ttl_days' => TASK_CHAT_FILE_TTL_DAYS,
-        ]);
+        ] + ($chatTaskId === 0 ? ['people' => task_people_map($pdo)] : []));
     }
 
     /* Archive automatique : les tâches terminées depuis plus de 14 jours
@@ -942,13 +945,16 @@ switch ($action) {
     case 'chat.send': {
         $id   = (int) ($in['id'] ?? 0);
         $body = task_req_str($in, 'body', 4000, true);
-        if ($id <= 0) {
+        if ($id < 0) {
             fail(422, 'bad_input', 'Paramètres invalides.');
         }
-        $st = $pdo->prepare('SELECT id, title FROM tfh_task_tasks WHERE id = ? LIMIT 1');
-        $st->execute([$id]);
-        if ($st->fetch() === false) {
-            fail(404, 'not_found', 'Tâche introuvable.');
+        /* id = 0 → chat général de l'espace admin. */
+        if ($id > 0) {
+            $st = $pdo->prepare('SELECT id, title FROM tfh_task_tasks WHERE id = ? LIMIT 1');
+            $st->execute([$id]);
+            if ($st->fetch() === false) {
+                fail(404, 'not_found', 'Tâche introuvable.');
+            }
         }
         task_chat_rate_limit($pdo, $meId);
         $msg = task_chat_insert($pdo, $id, $meId, $meName, $body, []);
@@ -957,13 +963,16 @@ switch ($action) {
 
     case 'chat.upload': {
         $id = (int) ($in['id'] ?? 0);
-        if ($id <= 0) {
+        if ($id < 0) {
             fail(422, 'bad_input', 'Paramètres invalides.');
         }
-        $st = $pdo->prepare('SELECT id, title FROM tfh_task_tasks WHERE id = ? LIMIT 1');
-        $st->execute([$id]);
-        if ($st->fetch() === false) {
-            fail(404, 'not_found', 'Tâche introuvable.');
+        /* id = 0 → chat général de l'espace admin. */
+        if ($id > 0) {
+            $st = $pdo->prepare('SELECT id, title FROM tfh_task_tasks WHERE id = ? LIMIT 1');
+            $st->execute([$id]);
+            if ($st->fetch() === false) {
+                fail(404, 'not_found', 'Tâche introuvable.');
+            }
         }
 
         $body = trim((string) ($in['body'] ?? ''));

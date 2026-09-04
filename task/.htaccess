@@ -1,32 +1,10 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# task/.htaccess — Panel de tâches TheFrontHub (task.thefronthub.com)
-# ─────────────────────────────────────────────────────────────────────────────
+# Redirection permanente de l'ancien espace tâches vers l'espace admin.
+# (thefronthub.com/task/* et task.thefronthub.com/* → admin.thefronthub.com)
 
-# Page d'entrée du panel (le site racine utilise index.html, ici c'est PHP)
-DirectoryIndex index.php index.html
-
-# IMPORTANT : Passenger (gestionnaire d'app Node/Python de cPanel) est actif
-# par défaut sur les nouveaux sous-domaines o2switch et intercepte ce dossier
-# en affichant « Web application could not be started ». Ce panel est 100 % PHP
-# classique : on désactive Passenger pour tout l'arbre task/.
-<IfModule mod_passenger.c>
-  PassengerEnabled Off
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule ^(.*)$ https://admin.thefronthub.com/ [R=301,L]
 </IfModule>
 
-Options -Indexes
-
-# Le panel n'a rien à faire dans les moteurs de recherche
-<IfModule mod_headers.c>
-  Header set X-Robots-Tag "noindex, nofollow"
-  Header set Referrer-Policy "same-origin"
-</IfModule>
-
-# Fichiers internes jamais servis (guide, SQL de secours, logs…)
-<FilesMatch "\.(sql|md|log|lock|ini|sh)$">
-  Require all denied
-</FilesMatch>
-
-# Jamais de listing du dossier assets
-<IfModule mod_autoindex.c>
-  IndexIgnore *
-</IfModule>
+# Filet si mod_rewrite est indisponible
+ErrorDocument 404 https://admin.thefronthub.com/

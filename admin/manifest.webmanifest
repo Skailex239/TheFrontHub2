@@ -1,6 +1,6 @@
 {
-  "name": "TheFrontHub — Tâches",
-  "short_name": "Tâches",
+  "name": "TheFrontHub — Admin",
+  "short_name": "Admin",
   "description": "Panel de tâches TheFrontHub",
   "start_url": "./",
   "scope": "./",
