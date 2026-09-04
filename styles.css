@@ -707,12 +707,49 @@ body{
 #ranked-list tr:nth-child(even){background:var(--bg-subtle)!important}
 #ranked-list tr:hover{background:var(--accent-subtle)!important}
 #ranked-list tr td{font-variant-numeric:tabular-nums}
-/* Hide secondary columns on mobile to prevent horizontal scroll */
+/* Hide secondary columns on mobile to prevent horizontal scroll.
+   ⚠️ FIX 2026-09-05 : les <th> sont dans <thead>, HORS de #ranked-list (= <tbody>) —
+   l'ancien sélecteur « #ranked-list th.rk-mobile-hide » ne matchait JAMAIS les
+   en-têtes → Peak/Total/MV/Streak restaient visibles mais écrasés sur mobile
+   (« RangJoueur », « TotMVStre », « V / D » empilés). On cible #ranked-table. */
+#tab-ranked .table-container{overflow-x:auto;-webkit-overflow-scrolling:touch}
 @media (max-width:768px){
-    #ranked-list th.rk-mobile-hide,
+    #ranked-table th.rk-mobile-hide,
     #ranked-list td.rk-mobile-hide{display:none!important}
     #ranked-list td{padding:10px 6px!important;font-size:12px!important}
-    #ranked-list th{padding:8px 6px!important;font-size:10px!important}
+    #ranked-list th{padding:8px 4px!important;font-size:10px!important;white-space:nowrap}
+    /* 5 colonnes visibles : Rang / Joueur / Elo / Winrate / V-D — largeurs recalculées
+       (6+30+10+10+12 = 68% → cellules trop étroites : « 259480.2% » collé, V-D empilé) */
+    #ranked-table th:nth-child(1){width:12%!important}
+    #ranked-table th:nth-child(2){width:36%!important}
+    #ranked-table th:nth-child(3){width:17%!important}
+    #ranked-table th:nth-child(5){width:17%!important}
+    #ranked-table th:nth-child(6){width:18%!important}
+    /* Les chiffres ne se coupent jamais ; nom du joueur tronqué proprement */
+    #ranked-list td{white-space:nowrap}
+    #ranked-list td:nth-child(2) > div{min-width:0}
+    #ranked-list td:nth-child(2) > div > span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}
+/* V-D étroit (≤480px) : séparateur masqué → « 1359-124 » compact.
+   Entre 481 et 768px il reste la place pour « 1359 - 124 ». */
+@media (max-width:480px){
+    .rk-sep{display:none}
+}
+/* Très petits écrans (≤420px : iPhone SE, Android compacts) — on cache aussi
+   V-D → 4 colonnes aérées (Rang / Joueur / Elo / Winrate), zéro collision. */
+@media (max-width:420px){
+    #ranked-table th.rk-narrow-hide,
+    #ranked-list td.rk-narrow-hide{display:none!important}
+    #ranked-table th:nth-child(1){width:14%!important}
+    #ranked-table th:nth-child(2){width:42%!important}
+    #ranked-table th:nth-child(3){width:20%!important}
+    #ranked-table th:nth-child(5){width:24%!important}
+}
+/* En-tête du bloc Classement sur mobile : titre long + « MAJ » + bouton
+   Actualiser se chevauchaient (titre sur 3 lignes collé à la date). */
+@media (max-width:600px){
+    #tab-ranked .feed-header{flex-wrap:wrap;row-gap:6px}
+    #tab-ranked .feed-header > span:first-child{flex:1 1 100%}
 }
 @keyframes prism-slide{from{background-position:0% 50%}to{background-position:100% 50%}}
 .rgb-prism{display:inline-block;font-family:'Orbitron',sans-serif;background:linear-gradient(90deg,#ff0055,#ff6600,#ffdd00,#00ff88,#00ccff,#6644ff,#cc00ff,#ff0055,#ff6600,#ffdd00,#00ff88,#00ccff,#6644ff,#cc00ff,#ff0055);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;color:transparent;animation:prism-slide 4s linear infinite}
