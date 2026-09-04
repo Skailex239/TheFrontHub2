@@ -27,6 +27,12 @@
 // instead of throwing, so a map addition alone doesn't kill the dashboard.
 //
 // ── Historique de synchro schéma ────────────────────────────────────────────
+//   2026-09-04 : v5.14 — `trusted` RETIRÉ de GameConfig : le déploiement du
+//   soir (numWorkers 5→20) l'a supprimé du schéma amont. Garder les 2 bits
+//   v5.13 décalait TOUTES les fields suivantes et faisait échouer chaque
+//   snapshot "full" (« Invalid byte sequence ») → plus aucune carte dans le
+//   lobby alors que le WS connectait et que les frames counts décodaient.
+//   Vérifié contre des frames réelles capturées le 04/09 13:37 UTC.
 //   2026-09-03 : v5.13 — GameConfig gagne `trusted: boolean.optional()`
 //   (entre allowedPublicIds et maxTimerValue, commit #5127) → décalage de +2
 //   bits dans le header de présence pour TOUTES les fields suivantes
@@ -346,10 +352,8 @@
     f("randomSpawn", "bool"),
     f("maxPlayers", "uint", { opt: true }),
     f("allowedPublicIds", { arr: "str" }, { opt: true }),
-    // ⚠️ v5.13 : `trusted` (lobbies réservés aux comptes de confiance).
-    // bool optionnel → 2 bits (présence + valeur) INSÉRÉS ici : toutes les
-    // fields suivantes sont décalées de 2 bits par rapport à l'ancien layout.
-    f("trusted", "bool", { opt: true }),
+    // ⚠️ v5.14 : `trusted` (ajouté en v5.13) a été RETIRÉ du schéma amont —
+    // ne PAS le réajouter : il décalerait de 2 bits toutes les fields suivantes.
     f("maxTimerValue", "uint", { opt: true, nul: true }),
     f("customAllianceDuration", "uint", { opt: true, nul: true }),
     f("startDelay", "uint", { opt: true, nul: true }),
