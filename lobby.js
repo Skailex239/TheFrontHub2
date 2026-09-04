@@ -57,7 +57,10 @@ function mapDisplayName(raw) {
    Configuration
    ════════════════════════════════════════════════════════════════════════ */
 
-const DIRECT_WORKERS = ["w0", "w1", "w2", "w3", "w4"];
+// ⚠️ OpenFront sert désormais numWorkers=20 (BOOTSTRAP_CONFIG, déploiement
+// 2026-09-04) — tous les workers w0..w19 exposent la MÊME liste de lobbies
+// (choix purement aléatoire côté client pour répartir la charge).
+const DIRECT_WORKERS = Array.from({ length: 20 }, (_, i) => `w${i}`);
 // Worker proxy Cloudflare existant (allowlist d'origines déjà configurée)
 const PROXY_WS_URL = "wss://openfront-proxy.diofortnite3.workers.dev/lobby-ws";
 const FALLBACK_JSON = "lobby_state.json";
