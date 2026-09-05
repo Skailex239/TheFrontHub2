@@ -56,36 +56,51 @@ function of_fetch_game_username(string $publicId): ?string
     return ($u !== '') ? $u : null;
 }
 
+$hasGameCol = true; // la colonne game_username existe-t-elle ? (SQL pas encore passe => false)
 try {
     $rows = $pdo->query(
         'SELECT user_id, username, public_id, game_username FROM tfh_public_aliases ORDER BY updated_at DESC LIMIT 1000'
     )->fetchAll();
 } catch (PDOException $e) {
-    if ((string) $e->getCode() !== '42S22') { // 42S22 = colonne game_username absente (SQL pas encore passe)
+    if ((string) $e->getCode() !== '42S22') { // 42S22 = colonne game_username absente
         throw $e;
     }
     error_log('[tfh-api] public-aliases: colonne game_username absente, fallback sans pseudo en jeu');
+    $hasGameCol = false;
     $rows = $pdo->query(
         'SELECT user_id, username, public_id, NULL AS game_username FROM tfh_public_aliases ORDER BY updated_at DESC LIMIT 1000'
     )->fetchAll();
 }
 
 $toFetch = [];
-foreach ($rows as $r) {
-    if (!empty($r['public_id']) && ($r['game_username'] === null || $r['game_username'] === '')) {
-        $toFetch[] = $r;
-        if (count($toFetch) >= 3) {
-            break;
+if ($hasGameCol) {
+    foreach ($rows as $r) {
+        if (!empty($r['public_id']) && ($r['game_username'] === null || $r['game_username'] === '')) {
+            $toFetch[] = $r;
+            if (count($toFetch) >= 3) {
+                break;
+            }
         }
     }
 }
 
-$stUpd = $pdo->prepare('UPDATE tfh_public_aliases SET game_username = ? WHERE user_id = ?');
-foreach ($toFetch as $r) {
-    $game = of_fetch_game_username((string) $r['public_id']);
-    if ($game !== null) {
-        $stUpd->execute([$game, (int) $r['user_id']]);
-        $r['game_username'] = $game; // sert directement pour cette reponse
+/* Le prepare de l'UPDATE est DANS le try : si la colonne manque, on ne
+ * casse surtout pas la reponse (degradation = aliases sans pseudo en jeu). */
+if ($toFetch) {
+    try {
+        $stUpd = $pdo->prepare('UPDATE tfh_public_aliases SET game_username = ? WHERE user_id = ?');
+        foreach ($toFetch as $r) {
+            $game = of_fetch_game_username((string) $r['public_id']);
+            if ($game !== null) {
+                $stUpd->execute([$game, (int) $r['user_id']]);
+                $r['game_username'] = $game; // sert directement pour cette reponse
+            }
+        }
+    } catch (PDOException $e) {
+        if ((string) $e->getCode() !== '42S22') {
+            error_log('[tfh-api] public-aliases: update game_username: ' . $e->getMessage());
+        }
+        // non bloquant : on renvoie les rows telles quelles
     }
 }
 
