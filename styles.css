@@ -2092,19 +2092,24 @@ button:active:not(:disabled),
   }
 }
 
-/* ── PETIT MOBILE (≤ 480px) ─────────────────────────────────────────────── */
+/* FIX (audit 2026-09) : labels bottom-nav à 9.5px entre 390 et 480px.
+   (« Speedruns » clippait dès qu'une scrollbar réduit le viewport de 15px.)
+   ⚠️ Scopé ≥390px : sous 390px c'est le bloc ICÔNES SEULES (font-size:0)
+   qui doit gagner — à spécificité égale, le bloc le plus BAS du fichier
+   l'aurait écrasé (c'était le cas avant ce scope). */
+@media (min-width: 390px) and (max-width: 480px) {
+  .sidebar nav .nav-item {
+    font-size: 9.5px;
+    letter-spacing: -.1px;
+  }
+}
+
+/* ── PETIT MOBILE (≤ 480px) — suite ────────────────────────────────────── */
 @media (max-width: 480px) {
   :root {
     --space-4: 12px;
     --space-5: 14px;
     --space-6: 16px;
-  }
-  /* FIX (audit 2026-09) : les labels bruts de la bottom-nav (« Speedruns »)
-     clippent dès qu'une scrollbar réduit le viewport de 15px. 9.5px donne
-     une marge sûre sans passer en icônes-seules. */
-  .sidebar nav .nav-item {
-    font-size: 9.5px;
-    letter-spacing: -.1px;
   }
   .content {
     padding: var(--space-2);
