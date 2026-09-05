@@ -3393,7 +3393,7 @@ html.tfh-ub-open { --tfh-ub-h: 41px; }   /* fallback si le JS n'a pas encore mes
 /* Mobile : bottom-nav compacte — drapeaux seuls, même gabarit que le toggle */
 @media (max-width: 768px) {
   .lang-switcher {
-    margin: 0 !important;
+    margin: 0 6px 0 0 !important;
     padding: 0 !important;
     border: none !important;
     background: transparent !important;
