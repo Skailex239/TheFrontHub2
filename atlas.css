@@ -133,3 +133,69 @@
   .atlas-detail-stats { grid-template-columns: 1fr 1fr; }
   .atlas-nations-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PAN & ZOOM de la carte (v9) — molette / glisser / pincement / boutons
+   - zoom 1× : le doigt fait défiler la page (pas de scroll-trap mobile)
+   - zoom > 1× : touch-action:none → 1 doigt déplace, 2 doigts pincent
+   ═══════════════════════════════════════════════════════════════════════════ */
+.atlas-map-svg {
+  touch-action: pan-x pan-y;      /* 1 doigt = scroll de page natif à 1× */
+  cursor: grab;
+  -webkit-tap-highlight-color: transparent;
+}
+.atlas-map-svg.atlas-zoomed,
+.atlas-detail-map-stage.atlas-zoomed {
+  touch-action: none;             /* zoomé : la carte capte les gestes */
+  cursor: grab;
+}
+.atlas-map-svg.atlas-dragging,
+.atlas-detail-map-stage.atlas-dragging {
+  cursor: grabbing;
+}
+.atlas-map-svg.atlas-dragging * { pointer-events: none; } /* drag fluide : pas de hover pays sous le curseur */
+
+/* Boutons zoom (+ / − / réinitialiser), coin haut-droit du conteneur */
+.atlas-pz-controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.atlas-pz-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #3f3f46;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+  transition: background .15s ease, transform .12s ease, color .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.atlas-pz-btn:hover { background: #fff; color: #ff6b00; transform: translateY(-1px); }
+.atlas-pz-btn:active { transform: scale(.93); }
+.atlas-pz-btn:focus-visible { outline: 2px solid #ff6b00; outline-offset: 2px; }
+
+/* Carte du monde : un peu plus grande sur téléphone (audit 2026-09) */
+@media (max-width: 600px) {
+  .atlas-map-wrap { min-height: 230px; }
+  .atlas-map-svg { min-height: 230px; }
+  .atlas-pz-btn { width: 40px; height: 40px; }
+}
+
+/* Carte détail : couche zoomée (image + marqueurs nations) */
+.atlas-detail-zoom {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}

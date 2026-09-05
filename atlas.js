@@ -214,6 +214,11 @@ function render() {
   ATLAS_VIEW.querySelectorAll(".atlas-card").forEach(card => {
     card.addEventListener("click", () => showMapDetail(card.dataset.slug));
   });
+
+  // Pan & zoom de la carte du monde (molette / glisser / pincement / boutons)
+  const mapWrap = ATLAS_VIEW.querySelector(".atlas-map-wrap");
+  const mapSvg = ATLAS_VIEW.querySelector(".atlas-map-svg");
+  if (mapWrap && mapSvg) initMapPanZoom(mapWrap, mapSvg, MAP_W, MAP_H);
 }
 
 function renderMapCard(m) {
@@ -318,6 +323,11 @@ function showMapDetail(slug) {
   `;
   document.body.appendChild(modal);
   document.body.style.overflow = "hidden";
+
+  // Pan & zoom de la grande carte détail (molette / glisser / pincement / boutons)
+  const stage = modal.querySelector(".atlas-detail-map-stage");
+  if (stage) initDetailPanZoom(stage);
+
   const escHandler = (e) => { if (e.key === "Escape") { modal.remove(); document.body.style.overflow = ""; document.removeEventListener("keydown", escHandler); } };
   document.addEventListener("keydown", escHandler);
 }
@@ -326,5 +336,345 @@ function closeModal() {
   const m = document.getElementById("atlas-modal");
   if (m) { m.remove(); document.body.style.overflow = ""; }
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   Pan & zoom — « faire grossir la carte », scroll et déplacement
+   Carte du monde (viewBox) + carte détail (transform). Zéro dépendance.
+   ════════════════════════════════════════════════════════════════════════ */
+
+const PZ_MIN = 1, PZ_MAX = 6;      // bornes de zoom (1× → 6×)
+const PZ_STEP = 1.3;               // facteur des boutons / molette / double-clic
+
+/** Point (clientX/clientY) → coordonnées internes du viewBox SVG courant. */
+function svgClientPoint(svg, clientX, clientY) {
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return { x: 0, y: 0 };
+  const pt = svg.createSVGPoint();
+  pt.x = clientX; pt.y = clientY;
+  const p = pt.matrixTransform(ctm.inverse());
+  return { x: p.x, y: p.y };
+}
+
+/** Boutons + / − / réinitialiser (coin haut-droit, au-dessus de la carte). */
+function pzControls(wrap, handlers) {
+  const box = document.createElement("div");
+  box.className = "atlas-pz-controls";
+  box.innerHTML = `
+    <button type="button" class="atlas-pz-btn" data-act="in" aria-label="Zoomer sur la carte" title="Zoomer">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6M11 8v6"/></svg>
+    </button>
+    <button type="button" class="atlas-pz-btn" data-act="out" aria-label="Dézoomer" title="Dézoomer">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/></svg>
+    </button>
+    <button type="button" class="atlas-pz-btn" data-act="reset" aria-label="Réinitialiser la vue de la carte" title="Réinitialiser la vue">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 10-2.3 5.7"/><path d="M20 4v6h-6"/></svg>
+    </button>`;
+  box.addEventListener("click", (e) => {
+    const btn = e.target.closest(".atlas-pz-btn");
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    handlers[btn.dataset.act]?.();
+  });
+  // Un double-clic sur les boutons ne doit pas aussi zoomer la carte
+  box.addEventListener("dblclick", (e) => e.stopPropagation());
+  wrap.appendChild(box);
+  return box;
+}
+
+/** Facteur de zoom molette standardisé entre navigateurs (deltaY normalisé).
+ *  Convention carte (Google Maps) : molette vers le haut (deltaY < 0) = zoom
+ *  avant (facteur < 1), vers le bas = zoom arrière (facteur > 1). */
+function wheelFactor(e) {
+  const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 100 : e.deltaY;
+  if (d === 0) return 1;
+  const f = Math.pow(1.0015, Math.max(-120, Math.min(120, d)) * 2);
+  return Math.max(0.5, Math.min(2, f));
+}
+
+/**
+ * Pan & zoom de la carte du monde (SVG). Manipule le viewBox (ratio 2:1
+ * conservé → pas de déformation) :
+ *   - molette          → zoom centré sur le curseur (desktop)
+ *   - glisser souris   → déplacement (seuil 5 px, clic pas avalé sinon)
+ *   - tactile zoomé    → 1 doigt déplace, 2 doigts pincent (touch-action:none)
+ *   - tactile zoom 1×  → le doigt fait défiler la page (pas de scroll-trap)
+ *   - double-clic      → zoom avant (hors pins)
+ *   - boutons +/−/⟲    → accessibles partout
+ */
+function initMapPanZoom(wrap, svg, MAP_W, MAP_H) {
+  if (!wrap || !svg || svg.dataset.pz === "1") return;
+  svg.dataset.pz = "1";
+  const RATIO = MAP_W / MAP_H;
+  const vb = { x: 0, y: 0, w: MAP_W, h: MAP_H };
+
+  const apply = () => {
+    svg.setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+    const zoomed = vb.w < MAP_W - 0.5;
+    svg.classList.toggle("atlas-zoomed", zoomed);
+  };
+  const clamp = () => {
+    vb.w = Math.min(MAP_W, Math.max(MAP_W / PZ_MAX, vb.w));
+    vb.h = vb.w / RATIO;
+    vb.x = Math.min(MAP_W - vb.w, Math.max(0, vb.x));
+    vb.y = Math.min(MAP_H - vb.h, Math.max(0, vb.y));
+  };
+  const zoomAt = (px, py, factor) => {
+    // facteur réel après clamp : la largeur cible reste dans [MAP_W/6, MAP_W]
+    // → le ratio vb.w/MAP_W est borné à [1/PZ_MAX, 1] (PZ_MIN n'entre pas en
+    // jeu ici : c'est un zoom-avant vers 1×, pas un dé-zoom sous la carte).
+    const k = Math.min(1, Math.max(1 / PZ_MAX, (vb.w * factor) / MAP_W)) * (MAP_W / vb.w);
+    if (k === 1 && vb.w === MAP_W) return;
+    vb.x = px - (px - vb.x) * k;
+    vb.y = py - (py - vb.y) * k;
+    vb.w *= k;
+    vb.h = vb.w / RATIO;
+    clamp();
+    apply();
+  };
+  const zoomCenter = (factor) => zoomAt(vb.x + vb.w / 2, vb.y + vb.h / 2, factor);
+  const reset = () => { vb.x = 0; vb.y = 0; vb.w = MAP_W; vb.h = MAP_H; apply(); };
+
+  pzControls(wrap, { in: () => zoomCenter(1 / PZ_STEP), out: () => zoomCenter(PZ_STEP), reset });
+
+  // Molette = zoom (comportement carte, cf. Google Maps)
+  svg.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const p = svgClientPoint(svg, e.clientX, e.clientY);
+    zoomAt(p.x, p.y, wheelFactor(e));
+  }, { passive: false });
+
+  // Double-clic = zoom avant (sauf sur un pin : clic simple = détail)
+  svg.addEventListener("dblclick", (e) => {
+    if (e.target.closest && e.target.closest(".atlas-svg-pin")) return;
+    e.preventDefault();
+    const p = svgClientPoint(svg, e.clientX, e.clientY);
+    zoomAt(p.x, p.y, 1 / PZ_STEP);
+  });
+
+  // ── Déplacement : souris (listeners fenêtre, cf. lobby.js) + tactile ──
+  const DRAG_THRESHOLD = 5;
+  const pointers = new Map();     // pointerId → {x, y} (tactile uniquement)
+  let mouse = null;               // {sx, sy, vbX, vbY, moved}
+  let pinch = null;               // {dist}
+  let suppressClick = false;
+
+  const pinchDist = () => {
+    const pts = [...pointers.values()];
+    return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+  };
+
+  svg.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse") {
+      if (e.button !== 0) return;
+      mouse = { sx: e.clientX, sy: e.clientY, vbX: vb.x, vbY: vb.y, moved: false };
+      window.addEventListener("pointermove", mouseMove);
+      window.addEventListener("pointerup", mouseUp);
+      window.addEventListener("pointercancel", mouseUp);
+      return;
+    }
+    // Tactile / stylet
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) { pinch = { dist: pinchDist() }; mouse = null; }
+    else pinch = null;
+  });
+
+  function panTo(clientX, clientY, from) {
+    const rect = svg.getBoundingClientRect();
+    const scale = vb.w / rect.width; // px viewBox par px écran
+    vb.x = from.vbX - (clientX - from.sx) * scale;
+    vb.y = from.vbY - (clientY - from.sy) * scale;
+    clamp();
+    apply();
+  }
+
+  function mouseMove(e) {
+    if (!mouse) return;
+    if (!mouse.moved) {
+      if (Math.hypot(e.clientX - mouse.sx, e.clientY - mouse.sy) < DRAG_THRESHOLD) return;
+      mouse.moved = true;
+      suppressClick = true;
+      svg.classList.add("atlas-dragging");
+    }
+    panTo(e.clientX, e.clientY, mouse);
+  }
+  function mouseUp() {
+    window.removeEventListener("pointermove", mouseMove);
+    window.removeEventListener("pointerup", mouseUp);
+    window.removeEventListener("pointercancel", mouseUp);
+    svg.classList.remove("atlas-dragging");
+    mouse = null;
+  }
+
+  svg.addEventListener("pointermove", (e) => {
+    if (e.pointerType === "mouse" || !pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size >= 2 && pinch) {
+      // Pincement : zoom autour du milieu des deux doigts
+      const nd = pinchDist();
+      const pts = [...pointers.values()];
+      const mid = svgClientPoint(svg, (pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2);
+      zoomAt(mid.x, mid.y, pinch.dist / nd);
+      pinch = { dist: nd };
+    } else if (svg.classList.contains("atlas-zoomed") && pointers.size === 1) {
+      // 1 doigt quand la carte est zoomée → déplacement (touch-action:none)
+      const start = e._pzStart || { x: e.clientX, y: e.clientY, vbX: vb.x, vbY: vb.y };
+      e._pzStart = start;
+      panTo(e.clientX, e.clientY, start);
+    }
+  });
+
+  const pointerEnd = (e) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinch = null;
+    if (pointers.size === 1) {
+      const [p] = [...pointers.values()];
+      p._start = null;
+    }
+  };
+  svg.addEventListener("pointerup", pointerEnd);
+  svg.addEventListener("pointercancel", pointerEnd);
+
+  // Un vrai glisser avale le clic qui suit (sinon le clic ouvre le détail)
+  svg.addEventListener("click", (e) => {
+    if (suppressClick) {
+      suppressClick = false;
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
+}
+
+/**
+ * Pan & zoom de la grande carte dans la modale détail (image + marqueurs
+ * nations regroupés dans une couche transformée).
+ */
+function initDetailPanZoom(stage) {
+  if (!stage || stage.dataset.pz === "1") return;
+  stage.dataset.pz = "1";
+
+  // Couche zoom : l'image + l'overlay des nations bougent ensemble
+  const layer = document.createElement("div");
+  layer.className = "atlas-detail-zoom";
+  while (stage.firstChild) layer.appendChild(stage.firstChild);
+  stage.appendChild(layer);
+
+  let k = 1, tx = 0, ty = 0;
+  const apply = () => {
+    layer.style.transform = `translate(${tx.toFixed(1)}px, ${ty.toFixed(1)}px) scale(${k})`;
+    stage.classList.toggle("atlas-zoomed", k > 1.001);
+  };
+  const clampPan = () => {
+    const w = stage.clientWidth, h = stage.clientHeight;
+    tx = Math.min(0, Math.max(w - w * k, tx));
+    ty = Math.min(0, Math.max(h - h * k, ty));
+  };
+  const zoomAt = (cx, cy, factor) => {
+    const k2 = Math.min(PZ_MAX, Math.max(PZ_MIN, k * factor));
+    const real = k2 / k;
+    if (real === 1) return;
+    tx = cx - (cx - tx) * real;
+    ty = cy - (cy - ty) * real;
+    k = k2;
+    clampPan();
+    apply();
+  };
+  const zoomCenter = (factor) => zoomAt(stage.clientWidth / 2, stage.clientHeight / 2, factor);
+  const reset = () => { k = 1; tx = 0; ty = 0; apply(); };
+
+  // ⚠️ Ici le zoom est un FACTEUR D'ÉCHELLE (k : 1 → 6) : contrairement à la
+  // carte du monde (viewBox), « zoomer » = multiplier k par PZ_STEP > 1.
+  pzControls(stage, { in: () => zoomCenter(PZ_STEP), out: () => zoomCenter(1 / PZ_STEP), reset });
+
+  stage.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const r = stage.getBoundingClientRect();
+    zoomAt(e.clientX - r.left, e.clientY - r.top, 1 / wheelFactor(e));
+  }, { passive: false });
+
+  stage.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    const r = stage.getBoundingClientRect();
+    zoomAt(e.clientX - r.left, e.clientY - r.top, PZ_STEP);
+  });
+
+  // Déplacement — mêmes règles que la carte du monde
+  const DRAG_THRESHOLD = 5;
+  const pointers = new Map();
+  let mouse = null;
+  let pinch = null;
+
+  const pinchDist = () => {
+    const pts = [...pointers.values()];
+    return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+  };
+  const panTo = (clientX, clientY, from) => {
+    tx = from.vbX + (clientX - from.sx);
+    ty = from.vbY + (clientY - from.sy);
+    clampPan();
+    apply();
+  };
+
+  stage.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse") {
+      if (e.button !== 0) return;
+      mouse = { sx: e.clientX, sy: e.clientY, vbX: tx, vbY: ty, moved: false };
+      window.addEventListener("pointermove", mouseMove);
+      window.addEventListener("pointerup", mouseUp);
+      window.addEventListener("pointercancel", mouseUp);
+      return;
+    }
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) { pinch = { dist: pinchDist() }; mouse = null; }
+    else pinch = null;
+  });
+
+  function mouseMove(e) {
+    if (!mouse) return;
+    if (!mouse.moved) {
+      if (Math.hypot(e.clientX - mouse.sx, e.clientY - mouse.sy) < DRAG_THRESHOLD) return;
+      mouse.moved = true;
+      svgDraggingClass(stage, true);
+    }
+    panTo(e.clientX, e.clientY, mouse);
+  }
+  function mouseUp() {
+    window.removeEventListener("pointermove", mouseMove);
+    window.removeEventListener("pointerup", mouseUp);
+    window.removeEventListener("pointercancel", mouseUp);
+    svgDraggingClass(stage, false);
+    mouse = null;
+  }
+
+  stage.addEventListener("pointermove", (e) => {
+    if (e.pointerType === "mouse" || !pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size >= 2 && pinch) {
+      const nd = pinchDist();
+      const pts = [...pointers.values()];
+      const r = stage.getBoundingClientRect();
+      const cx = (pts[0].x + pts[1].x) / 2 - r.left;
+      const cy = (pts[0].y + pts[1].y) / 2 - r.top;
+      zoomAt(cx, cy, pinch.dist / nd);
+      pinch = { dist: nd };
+    } else if (stage.classList.contains("atlas-zoomed") && pointers.size === 1) {
+      const start = e._pzStart || { x: e.clientX, y: e.clientY, vbX: tx, vbY: ty };
+      e._pzStart = start;
+      panTo(e.clientX, e.clientY, start);
+    }
+  });
+
+  const pointerEnd = (e) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinch = null;
+  };
+  stage.addEventListener("pointerup", pointerEnd);
+  stage.addEventListener("pointercancel", pointerEnd);
+
+  // Reset automatique à la fermeture de la modale (nettoyage par recréation)
+  apply();
+}
+
+function svgDraggingClass(el, on) { el.classList.toggle("atlas-dragging", on); }
 
 loadAtlas();

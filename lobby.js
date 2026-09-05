@@ -860,12 +860,23 @@ function render(isFull) {
   const emptyEl = document.getElementById("lobby-empty");
 
   if (total === 0) {
+    // FIX (bug favoris) : le message « favoris vide » est PRIORITAIRE sur le
+    // message « flux indisponible » — quand l'utilisateur a volontairement
+    // filtré, le filtre ne doit jamais laisser croire que le site est en panne.
     if (state.source === "idle") {
       emptyEl.hidden = false;
       emptyEl.innerHTML = `
         <div class="lobby-loading">
           <div class="spinner"></div>
           <p>Connexion aux serveurs OpenFront…</p>
+        </div>`;
+    } else if (filtering) {
+      emptyEl.hidden = false;
+      emptyEl.innerHTML = `
+        <div class="lobby-empty-inner">
+          <div class="lobby-empty-icon"><i data-icon="star" data-icon-size="32"></i></div>
+          <h3>Aucune partie sur tes cartes favorites</h3>
+          <p>Clique l'étoile d'une carte pour l'ajouter à tes favoris —<br>tu seras prévenu dès qu'une partie s'ouvre dessus.</p>
         </div>`;
     } else if (state.source === "fallback" || state.source === "offline") {
       // Mode dégradé : le flux temps réel est injoignable depuis ce réseau
@@ -885,14 +896,6 @@ function render(isFull) {
         render(true);
         startWebSocket();
       });
-    } else if (filtering) {
-      emptyEl.hidden = false;
-      emptyEl.innerHTML = `
-        <div class="lobby-empty-inner">
-          <div class="lobby-empty-icon"><i data-icon="star" data-icon-size="32"></i></div>
-          <h3>Aucune partie sur tes cartes favorites</h3>
-          <p>Clique l'étoile d'une carte pour l'ajouter à tes favoris —<br>tu seras prévenu dès qu'une partie s'ouvre dessus.</p>
-        </div>`;
     } else {
       emptyEl.hidden = false;
       emptyEl.innerHTML = `
@@ -902,13 +905,25 @@ function render(isFull) {
           <p>Les nouvelles parties OpenFront apparaîtront ici automatiquement.</p>
         </div>`;
     }
-    document.getElementById("lobby-root").style.display = "none";
+    // FIX (bug favoris) : on ne masque PLUS #lobby-root en entier — il contient
+    // la barre de filtres (Toutes/FFA/Team/Spécial/Favoris). Quand le filtre
+    // « Favoris » n'avait aucun résultat, toute la barre disparaissait avec la
+    // vue : impossible de recliquer « Toutes » → coincé sur les favoris.
+    // On masque uniquement les sections + le bandeau hero, le filtre reste
+    // cliquable pour revenir en arrière.
+    const sectionsEl = document.getElementById("lobby-sections");
+    if (sectionsEl) sectionsEl.style.display = "none";
+    const heroEl = document.getElementById("lobby-hero");
+    if (heroEl) heroEl.hidden = true;
     renderStatus();
     return;
   }
 
   emptyEl.hidden = true;
   document.getElementById("lobby-root").style.display = "";
+  // Ré-affiche les sections (cachées par l'état vide ci-dessus)
+  const sectionsEl = document.getElementById("lobby-sections");
+  if (sectionsEl) sectionsEl.style.display = "";
 
   // Hero : la prochaine partie à démarrer (toutes catégories)
   if (isFull) renderHero();
@@ -994,9 +1009,11 @@ function renderHero() {
   const cfg = next.gameConfig || {};
   const mapName = cfg.gameMap || "?";
 
+  // FIX : ré-affiche toujours le bandeau hors mode favoris (il restait masqué
+  // après un aller-retour Favoris → Toutes, caché par le rendu favoris).
+  hero.hidden = false;
   if (hero.dataset.gameId !== (next.gameID || next.id)) {
     hero.dataset.gameId = next.gameID || next.id || "";
-    hero.hidden = false;
     const url = `https://openfront.io/game/${encodeURIComponent(next.gameID || next.id || "")}`;
     const bannerMode = [modeLabel(next), ...modifierPills(next).map((p) => pillLabel(p))].join(" · ");
     hero.innerHTML = `
@@ -1154,6 +1171,9 @@ async function onFavClick(btn) {
                 : `${mapDisplayName(mapName)} retirée de tes cartes favorites`,
     "success", 3500, r.favorited ? "star" : "starOutline",
   );
+  // En mode « Favoris », un retrait d'étoile doit retirer la carte de la vue
+  // tout de suite (sinon elle reste affichée jusqu'au prochain snapshot WS).
+  if (state.filter === "fav") scheduleRender(true);
 }
 
 /* ════════════════════════════════════════════════════════════════════════

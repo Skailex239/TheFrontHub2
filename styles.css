@@ -2062,14 +2062,18 @@ button:active:not(:disabled),
   }
 }
 
-/* ── TRÈS PETIT MOBILE (≤ 389px — iPhone SE/mini, petits Android) ────────
+/* ── TRÈS PETIT MOBILE (≤ 449px — iPhone SE/mini/Pro Max, petits Android) ──
    FIX (audit 2026-09) : l'ancien bloc ≤359px compressait à font-size:8px mais
    les labels de la bottom-nav sont des NŒUDS TEXTE BRUTS (pas des <span>) →
    l'ellipsis ne s'appliquait jamais et « Speedruns » restait rogné (mesuré
    clip à 375px, OK dès 390px). On passe en ICÔNES SEULES sous 390px :
    font-size:0 masque le texte brut (visuel uniquement — les lecteurs d'écran
-   lisent toujours le libellé du lien). */
-@media (max-width: 389px) {
+   lisent toujours le libellé du lien).
+   FIX (support 2026-09) : la nav passe à 8 liens (+ Support) → à 390-449px une
+   cellule ne fait plus que (390−48)/8 ≈ 42px, « Speedruns » (~47px @9.5px)
+   re-clippait → le seuil ICÔNES SEULES est étendu à ≤449px ; les labels
+   reviennent dès 450px ((450−48)/8 ≈ 50px > 47px). */
+@media (max-width: 449px) {
   .sidebar nav .nav-item {
     font-size: 0;           /* masque les labels texte bruts */
     padding: 10px 4px;
@@ -2096,8 +2100,10 @@ button:active:not(:disabled),
    (« Speedruns » clippait dès qu'une scrollbar réduit le viewport de 15px.)
    ⚠️ Scopé ≥390px : sous 390px c'est le bloc ICÔNES SEULES (font-size:0)
    qui doit gagner — à spécificité égale, le bloc le plus BAS du fichier
-   l'aurait écrasé (c'était le cas avant ce scope). */
-@media (min-width: 390px) and (max-width: 480px) {
+   l'aurait écrasé (c'était le cas avant ce scope).
+   FIX (support 2026-09) : scopé ≥450px — avec 8 liens, les labels tiennent
+   uniquement à partir de 450px (cf. bloc ICÔNES SEULES ≤449px ci-dessus). */
+@media (min-width: 450px) and (max-width: 480px) {
   .sidebar nav .nav-item {
     font-size: 9.5px;
     letter-spacing: -.1px;
@@ -2882,4 +2888,86 @@ button:active:not(:disabled),
   .skin-prisme {
     animation: none;
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BANDEROLE « Mises à jour prochainement » (toutes pages, fermable)
+   Injectée par update-banner.js en 1er enfant du body — au-dessus de tout.
+   Fermeture mémorisée (localStorage) ; croix accessible (aria-label, 40px).
+   ═══════════════════════════════════════════════════════════════════════════ */
+.tfh-update-banner {
+  position: relative;
+  z-index: 500;               /* au-dessus du contenu, sous les modales (auth modal ≈ 1000+) */
+  background: linear-gradient(90deg, var(--accent-subtle), #fff 55%, var(--accent-subtle));
+  border-bottom: 1px solid var(--accent-border);
+  color: var(--fg);
+}
+:root[data-theme="dark"] .tfh-update-banner {
+  background: linear-gradient(90deg, rgba(255, 107, 0, 0.16), rgba(255, 255, 255, 0.02) 55%, rgba(255, 107, 0, 0.16));
+  border-bottom-color: rgba(255, 107, 0, 0.35);
+}
+.tfh-ub-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 8px 44px;          /* 44px droite : l'espace de la croix est réservé */
+  min-height: 40px;
+}
+.tfh-ub-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+}
+.tfh-ub-text {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--fg-secondary);
+  text-align: center;
+}
+.tfh-ub-text strong { color: var(--accent-hover); font-weight: 700; }
+:root[data-theme="dark"] .tfh-ub-text strong { color: var(--accent); }
+.tfh-ub-close {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease, transform .15s ease;
+}
+.tfh-ub-close:hover { background: rgba(255, 107, 0, 0.14); color: var(--accent-hover); transform: translateY(-50%) scale(1.06); }
+.tfh-ub-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tfh-ub-close:active { transform: translateY(-50%) scale(.94); }
+
+/* Zone tactile ≥ 40px sur mobile (le bouton visuel reste 32px) */
+@media (max-width: 768px) {
+  .tfh-ub-inner {
+    padding: 8px 40px;
+    gap: 8px;
+    min-height: 44px;
+  }
+  .tfh-ub-text { font-size: 12px; }
+  .tfh-ub-close { width: 36px; height: 36px; right: 4px; }
+}
+.tfh-update-banner.tfh-ub-leaving {
+  opacity: 0;
+  transition: opacity .2s ease;
 }

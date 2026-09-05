@@ -62,9 +62,9 @@
 <link rel="dns-prefetch" href="https://www.gstatic.com" crossorigin>
 
 <!-- Performance: Preload critical assets -->
-<link rel="preload" href="styles.css?v=73" as="style">
+<link rel="preload" href="styles.css?v=74" as="style">
 <link rel="preload" href="dist/app.min.js?v=19" as="script" crossorigin>
-<link rel="preload" href="dist/icons.min.js?v=4" as="script" crossorigin>
+<link rel="preload" href="dist/icons.min.js?v=5" as="script" crossorigin>
 <link rel="preload" href="runs_public.json.gz" as="fetch" crossorigin>
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
@@ -73,13 +73,13 @@
 <link rel="icon" type="image/png" href="favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="128x128" href="favicon-180x180.png">
 <link rel="apple-touch-icon" sizes="180x180" href="favicon-180x180.png">
-<link rel="stylesheet" href="styles.css?v=73">
+<link rel="stylesheet" href="styles.css?v=74">
 <link rel="stylesheet" href="auth.css?v=20">
 <link rel="stylesheet" href="animations.css?v=6" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="animations.css?v=6"></noscript>
 <link rel="stylesheet" href="toast.css">
 <style>.skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}</style>
-  <script type="module" src="dist/icons.min.js?v=4"></script>
+  <script type="module" src="dist/icons.min.js?v=5"></script>
 <link rel="stylesheet" href="ads.css?v=2">
 </head>
 <body>
@@ -117,6 +117,9 @@
       </a>
       <a class="nav-item tab-btn" id="tab-btn-profile" href="profile.html">
         <i data-icon="user"></i> Mon Profil
+      </a>
+          <a class="nav-item tab-btn" id="tab-btn-support" href="support.html">
+        <i data-icon="lifebuoy"></i> Support
       </a>
     </nav>
 
@@ -587,7 +590,7 @@
   // Register Service Worker for offline support + Stale-While-Revalidate caching
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=22').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=23').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>
@@ -614,6 +617,7 @@
         <li><a href="lobby.html">Lobby</a></li>
         <li><a href="atlas.html">Atlas</a></li>
         <li><a href="tournois.html">Tournois</a></li>
+        <li><a href="support.html">Support</a></li>
       </ul>
     </div>
 
@@ -621,6 +625,7 @@
       <h4 class="tfh-footer-title">Joueur</h4>
       <ul class="tfh-footer-links">
         <li><a href="profile.html">Mon profil</a></li>
+        <li><a href="support.html">Contacter l'équipe</a></li>
         <li><a href="https://openfront.io" target="_blank" rel="noreferrer">Jouer à OpenFront ↗</a></li>
       </ul>
     </div>
@@ -646,5 +651,6 @@
 
 
 <script src="ads.js?v=3"></script>
+<script src="dist/update-banner.min.js?v=1" defer></script>
 </body>
 </html>

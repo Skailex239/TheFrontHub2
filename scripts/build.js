@@ -51,6 +51,10 @@ const targets = [
   { entry: "lobby-wire.js",  out: "lobby-wire.min.js",   bundled: false, format: "iife" },
   { entry: "auth-ui.js",     out: "auth-ui.min.js",      bundled: true },
   { entry: "atlas.js",       out: "atlas.min.js",        bundled: true },
+  // Page Support (tickets + messagerie) — module ESM chargé en type="module"
+  { entry: "support.js",     out: "support.min.js",      bundled: true },
+  // Banderole « mises à jour » — script autonome (IIFE), chargé en defer
+  { entry: "update-banner.js", out: "update-banner.min.js", bundled: false },
   { entry: "tournois.js",    out: "tournois.min.js",     bundled: true },
   { entry: "runs.js",        out: "runs.min.js",         bundled: false },
   // Standalone scripts (just minified)
