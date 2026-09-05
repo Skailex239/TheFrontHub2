@@ -17,7 +17,7 @@ RewriteRule ^_wip-auth-mysql(/|$) - [F,L]
 # Dossiers de développement (jamais servis : le site ne charge que dist/ + shared/)
 RewriteRule ^(scripts|src|tests|prisma|db|screenshots|public|cloudflare-worker|mini-services|examples|download|agent-ctx)(/|$) - [F,L]
 # Fichiers internes de sync Node.js (contiennent des patterns d'appel API privilégiés)
-RewriteRule ^(server|openfront-api|generate-code|detect-new-players|compute-player-stats|validate-sync|investigate-sync|backfill-teams|find-bug-games|check-game-detail|quantify-bug|test-extract-team|build)\.js$ - [F,L]
+RewriteRule ^(server|openfront-api|generate-code|detect-new-players|compute-player-stats|validate-sync|investigate-sync|backfill-teams|find-bug-games|check-game-detail|quantify-bug|test-extract-team|test-api|perf-test|build)\.js$ - [F,L]
 RewriteRule ^sync[a-z-]*\.js$ - [F,L]
 
 # ── 2. Page par défaut ──
@@ -138,7 +138,7 @@ FileETag None
 # ── 8. Sécurité : bloquer accès aux fichiers sensibles ──
 # Dotfiles (.env, .git, .htaccess…), docs internes, scripts, config,
 # fichiers Node de dev (sync*, server.js, generate-code.js…), Caddyfile
-<FilesMatch "(^\.|\.(env|md|yml|yaml|lock|sh|ps1|py|ini|log|pem|key|sql|db)$|^Caddyfile$|^package(-build)?\.json$|^(server|openfront-api|generate-code|detect-new-players|compute-player-stats|validate-sync|investigate-sync|backfill-teams|find-bug-games|check-game-detail|quantify-bug|test-extract-team)\.js$|^sync[a-z-]*\.js$|\.map$)">
+<FilesMatch "(^\.|\.(env|md|yml|yaml|lock|sh|ps1|py|ini|log|pem|key|sql|db)$|^Caddyfile$|^package(-build)?\.json$|^(server|openfront-api|generate-code|detect-new-players|compute-player-stats|validate-sync|investigate-sync|backfill-teams|find-bug-games|check-game-detail|quantify-bug|test-extract-team|test-api|perf-test)\.js$|^sync[a-z-]*\.js$|\.map$)">
   Require all denied
 </FilesMatch>
 
