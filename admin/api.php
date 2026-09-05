@@ -70,9 +70,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     $getAction = (string) ($_GET['action'] ?? '');
     $getAllowed = ['state', 'chat.list',
         /* Support : tickets + chat joueur (barre latérale de l'admin) */
-        'support.tickets', 'support.thread', 'supchat.convs', 'supchat.poll',
-        /* Mails de la boîte support@thefronthub.com (IMAP) */
-        'mails.list', 'mails.view'];
+        'support.tickets', 'support.thread', 'supchat.convs', 'supchat.poll'];
     if (!in_array($getAction, $getAllowed, true)) {
         fail(404, 'unknown_action', 'Action inconnue.');
     }
@@ -368,198 +366,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
             )->execute([$convId]);
         }
         json_out(['ok' => true, 'messages' => $messages, 'last_id' => $lastId]);
-    }
-
-    /* ═══════════════════════════════════════════════════════════════════
-       MAILS — boîte support@thefronthub.com via IMAP (section barre latérale)
-       Configuration : api/mail-config.php (voir api/mail-config.example.php,
-       jamais commité). Sans config, on renvoie un état « indisponible »
-       avec un mode d'emploi — jamais d'erreur bloquante.
-       ═══════════════════════════════════════════════════════════════════ */
-
-    /** Extrait (texte prioritaire, sinon HTML dégrossi) d'un mail IMAP. */
-    function sup_mail_extract_body($mbox, int $msgno): string
-    {
-        $structure = @imap_fetchstructure($mbox, $msgno);
-        if ($structure === false) {
-            return '';
-        }
-        $pick = static function ($parts, string $want, string $prefix = '') use (&$pick, $mbox, $msgno): string {
-            foreach ($parts as $idx => $part) {
-                $section = $prefix === '' ? (string) ($idx + 1) : ($prefix . '.' . ($idx + 1));
-                $type = (int) $part->type;
-                $subtype = strtoupper((string) ($part->subtype ?? ''));
-                if ($type === 0 && $subtype === $want) {
-                    $raw = @imap_fetchbody($mbox, $msgno, $section);
-                    if ($raw === false || $raw === '') {
-                        continue;
-                    }
-                    $encoding = (int) ($part->encoding ?? 0);
-                    if ($encoding === 3) {
-                        $raw = base64_decode($raw) ?: $raw;
-                    } elseif ($encoding === 4) {
-                        $raw = quoted_printable_decode($raw);
-                    }
-                    $charset = '';
-                    if (!empty($part->parameters)) {
-                        foreach ($part->parameters as $p) {
-                            if (strcasecmp((string) $p->attribute, 'charset') === 0) {
-                                $charset = (string) $p->value;
-                            }
-                        }
-                    }
-                    if ($charset !== '' && strcasecmp($charset, 'utf-8') !== 0 && function_exists('mb_convert_encoding')) {
-                        $raw = mb_convert_encoding($raw, 'UTF-8', $charset);
-                    }
-                    return $raw;
-                }
-                if (!empty($part->parts) && is_array($part->parts)) {
-                    $found = $pick($part->parts, $want, $section);
-                    if ($found !== '') {
-                        return $found;
-                    }
-                }
-            }
-            return '';
-        };
-        if (!empty($structure->parts) && is_array($structure->parts)) {
-            $text = $pick($structure->parts, 'PLAIN');
-            if ($text !== '') {
-                return $text;
-            }
-            $html = $pick($structure->parts, 'HTML');
-            if ($html !== '') {
-                /* Dégrossit le HTML pour lecture simple. */
-                $html = preg_replace('/<style[\s\S]*?<\/style>/i', '', $html) ?? $html;
-                $html = preg_replace('/<script[\s\S]*?<\/script>/i', '', $html) ?? $html;
-                $html = preg_replace('/<br\s*\/?>/i', "\n", $html) ?? $html;
-                $html = preg_replace('/<\/(p|div|tr|h[1-6])>/i', "\n", $html) ?? $html;
-                $html = strip_tags($html);
-                $html = html_entity_decode($html, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-                return trim($html);
-            }
-        }
-        /* Message mono-partie : le body est le contenu direct. */
-        $raw = @imap_body($mbox, $msgno);
-        if ($raw === false) {
-            return '';
-        }
-        $encoding = (int) ($structure->encoding ?? 0);
-        if ($encoding === 3) {
-            $raw = base64_decode($raw) ?: $raw;
-        } elseif ($encoding === 4) {
-            $raw = quoted_printable_decode($raw);
-        }
-        $type = (int) $structure->type;
-        if ($type === 2) {
-            $raw = strip_tags($raw);
-        }
-        return $raw;
-    }
-
-    /* ── Liste des mails de la boîte support ── */
-    if ($getAction === 'mails.list') {
-        $cfg = sup_mail_config();
-        if ($cfg === null) {
-            json_out([
-                'ok'        => true,
-                'available' => false,
-                'reason'    => 'not_configured',
-                'hint'      => 'Crée le fichier api/mail-config.php à partir de api/mail-config.example.php (mot de passe de la boîte support@thefronthub.com), puis recharge cette page.',
-            ]);
-        }
-        if (!function_exists('imap_open')) {
-            json_out([
-                'ok'        => true,
-                'available' => false,
-                'reason'    => 'imap_unavailable',
-                'hint'      => "L'extension PHP IMAP n'est pas active sur l'hébergement. Utilise le webmail o2switch (mail.thefronthub.com) ou active l'extension IMAP dans cPanel → Sélectionner une version de PHP.",
-            ]);
-        }
-        $dsn = (string) ($cfg['dsn'] ?? '{localhost:143/notls}INBOX');
-        $mbox = @imap_open($dsn, (string) $cfg['user'], (string) $cfg['pass']);
-        if ($mbox === false) {
-            json_out([
-                'ok'        => true,
-                'available' => false,
-                'reason'    => 'login_failed',
-                'hint'      => 'Connexion IMAP refusée : vérifie le mot de passe dans api/mail-config.php. Détail : ' . (string) imap_last_error(),
-            ]);
-        }
-        $limit = min(max(1, (int) ($cfg['limit'] ?? 30)), 100);
-        $total = (int) imap_num_msg($mbox);
-        $mails = [];
-        $start = max(1, $total - $limit + 1);
-        for ($i = $total; $i >= $start; $i--) {
-            $ov = @imap_fetch_overview($mbox, (string) $i, FT_UID);
-            if (!is_array($ov) || !isset($ov[0])) {
-                continue;
-            }
-            $o = $ov[0];
-            $mails[] = [
-                'uid'      => (int) $o->uid,
-                'from'     => (string) ($o->from ?? ''),
-                'subject'  => (string) (@imap_utf8((string) ($o->subject ?? ''))),
-                'date'     => (string) ($o->date ?? ''),
-                'ts'       => isset($o->udate) ? (int) $o->udate : 0,
-                'seen'     => !empty($o->seen),
-                'answered' => !empty($o->answered),
-                'size'     => (int) ($o->size ?? 0),
-            ];
-        }
-        imap_close($mbox);
-        json_out([
-            'ok'        => true,
-            'available' => true,
-            'mailbox'   => (string) $cfg['user'],
-            'total'     => $total,
-            'mails'     => $mails,
-        ]);
-    }
-
-    /* ── Contenu d'un mail ── */
-    if ($getAction === 'mails.view') {
-        $cfg = sup_mail_config();
-        if ($cfg === null || !function_exists('imap_open')) {
-            fail(409, 'mail_unavailable', 'Lecteur de mails indisponible.');
-        }
-        $uid = (int) ($_GET['uid'] ?? 0);
-        if ($uid <= 0) {
-            fail(422, 'bad_uid', 'Mail invalide.');
-        }
-        $dsn = (string) ($cfg['dsn'] ?? '{localhost:143/notls}INBOX');
-        $mbox = @imap_open($dsn, (string) $cfg['user'], (string) $cfg['pass']);
-        if ($mbox === false) {
-            fail(409, 'imap_failed', 'Connexion IMAP impossible : ' . (string) imap_last_error());
-        }
-        $num = (int) @imap_msgno($mbox, $uid);
-        if ($num <= 0) {
-            imap_close($mbox);
-            fail(404, 'mail_not_found', 'Mail introuvable.');
-        }
-        $ov = @imap_fetch_overview($mbox, (string) $uid, FT_UID);
-        $o = is_array($ov) && isset($ov[0]) ? $ov[0] : null;
-        $headers = @imap_headerinfo($mbox, $num);
-        $messageId = '';
-        if ($headers !== false && !empty($headers->message_id)) {
-            $messageId = (string) $headers->message_id;
-        }
-        $body = sup_mail_extract_body($mbox, $num);
-        if (function_exists('imap_setflag_full')) {
-            @imap_setflag_full($mbox, (string) $uid, '\\Seen', ST_UID);
-        }
-        imap_close($mbox);
-        json_out([
-            'ok' => true,
-            'mail' => [
-                'uid'         => $uid,
-                'from'        => $o !== null ? (string) ($o->from ?? '') : '',
-                'subject'     => $o !== null ? (string) (@imap_utf8((string) ($o->subject ?? ''))) : '',
-                'date'        => $o !== null ? (string) ($o->date ?? '') : '',
-                'message_id'  => $messageId,
-                'body'        => $body,
-            ],
-        ]);
     }
 
     /* Archive automatique : les tâches terminées depuis plus de 14 jours
@@ -1019,25 +825,6 @@ function sup_admin_mail(string $to, string $subject, string $body, string $from,
         error_log('[tfh-task] mail() indisponible : ' . $e->getMessage());
         return false;
     }
-}
-
-/** Charge api/mail-config.php (boîte support@) ; null si absent/incomplet.
- *  Déclarée au niveau fichier : utilisée en GET (mails.list/view) ET en POST (mails.reply). */
-function sup_mail_config(): ?array
-{
-    $path = __DIR__ . '/../api/mail-config.php';
-    if (!is_readable($path)) {
-        return null;
-    }
-    try {
-        $cfg = require $path;
-    } catch (Throwable $e) {
-        return null;
-    }
-    if (!is_array($cfg) || empty($cfg['enabled']) || empty($cfg['user']) || empty($cfg['pass'])) {
-        return null;
-    }
-    return $cfg;
 }
 
 switch ($action) {
@@ -1807,7 +1594,7 @@ switch ($action) {
     }
 
     /* ═══════════════════════════════════════════════════════════════════
-       SUPPORT — réponses de l'équipe (tickets + chat) et mails
+       SUPPORT — réponses de l'équipe (tickets + chat)
        ═══════════════════════════════════════════════════════════════════ */
 
     case 'support.reply': {
@@ -1897,27 +1684,6 @@ switch ($action) {
             throw $e;
         }
         json_out(['ok' => true, 'id' => (int) $pdo->lastInsertId()]);
-    }
-
-    case 'mails.reply': {
-        $to         = task_req_str($in, 'to', 254, true);
-        $subject    = task_req_str($in, 'subject', 200, true);
-        $body       = task_req_str($in, 'body', 20000, true);
-        $inReplyTo  = (string) ($in['in_reply_to'] ?? '');
-        if (!filter_var($to, FILTER_VALIDATE_EMAIL)) {
-            fail(422, 'bad_email', 'Adresse email invalide.');
-        }
-        $cfg = sup_mail_config();
-        $from = 'TheFrontHub Support <support@thefronthub.com>';
-        if (is_array($cfg) && !empty($cfg['from'])) {
-            $from = (string) $cfg['from'];
-        }
-        $sent = sup_admin_mail($to, $subject, $body, $from, $inReplyTo);
-        if (!$sent) {
-            fail(500, 'mail_failed', "L'envoi a échoué — vérifie la configuration mail de l'hébergement.");
-        }
-        task_log_activity($pdo, null, '', $meId, $meName, 'mail_reply', 'Mail envoyé à ' . $to);
-        json_out(['ok' => true]);
     }
 
     default:

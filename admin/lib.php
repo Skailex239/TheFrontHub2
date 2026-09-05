@@ -23,7 +23,7 @@ require_once __DIR__ . '/../api/config.php';
 /* ------------------------------------------------------------------ */
 
 define('TASK_CSRF_COOKIE', 'tfh_task_csrf');
-define('TASK_ASSET_VER', '10');
+define('TASK_ASSET_VER', '11');
 
 /* Discussion de tâche : durée de conservation des fichiers joints (jours). */
 define('TASK_CHAT_FILE_TTL_DAYS', 30);

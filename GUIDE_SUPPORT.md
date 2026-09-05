@@ -1,7 +1,7 @@
 # GUIDE — Support TheFrontHub : email support@, chat en direct, admin
 
-Tout ce qu'il faut savoir pour exploiter la nouvelle catégorie **Support**
-(page publique) et l'espace **admin** (Tickets, Chat support, Mails).
+Tout ce qu'il faut savoir pour exploiter la catégorie **Support**
+(page publique) et l'espace **admin** (Tickets, Chat support).
 
 ---
 
@@ -11,7 +11,7 @@ Tout ce qu'il faut savoir pour exploiter la nouvelle catégorie **Support**
 2. **Créer** :
    - Domaine : `thefronthub.com`
    - Identifiant : `support`
-   - Mot de passe : un mot de passe solide (garde-le précieusement, il servira à l'étape 3)
+   - Mot de passe : un mot de passe solide (garde-le précieusement, il sert à te connecter au webmail — cf. étape 2)
    - Quota : 1 Go suffisent au départ
 3. (Recommandé) **Redirection** : Email → Redirecteurs → ajoute
    `support@thefronthub.com` → ton adresse personnelle, pour recevoir une copie
@@ -25,32 +25,18 @@ Envoi de test : depuis Webmail (https://mail.thefronthub.com ou cPanel → Email
 
 ---
 
-## 2. Activer la section « Mails » dans l'admin (lecteur IMAP)
+## 2. Consulter la boîte `support@thefronthub.com` (webmail o2switch)
 
-Le lecteur de mails de l'admin lit la boîte `support@` en **IMAP** côté serveur.
+L'onglet « Mails » de l'admin a été **retiré** : la boîte se consulte
+directement dans le **webmail o2switch** → https://mail.thefronthub.com
+(identifiants = adresse `support@thefronthub.com` + son mot de passe, cf. étape 1).
 
-1. Sur le serveur (gestionnaire de fichiers o2switch ou SSH), copie le gabarit :
-
-   ```
-   cp api/mail-config.example.php api/mail-config.php
-   ```
-
-2. Édite `api/mail-config.php` :
-   - `'pass' => 'TON_MOT_DE_PASSE'` (celui de l'étape 1)
-   - Laisse `'dsn' => '{localhost:143/notls}INBOX'` : le PHP et le serveur mail
-     sont sur la même machine chez o2switch (pas de TLS nécessaire en local).
-     Si ça ne se connecte pas, essaie `'{localhost:993/ssl/novalidate-cert}INBOX'`.
-3. C'est tout — le fichier est **ignoré par Git** (jamais commité) et protégé
-   par le même garde-fou que le reste de l'API (`TFH_API`).
-4. Dans l'admin → catégorie **Mails** → Actualiser. Tu vois la boîte.
-   - « extension IMAP indisponible » → cPanel → **Select PHP Version → Extensions** →
-     coche `imap` puis recharge.
-
-**Répondre à un mail depuis l'admin** : bouton « Répondre » → le formulaire est
-prérempli (destinataire + « Re: sujet ») → Envoyer. Le mail part en
-`From: TheFrontHub Support <support@thefronthub.com>` avec les en-têtes
-`In-Reply-To/References` → il se thread proprement dans n'importe quel client mail.
-Tu peux aussi répondre depuis le **webmail o2switch** (identique pour le joueur).
+- Tu y reçois les **notifications** : nouveaux tickets, premiers messages de
+  chat, réponses de joueurs — tout part vers `support@`.
+- Pour **répondre à un joueur par mail**, réponds depuis le webmail : le message
+  part en `From: TheFrontHub Support <support@thefronthub.com>`.
+- (Optionnel) Redirection `support@` → ton adresse perso : cPanel → Email →
+  **Redirecteurs**, pour recevoir une copie de chaque mail sans ouvrir le webmail.
 
 ---
 
@@ -88,7 +74,7 @@ Un joueur doit être **connecté avec Discord** pour le chat et les tickets
 
 ## 5. L'espace admin (admin.thefronthub.com)
 
-Nouvelle **barre latérale** à 5 catégories :
+La **barre latérale** à 4 catégories :
 
 | Catégorie | Rôle |
 |---|---|
@@ -96,7 +82,8 @@ Nouvelle **barre latérale** à 5 catégories :
 | **Chat équipe** | discussion interne (inchangée) |
 | **Tickets support** | tous les tickets des joueurs : fil, **Répondre** (le joueur reçoit un mail), **Fermer** ; filtre Ouverts/Tous/Fermés + badge d'attente |
 | **Chat support** | les conversations en direct avec les joueurs (badge non-lus) |
-| **Mails** | la boîte `support@thefronthub.com` (lecture + réponse) — nécessite l'étape 2 |
+
+> La boîte mail `support@` se consulte hors admin, via le webmail (étape 2).
 
 Mobile (<900px) : la sidebar devient un menu hamburger.
 
@@ -111,7 +98,7 @@ Ticket   ──────────────────→ tfh_support_*
                                                           ←──── mail au joueur + fil sur le site
 Chat     ──────────────────→ tfh_support_chat + badge admin ──→ onglet Chat support → Réponse en direct
                                                           ←──── bulle du joueur se met à jour (2,5 s)
-Email    ── support@ ──────→ boîte IMAP ─────────────────────→ onglet Mails → Répondre (threadé)
+Email    ── support@ ──────→ boîte support@ ────────────────→ webmail o2switch (mail.thefronthub.com)
 ```
 
 ---

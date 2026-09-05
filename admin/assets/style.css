@@ -1805,7 +1805,7 @@ code { font-family: var(--mono); font-size: 12.5px; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    ═══ SIDEBAR + SUPPORT (2026-02) ═══
-   Sidebar catégories (support.js) + vues Tickets support / Chat support / Mails.
+   Sidebar catégories (support.js) + vues Tickets support / Chat support.
    Uniquement des tokens → thèmes clair et sombre couverts.
    ═══════════════════════════════════════════════════════════════════════════ */
 
@@ -1933,7 +1933,7 @@ code { font-family: var(--mono); font-size: 12.5px; }
   min-height: calc(100dvh - var(--topbar-h));
 }
 
-/* ── Panes pleine hauteur (Tickets / Chat support / Mails) ────────────────── */
+/* ── Panes pleine hauteur (Tickets / Chat support) ────────────────── */
 
 .pane {
   display: flex;
@@ -2185,66 +2185,6 @@ code { font-family: var(--mono); font-size: 12.5px; }
   font-weight: 800;
 }
 
-/* ── Liste des mails ──────────────────────────────────────────────────────── */
-
-.ml {
-  display: flex;
-  gap: 9px;
-  width: 100%;
-  padding: 10px;
-  text-align: left;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  cursor: pointer;
-  transition: background .15s ease, border-color .15s ease;
-}
-.ml:hover { background: var(--bg-muted); border-color: var(--border-strong); }
-.ml.is-active { background: var(--accent-subtle); border-color: var(--accent); }
-
-.ml-dot {
-  width: 8px;
-  height: 8px;
-  margin-top: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex: 0 0 auto;
-}
-.ml-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.ml-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.ml-from {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ml.is-unread .ml-from { font-weight: 800; }
-.ml-date { font-size: 11px; color: var(--fg-subtle); white-space: nowrap; }
-.ml-mid { display: flex; align-items: center; gap: 8px; }
-.ml-subject {
-  flex: 1;
-  min-width: 0;
-  font-size: 12.5px;
-  color: var(--fg-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ml.is-unread .ml-subject { color: var(--fg); font-weight: 600; }
-.ml-ans {
-  font-size: 10.5px;
-  font-weight: 800;
-  color: var(--green);
-  background: var(--green-subtle);
-  border: 1px solid rgb(16 185 129 / .35);
-  padding: 1px 7px;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-
 /* ── Fil (tickets + chat support) ─────────────────────────────────────────── */
 
 .split-main {
@@ -2380,115 +2320,6 @@ code { font-family: var(--mono); font-size: 12.5px; }
   box-shadow: 0 0 0 3px var(--accent-subtle);
 }
 .thread-composer textarea:disabled { opacity: .55; }
-
-/* ── Vue mail ─────────────────────────────────────────────────────────────── */
-
-.mail-view {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 16px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.mail-view[hidden] { display: none; }
-
-.mail-head-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.mail-subject { margin: 0; font-size: 15px; font-weight: 800; letter-spacing: -.01em; }
-.mail-actions { display: flex; gap: 8px; flex: 0 0 auto; }
-.mail-meta { margin: 2px 0 0; font-size: 12.5px; color: var(--fg-muted); overflow-wrap: anywhere; }
-
-.mail-body {
-  margin: 0;
-  padding: 14px;
-  background: var(--bg-subtle);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  font-family: inherit;
-  font-size: 13.5px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.mail-reply {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-.mail-reply[hidden] { display: none; }
-.mail-reply .field { margin: 0; }
-.mail-reply input[type="email"], .mail-reply input[type="text"] {
-  background: var(--bg-subtle);
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  padding: 9px 12px;
-  font-size: 14px;
-  color: var(--fg);
-  width: 100%;
-}
-.mail-reply input:focus, .mail-reply textarea:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-subtle);
-}
-.mail-reply textarea {
-  background: var(--bg-subtle);
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  padding: 9px 12px;
-  font-size: 14px;
-  color: var(--fg);
-  width: 100%;
-  resize: vertical;
-  min-height: 88px;
-}
-.mail-reply-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
-
-/* ── États indisponibles (mails) ──────────────────────────────────────────── */
-
-.mails-state { flex: 1; min-height: 0; display: flex; }
-.mails-state[hidden] { display: none; }
-.mails-state-card {
-  margin: auto;
-  width: 100%;
-  max-width: 640px;
-  padding: 22px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: var(--shadow);
-}
-.mails-state-card h2 { margin: 0 0 8px; font-size: 16px; font-weight: 800; }
-.mails-state-lead { margin: 0 0 10px; font-size: 13.5px; color: var(--fg-secondary); }
-.mails-steps {
-  margin: 0;
-  padding-left: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-size: 13.5px;
-  color: var(--fg-secondary);
-}
-.mails-steps code {
-  background: var(--bg-muted);
-  border: 1px solid var(--border);
-  padding: 1px 6px;
-  border-radius: 6px;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.mails-state-hint { margin: 10px 0 0; font-size: 13px; color: var(--fg-muted); }
-.mails-state-actions { display: flex; gap: 10px; margin-top: 18px; }
 
 /* ── Mobile <900px : drawer + listes plein écran ──────────────────────────── */
 

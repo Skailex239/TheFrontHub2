@@ -100,11 +100,6 @@ task_page_head('Admin — TheFrontHub');
       <span class="side-label">Chat support</span>
       <span class="side-badge side-badge-red" id="side-badge-supchat" hidden></span>
     </button>
-    <button type="button" class="side-item" id="side-mails" data-view="mails" title="Mails support@thefronthub.com">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M22 6l-10 7L2 6"/></svg>
-      <span class="side-label">Mails</span>
-      <span class="side-badge side-badge-red" id="side-badge-mails" hidden></span>
-    </button>
   </div>
   <div class="side-me">
     <img id="me-avatar" src="<?= task_e($boot['me']['avatar']) ?>" alt="" onerror="this.style.visibility='hidden'">
@@ -302,31 +297,6 @@ task_page_head('Admin — TheFrontHub');
       </div>
     </section>
   </div>
-</div>
-
-<!-- ═══ Mails support@thefronthub.com ═══ -->
-<div class="pane" id="view-mails" hidden role="tabpanel" aria-label="Mails support">
-  <div class="split" id="mails-split">
-    <aside class="split-side">
-      <div class="split-side-head">
-        <h1 class="pane-title">Mails</h1>
-        <button type="button" class="icon-btn" id="btn-mails-refresh" title="Actualiser la boîte" aria-label="Actualiser la boîte mail">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-        </button>
-      </div>
-      <div class="split-list" id="mails-list" role="list" aria-label="Boîte mail support@thefronthub.com">
-        <div class="split-loading">Chargement de la boîte…</div>
-      </div>
-    </aside>
-    <section class="split-main">
-      <div class="thread-empty" id="mails-empty">
-        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M22 6l-10 7L2 6"/></svg>
-        <p>Sélectionne un mail pour le lire.</p>
-      </div>
-      <article class="mail-view" id="mails-view" hidden></article>
-    </section>
-  </div>
-  <div class="mails-state" id="mails-state" hidden></div>
 </div>
 
 </div><!-- /.app-main -->

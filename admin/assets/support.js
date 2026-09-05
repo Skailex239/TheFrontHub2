@@ -3,12 +3,11 @@
    Vanilla JS, sans dépendance. Complète app.js (Tâches) et chat.js (Chat équipe).
 
    Contenu :
-   1. Routing de la sidebar (5 vues : tasks / chat / support / supchat / mails),
+   1. Routing de la sidebar (4 vues : tasks / chat / support / supchat),
       drawer mobile (<900px) avec hamburger + backdrop.
    2. Vue « Tickets support »  : liste + fil + réponse + fermeture (+ poll 30 s).
    3. Vue « Chat support »     : conversations + fil en direct (poll 2,5 s).
-   4. Vue « Mails »            : boîte support@thefronthub.com + réponse.
-   5. Badges de la sidebar (tickets ouverts, unread chat, mails non lus).
+   4. Badges de la sidebar (tickets ouverts, unread chat).
 
    Endpoints backend : voir agent-ctx/CONTRAT-SUPPORT-2026.md (FIGÉ).
    ───────────────────────────────────────────────────────────────────────────── */
@@ -224,25 +223,22 @@
 
   /* ── Routing sidebar ─────────────────────────────────────────────────────── */
 
-  const VIEWS = ['tasks', 'chat', 'support', 'supchat', 'mails'];
+  const VIEWS = ['tasks', 'chat', 'support', 'supchat'];
   const viewEls = {
     tasks: $('#view-tasks'),
     chat: $('#view-chat'),
     support: $('#view-support'),
-    supchat: $('#view-supchat'),
-    mails: $('#view-mails')
+    supchat: $('#view-supchat')
   };
   const sideEls = {
     tasks: $('#side-tasks'),
     chat: $('#side-chat'),
     support: $('#side-support'),
-    supchat: $('#side-supchat'),
-    mails: $('#side-mails')
+    supchat: $('#side-supchat')
   };
   const badgeEls = {
     support: $('#side-badge-support'),
-    supchat: $('#side-badge-supchat'),
-    mails: $('#side-badge-mails')
+    supchat: $('#side-badge-supchat')
   };
 
   let currentView = 'tasks';
@@ -304,8 +300,6 @@
       Support.activate();
     } else if (name === 'supchat') {
       Supchat.activate();
-    } else if (name === 'mails') {
-      Mails.activate();
     }
     if (name !== 'supchat') Supchat.stopPoll();
 
@@ -790,325 +784,8 @@
     };
   })();
 
-  /* ═══════════════════════════════════════════════════════════════════════════
-     Vue « Mails » — boîte support@thefronthub.com
-     ═══════════════════════════════════════════════════════════════════════════ */
-
-  const Mails = (() => {
-    const listEl = $('#mails-list');
-    const paneEl = $('#view-mails');
-    const splitEl = $('#mails-split');
-    const stateEl = $('#mails-state');
-    const emptyEl = $('#mails-empty');
-    const viewEl = $('#mails-view');
-    const WEBMAIL = 'https://mail.thefronthub.com';
-
-    const S = {
-      loaded: false, loading: false,
-      data: null,        /* réponse mails.list */
-      openUid: null, mail: null,
-      replyOpen: false, sending: false
-    };
-
-    if (!listEl) return { activate() {}, onListData() {}, refresh() {} };
-
-    function updateBadge() {
-      const n = (S.data && S.data.available && S.data.mails || [])
-        .filter((m) => !m.seen).length;
-      setBadge(badgeEls.mails, n);
-    }
-
-    function renderList() {
-      const mails = (S.data && S.data.mails) || [];
-      listEl.textContent = '';
-      if (!mails.length) {
-        listEl.appendChild(el('div', 'split-empty', 'Boîte vide — aucun mail.'));
-        return;
-      }
-      for (const m of mails) {
-        const b = el('button', 'ml' + (m.uid === S.openUid ? ' is-active' : '') + (!m.seen ? ' is-unread' : ''));
-        b.type = 'button';
-        b.setAttribute('role', 'listitem');
-
-        const dot = el('span', 'ml-dot');
-        dot.hidden = !!m.seen;
-        dot.setAttribute('title', 'Non lu');
-        b.appendChild(dot);
-
-        const main = el('div', 'ml-main');
-        const top = el('div', 'ml-top');
-        top.appendChild(el('span', 'ml-from', m.from || '(expéditeur inconnu)'));
-        top.appendChild(el('span', 'ml-date', fmtListTime(parseTs(m.ts || m.date))));
-        main.appendChild(top);
-
-        const mid = el('div', 'ml-mid');
-        mid.appendChild(el('span', 'ml-subject', m.subject || '(sans objet)'));
-        if (m.answered) mid.appendChild(el('span', 'ml-ans', '↩ Répondu'));
-        main.appendChild(mid);
-        b.appendChild(main);
-
-        b.addEventListener('click', () => openMail(m.uid));
-        listEl.appendChild(b);
-      }
-    }
-
-    function fmtFrom(from) {
-      const mm = /^\s*"?([^"<]*)"?\s*<([^>]+)>\s*$/.exec(String(from || ''));
-      return mm ? (mm[1] || mm[2]) : String(from || '');
-    }
-
-    function renderMail() {
-      const m = S.mail;
-      if (!m) return;
-      viewEl.textContent = '';
-
-      const head = el('div', 'mail-head');
-      const hrow = el('div', 'mail-head-row');
-      hrow.appendChild(el('h2', 'mail-subject', m.subject || '(sans objet)'));
-      const actions = el('div', 'mail-actions');
-      const btnReply = el('button', 'btn primary small', 'Répondre');
-      btnReply.type = 'button';
-      const btnClose = el('button', 'btn ghost small', 'Fermer');
-      btnClose.type = 'button';
-      actions.appendChild(btnReply);
-      actions.appendChild(btnClose);
-      hrow.appendChild(actions);
-      head.appendChild(hrow);
-      head.appendChild(el('p', 'mail-meta', 'De : ' + (m.from || '?') + ' · ' + fmtDateTime(parseTs(m.date))));
-      viewEl.appendChild(head);
-
-      const pre = el('pre', 'mail-body', m.body || '');
-      viewEl.appendChild(pre);
-
-      /* Formulaire de réponse inline */
-      const form = el('form', 'mail-reply');
-      form.hidden = true;
-
-      const fTo = el('label', 'field');
-      fTo.appendChild(el('span', 'field-label', 'À'));
-      const inTo = el('input');
-      inTo.type = 'email';
-      inTo.value = m.from || '';
-      inTo.required = true;
-      fTo.appendChild(inTo);
-
-      const fSub = el('label', 'field');
-      fSub.appendChild(el('span', 'field-label', 'Objet'));
-      const inSub = el('input');
-      inSub.type = 'text';
-      inSub.value = /^re:/i.test(String(m.subject || '')) ? m.subject : 'Re: ' + (m.subject || '');
-      fSub.appendChild(inSub);
-
-      const fBody = el('label', 'field');
-      fBody.appendChild(el('span', 'field-label', 'Message'));
-      const taBody = el('textarea');
-      taBody.rows = 6;
-      taBody.maxLength = 20000;
-      fBody.appendChild(taBody);
-
-      const fActions = el('div', 'mail-reply-actions');
-      const btnSend = el('button', 'btn primary small', 'Envoyer');
-      btnSend.type = 'submit';
-      const btnCancel = el('button', 'btn ghost small', 'Annuler');
-      btnCancel.type = 'button';
-      fActions.appendChild(btnCancel);
-      fActions.appendChild(btnSend);
-
-      form.appendChild(fTo);
-      form.appendChild(fSub);
-      form.appendChild(fBody);
-      form.appendChild(fActions);
-      viewEl.appendChild(form);
-
-      btnReply.addEventListener('click', () => {
-        S.replyOpen = true;
-        form.hidden = false;
-        btnReply.hidden = true;
-        inTo.focus();
-        inTo.setSelectionRange(inTo.value.length, inTo.value.length);
-      });
-      btnClose.addEventListener('click', () => {
-        S.openUid = null;
-        S.mail = null;
-        S.replyOpen = false;
-        viewEl.hidden = true;
-        emptyEl.hidden = false;
-        paneEl.classList.remove('show-thread'); /* mobile : retour à la liste */
-        renderList();
-      });
-      btnCancel.addEventListener('click', () => {
-        S.replyOpen = false;
-        form.hidden = true;
-        btnReply.hidden = false;
-      });
-
-      form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const to = inTo.value.trim();
-        const subject = inSub.value.trim();
-        const body = taBody.value;
-        if (!to || S.sending) return;
-        S.sending = true;
-        btnSend.disabled = true;
-        const j = await apiPost('mails.reply', {
-          to, subject: subject || '(sans objet)', body,
-          in_reply_to: m.message_id || undefined
-        });
-        S.sending = false;
-        btnSend.disabled = false;
-        if (j && j.ok) {
-          toast('Réponse envoyée à ' + (fmtFrom(to) || to) + '.', 'success');
-          S.replyOpen = false;
-          form.hidden = true;
-          btnReply.hidden = false;
-          taBody.value = '';
-          /* marque « répondu » dans la liste */
-          const item = ((S.data && S.data.mails) || []).find((x) => x.uid === m.uid);
-          if (item) item.answered = true;
-          renderList();
-        } else {
-          toast((j && j.message) || 'Envoi impossible — réessaie.', 'error');
-        }
-      });
-
-      if (S.replyOpen) { form.hidden = false; btnReply.hidden = true; }
-      viewEl.hidden = false;
-      emptyEl.hidden = true;
-    }
-
-    function renderState(d) {
-      splitEl.hidden = true;
-      stateEl.hidden = false;
-      stateEl.textContent = '';
-
-      const card = el('div', 'mails-state-card');
-      if (d && d.reason === 'not_configured') {
-        card.appendChild(el('h2', '', '📮 Boîte mail non configurée'));
-        card.appendChild(el('p', 'mails-state-lead',
-          'La boîte ' + ((S.data && S.data.mailbox) || 'support@thefronthub.com') +
-          ' n\u2019est pas encore branchée sur le panel. 3 étapes (5 minutes) :'));
-        const ol = el('ol', 'mails-steps');
-
-        const li1 = el('li');
-        li1.appendChild(el('span', '', 'Copie le fichier d\u2019exemple à la racine du site : '));
-        li1.appendChild(el('code', '', 'cp api/mail-config.example.php api/mail-config.php'));
-        ol.appendChild(li1);
-
-        const li2 = el('li');
-        li2.appendChild(el('span', '', 'Édite '));
-        li2.appendChild(el('code', '', 'api/mail-config.php'));
-        li2.appendChild(el('span', '', ' et renseigne le mot de passe de la boîte (laisse le reste tel quel).'));
-        ol.appendChild(li2);
-
-        const li3 = el('li');
-        li3.appendChild(el('span', '', 'La boîte elle-même se crée dans cPanel o2switch → '));
-        li3.appendChild(el('strong', '', 'Comptes e-mail'));
-        li3.appendChild(el('span', '', ' (adresse ' + ((S.data && S.data.mailbox) || 'support@thefronthub.com') + ' + mot de passe).'));
-        ol.appendChild(li3);
-
-        card.appendChild(ol);
-      } else {
-        card.appendChild(el('h2', '', '📮 Boîte mail indisponible'));
-        if (d && d.reason === 'imap_unavailable') {
-          card.appendChild(el('p', 'mails-state-lead', 'L\u2019extension IMAP de PHP est inactive sur l\u2019hébergement.'));
-        } else if (d && d.reason === 'login_failed') {
-          card.appendChild(el('p', 'mails-state-lead', 'La connexion à la boîte a échoué — vérifie le mot de passe dans api/mail-config.php.'));
-        } else {
-          card.appendChild(el('p', 'mails-state-lead', (d && d.hint) ? String(d.hint) : 'Raison inconnue.'));
-        }
-        if (d && d.hint && d.reason !== 'imap_unavailable' && d.reason !== 'login_failed') {
-          /* hint déjà affiché ci-dessus */
-        } else if (d && d.hint && (d.reason === 'imap_unavailable' || d.reason === 'login_failed')) {
-          card.appendChild(el('p', 'mails-state-hint', String(d.hint)));
-        }
-      }
-
-      const row = el('div', 'mails-state-actions');
-      const aWeb = el('a', 'btn ghost small', 'Ouvrir le webmail');
-      aWeb.href = WEBMAIL;
-      aWeb.target = '_blank';
-      aWeb.rel = 'noopener';
-      row.appendChild(aWeb);
-      const btnRetry = el('button', 'btn primary small', 'Réessayer');
-      btnRetry.type = 'button';
-      btnRetry.addEventListener('click', () => load());
-      row.appendChild(btnRetry);
-      card.appendChild(row);
-
-      stateEl.appendChild(card);
-    }
-
-    async function load() {
-      if (S.loading) return;
-      S.loading = true;
-      listEl.replaceChildren(el('div', 'split-loading', 'Chargement de la boîte…'));
-      const j = await apiGet('mails.list');
-      S.loading = false;
-      S.data = j && j.ok ? j : null;
-      if (S.data && S.data.available) {
-        splitEl.hidden = false;
-        stateEl.hidden = true;
-        S.openUid = null;
-        S.mail = null;
-        viewEl.hidden = true;
-        emptyEl.hidden = false;
-        renderList();
-      } else {
-        renderState(S.data || { available: false });
-      }
-      updateBadge();
-      S.loaded = true;
-    }
-
-    async function openMail(uid) {
-      S.openUid = uid;
-      renderList();
-      viewEl.hidden = false;
-      emptyEl.hidden = true;
-      viewEl.replaceChildren(el('div', 'chat-loading', 'Chargement du mail…'));
-      const j = await apiGet('mails.view', { uid });
-      if (j && j.ok && j.mail) {
-        S.mail = j.mail;
-        /* marque lu localement (badge + liste) */
-        const item = ((S.data && S.data.mails) || []).find((x) => x.uid === uid);
-        if (item) item.seen = true;
-        renderList();
-        updateBadge();
-        renderMail();
-        if (paneEl.classList.contains('show-thread') === false && window.innerWidth < 900) {
-          paneEl.classList.add('show-thread');
-        }
-      } else if (j && j.error !== 'reload') {
-        viewEl.hidden = true;
-        emptyEl.hidden = false;
-        toast('Impossible de charger ce mail.', 'error');
-      }
-    }
-
-    $('#btn-mails-refresh').addEventListener('click', () => load());
-
-    return {
-      activate() {
-        if (S.data && S.data.available) {
-          renderList(); /* données déjà là via le badge du boot */
-          S.loaded = true;
-        } else if (!S.loaded) {
-          load();
-        }
-      },
-      onListData(j) {
-        /* appelé au boot pour le badge sans ouvrir la vue */
-        if (!j || !j.ok || !j.available) return;
-        S.data = j;
-        S.loaded = true;
-        updateBadge();
-      },
-      refresh() { load(); }
-    };
-  })();
-
   /* ── Restauration de la dernière section ouverte ──────────────────────────
-     Après la définition des 3 vues (Support/Supchat/Mails) pour éviter la TDZ.
+     Après la définition des 2 vues (Support/Supchat) pour éviter la TDZ.
      Même clé localStorage que chat.js : chat.js a déjà réaffiché #view-chat
      si saved==='chat' ; on harmonise badges/aria-current/hidden ici. */
   let savedView = 'tasks';
@@ -1126,11 +803,7 @@
   }, 30000);
 
   refreshBadges();
-  /* premier badge mails (une seule requête au boot, puis à l'ouverture/refresh) */
-  apiGet('mails.list').then((j) => {
-    Mails.onListData(j);
-  }).catch(() => {});
 
   /* Expose le routage pour debug / futur usage */
-  window.TfhAdminViews = { setView, Support, Supchat, Mails };
+  window.TfhAdminViews = { setView, Support, Supchat };
 })();

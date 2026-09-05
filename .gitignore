@@ -162,4 +162,3 @@ dashboard-*.png
 
 
 # Secrets boîte mail support@ (config IMAP locale, jamais commitée)
-/api/mail-config.php
