@@ -73,7 +73,16 @@ const targets = [
   { entry: "tutorial.js",    out: "tutorial.min.js",     bundled: false },
   // Ads (no imports, loaded on every page)
   { entry: "ads.js",         out: "ads.min.js",          bundled: false },
+  // Sélecteur de langue FR/EN (drapeaux) — script autonome, toutes les pages
+  { entry: "lang-switcher.js", out: "lang-switcher.min.js", bundled: false },
 ];
+
+// Dictionnaires i18n par page (i18n-dict-*.js) : minifiés automatiquement.
+// Chaque page HTML charge dist/i18n-dict-<page>.min.js AVANT i18n.min.js.
+for (const f of fs.readdirSync(ROOT)) {
+  const m = f.match(/^i18n-dict-(.+)\.js$/);
+  if (m) targets.push({ entry: f, out: `i18n-dict-${m[1]}.min.js`, bundled: false });
+}
 
 const watch = process.argv.includes("--watch");
 

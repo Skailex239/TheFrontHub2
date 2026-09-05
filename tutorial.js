@@ -22,6 +22,22 @@
 
 const TUTORIAL_KEY = 'tfs-tutorial-completed';
 
+/* ═══ i18n (moteur global i18n.js — clés tut.* dans i18n-dict-support.js) ═══
+   T(k, fb) : traduit via window.t, retombe sur le texte FR si i18n absent.
+   TP(k, params, fb) : idem avec substitution {param}.
+   TK : retombe AUSSI sur le fallback quand la clé manque du dictionnaire
+   (pages ne chargeant pas i18n-dict-support.js → window.t renverrait la clé). */
+const T = (k, fb) => (typeof window.t === 'function' ? window.t(k) : fb);
+const TP = (k, params, fb) => {
+  if (typeof window.t !== 'function') return fb;
+  const v = window.t(k, params);
+  return v && v !== k ? v : fb;
+};
+const TK = (k, fb) => {
+  const v = T(k, fb);
+  return v === k || v == null ? fb : v;
+};
+
 // Étapes du tutoriel.
 // Chaque étape peut avoir :
 //   - target: sélecteur CSS de l'élément à spotlighter (ou null pour modal)
@@ -32,30 +48,35 @@ const TUTORIAL_KEY = 'tfs-tutorial-completed';
 const TUTORIAL_STEPS = [
   {
     target: null,  // modal plein écran
+    k: 's1',
     title: 'Bienvenue sur TheFrontHub ! 👋',
     text: 'Le hub ultime pour OpenFront.io : speedruns, classements, tournois et stats joueurs. Découvrons le site ensemble en 30 secondes.',
     position: 'center',
   },
   {
     target: '#tab-btn-maps, .nav-item[href="index.html"]',
+    k: 's2',
     title: '🏆 Speedruns',
     text: 'Le classement des meilleurs temps sur chaque carte. Clique sur une carte pour voir le top 25.',
     position: 'right',
   },
   {
     target: '#tab-btn-ranked, .nav-item[href="index.html?tab=ranked"]',
+    k: 's3',
     title: '⚔️ Mode Classé',
     text: 'Le mode compétitif 1v1 avec système d\'ELO. Vois ton rang et ton historique.',
     position: 'right',
   },
   {
     target: '#tab-btn-tournois, .nav-item[href="tournois.html"]',
+    k: 's4',
     title: '🥇 Tournois',
     text: 'Le circuit compétitif avec Power Ranking, calendrier et résultats détaillés.',
     position: 'right',
   },
   {
     target: '#player-search',
+    k: 's5',
     title: '🔍 Recherche joueur',
     text: 'Tape le pseudo d\'un joueur pour voir ses stats et son rang.',
     position: 'bottom',
@@ -63,18 +84,21 @@ const TUTORIAL_STEPS = [
   },
   {
     target: '.theme-toggle',
+    k: 's6',
     title: '🌗 Thème clair/sombre',
     text: 'Bascule entre le mode clair, sombre ou auto (selon ton système).',
     position: 'right',
   },
   {
     target: '.tfh-footer-discord',
+    k: 's7',
     title: '💬 Communauté',
     text: 'Rejoins le Discord pour suivre les actus, participer aux tournois et parler avec la communauté.',
     position: 'top',
   },
   {
     target: null,
+    k: 's8',
     title: 'Tu es prêt ! 🚀',
     text: 'Tu connais maintenant les bases. Explore le site, et bonne chance pour battre des records !',
     position: 'center',
@@ -211,16 +235,16 @@ function showStep(idx) {
   // Positionner le spotlight
   positionSpotlight(target);
 
-  // Mettre à jour le contenu du tooltip
-  const progress = `Étape ${idx + 1} / ${TUTORIAL_STEPS.length}`;
+  // Mettre à jour le contenu du tooltip (titres/textes via i18n, fallback FR)
+  const progress = TP('tut.progress', { n: idx + 1, total: TUTORIAL_STEPS.length }, `Étape ${idx + 1} / ${TUTORIAL_STEPS.length}`);
   const isLast = step.isLast || idx === TUTORIAL_STEPS.length - 1;
   _tooltip.innerHTML = `
     <div class="tfh-tutorial-progress">${progress}</div>
-    <h3 class="tfh-tutorial-title">${step.title}</h3>
-    <p class="tfh-tutorial-text">${step.text}</p>
+    <h3 class="tfh-tutorial-title">${TK('tut.' + step.k + '_title', step.title)}</h3>
+    <p class="tfh-tutorial-text">${TK('tut.' + step.k + '_text', step.text)}</p>
     <div class="tfh-tutorial-actions">
-      <button class="tfh-tutorial-skip" type="button">Passer le tutoriel</button>
-      <button class="tfh-tutorial-next" type="button">${isLast ? 'Terminer 🎉' : 'Suivant →'}</button>
+      <button class="tfh-tutorial-skip" type="button">${TK('tut.skip', 'Passer le tutoriel')}</button>
+      <button class="tfh-tutorial-next" type="button">${isLast ? TK('tut.finish', 'Terminer 🎉') : TK('tut.next', 'Suivant →')}</button>
     </div>
   `;
 
@@ -323,7 +347,7 @@ function finishTutorial() {
   // Petit toast de fin
   setTimeout(() => {
     if (typeof window.showToast === 'function') {
-      window.showToast('Bienvenue sur TheFrontHub ! 🎉', 'success', 3000);
+      window.showToast(TK('tut.toast_welcome', 'Bienvenue sur TheFrontHub ! 🎉'), 'success', 3000);
     }
   }, 200);
 }

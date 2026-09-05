@@ -412,39 +412,204 @@ const translations = {
 
 let currentLanguage = localStorage.getItem('openfront_lang') || 'fr';
 
+/* ══════════════════════════════════════════════════════════════════════
+   FUSION DES DICTIONNAIRES PAR PAGE (i18n-dict-*.js)
+   ──────────────────────────────────────────────────────────────────────
+   Chaque page charge AVANT i18n.min.js un fichier i18n-dict-<page>.js qui
+   pousse ses traductions dans window.__TFH_I18N_PARTIALS__ :
+
+       window.__TFH_I18N_PARTIALS__ = {
+         fr: { "lobby.title": "Lobby", ... },
+         en: { "lobby.title": "Lobby", ... }
+       };
+
+   Ici on les fusionne dans le dictionnaire principal (le partial gagne
+   toujours : il est plus spécifique que les clés communes ci-dessus).
+   ════════════════════════════════════════════════════════════════════ */
+(function mergePartials() {
+  const partials = window.__TFH_I18N_PARTIALS__;
+  if (!partials || typeof partials !== "object") return;
+  for (const lang of Object.keys(translations)) {
+    if (partials[lang] && typeof partials[lang] === "object") {
+      Object.assign(translations[lang], partials[lang]);
+    }
+  }
+})();
+
+/** Clés communes (nav, footer, auth, langue) partagées par TOUTES les pages.
+ *  Les clés spécifiques vivent dans les i18n-dict-<page>.js. */
+Object.assign(translations.fr, {
+  "nav.dashboard": "Tableau de bord",
+  "nav.ranked": "Classé",
+  "nav.lobby": "Lobby",
+  "nav.atlas": "Atlas",
+  "nav.tournaments": "Tournois",
+  "nav.support": "Support",
+  "nav.my_profile": "Mon Profil",
+  "footer.tagline": "Le hub ultime pour OpenFront.io — speedruns, classements, tournois et stats joueurs.",
+  "footer.join_discord": "Rejoindre le Discord",
+  "footer.nav_title": "Navigation",
+  "footer.player_title": "Joueur",
+  "footer.my_profile": "Mon profil",
+  "footer.contact_team": "Contacter l'équipe",
+  "footer.play_openfront": "Jouer à OpenFront ↗",
+  "footer.rights": "© {year} TheFrontHub. Non affilié à OpenFront.io.",
+  "footer.made_with": "Fait avec ♥ par la communauté",
+  "auth.modal_title": "Rejoins TheFrontHub",
+  "auth.modal_subtitle": "Connexion ou inscription en 1 clic avec Discord — sans mot de passe, sans email.",
+  "auth.continue_discord": "Continuer avec Discord",
+  "auth.perk1": "<strong>Profil et stats OpenFront</strong> — tes parties suivies automatiquement",
+  "auth.perk2": "<strong>Historique et progression</strong> — graphiques, temps de jeu et achievements",
+  "auth.security_note": "Session sécurisée · Hébergé en France · Aucun mot de passe stocké",
+  "auth.dropdown_online": "En ligne",
+  "auth.dropdown_my_profile": "Mon profil",
+  "auth.dropdown_logout": "Se déconnecter",
+  "auth.logout_confirm": "Voulez-vous vous déconnecter ?",
+  "auth.not_linked": "Non lié",
+  "lang.label": "Langue",
+  "lang.fr": "Français",
+  "lang.en": "English",
+  "lang.saved": "Langue mise à jour",
+  "profile.lang_panel": "Langue",
+  "profile.lang_hint": "Langue du site — enregistrée sur ton compte.",
+  "profile.lang_hint_setup": "Enregistrée sur ton compte — modifiable à tout moment.",
+});
+Object.assign(translations.en, {
+  "nav.dashboard": "Dashboard",
+  "nav.ranked": "Ranked",
+  "nav.lobby": "Lobby",
+  "nav.atlas": "Atlas",
+  "nav.tournaments": "Tournaments",
+  "nav.support": "Support",
+  "nav.my_profile": "My Profile",
+  "footer.tagline": "The ultimate hub for OpenFront.io — speedruns, leaderboards, tournaments and player stats.",
+  "footer.join_discord": "Join the Discord",
+  "footer.nav_title": "Navigation",
+  "footer.player_title": "Player",
+  "footer.my_profile": "My profile",
+  "footer.contact_team": "Contact the team",
+  "footer.play_openfront": "Play OpenFront ↗",
+  "footer.rights": "© {year} TheFrontHub. Not affiliated with OpenFront.io.",
+  "footer.made_with": "Made with ♥ by the community",
+  "auth.modal_title": "Join TheFrontHub",
+  "auth.modal_subtitle": "Sign in or sign up in 1 click with Discord — no password, no email.",
+  "auth.continue_discord": "Continue with Discord",
+  "auth.perk1": "<strong>OpenFront profile and stats</strong> — your games tracked automatically",
+  "auth.perk2": "<strong>History and progression</strong> — graphs, playtime and achievements",
+  "auth.security_note": "Secure session · Hosted in France · No stored password",
+  "auth.dropdown_online": "Online",
+  "auth.dropdown_my_profile": "My profile",
+  "auth.dropdown_logout": "Sign out",
+  "auth.logout_confirm": "Do you want to sign out?",
+  "auth.not_linked": "Not linked",
+  "lang.label": "Language",
+  "lang.fr": "Français",
+  "lang.en": "English",
+  "lang.saved": "Language updated",
+  "profile.lang_panel": "Language",
+  "profile.lang_hint": "Site language — saved to your account.",
+  "profile.lang_hint_setup": "Saved to your account — change it anytime.",
+});
+
+/* ── Langue du compte (MySQL via /api/language.php) ──────────────────── */
+
+/**
+ * Applique la langue enregistrée sur le compte (si l'utilisateur n'a pas
+ * déjà un choix local plus récent sur cet appareil). Appelé par auth.js
+ * quand /api/me.php renvoie le profil.
+ * @param {string|null} accountLang 'fr' | 'en' | null
+ */
+function applyAccountLanguage(accountLang) {
+  if (accountLang !== "fr" && accountLang !== "en") return;
+  const local = localStorage.getItem("openfront_lang");
+  if (!local) {
+    // Premier choix connu : la préférence du compte s'applique immédiatement
+    if (accountLang !== currentLanguage) {
+      currentLanguage = accountLang;
+      window.currentLanguage = accountLang;
+      document.documentElement.lang = accountLang;
+      updateDOMTranslations();
+    }
+  }
+  // Si un choix local existe, il prime (l'utilisateur a changé la langue
+  // sur cet appareil) — on ne force rien.
+}
+
+/** Enregistre la langue du compte côté serveur (best-effort, sans blocage). */
+function saveAccountLanguage(lang) {
+  if (lang !== "fr" && lang !== "en") return;
+  try {
+    fetch("/api/language.php", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ language: lang }),
+    }).catch(() => { /* non connecté / hors ligne : localStorage suffit */ });
+  } catch { /* no-op */ }
+}
+
 function setLanguage(lang) {
   if (!translations[lang]) return;
   currentLanguage = lang;
   localStorage.setItem('openfront_lang', lang);
   window.currentLanguage = lang;
+  document.documentElement.lang = lang;
+  // Compte connecté → on mémorise aussi côté serveur (tfh_users.language)
+  saveAccountLanguage(lang);
   location.reload(); // Reset/Reload automatique dès qu'on change de langue
 }
 
 function t(key, params = {}) {
-  let text = translations[currentLanguage][key] || key;
+  const dict = translations[currentLanguage] || translations.fr;
+  let text = dict[key] ?? (translations.fr[key] ?? key);
   for (const [k, v] of Object.entries(params)) {
     text = text.replace(`{${k}}`, v);
   }
   return text;
 }
 
+/**
+ * Traduit le DOM :
+ *   data-i18n            → textContent (ou innerHTML si l'élément a des enfants)
+ *   data-i18n-html       → innerHTML (toujours — chaînes avec <strong> etc.)
+ *   data-i18n-placeholder→ attribut placeholder (input/textarea)
+ *   data-i18n-title      → attribut title
+ *   data-i18n-aria       → attribut aria-label
+ * Les chaînes FR étant déjà dans le HTML, l'application de la langue
+ * française est un no-op visible — seule la bascule EN modifie le DOM.
+ */
 function updateDOMTranslations() {
   document.querySelectorAll('[data-i18n]').forEach(el => {
     const key = el.getAttribute('data-i18n');
     if (el.tagName === 'INPUT' && el.hasAttribute('placeholder')) {
       el.placeholder = t(key);
+    } else if (el.children.length === 0) {
+      el.textContent = t(key);
     } else {
-      // Pour éviter d'écraser les spans enfants (comme les icônes), 
-      // on remplace le premier noeud texte, ou on utilise innerHTML si c'est pur.
-      // Pour plus de sécurité ici, on va juste utiliser textContent
-      if(el.children.length === 0) {
-        el.textContent = t(key);
-      } else {
-        // Fallback basique
-        el.innerHTML = t(key);
-      }
+      // Fallback basique (préserve les icônes enfant via data-i18n-html idéalement)
+      el.innerHTML = t(key);
     }
   });
+  document.querySelectorAll('[data-i18n-html]').forEach(el => {
+    el.innerHTML = t(el.getAttribute('data-i18n-html'));
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    el.placeholder = t(el.getAttribute('data-i18n-placeholder'));
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    el.title = t(el.getAttribute('data-i18n-title'));
+  });
+  document.querySelectorAll('[data-i18n-aria]').forEach(el => {
+    el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria')));
+  });
+
+  // <html lang> pour l'accessibilité / les lecteurs d'écran
+  document.documentElement.lang = currentLanguage;
+
+  // Rafraîchir les boutons drapeaux actifs (lang-switcher.js)
+  if (typeof window.__tfhSyncLangSwitchers === "function") {
+    window.__tfhSyncLangSwitchers(currentLanguage);
+  }
 
   // Re-rendre les parties dynamiques de l'UI
   if (typeof window.renderAll === 'function') {
@@ -452,8 +617,15 @@ function updateDOMTranslations() {
   }
 }
 
-// Initialisation au chargement
+// Initialisation au chargement — i18n.min.js doit être chargé en <head>
+// (defer) pour s'appliquer AVANT le premier paint (pas de flash FR→EN).
 document.addEventListener('DOMContentLoaded', updateDOMTranslations);
+// Le DOM peut déjà être prêt si le script est injecté tardivement :
+if (document.readyState !== "loading") {
+  updateDOMTranslations();
+}
+// Application immédiate de <html lang> dès l'exécution du script (head)
+document.documentElement.lang = currentLanguage;
 
 // Refactor i18n : icône séparée du texte (les émojis ont été retirés des libellés).
 // Associé à icons.js — utiliser <i data-icon="..."> côté rendu.
@@ -472,3 +644,4 @@ window.setLanguage = setLanguage;
 window.t = t;
 window.currentLanguage = currentLanguage;
 window.updateDOMTranslations = updateDOMTranslations;
+window.applyAccountLanguage = applyAccountLanguage;

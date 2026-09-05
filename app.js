@@ -3,6 +3,14 @@ import { icon } from "./icons.js";
 import { fetchActiveSkinMap, normPlayerName } from "./reward-codes.js";
 import { getSkin } from "./skins.js";
 
+// ── i18n helpers — window.t est fourni par i18n.js (dict commun + dict de page) ──
+// T(k, fb)    : traduction simple avec fallback FR.
+// TP(k, p, fb): traduction avec {param} (window.t(k, params)).
+// LOCALE()    : locale fr-FR/en-US selon la langue courante (dates, nombres).
+const T = (k, fb) => (typeof window.t === "function" ? window.t(k) : fb);
+const TP = (k, params, fb) => (typeof window.t === "function" ? window.t(k, params) : fb);
+const LOCALE = () => ((typeof window.currentLanguage === "string" && window.currentLanguage === "en") ? "en-US" : "fr-FR");
+
 // ── Filet de sécurité auth (cohérence 2026-08-30) ────────────────────────────
 // index.html ne charge ni auth.js ni auth-ui.js : sans ce filet,
 // window.loginWithDiscord / window.logout n'existent pas et les boutons
@@ -71,7 +79,7 @@ function animateRanking(){
 }
 function createConfetti(){}
 function formatTime(s){const m=Math.floor(s/60);return m+":"+String(s%60).padStart(2,"0")}
-function formatDate(iso){return new Date(iso).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit"})}
+function formatDate(iso){return new Date(iso).toLocaleDateString(LOCALE(),{day:"2-digit",month:"2-digit"})}
 function getRunUrl(r){return r.url||("https://openfront.io/game/"+r.id)}
 // Échappement XSS-safe : convertit les caractères dangereux en entités HTML
 function esc(s){return String(s ?? "").replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
@@ -161,7 +169,7 @@ onAuthStateChanged(auth, async (user) => {
       if (data && data.publicId) {
         console.log("[auth] Login réussi — redirection vers profile.html");
         if (typeof showToast === 'function') {
-          window.showToast("Bienvenue " + (data.username || '') + " ! Redirection...", "success", 1500);
+          window.showToast(TP("home.welcome_redirect", { name: (data.username || '') }, "Bienvenue " + (data.username || '') + " ! Redirection..."), "success", 1500);
         }
         setTimeout(() => { window.location.href = "profile.html"; }, 800);
         return;
@@ -199,7 +207,7 @@ onAuthStateChanged(auth, async (user) => {
         avatar: user.photoURL,
         email: user.email
       };
-      updateAuthUI({ name: user.displayName || 'Joueur', avatar: user.photoURL, uid: user.uid });
+      updateAuthUI({ name: user.displayName || T("modal.player", "Joueur"), avatar: user.photoURL, uid: user.uid });
       showProfileModal();
     }
   } else {
@@ -455,20 +463,20 @@ window.startOwnershipVerification = async () => {
 
   // L8: Form validation
   if (!username || !publicId) {
-    window.showToast("Veuillez remplir tous les champs.", "warning");
+    window.showToast(T("profile.fill_all", "Veuillez remplir tous les champs."), "warning");
     return;
   }
   if (username.length < 2 || username.length > 30) {
-    window.showToast("Le pseudo doit faire entre 2 et 30 caractères.", "warning");
+    window.showToast(T("home.username_length", "Le pseudo doit faire entre 2 et 30 caractères."), "warning");
     return;
   }
   // L8: OpenFront publicId is exactly 8 alphanumeric chars
   if (!/^[A-Za-z0-9]{8}$/.test(publicId)) {
-    window.showToast("Le Public ID doit faire exactement 8 caractères alphanumériques (ex: HabCsQYR).", "warning");
+    window.showToast(T("home.publicid_format", "Le Public ID doit faire exactement 8 caractères alphanumériques (ex: HabCsQYR)."), "warning");
     return;
   }
   if (/[^a-zA-Z0-9_\- ]/.test(username)) {
-    window.showToast("Le pseudo ne peut contenir que des lettres, chiffres, espaces, _ et -", "warning");
+    window.showToast(T("home.username_chars", "Le pseudo ne peut contenir que des lettres, chiffres, espaces, _ et -"), "warning");
     return;
   }
 
@@ -476,7 +484,7 @@ window.startOwnershipVerification = async () => {
   try {
     const existing = (await getDoc(doc(db, "users", currentUser.uid))).data() || {};
     if (existing.publicId && existing.publicId !== publicId) {
-      window.showToast("Le Public ID OpenFront ne peut plus être modifié.", "error");
+      window.showToast(T("profile.public_id_locked_alert", "Le Public ID OpenFront ne peut plus être modifié."), "error");
       return;
     }
   } catch (e) {
@@ -484,16 +492,16 @@ window.startOwnershipVerification = async () => {
   }
 
   // L8: Verify publicId exists via OpenFront API
-  window.showToast("Vérification du Public ID...", "info", 3000);
+  window.showToast(T("home.verifying_publicid", "Vérification du Public ID..."), "info", 3000);
   try {
     const { fetchOpenFront } = await import('./openfront-client.js');
     const playerData = await fetchOpenFront(`/public/player/${encodeURIComponent(publicId)}`);
     if (!playerData || !playerData.games) {
-      window.showToast("Public ID introuvable sur OpenFront. Vérifiez votre saisie.", "error");
+      window.showToast(T("home.publicid_not_found", "Public ID introuvable sur OpenFront. Vérifiez votre saisie."), "error");
       return;
     }
   } catch (e) {
-    window.showToast("Impossible de vérifier le Public ID (API indisponible). Réessayez plus tard.", "error");
+    window.showToast(T("home.publicid_api_error", "Impossible de vérifier le Public ID (API indisponible). Réessayez plus tard."), "error");
     console.error("[ownership] API check failed:", e);
     return;
   }
@@ -511,7 +519,7 @@ window.startOwnershipVerification = async () => {
   document.getElementById('profile-setup-step2').style.display = 'block';
   document.getElementById('ownership-code').textContent = _ownershipCode;
   document.getElementById('ownership-example').textContent = _ownershipCode + " " + username;
-  window.showToast("Code généré. Suivez les instructions ci-dessous.", "info");
+  window.showToast(T("home.code_generated", "Code généré. Suivez les instructions ci-dessous."), "info");
 };
 
 // L7: Step 2 — confirm by checking that the code appears in recent sessions
@@ -520,7 +528,7 @@ window.confirmOwnershipVerification = async () => {
   const btn = document.getElementById('confirm-ownership-btn');
   const originalText = btn.textContent;
   btn.disabled = true;
-  btn.textContent = "Vérification...";
+  btn.textContent = T("home.verifying", "Vérification...");
 
   try {
     const { fetchOpenFront } = await import('./openfront-client.js');
@@ -541,7 +549,7 @@ window.confirmOwnershipVerification = async () => {
     }
 
     if (!found) {
-      window.showToast("Code non trouvé dans vos parties récentes. Assurez-vous d'avoir joué avec le code dans votre pseudo.", "error", 6000);
+      window.showToast(T("home.code_not_found", "Code non trouvé dans vos parties récentes. Assurez-vous d'avoir joué avec le code dans votre pseudo."), "error", 6000);
       btn.disabled = false;
       btn.textContent = originalText;
       return;
@@ -551,7 +559,7 @@ window.confirmOwnershipVerification = async () => {
     await saveUserProfile(_ownershipUsername, _ownershipPublicId);
   } catch (e) {
     console.error("[ownership] Confirmation failed:", e);
-    window.showToast("Erreur lors de la vérification. Réessayez.", "error");
+    window.showToast(T("home.verify_error", "Erreur lors de la vérification. Réessayez."), "error");
     btn.disabled = false;
     btn.textContent = originalText;
   }
@@ -596,12 +604,12 @@ async function saveUserProfile(username, publicId) {
     updateAuthUI(currentUser);
     processData();
     renderAll();
-    window.showToast("Profil vérifié et enregistré avec succès ! Redirection…", "success");
+    window.showToast(T("home.profile_saved_redirect", "Profil vérifié et enregistré avec succès ! Redirection…"), "success");
     // Redirect to profile.html so user can see their freshly-linked stats
     setTimeout(() => { window.location.href = "profile.html"; }, 800);
   } catch (error) {
     console.error("Erreur sauvegarde profil:", error);
-    window.showToast("Erreur lors de la sauvegarde du profil.", "error");
+    window.showToast(T("home.profile_save_error", "Erreur lors de la sauvegarde du profil."), "error");
   }
 }
 
@@ -621,11 +629,11 @@ function setDiscordRedirecting(redirecting) {
   if (redirecting) {
     btn.disabled = true;
     btn.classList.add('is-redirecting');
-    if (label) label.textContent = 'Redirection vers Discord…';
+    if (label) label.textContent = T("home.discord_redirecting", "Redirection vers Discord…");
   } else {
     btn.disabled = false;
     btn.classList.remove('is-redirecting');
-    if (label) label.textContent = 'Continuer avec Discord';
+    if (label) label.textContent = T("auth.continue_discord", "Continuer avec Discord");
   }
 }
 
@@ -694,7 +702,7 @@ function updateAuthUI(user) {
 async function handleLogout(event) {
   if (event) event.stopPropagation();
   closeUserDropdown();
-  if (confirm("Voulez-vous vous déconnecter ?")) {
+  if (confirm(T("auth.logout_confirm", "Voulez-vous vous déconnecter ?"))) {
     await window.logout();
     currentUser = null;
     updateAuthUI(null);
@@ -792,7 +800,8 @@ function updateSubtitle() {
   const modeLabels = { solo: 'FFA', duos: 'Team Duos', trios: 'Team Trios', quads: 'Team Quads', hvn: 'Humans Vs Nations' };
   const minPlayers = currentMapSize === 'compact' ? '3+' : '10+';
   const bots = currentMapSize === 'compact' ? '100' : '400';
-  el.textContent = `Leaderboard ${modeLabels[currentGameMode] || 'FFA'} · ${minPlayers} joueurs · ${bots} bots · ${sizeLabel}`;
+  const mode = modeLabels[currentGameMode] || 'FFA';
+  el.textContent = TP("home.subtitle", { mode: mode, min: minPlayers, bots: bots, size: sizeLabel }, `Leaderboard ${mode} · ${minPlayers} joueurs · ${bots} bots · ${sizeLabel}`);
 }
 
 function toggleGameModeDropdown(event) {
@@ -997,7 +1006,7 @@ async function loadData(){
     // 2. Fetch réseau en arrière-plan (sans 'no-store' pour utiliser le cache HTTP 304 du navigateur)
     let runsRes = await fetch(dataFile);
     if (!runsRes.ok) runsRes = await fetch(fallbackGz);
-    if (!runsRes.ok) throw new Error("Impossible de récupérer les données");
+    if (!runsRes.ok) throw new Error(T("home.error_fetch", "Impossible de récupérer les données"));
     
     let data;
     try {
@@ -1030,14 +1039,14 @@ async function loadData(){
 
   } catch(e) {
     console.error("Erreur critique chargement:", e);
-    window.showToast("Mode hors-ligne : données réseau inaccessibles.", "warning", 6000);
+    window.showToast(T("home.offline_toast", "Mode hors-ligne : données réseau inaccessibles."), "warning", 6000);
     hideProgressBar();
     
     // Si on a pas de cache du tout, on affiche une erreur fatale
     const cachedData = await localDB.get(modeKey);
     if (!cachedData) {
       const modeLabel = currentMode === 'compact' ? 'compact' : 'normal';
-      document.getElementById("map-list").innerHTML=`<div class="error">Erreur: ${e.message}<br><small>Aucune donnée ${modeLabel} disponible pour le moment.</small></div>`;
+      document.getElementById("map-list").innerHTML=`<div class="error">${T("home.error_prefix", "Erreur: ")}${e.message}<br><small>${TP("home.error_no_data", { mode: modeLabel }, `Aucune donnée ${modeLabel} disponible pour le moment.`)}</small></div>`;
     }
   }
 }
@@ -1119,7 +1128,7 @@ async function autoRefresh(){
         if(rank===1) createConfetti();
 
         if(latest && Notification.permission==='granted'){
-          notifyNewRecord(latest.player+' a gagné sur '+latest.map+' !');
+          notifyNewRecord(TP("home.notif_new_win", { player: latest.player, map: latest.map }, latest.player+' a gagné sur '+latest.map+' !'));
         }
       }
     } else {
@@ -1127,7 +1136,7 @@ async function autoRefresh(){
     }
   }catch(e){
     console.error("[TheFrontHub] ❌ Erreur auto-refresh:", e);
-    window.showToast("Erreur de synchronisation automatique", "warning", 3000);
+    window.showToast(T("home.autosync_error", "Erreur de synchronisation automatique"), "warning", 3000);
   }
 }
 
@@ -1420,7 +1429,7 @@ function renderAll(){
   }
 }
 function updateStats(){
-  document.getElementById("stat-runs").textContent=totalRunsCount.toLocaleString("fr");
+  document.getElementById("stat-runs").textContent=totalRunsCount.toLocaleString(LOCALE());
   document.getElementById("stat-maps").textContent=allMaps.length;
   document.getElementById("stat-players").textContent=Object.keys(playerStats).length;
   const bt=allMaps.length?Math.min(...allMaps.map(m=>m.best)):0;
@@ -1445,7 +1454,7 @@ function updateLastUpdate(){
 function renderMaps(){
   const c=document.getElementById("map-list"),q=document.getElementById("map-search").value.toLowerCase();
   const f=q?allMaps.filter(m=>m.map.toLowerCase().includes(q) || getMapDisplayName(m.map).toLowerCase().includes(q)):allMaps;
-  if(!f.length){c.innerHTML='<div class="empty-state"><p>Aucune carte</p></div>';return}
+  if(!f.length){c.innerHTML='<div class="empty-state"><p>'+T("home.no_maps","Aucune carte")+'</p></div>';return}
   
   c.innerHTML=f.map(m=>`
       <div class="map-item ${activeMap===m.map?"active":""}" onclick="selectMap(${jsq(m.map)})">
@@ -1599,9 +1608,9 @@ function renderLeaderboard(d){
       <span id="gg-count-${esc(r.id)}">${ggCount > 0 ? ggCount : ''}</span>
     </button>`;
 
-    return '<div class="run-row '+isMeClass+'" style="cursor:pointer" onclick="showPlayer('+jsq(r.player)+')"><div class="run-rank '+rc+'">'+(i+1)+'</div><div class="run-player">'+nameHtml+diff+isNew+'</div><a class="run-replay" href="'+getRunUrl(r)+'" target="_blank" title="Voir le replay">&#9654;</a><div class="run-time">'+formatTime(r.duration_s)+'</div><div class="run-gap">'+gap+'</div>'+ggBtn+'</div>';
+    return '<div class="run-row '+isMeClass+'" style="cursor:pointer" onclick="showPlayer('+jsq(r.player)+')"><div class="run-rank '+rc+'">'+(i+1)+'</div><div class="run-player">'+nameHtml+diff+isNew+'</div><a class="run-replay" href="'+getRunUrl(r)+'" target="_blank" title="'+T("home.watch_replay","Voir le replay")+'">&#9654;</a><div class="run-time">'+formatTime(r.duration_s)+'</div><div class="run-gap">'+gap+'</div>'+ggBtn+'</div>';
   }).join("");
-  if(d.runs.length>show)html+='<button class="see-more-btn" onclick="seeMore(\''+esc(d.map)+'\')">Voir plus ('+(d.runs.length-show)+' restants)</button>';
+  if(d.runs.length>show)html+='<button class="see-more-btn" onclick="seeMore(\''+esc(d.map)+'\')">'+TP("home.see_more", { n: (d.runs.length-show) }, 'Voir plus ('+(d.runs.length-show)+' restants)')+'</button>';
   document.getElementById("leaderboard").innerHTML=html;
 }
 function seeMore(map){mapShowCount[map]=(mapShowCount[map]||10)+10;const d=allMaps.find(m=>m.map===map);if(d)renderLeaderboard(d)}
@@ -1610,7 +1619,7 @@ function shareMap(){
   const url=window.location.origin+window.location.pathname+'?map='+encodeURIComponent(activeMap);
   const b=document.getElementById('share-btn');
   const origHTML=b.innerHTML;
-  navigator.clipboard.writeText(url).then(()=>{b.innerHTML='<span>'+icon('check',{size:14})+' Copié !</span>';setTimeout(()=>b.innerHTML=origHTML,2000)});
+  navigator.clipboard.writeText(url).then(()=>{b.innerHTML='<span>'+icon('check',{size:14})+' '+T("home.copied","Copié !")+'</span>';setTimeout(()=>b.innerHTML=origHTML,2000)});
 }
 
 async function toggleGG(runId, event) {
@@ -1691,7 +1700,7 @@ function timeAgo(ts){
 function renderFeed(){
   const c=document.getElementById("feed-list");
   const recent=_recentRuns.slice(0,10);
-  if(!recent.length){c.innerHTML='<div class="empty-state"><p>Aucune victoire</p></div>';return}
+  if(!recent.length){c.innerHTML='<div class="empty-state"><p>'+T("home.no_wins","Aucune victoire")+'</p></div>';return}
   c.innerHTML=recent.map((r,i)=>{
     const mapData=allMaps.find(m=>m.map===r.map);
     const rank=mapData?mapData.runs.findIndex(x=>x.id===r.id)+1:0;
@@ -1705,13 +1714,13 @@ function renderFeed(){
     const nameHtml=parts.map(n=>
       '<span class="run-player-name'+skinClassFor(n)+'" onclick="event.stopPropagation();openPlayerProfile('+jsq(n)+')" title="'+esc(n)+'">'+esc(displayNameFor(n))+'</span>'
     ).join('<span class="run-team-sep">+</span>');
-    return '<div class="feed-item" style="cursor:pointer" onclick="showPlayer('+jsq(r.player)+')"><div class="feed-rank">'+(i+1)+'</div><div class="feed-info"><div class="feed-player">'+nameHtml+isNew+rankBadge+'</div><div class="feed-map">'+getMapDisplayName(r.map)+' · '+timeAgo(r.timestamp)+'</div></div><div class="feed-time">'+formatTime(r.duration_s)+'</div><a class="feed-replay" href="'+getRunUrl(r)+'" target="_blank" title="Voir le replay">&#9654;</a></div>';
+    return '<div class="feed-item" style="cursor:pointer" onclick="showPlayer('+jsq(r.player)+')"><div class="feed-rank">'+(i+1)+'</div><div class="feed-info"><div class="feed-player">'+nameHtml+isNew+rankBadge+'</div><div class="feed-map">'+getMapDisplayName(r.map)+' · '+timeAgo(r.timestamp)+'</div></div><div class="feed-time">'+formatTime(r.duration_s)+'</div><a class="feed-replay" href="'+getRunUrl(r)+'" target="_blank" title="'+T("home.watch_replay","Voir le replay")+'">&#9654;</a></div>';
   }).join("");
 }
 function renderGlobal(){
   const c=document.getElementById("global-list");
   if(!c) return; // Sécurité si l'élément n'existe pas
-  if(!globalLeaderboard.length){c.innerHTML='<div class="empty-state"><p>Aucun joueur</p></div>';return}
+  if(!globalLeaderboard.length){c.innerHTML='<div class="empty-state"><p>'+T("home.no_players","Aucun joueur")+'</p></div>';return}
   
   // Animate ranking changes
   if (previousGlobalLeaderboard.length > 0) {
@@ -1721,7 +1730,7 @@ function renderGlobal(){
   // Save current leaderboard for next comparison
   previousGlobalLeaderboard = globalLeaderboard.slice(0,50).map((p,i) => ({player: p.player, rank: i+1}));
   
-  c.innerHTML='<table class="global-table"><thead><tr><th>#</th><th>Joueur</th><th>Points</th><th>Victoires</th></tr></thead><tbody>'+
+  c.innerHTML='<table class="global-table"><thead><tr><th>#</th><th>'+T("ranked.th_player","Joueur")+'</th><th>'+T("compare.points","Points")+'</th><th>'+T("compare.wins","Victoires")+'</th></tr></thead><tbody>'+
     globalLeaderboard.slice(0,50).map((p,i)=>{
       const rc = i===0?'gold':i===1?'silver':i===2?'bronze':'';
       const isMeClass = p._isMe ? 'is-me' : '';
@@ -1740,7 +1749,7 @@ function renderGlobal(){
 }
 function renderHof(){
   const c=document.getElementById("hof-list");
-  if(globalLeaderboard.length<1){c.innerHTML='<div class="empty-state"><p>Pas encore de joueurs</p></div>';return}
+  if(globalLeaderboard.length<1){c.innerHTML='<div class="empty-state"><p>'+T("home.hof_empty","Pas encore de joueurs")+'</p></div>';return}
   c.innerHTML=globalLeaderboard.slice(0,3).map((p,i)=>{
     const rank=getRank(p.points);
     // Même logique que renderGlobal : pseudos membres cliquables → profil,
@@ -1749,7 +1758,7 @@ function renderHof(){
     const nameHtml=parts.map(n=>
       '<span class="hof-player-name'+skinClassFor(n)+'" onclick="event.stopPropagation();showPlayer('+jsq(n)+')" title="'+esc(n)+'">'+esc(displayNameFor(n))+'</span>'
     ).join('<span class="run-team-sep">+</span>');
-    return '<div class="hof-card hof-'+(i+1)+'"><div class="hof-name'+skinClassFor(p.player)+'" onclick="showPlayer('+jsq(p.player)+')">'+nameHtml+'</div><div class="hof-rank" style="color:'+rank.color+'">'+rank.name+'</div><div class="hof-pts">'+p.points+' pts</div><div class="hof-detail">'+p.golds+' 1er · '+p.silvers+' 2e · '+p.bronzes+' 3e</div></div>';
+    return '<div class="hof-card hof-'+(i+1)+'"><div class="hof-name'+skinClassFor(p.player)+'" onclick="showPlayer('+jsq(p.player)+')">'+nameHtml+'</div><div class="hof-rank" style="color:'+rank.color+'">'+rank.name+'</div><div class="hof-pts">'+p.points+' pts</div><div class="hof-detail">'+p.golds+' '+T("compare.gold","1er")+' · '+p.silvers+' '+T("compare.silver","2e")+' · '+p.bronzes+' '+T("compare.bronze","3e")+'</div></div>';
   }).join("");
 }
 function renderCompare(){
@@ -1870,7 +1879,7 @@ function showTeamStatsModal(name, p){
       hypothRank = '<span style="color:var(--text3);font-size:11px;margin-left:8px">' + window.t("ui.hypoth_rank", { rank: betterRuns + 1 }) + '</span>';
     }
     
-    return '<div class="player-run-row"><div class="player-run-map">'+getMapDisplayName(r.map)+'</div><div class="player-run-rank">#'+rank2+'</div><div class="player-run-time">'+formatTime(r.duration_s)+'</div><a class="run-replay" href="'+getRunUrl(r)+'" target="_blank" title="Voir le replay" style="width:26px;height:26px;font-size:11px">&#9654;</a></div>';
+    return '<div class="player-run-row"><div class="player-run-map">'+getMapDisplayName(r.map)+'</div><div class="player-run-rank">#'+rank2+'</div><div class="player-run-time">'+formatTime(r.duration_s)+'</div><a class="run-replay" href="'+getRunUrl(r)+'" target="_blank" title="'+T("home.watch_replay","Voir le replay")+'" style="width:26px;height:26px;font-size:11px">&#9654;</a></div>';
   }).join("");
 
   document.getElementById("player-modal").classList.add("active");
@@ -1885,8 +1894,8 @@ function switchTab(name,btn){
   // Update topbar title based on tab
   const topbarTitle = document.getElementById('topbar-title');
   if (topbarTitle) {
-    if (name === 'ranked') topbarTitle.textContent = 'Classé';
-    else if (name === 'maps') topbarTitle.textContent = 'Speedruns';
+    if (name === 'ranked') topbarTitle.textContent = T('nav.ranked', 'Classé');
+    else if (name === 'maps') topbarTitle.textContent = T('nav.maps', 'Speedruns');
   }
   if (name === 'ranked') loadRankedLeaderboard(true);
   document.querySelectorAll('.tab-btn').forEach(b=>{b.classList.remove('active');b.removeAttribute('aria-current');});
@@ -1986,7 +1995,7 @@ window.addEventListener('popstate', () => {
     const shareBtn = document.getElementById('share-btn');
     if (shareBtn) shareBtn.style.display = 'none';
     const titleEl = document.getElementById('content-title');
-    if (titleEl) titleEl.textContent = 'Sélectionnez une carte';
+    if (titleEl) titleEl.textContent = T("maps.select", "Sélectionnez une carte");
     const metaEl = document.getElementById('content-meta');
     if (metaEl) metaEl.textContent = '—';
     const lbEl = document.getElementById('leaderboard');
@@ -2016,17 +2025,17 @@ function shareCurrentView() {
   const origHTML = btn ? btn.innerHTML : null;
   navigator.clipboard.writeText(url).then(() => {
     if (btn) {
-      btn.innerHTML = '<span>✓ Copié !</span>';
+      btn.innerHTML = '<span>' + T("home.copied_check", "✓ Copié !") + '</span>';
       setTimeout(() => { if (btn) btn.innerHTML = origHTML; }, 2000);
     }
     if (typeof window.showToast === 'function') {
-      window.showToast('Lien copié dans le presse-papier !', 'success', 2000);
+      window.showToast(T("home.link_copied", "Lien copié dans le presse-papier !"), 'success', 2000);
     } else if (typeof showToast === 'function') {
-      window.showToast('Lien copié !', 'success', 2000);
+      window.showToast(T("home.link_copied_short", "Lien copié !"), 'success', 2000);
     }
   }).catch(() => {
     // Fallback: prompt the user to copy manually
-    window.prompt('Copiez ce lien :', url);
+    window.prompt(T("home.copy_prompt", "Copiez ce lien :"), url);
   });
 }
 window.shareCurrentView = shareCurrentView;
@@ -2144,7 +2153,7 @@ async function loadRankedLeaderboard(force = false) {
   }
   if (!force && window._rankedLoaded) return;
   
-  container.innerHTML = '<tr><td colspan="8" style="padding: 20px; text-align: center; color: var(--text3);">Chargement du classement...</td></tr>';
+  container.innerHTML = '<tr><td colspan="8" style="padding: 20px; text-align: center; color: var(--text3);">'+T("ranked.loading","Chargement du classement...")+'</td></tr>';
   
   try {
     console.log('[Ranked] Loading leaderboard...');
@@ -2202,7 +2211,7 @@ async function loadRankedLeaderboard(force = false) {
     console.log('[Ranked] Players loaded (' + mode + '):', players.length);
     
     if (players.length === 0) {
-      container.innerHTML = '<tr><td colspan="8" style="padding: 20px; text-align: center; color: var(--text3);">Aucun joueur classé pour le moment.</td></tr>';
+      container.innerHTML = '<tr><td colspan="8" style="padding: 20px; text-align: center; color: var(--text3);">'+T("ranked.no_players_yet","Aucun joueur classé pour le moment.")+'</td></tr>';
       return;
     }
     
@@ -2216,7 +2225,8 @@ async function loadRankedLeaderboard(force = false) {
     const updateEl = document.getElementById('ranked-last-update');
     if (updateEl && data.updatedAt) {
       const d = new Date(data.updatedAt);
-      updateEl.textContent = 'Màj : ' + d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      const formatted = d.toLocaleString(LOCALE(), { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      updateEl.textContent = TP("ranked.last_update", { time: formatted }, 'Màj : ' + formatted);
     }
     
     // Elo distribution
@@ -2238,7 +2248,7 @@ async function loadRankedLeaderboard(force = false) {
     
   } catch (err) {
     console.error("[Ranked] Erreur complète:", err);
-    container.innerHTML = `<tr><td colspan="8" style="padding: 20px; text-align: center; color: #ef4444;">Erreur lors du chargement du classement.</td></tr>`;
+    container.innerHTML = `<tr><td colspan="8" style="padding: 20px; text-align: center; color: #ef4444;">${T("ranked.load_error", "Erreur lors du chargement du classement.")}</td></tr>`;
   }
 }
 
@@ -2257,13 +2267,13 @@ function renderRankedStatsCards(players) {
   const totalGames = players.reduce((a, p) => a + p.total, 0);
   
   const el = document.getElementById('ranked-stat-players');
-  if (el) el.textContent = totalPlayers.toLocaleString('fr');
+  if (el) el.textContent = totalPlayers.toLocaleString(LOCALE());
   const el2 = document.getElementById('ranked-stat-avgelo');
-  if (el2) el2.textContent = avgElo.toLocaleString('fr');
+  if (el2) el2.textContent = avgElo.toLocaleString(LOCALE());
   const el3 = document.getElementById('ranked-stat-peakelo');
-  if (el3) el3.textContent = maxElo.toLocaleString('fr');
+  if (el3) el3.textContent = maxElo.toLocaleString(LOCALE());
   const el4 = document.getElementById('ranked-stat-games');
-  if (el4) el4.textContent = totalGames.toLocaleString('fr');
+  if (el4) el4.textContent = totalGames.toLocaleString(LOCALE());
 }
 
 function renderRankedTable(players) {
@@ -2272,7 +2282,7 @@ function renderRankedTable(players) {
 
   let html = '';
   if (!players || players.length === 0) {
-    container.innerHTML = '<tr><td colspan="9" style="padding: 20px; text-align: center; color: var(--text3);">Aucun joueur ne correspond aux filtres.</td></tr>';
+    container.innerHTML = '<tr><td colspan="9" style="padding: 20px; text-align: center; color: var(--text3);">'+T("ranked.no_match","Aucun joueur ne correspond aux filtres.")+'</td></tr>';
     return;
   }
 
@@ -2312,7 +2322,7 @@ function renderRankedTable(players) {
     const favStar = isFav ? icon('star',{size:14}) : icon('starOutline',{size:14});
     const favClass = isFav ? 'fav-star active' : 'fav-star';
     const favBtn = p.public_id
-      ? `<button class="${favClass}" onclick="event.stopPropagation();toggleFavorite(${jsq(p.public_id)},${jsq(p.username)})" title="${isFav ? 'Retirer des favoris' : 'Ajouter aux favoris'}" aria-label="${isFav ? 'Retirer des favoris' : 'Ajouter aux favoris'}">${favStar}</button>`
+      ? `<button class="${favClass}" onclick="event.stopPropagation();toggleFavorite(${jsq(p.public_id)},${jsq(p.username)})" title="${isFav ? T("ranked.fav_remove", "Retirer des favoris") : T("ranked.fav_add", "Ajouter aux favoris")}" aria-label="${isFav ? T("ranked.fav_remove", "Retirer des favoris") : T("ranked.fav_add", "Ajouter aux favoris")}">${favStar}</button>`
       : '';
 
     // Skin actif — matching par PUBLIC ID (prioritaire), fallback username
@@ -2372,7 +2382,7 @@ function renderNewcomersDropouts(data, mode = '1v1') {
   if (dropCard) dropCard.style.display = dropouts.length ? '' : 'none';
   
   if (newEl) {
-    if (newcomers.length === 0) newEl.innerHTML = '<div class="empty-state" style="padding:12px"><p style="font-size:12px;color:var(--muted)">Aucun nouveau cette fois</p></div>';
+    if (newcomers.length === 0) newEl.innerHTML = '<div class="empty-state" style="padding:12px"><p style="font-size:12px;color:var(--muted)">'+T("ranked.no_newcomers","Aucun nouveau cette fois")+'</p></div>';
     else {
       newEl.innerHTML = newcomers.map(n => {
         const nameClass = skinClassFor(n.username, n.public_id, n.accountUsername).trim();
@@ -2388,7 +2398,7 @@ function renderNewcomersDropouts(data, mode = '1v1') {
   }
   
   if (dropEl) {
-    if (dropouts.length === 0) dropEl.innerHTML = '<div class="empty-state" style="padding:12px"><p style="font-size:12px;color:var(--muted)">Aucun sortant cette fois</p></div>';
+    if (dropouts.length === 0) dropEl.innerHTML = '<div class="empty-state" style="padding:12px"><p style="font-size:12px;color:var(--muted)">'+T("ranked.no_dropouts","Aucun sortant cette fois")+'</p></div>';
     else {
       dropEl.innerHTML = dropouts.map(d => {
         const nameClass = skinClassFor(d.username, d.public_id, d.accountUsername).trim();
@@ -2413,7 +2423,7 @@ function renderMyRank(players) {
     container.innerHTML = `
       <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)">
         <span>${icon('user',{size:18})}</span>
-        <span>Connecte-toi et lie ton <b>Public ID OpenFront</b> pour voir ta position dans le classement.</span>
+        <span>${T("ranked.my_rank_login", "Connecte-toi et lie ton <b>Public ID OpenFront</b> pour voir ta position dans le classement.")}</span>
       </div>
     `;
     return;
@@ -2426,7 +2436,7 @@ function renderMyRank(players) {
     container.innerHTML = `
       <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)">
         <span>${icon('globe',{size:18})}</span>
-        <span>Tu n'es pas dans le <b>Top 100</b> actuel. Continue à grind !</span>
+        <span>${T("ranked.my_rank_not_top", "Tu n'es pas dans le <b>Top 100</b> actuel. Continue à grind !")}</span>
       </div>
     `;
     return;
@@ -2455,7 +2465,7 @@ function renderMyRank(players) {
         </div>
       </div>
       <button onclick="scrollToMyRank(${jsq(myPid)})" style="background:var(--accent);color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;transition:opacity 0.2s;white-space:nowrap" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
-        ${icon('target',{size:14})} Me trouver
+        ${icon('target',{size:14})} ${T("ranked.find_me", "Me trouver")}
       </button>
     </div>
   `;
@@ -2499,10 +2509,10 @@ function toggleFavorite(publicId, username) {
   const idx = list.indexOf(publicId);
   if (idx === -1) {
     list.push(publicId);
-    try { window.showToast((username || 'Joueur') + ' ajouté aux favoris', 'success', 4000, 'star'); } catch (e) {}
+    try { window.showToast(TP("ranked.fav_added", { name: (username || T("modal.player", "Joueur")) }, (username || 'Joueur') + ' ajouté aux favoris'), 'success', 4000, 'star'); } catch (e) {}
   } else {
     list.splice(idx, 1);
-    try { window.showToast((username || 'Joueur') + ' retiré des favoris', 'info', 4000, 'starOutline'); } catch (e) {}
+    try { window.showToast(TP("ranked.fav_removed", { name: (username || T("modal.player", "Joueur")) }, (username || 'Joueur') + ' retiré des favoris'), 'info', 4000, 'starOutline'); } catch (e) {}
   }
   saveFavorites(list);
   updateFavCounter();
@@ -2655,7 +2665,7 @@ function renderEloDistribution(players) {
   });
   
   const el = document.getElementById('ranked-elo-dist');
-  if (el) el.innerHTML = html || '<div class="empty-state">Aucune donnée</div>';
+  if (el) el.innerHTML = html || '<div class="empty-state">'+T("ranked.no_data","Aucune donnée")+'</div>';
 }
 
 function renderClanLeaderboard(players) {
@@ -2676,11 +2686,11 @@ function renderClanLeaderboard(players) {
   
   if (sorted.length === 0) {
     const el = document.getElementById('ranked-clan-list');
-    if (el) el.innerHTML = '<div class="empty-state" style="padding:20px">Aucun clan représenté</div>';
+    if (el) el.innerHTML = '<div class="empty-state" style="padding:20px">'+T("ranked.no_clans","Aucun clan représenté")+'</div>';
     return;
   }
   
-  let html = '<table style="width:100%;border-collapse:collapse;text-align:left;font-size:14px"><thead><tr style="border-bottom:1px solid var(--border);color:var(--text3)"><th style="padding:10px 8px">#</th><th style="padding:10px 8px">Clan</th><th style="padding:10px 8px">Membres</th><th style="padding:10px 8px">Elo moyen</th><th style="padding:10px 8px">Parties</th></tr></thead><tbody>';
+  let html = '<table style="width:100%;border-collapse:collapse;text-align:left;font-size:14px"><thead><tr style="border-bottom:1px solid var(--border);color:var(--text3)"><th style="padding:10px 8px">#</th><th style="padding:10px 8px">Clan</th><th style="padding:10px 8px">'+T("ranked.th_members","Membres")+'</th><th style="padding:10px 8px">'+T("ranked.th_avg_elo","Elo moyen")+'</th><th style="padding:10px 8px">'+T("ranked.th_games","Parties")+'</th></tr></thead><tbody>';
   sorted.forEach((c, i) => {
     html += `
       <tr style="border-bottom:1px solid var(--border-light)">
@@ -2688,7 +2698,7 @@ function renderClanLeaderboard(players) {
         <td style="padding:10px 8px;font-weight:600">[${esc(c.tag)}]</td>
         <td style="padding:10px 8px;font-family:JetBrains Mono,monospace">${c.members}</td>
         <td style="padding:10px 8px;font-family:JetBrains Mono,monospace;color:var(--accent);font-weight:700">${c.avgElo}</td>
-        <td style="padding:10px 8px;font-family:JetBrains Mono,monospace;color:var(--text3)">${c.totalGames.toLocaleString('fr')}</td>
+        <td style="padding:10px 8px;font-family:JetBrains Mono,monospace;color:var(--text3)">${c.totalGames.toLocaleString(LOCALE())}</td>
       </tr>
     `;
   });
@@ -2708,8 +2718,8 @@ async function showRankedPlayerModal(publicId, username) {
   // Skin actif — matching par PUBLIC ID (prioritaire), fallback username
   const rewardType = getRankedRewardType(publicId, username, null);
   nameEl.className = rewardType ? getSkin(rewardType).cssClass : '';
-  if (statsEl) statsEl.textContent = 'Chargement...';
-  if (gamesEl) gamesEl.innerHTML = '<div class="loading" style="padding:20px">Chargement...</div>';
+  if (statsEl) statsEl.textContent = T("ui.loading", "Chargement...");
+  if (gamesEl) gamesEl.innerHTML = '<div class="loading" style="padding:20px">'+T("ui.loading","Chargement...")+'</div>';
   if (modal) modal.classList.add('active');
   
   try {
@@ -2726,8 +2736,8 @@ async function showRankedPlayerModal(publicId, username) {
     }
     
     if (!pData || !pData.games) {
-      if (statsEl) statsEl.textContent = 'Aucune donnée disponible';
-      if (gamesEl) gamesEl.innerHTML = '<div class="empty-state" style="padding:20px"><p>Aucun historique trouvé</p></div>';
+      if (statsEl) statsEl.textContent = T("ranked.modal_no_data", "Aucune donnée disponible");
+      if (gamesEl) gamesEl.innerHTML = '<div class="empty-state" style="padding:20px"><p>'+T("ranked.modal_no_history","Aucun historique trouvé")+'</p></div>';
       return;
     }
     
@@ -2756,16 +2766,16 @@ async function showRankedPlayerModal(publicId, username) {
         else break;
       } else break;
     }
-    const streakText = streak > 0 ? `${icon('fire',{size:14})} Série: ${streak} victoires` : streak < 0 ? `${icon('snowflake',{size:14})} Série: ${Math.abs(streak)} défaites` : '';
+    const streakText = streak > 0 ? `${icon('fire',{size:14})} ${TP("ranked.streak_wins", { n: streak }, `Série: ${streak} victoires`)}` : streak < 0 ? `${icon('snowflake',{size:14})} ${TP("ranked.streak_losses", { n: Math.abs(streak) }, `Série: ${Math.abs(streak)} défaites`)}` : '';
     
     if (statsEl) {
       const wins = rankedGames.filter(g => g.hasWon).length;
       const losses = rankedGames.filter(g => g.hasWon === false).length;
-      statsEl.textContent = `${rankedGames.length} parties ${mode} · ${wins}V - ${losses}D${streakText ? ' · ' + streakText : ''}`;
+      statsEl.textContent = TP("ranked.modal_stats", { n: rankedGames.length, mode: mode, wins: wins, losses: losses, streak: streakText ? ' · ' + streakText : '' }, `${rankedGames.length} parties ${mode} · ${wins}V - ${losses}D${streakText ? ' · ' + streakText : ''}`);
     }
     
     if (rankedGames.length === 0) {
-      if (gamesEl) gamesEl.innerHTML = '<div class="empty-state" style="padding:20px"><p>Aucune partie classée ' + (window._rankedMode || '1v1') + ' trouvée</p></div>';
+      if (gamesEl) gamesEl.innerHTML = '<div class="empty-state" style="padding:20px"><p>' + TP("ranked.modal_no_ranked_games", { mode: (window._rankedMode || '1v1') }, 'Aucune partie classée ' + (window._rankedMode || '1v1') + ' trouvée') + '</p></div>';
       return;
     }
     
@@ -2793,8 +2803,8 @@ async function showRankedPlayerModal(publicId, username) {
           <div style="display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid var(--border-light);transition:background 0.2s" onmouseover="this.style.background='var(--card-hover)'" onmouseout="this.style.background='transparent'">
             <div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;color:#fff;background:${won ? '#10b981' : '#ef4444'}">${won ? 'W' : 'L'}</div>
             <div style="flex:1;min-width:0">
-              <div style="font-weight:600;font-size:14px;color:var(--text)">vs ${esc(opponent?.username || opponent?.displayName || 'Inconnu')}</div>
-              <div style="font-size:12px;color:var(--muted)">${esc(g.map || '—')} · ${g.start ? new Date(g.start).toLocaleDateString('fr-FR') : '—'}</div>
+              <div style="font-weight:600;font-size:14px;color:var(--text)">vs ${esc(opponent?.username || opponent?.displayName || T("modal.unknown", "Inconnu"))}</div>
+              <div style="font-size:12px;color:var(--muted)">${esc(g.map || '—')} · ${g.start ? new Date(g.start).toLocaleDateString(LOCALE()) : '—'}</div>
             </div>
             <a href="https://openfront.io/game/${encodeURIComponent(g.gameId)}" target="_blank" rel="noopener" style="width:28px;height:28px;border-radius:8px;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--muted);text-decoration:none;font-size:10px;transition:all 0.25s" onmouseover="this.style.background='var(--orange)';this.style.color='#fff'" onmouseout="this.style.background='var(--bg)';this.style.color='var(--muted)'">▶</a>
           </div>
@@ -2804,12 +2814,12 @@ async function showRankedPlayerModal(publicId, username) {
       }
     }
     
-    if (gamesEl) gamesEl.innerHTML = html || '<div class="empty-state" style="padding:20px"><p>Impossible de charger les détails</p></div>';
+    if (gamesEl) gamesEl.innerHTML = html || '<div class="empty-state" style="padding:20px"><p>'+T("ranked.modal_details_error","Impossible de charger les détails")+'</p></div>';
     
   } catch (err) {
     console.error('[Ranked] Erreur historique:', err);
-    if (statsEl) statsEl.textContent = 'Erreur de chargement';
-    if (gamesEl) gamesEl.innerHTML = `<div class="empty-state" style="padding:20px"><p style="color:#ef4444">Erreur API (CORS probable). Essayez en local.</p></div>`;
+    if (statsEl) statsEl.textContent = T("ranked.modal_load_error", "Erreur de chargement");
+    if (gamesEl) gamesEl.innerHTML = `<div class="empty-state" style="padding:20px"><p style="color:#ef4444">${T("ranked.modal_api_error", "Erreur API (CORS probable). Essayez en local.")}</p></div>`;
   }
 }
 

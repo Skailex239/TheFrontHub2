@@ -16,6 +16,16 @@
 (function () {
   "use strict";
 
+  /* ── i18n (moteur global i18n.js — clés cw.* dans i18n-dict-support.js) ──
+     T(k, fb) : traduit via window.t, retombe sur le texte FR si i18n absent.
+     TK : retombe AUSSI sur le fallback quand la clé manque du dictionnaire
+     (pages ne chargeant pas i18n-dict-support.js → window.t renverrait la clé). */
+  const T = (k, fb) => (typeof window.t === "function" ? window.t(k) : fb);
+  const TK = (k, fb) => {
+    const v = T(k, fb);
+    return v === k || v == null ? fb : v;
+  };
+
   /* ── Réglages ─────────────────────────────────────────────────────────── */
   var API           = "/api/chat.php";
   var LS_LASTID     = "tfh:chatwidget:lastid";
@@ -76,7 +86,7 @@
     bubble.type = "button";
     bubble.id = "tfh-cw-bubble";
     bubble.className = "tfh-cw-bubble";
-    bubble.setAttribute("aria-label", "Ouvrir le chat avec l'équipe");
+    bubble.setAttribute("aria-label", TK("cw.bubble_aria", "Ouvrir le chat avec l'équipe"));
     bubble.setAttribute("aria-expanded", "false");
     bubble.innerHTML =
       '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
@@ -107,17 +117,17 @@
     panel.id = "tfh-cw-panel";
     panel.className = "tfh-cw-panel";
     panel.setAttribute("role", "dialog");
-    panel.setAttribute("aria-label", "Chat avec l'équipe");
+    panel.setAttribute("aria-label", TK("cw.panel_aria", "Chat avec l'équipe"));
     panel.hidden = true;
 
     panel.innerHTML =
       '<div class="tfh-cw-head">' +
         '<div class="tfh-cw-head-txt">' +
-          '<div class="tfh-cw-title">Chat avec l\u2019équipe</div>' +
-          '<div class="tfh-cw-status"><span class="tfh-cw-dot" aria-hidden="true"></span>L\u2019équipe répond en direct</div>' +
+          '<div class="tfh-cw-title">' + TK("cw.title", "Chat avec l\u2019équipe") + "</div>" +
+          '<div class="tfh-cw-status"><span class="tfh-cw-dot" aria-hidden="true"></span>' + TK("cw.status", "L\u2019équipe répond en direct") + "</div>" +
         "</div>" +
         '<span class="tfh-cw-me" hidden></span>' +
-        '<button type="button" class="tfh-cw-min" aria-label="Réduire le chat" title="Réduire">' +
+        '<button type="button" class="tfh-cw-min" aria-label="' + TK("cw.min_aria", "Réduire le chat") + '" title="' + TK("cw.min_title", "Réduire") + '">' +
           '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/></svg>' +
         "</button>" +
       "</div>" +
@@ -127,12 +137,12 @@
         '<svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
           '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>' +
         "</svg>" +
-        '<p class="tfh-cw-gate-txt">Connecte-toi avec Discord pour discuter avec l\u2019équipe</p>' +
-        '<button type="button" class="tfh-cw-login">Se connecter</button>' +
+        '<p class="tfh-cw-gate-txt">' + TK("cw.gate_text", "Connecte-toi avec Discord pour discuter avec l\u2019équipe") + "</p>" +
+        '<button type="button" class="tfh-cw-login">' + TK("cw.login", "Se connecter") + "</button>" +
       "</div>" +
       '<form class="tfh-cw-composer">' +
-        '<textarea class="tfh-cw-input" rows="1" maxlength="2000" placeholder="Écris ton message…" aria-label="Ton message"></textarea>' +
-        '<button type="submit" class="tfh-cw-send" aria-label="Envoyer le message">' +
+        '<textarea class="tfh-cw-input" rows="1" maxlength="2000" placeholder="' + TK("cw.placeholder", "Écris ton message…") + '" aria-label="' + TK("cw.input_aria", "Ton message") + '"></textarea>' +
+        '<button type="submit" class="tfh-cw-send" aria-label="' + TK("cw.send_aria", "Envoyer le message") + '">' +
           '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>' +
         "</button>" +
       "</form>";
@@ -214,14 +224,14 @@
     authed = false;
     setComposerEnabled(false);
     showError("");
-    setLoader("Connexion au chat…");
+    setLoader(TK("cw.connecting", "Connexion au chat…"));
 
     apiGet("action=state").then(function (res) {
       if (res.status === 401) { showGate(); return null; }
       return res.json();
     }).then(function (data) {
       if (!data) return;                       // gate affiché
-      if (!data.ok) { showError("Chat indisponible pour le moment."); setLoader(""); return; }
+      if (!data.ok) { showError(TK("cw.err_unavailable", "Chat indisponible pour le moment.")); setLoader(""); return; }
 
       authed = true;
       meName = (data.me && data.me.name) || "";
@@ -240,7 +250,7 @@
       }).catch(function () { /* silencieux — retry au prochain tick */ });
     }).catch(function () {
       clearLoader();
-      showError("Connexion impossible — vérifie ta connexion internet.");
+      showError(TK("cw.err_network", "Connexion impossible — vérifie ta connexion internet."));
     });
   }
 
@@ -423,9 +433,9 @@
       if (ta && !ta.value) { ta.value = content; autoResize(); }
     }
     if (typeof window.showToast === "function") {
-      window.showToast("Message non envoyé — vérifie ta connexion.", "error");
+      window.showToast(TK("cw.err_send_toast", "Message non envoyé — vérifie ta connexion."), "error");
     } else {
-      showError("Message non envoyé — réessaie.");
+      showError(TK("cw.err_send_panel", "Message non envoyé — réessaie."));
     }
   }
 

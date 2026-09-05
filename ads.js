@@ -26,6 +26,18 @@
 
 const ADSENSE_CLIENT_ID = "ca-pub-2991878097014222";
 
+/* ═════════════════════════════════════════════════════════════════════
+   MASTER SWITCH — INTERRUPTEUR GLOBAL DES PUBLICITÉS
+   ───────────────────────────────────────────────────────────────────
+   false = AUCUN emplacement injecté, AUCUN script AdSense chargé
+           (état actuel : pas encore d'annonces réelles — les slots vides
+           faisaient clignoter des cadres « Publicité » vides pendant
+           les 3 premières secondes de chaque page).
+   true  = réinjecte les emplacements + charge AdSense (quand le compte
+           AdSense sera validé avec de vrais IDs de slots).
+   ══════════════════════════════════════════════════════════════════ */
+const ADS_ENABLED = false;
+
 // Pages où on ne veut PAS de pubs (par défaut, on en met partout)
 // ex : ["/lobby.html"] pour pas polluer le lobby temps réel
 const PAGES_SANS_PUB = ["/profile.html"];
@@ -35,6 +47,12 @@ const PAGES_SANS_PUB = ["/profile.html"];
 // ─────────────────────────────────────────────────────────────────────────────
 
 (function initAds() {
+  // Interrupteur global : rien du tout tant que ADS_ENABLED est false
+  if (!ADS_ENABLED) {
+    console.log("[ads] Publicités désactivées (ADS_ENABLED = false)");
+    return;
+  }
+
   // Ne rien faire si on est sur une page sans pub
   const path = window.location.pathname;
   if (PAGES_SANS_PUB.includes(path)) {
@@ -222,6 +240,8 @@ function scheduleCollapseCheck(wrapper, ins, id) {
       console.log("[ads] slot non rempli → replié:", id);
     } else {
       wrapper.classList.remove("ad-collapsed");
+      // Anti-flash (ads.css) : le slot ne devient visible qu'une fois rempli
+      wrapper.classList.add("ad-has-filled");
     }
   };
 

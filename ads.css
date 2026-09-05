@@ -33,6 +33,13 @@
   display: none;
 }
 
+/* Anti-flash : un slot n'apparaît QU'UNE FOIS la pub réellement rendue.
+   AdSense pose data-ad-status="filled" sur le <ins> quand une annonce est
+   servie ; avant ça (ou si le JS de check n'a pas encore tourné), le slot
+   reste invisible → plus aucun cadre « Publicité » vide qui clignote. */
+.ad-slot:not(.ad-has-filled) { visibility: hidden; }
+.ad-slot.ad-has-filled { visibility: visible; }
+
 /* Transition douce si la pub arrive tard (2e check à 6s) */
 .ad-slot {
   transition: min-height 0.3s ease, opacity 0.3s ease;

@@ -46,6 +46,7 @@ json_out([
         'email'            => $user['email'],
         'emailVerified'    => (bool) $user['email_verified'],
         'locale'           => $user['locale'],
+        'language'         => ($user['language'] ?? null) === 'en' ? 'en' : 'fr',
         'role'             => $user['role'],
         'isAdmin'          => $user['role'] === 'admin',
         'discordCreatedAt' => $user['discord_created_at'],

@@ -112,6 +112,12 @@ async function fetchMe() {
   }
   _currentUser = _meRaw ? mapFirebaseUser(_meRaw) : null;
   _stateReady = true;
+  // Langue du compte : si le compte a une préférence enregistrée (choix fait
+  // à l'inscription ou via les drapeaux) et que cet appareil n'a AUCUN choix
+  // local, on applique la langue du compte (sans reload — DOM déjà prêt).
+  if (_meRaw && typeof window.applyAccountLanguage === "function") {
+    try { window.applyAccountLanguage(_meRaw.language || null); } catch {}
+  }
   notifyAuthListeners();
   return _currentUser;
 }

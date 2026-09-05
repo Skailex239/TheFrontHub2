@@ -7,18 +7,28 @@
 // Backend : api/support.php (tickets + messages en MySQL, session Discord
 // obligatoire). Notifications mail best-effort côté serveur.
 
+/* ═══ i18n (moteur global i18n.js — dictionnaire : i18n-dict-support.js) ═══
+   T(clé, fallback) : traduit via window.t, retombe sur le texte FR sinon.
+   TP(clé, params, fallback) : idem avec substitution {param}. */
+const T = (k, fb) => (typeof window.t === "function" ? window.t(k) : fb);
+const TP = (k, params, fb) => {
+  if (typeof window.t !== "function") return fb;
+  const v = window.t(k, params);
+  return v && v !== k ? v : fb;
+};
+
 const SUP_CATEGORIES = [
-  { key: "question",     label: "Question" },
-  { key: "bug",          label: "Bug / Problème" },
-  { key: "signalement",  label: "Signalement" },
-  { key: "idee",         label: "Idée / Suggestion" },
-  { key: "autre",        label: "Autre" },
+  { key: "question",     tkey: "sup.cat_question",     label: "Question" },
+  { key: "bug",          tkey: "sup.cat_bug",          label: "Bug / Problème" },
+  { key: "signalement",  tkey: "sup.cat_signalement",  label: "Signalement" },
+  { key: "idee",         tkey: "sup.cat_idee",         label: "Idée / Suggestion" },
+  { key: "autre",        tkey: "sup.cat_autre",        label: "Autre" },
 ];
 
 const SUP_STATUS = {
-  open:     { label: "Ouvert",   cls: "open" },
-  answered: { label: "Répondu",  cls: "answered" },
-  closed:   { label: "Fermé",    cls: "closed" },
+  open:     { tkey: "sup.status_open",     label: "Ouvert",   cls: "open" },
+  answered: { tkey: "sup.status_answered", label: "Répondu",  cls: "answered" },
+  closed:   { tkey: "sup.status_closed",   label: "Fermé",    cls: "closed" },
 };
 
 // Logo Discord — même path que le footer (support.html)
@@ -33,50 +43,52 @@ const SUP_ARROW_SVG = `<svg viewBox="0 0 24 24" width="15" height="15" fill="non
 // contenu utilisateur → pas d'échappement nécessaire ici).
 const SUP_FAQ = [
   {
+    qk: "sup.faq1_q",
     q: "Comment se connecter à TheFrontHub ?",
-    a: `Un seul clic : clique sur « Connexion » puis « Continuer avec Discord ».
-        Aucun mot de passe, aucun email — ta session Discord fait tout.`,
+    ak: "sup.faq1_a",
+    a: `Un seul clic : clique sur « Connexion » puis « Continuer avec Discord ». Aucun mot de passe, aucun email — ta session Discord fait tout.`,
   },
   {
+    qk: "sup.faq2_q",
     q: "Comment sont calculés les points classés ?",
-    a: `Les points se gagnent sur tes victoires en classé 1v1 et 2v2, selon ta
-        place finale dans la partie. Plus tu finis haut, plus tu gagnes.`,
+    ak: "sup.faq2_a",
+    a: `Les points se gagnent sur tes victoires en classé 1v1 et 2v2, selon ta place finale dans la partie. Plus tu finis haut, plus tu gagnes.`,
   },
   {
+    qk: "sup.faq3_q",
     q: "À quelle fréquence les classements sont-ils mis à jour ?",
-    a: `Automatiquement et régulièrement, à partir des données officielles
-        d'OpenFront.io. Si ton rang ne bouge pas, c'est que ta dernière partie
-        n'a pas encore été synchronisée.`,
+    ak: "sup.faq3_a",
+    a: `Automatiquement et régulièrement, à partir des données officielles d'OpenFront.io. Si ton rang ne bouge pas, c'est que ta dernière partie n'a pas encore été synchronisée.`,
   },
   {
+    qk: "sup.faq4_q",
     q: "Comment participer aux tournois ?",
-    a: `Rends-toi sur la <a href="tournois.html">page Tournois</a> : les
-        inscriptions sont ouvertes jusqu'à la date de lancement indiquée.
-        Les annonces passent aussi sur le
-        <a href="https://discord.gg/AZhmqRvbNh" target="_blank" rel="noreferrer" aria-label="Discord TheFrontHub (nouvel onglet)">Discord</a>.`,
+    ak: "sup.faq4_a",
+    a: `Rends-toi sur la <a href="tournois.html">page Tournois</a> : les inscriptions sont ouvertes jusqu'à la date de lancement indiquée. Les annonces passent aussi sur le <a href="https://discord.gg/AZhmqRvbNh" target="_blank" rel="noreferrer" aria-label="Discord TheFrontHub (nouvel onglet)">Discord</a>.`,
   },
   {
+    qk: "sup.faq5_q",
     q: "Comment signaler un bug ou un joueur ?",
-    a: `Ouvre un ticket avec le formulaire ci-dessous, catégorie « Bug / Problème »
-        ou « Signalement ». Décris précisément (pseudos, dates, ce qui s'est
-        passé) — l'équipe te répond ici et par email.`,
+    ak: "sup.faq5_a",
+    a: `Ouvre un ticket avec le formulaire ci-dessous, catégorie « Bug / Problème » ou « Signalement ». Décris précisément (pseudos, dates, ce qui s'est passé) — l'équipe te répond ici et par email.`,
   },
   {
+    qk: "sup.faq6_q",
     q: "Comment proposer une idée ?",
-    a: `Ouvre un ticket catégorie « Idée / Suggestion », ou viens en discuter sur
-        le <a href="https://discord.gg/AZhmqRvbNh" target="_blank" rel="noreferrer" aria-label="Discord TheFrontHub (nouvel onglet)">Discord</a>.
-        Les idées de la communauté façonnent les prochaines mises à jour.`,
+    ak: "sup.faq6_a",
+    a: `Ouvre un ticket catégorie « Idée / Suggestion », ou viens en discuter sur le <a href="https://discord.gg/AZhmqRvbNh" target="_blank" rel="noreferrer" aria-label="Discord TheFrontHub (nouvel onglet)">Discord</a>. Les idées de la communauté façonnent les prochaines mises à jour.`,
   },
   {
+    qk: "sup.faq7_q",
     q: "Comment supprimer mon compte ou mes données ?",
-    a: `Envoie ta demande par email à
-        <a href="mailto:support@thefronthub.com">support@thefronthub.com</a> :
-        ton compte et tes données personnelles seront supprimés.`,
+    ak: "sup.faq7_a",
+    a: `Envoie ta demande par email à <a href="mailto:support@thefronthub.com">support@thefronthub.com</a> : ton compte et tes données personnelles seront supprimés.`,
   },
   {
+    qk: "sup.faq8_q",
     q: "Le site est-il officiel d'OpenFront.io ?",
-    a: `Non — TheFrontHub est un projet communautaire réalisé par des fans,
-        sans aucune affiliation avec OpenFront.io.`,
+    ak: "sup.faq8_a",
+    a: `Non — TheFrontHub est un projet communautaire réalisé par des fans, sans aucune affiliation avec OpenFront.io.`,
   },
 ];
 
@@ -103,11 +115,12 @@ function esc(s) {
 
 function fmtDate(mysqlDate) {
   if (!mysqlDate) return "—";
-  // "YYYY-MM-DD HH:MM:SS" (heure serveur) → affichage local
+  // "YYYY-MM-DD HH:MM:SS" (heure serveur) → affichage local (langue courante)
   const d = new Date(String(mysqlDate).replace(" ", "T") + (String(mysqlDate).includes("+") ? "" : "Z"));
   if (Number.isNaN(d.getTime())) return String(mysqlDate);
-  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }) +
-    " · " + d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  const locale = (typeof window !== "undefined" && window.currentLanguage === "en") ? "en-GB" : "fr-FR";
+  return d.toLocaleDateString(locale, { day: "2-digit", month: "short", year: "numeric" }) +
+    " · " + d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
 }
 
 function toast(msg, type = "info", duration = 4000, icon = undefined) {
@@ -115,11 +128,17 @@ function toast(msg, type = "info", duration = 4000, icon = undefined) {
 }
 
 function categoryLabel(key) {
-  return SUP_CATEGORIES.find((c) => c.key === key)?.label || key || "Autre";
+  const c = SUP_CATEGORIES.find((cat) => cat.key === key);
+  if (c) return T(c.tkey, c.label);
+  return key || T("sup.cat_autre", "Autre");
 }
 
 function statusMeta(status) {
   return SUP_STATUS[status] || SUP_STATUS.open;
+}
+
+function statusLabel(st) {
+  return T(st.tkey, st.label);
 }
 
 /* Chat en direct : widget global posé par dist/chat-widget.min.js (agent 4-c).
@@ -134,7 +153,7 @@ function openLiveChat() {
       console.warn("[support] TfhChatWidget.open() a échoué :", err);
     }
   }
-  const msg = "Chat en direct bientôt disponible — écris-nous via le formulaire ou sur le Discord en attendant.";
+  const msg = T("sup.chat_soon", "Chat en direct bientôt disponible — écris-nous via le formulaire ou sur le Discord en attendant.");
   if (typeof window.showToast === "function") {
     toast(msg, "info", 6000, "info");
   } else {
@@ -173,7 +192,7 @@ async function loadTickets() {
     if (state.scope === "all" && !state.isAdmin) state.scope = "mine";
     state.tickets = Array.isArray(data.tickets) ? data.tickets : [];
   } catch {
-    toast("Impossible de charger tes conversations, réessaie", "error");
+    toast(T("sup.err_load", "Impossible de charger tes conversations, réessaie"), "error");
     state.tickets = [];
   }
   state.loading = false;
@@ -193,7 +212,7 @@ async function loadThread(id) {
     state.isAdmin = !!data.is_admin;
     state.thread = { ticket: data.ticket, messages: data.messages || [] };
   } catch {
-    toast("Impossible d'ouvrir cette conversation", "error");
+    toast(T("sup.err_thread", "Impossible d'ouvrir cette conversation"), "error");
     state.activeId = null;
   }
   renderThread();
@@ -217,17 +236,17 @@ async function createTicket(payload) {
       return;
     }
     if (!res.ok) {
-      toast(data.message || "Envoi impossible — vérifie ton message et réessaie", "error", 5000);
+      toast(data.message || T("sup.err_send", "Envoi impossible — vérifie ton message et réessaie"), "error", 5000);
       return;
     }
-    toast("Message envoyé à l'équipe ✅ Tu recevras une réponse ici (et par email si renseigné).", "success", 6000, "checkCircle");
+    toast(T("sup.ok_sent", "Message envoyé à l'équipe ✅ Tu recevras une réponse ici (et par email si renseigné)."), "success", 6000, "checkCircle");
     document.getElementById("sup-subject").value = "";
     document.getElementById("sup-message").value = "";
     document.getElementById("sup-category").value = "question";
     await loadTickets();
     if (data.ticket_id) await loadThread(data.ticket_id);
   } catch {
-    toast("Erreur réseau — réessaie", "error");
+    toast(T("sup.err_network", "Erreur réseau — réessaie"), "error");
   } finally {
     state.sending = false;
     renderForm();
@@ -247,13 +266,13 @@ async function replyTicket(id, message) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      toast(data.message || "Envoi impossible, réessaie", "error", 5000);
+      toast(data.message || T("sup.err_reply", "Envoi impossible, réessaie"), "error", 5000);
       return;
     }
-    toast("Réponse envoyée", "success", 3000, "checkCircle");
+    toast(T("sup.ok_reply", "Réponse envoyée"), "success", 3000, "checkCircle");
     await Promise.all([loadThread(id), loadTickets()]);
   } catch {
-    toast("Erreur réseau — réessaie", "error");
+    toast(T("sup.err_network", "Erreur réseau — réessaie"), "error");
   } finally {
     state.sending = false;
     renderThread();
@@ -269,10 +288,10 @@ async function closeTicket(id) {
       body: JSON.stringify({ action: "close", ticket_id: id }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    toast("Conversation fermée", "info", 3000);
+    toast(T("sup.ok_closed", "Conversation fermée"), "info", 3000);
     await Promise.all([loadThread(id), loadTickets()]);
   } catch {
-    toast("Impossible de fermer la conversation", "error");
+    toast(T("sup.err_close", "Impossible de fermer la conversation"), "error");
   }
 }
 
@@ -287,54 +306,52 @@ function render() {
     v.innerHTML = `
       <div class="sup-gate">
         <div class="sup-gate-icon"><i data-icon="lifebuoy" data-icon-size="34"></i></div>
-        <h2>Besoin d'aide ? Contacte l'équipe</h2>
-        <p>Connecte-toi avec Discord pour ouvrir un ticket de support,
-        suivre tes conversations et recevoir les réponses de l'équipe
-        ici et par email.</p>
-        <button type="button" class="sup-btn sup-btn-primary" onclick="toggleAuthModal()">Connexion avec Discord</button>
+        <h2>${T("sup.gate_title", "Besoin d'aide ? Contacte l'équipe")}</h2>
+        <p>${T("sup.gate_text", "Connecte-toi avec Discord pour ouvrir un ticket de support, suivre tes conversations et recevoir les réponses de l'équipe ici et par email.")}</p>
+        <button type="button" class="sup-btn sup-btn-primary" onclick="toggleAuthModal()">${T("sup.gate_login", "Connexion avec Discord")}</button>
       </div>`;
     return;
   }
   v.innerHTML = `
-    <div class="sup-canals" aria-label="Canaux de contact">
+    <div class="sup-canals" aria-label="${T("sup.canals_aria", "Canaux de contact")}">
       <article class="sup-canal">
         <span class="sup-canal-icon" aria-hidden="true">${SUP_DISCORD_SVG}</span>
-        <h3 class="sup-canal-title">Rejoindre le Discord TheFrontHub</h3>
-        <p class="sup-canal-desc">La communauté et l'équipe en direct : entraide, annonces et tournois.</p>
-        <a class="sup-canal-cta sup-canal-cta-primary" href="https://discord.gg/AZhmqRvbNh" target="_blank" rel="noreferrer" aria-label="Rejoindre le Discord TheFrontHub (nouvel onglet)">
-          Rejoindre le Discord ${SUP_ARROW_SVG}
+        <h3 class="sup-canal-title">${T("sup.canal_discord_title", "Rejoindre le Discord TheFrontHub")}</h3>
+        <p class="sup-canal-desc">${T("sup.canal_discord_desc", "La communauté et l'équipe en direct : entraide, annonces et tournois.")}</p>
+        <a class="sup-canal-cta sup-canal-cta-primary" href="https://discord.gg/AZhmqRvbNh" target="_blank" rel="noreferrer" aria-label="${T("sup.canal_discord_aria", "Rejoindre le Discord TheFrontHub (nouvel onglet)")}">
+          ${T("sup.canal_discord_cta", "Rejoindre le Discord")} ${SUP_ARROW_SVG}
         </a>
       </article>
 
       <article class="sup-canal">
         <span class="sup-canal-icon" aria-hidden="true"><i data-icon="mail" data-icon-size="20"></i></span>
-        <h3 class="sup-canal-title">Email support@thefronthub.com</h3>
-        <p class="sup-canal-desc">Pour toute demande officielle — réponse sous 48 h.</p>
-        <a class="sup-canal-cta" href="mailto:support@thefronthub.com" aria-label="Envoyer un email à support@thefronthub.com">
-          Écrire un email ${SUP_ARROW_SVG}
+        <h3 class="sup-canal-title">${T("sup.canal_email_title", "Email support@thefronthub.com")}</h3>
+        <p class="sup-canal-desc">${T("sup.canal_email_desc", "Pour toute demande officielle — réponse sous 48 h.")}</p>
+        <a class="sup-canal-cta" href="mailto:support@thefronthub.com" aria-label="${T("sup.canal_email_aria", "Envoyer un email à support@thefronthub.com")}">
+          ${T("sup.canal_email_cta", "Écrire un email")} ${SUP_ARROW_SVG}
         </a>
       </article>
 
       <article class="sup-canal">
         <span class="sup-canal-icon" aria-hidden="true">${SUP_CHAT_SVG}</span>
-        <h3 class="sup-canal-title">Chat en direct</h3>
-        <p class="sup-canal-desc">Discute en direct avec l'équipe.</p>
-        <button type="button" class="sup-canal-cta sup-chat-open" aria-label="Ouvrir le chat en direct avec l'équipe">
-          Ouvrir le chat ${SUP_ARROW_SVG}
+        <h3 class="sup-canal-title">${T("sup.canal_chat_title", "Chat en direct")}</h3>
+        <p class="sup-canal-desc">${T("sup.canal_chat_desc", "Discute en direct avec l'équipe.")}</p>
+        <button type="button" class="sup-canal-cta sup-chat-open" aria-label="${T("sup.canal_chat_aria", "Ouvrir le chat en direct avec l'équipe")}">
+          ${T("sup.canal_chat_cta", "Ouvrir le chat")} ${SUP_ARROW_SVG}
         </button>
       </article>
     </div>
 
     <section class="sup-faq" aria-labelledby="sup-faq-title">
-      <h2 id="sup-faq-title" class="sup-title"><i data-icon="info" data-icon-size="16"></i> Questions fréquentes</h2>
+      <h2 id="sup-faq-title" class="sup-title"><i data-icon="info" data-icon-size="16"></i> ${T("sup.faq_title", "Questions fréquentes")}</h2>
       <div class="sup-faq-list">
         ${SUP_FAQ.map((f) => `
         <details class="sup-faq-item">
           <summary>
-            <span class="sup-faq-q">${f.q}</span>
+            <span class="sup-faq-q">${T(f.qk, f.q)}</span>
             <svg class="sup-faq-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><polyline points="6 9 12 15 18 9"/></svg>
           </summary>
-          <div class="sup-faq-body"><p>${f.a}</p></div>
+          <div class="sup-faq-body"><p>${T(f.ak, f.a)}</p></div>
         </details>`).join("")}
       </div>
     </section>
@@ -342,23 +359,23 @@ function render() {
     <div class="sup-grid">
       <div class="sup-left">
         <section class="sup-card sup-new" aria-labelledby="sup-new-title">
-          <h2 id="sup-new-title" class="sup-title"><i data-icon="mail" data-icon-size="16"></i> Contacter l'équipe</h2>
-          <p class="sup-new-sub">Une question, un bug, une idée ? Écris-nous — on te répond ici et par email.</p>
+          <h2 id="sup-new-title" class="sup-title"><i data-icon="mail" data-icon-size="16"></i> ${T("sup.form_title", "Contacter l'équipe")}</h2>
+          <p class="sup-new-sub">${T("sup.form_sub", "Une question, un bug, une idée ? Écris-nous — on te répond ici et par email.")}</p>
           <form id="sup-form" novalidate>
-            <label class="sup-label" for="sup-category">Catégorie</label>
+            <label class="sup-label" for="sup-category">${T("sup.label_category", "Catégorie")}</label>
             <select id="sup-category" class="sup-input" required>
-              ${SUP_CATEGORIES.map((c) => `<option value="${c.key}">${esc(c.label)}</option>`).join("")}
+              ${SUP_CATEGORIES.map((c) => `<option value="${c.key}">${esc(T(c.tkey, c.label))}</option>`).join("")}
             </select>
-            <label class="sup-label" for="sup-subject">Sujet</label>
+            <label class="sup-label" for="sup-subject">${T("sup.label_subject", "Sujet")}</label>
             <input id="sup-subject" class="sup-input" type="text" maxlength="140" minlength="4"
-                   placeholder="Ex. : récompense tournoi non reçue" required autocomplete="off">
-            <label class="sup-label" for="sup-message">Message</label>
+                   placeholder="${T("sup.placeholder_subject", "Ex. : récompense tournoi non reçue")}" required autocomplete="off">
+            <label class="sup-label" for="sup-message">${T("sup.label_message", "Message")}</label>
             <textarea id="sup-message" class="sup-input" rows="6" maxlength="5000" minlength="10"
-                      placeholder="Décris ta demande le plus précisément possible (pseudos, dates, screenshots via le Discord…)…" required></textarea>
+                      placeholder="${T("sup.placeholder_message", "Décris ta demande le plus précisément possible (pseudos, dates, screenshots via le Discord…)…")}" required></textarea>
             <div class="sup-form-foot">
-              <span class="sup-hint">Session : <strong>${esc(state.user.displayName || state.user.globalName || state.user.username || "—")}</strong></span>
+              <span class="sup-hint">${T("sup.hint_session", "Session :")} <strong>${esc(state.user.displayName || state.user.globalName || state.user.username || "—")}</strong></span>
               <button type="submit" class="sup-btn sup-btn-primary" id="sup-send">
-                <i data-icon="mail" data-icon-size="14"></i> Envoyer
+                <i data-icon="mail" data-icon-size="14"></i> ${T("sup.send", "Envoyer")}
               </button>
             </div>
           </form>
@@ -366,11 +383,11 @@ function render() {
 
         <section class="sup-card" aria-labelledby="sup-list-title">
           <div class="sup-list-head">
-            <h2 id="sup-list-title" class="sup-title"><i data-icon="ladder" data-icon-size="16"></i> ${state.scope === "all" ? "Toutes les conversations" : "Mes conversations"}</h2>
+            <h2 id="sup-list-title" class="sup-title"><i data-icon="ladder" data-icon-size="16"></i> ${state.scope === "all" ? T("sup.list_all", "Toutes les conversations") : T("sup.list_mine", "Mes conversations")}</h2>
             ${state.isAdmin ? `
-            <div class="sup-scope-toggle" role="group" aria-label="Portée de la liste">
-              <button type="button" class="sup-scope-btn ${state.scope === "mine" ? "on" : ""}" data-scope="mine">Mes tickets</button>
-              <button type="button" class="sup-scope-btn ${state.scope === "all" ? "on" : ""}" data-scope="all">Équipe</button>
+            <div class="sup-scope-toggle" role="group" aria-label="${T("sup.scope_aria", "Portée de la liste")}">
+              <button type="button" class="sup-scope-btn ${state.scope === "mine" ? "on" : ""}" data-scope="mine">${T("sup.scope_mine", "Mes tickets")}</button>
+              <button type="button" class="sup-scope-btn ${state.scope === "all" ? "on" : ""}" data-scope="all">${T("sup.scope_team", "Équipe")}</button>
             </div>` : ""}
           </div>
           <div id="sup-list" class="sup-list"></div>
@@ -389,8 +406,8 @@ function render() {
     const subject = document.getElementById("sup-subject").value.trim();
     const message = document.getElementById("sup-message").value.trim();
     const category = document.getElementById("sup-category").value;
-    if (subject.length < 4) { toast("Le sujet doit contenir au moins 4 caractères", "warning"); return; }
-    if (message.length < 10) { toast("Le message doit contenir au moins 10 caractères", "warning"); return; }
+    if (subject.length < 4) { toast(T("sup.err_subject", "Le sujet doit contenir au moins 4 caractères"), "warning"); return; }
+    if (message.length < 10) { toast(T("sup.err_message", "Le message doit contenir au moins 10 caractères"), "warning"); return; }
     createTicket({ category, subject, message });
   });
 
@@ -411,15 +428,15 @@ function renderList() {
   if (!list) return;
 
   if (state.loading) {
-    list.innerHTML = `<div class="sup-loading"><div class="spinner"></div><p>Chargement…</p></div>`;
+    list.innerHTML = `<div class="sup-loading"><div class="spinner"></div><p>${T("sup.loading_short", "Chargement…")}</p></div>`;
     return;
   }
   if (state.tickets.length === 0) {
     list.innerHTML = `
       <div class="sup-empty">
         <div class="sup-empty-icon"><i data-icon="mail" data-icon-size="26"></i></div>
-        <p>${state.scope === "all" ? "Aucun ticket pour le moment." : "Aucune conversation pour l'instant."}<br>
-        <span class="sup-empty-sub">${state.scope === "all" ? "Les demandes des joueurs apparaîtront ici." : "Écris à l'équipe avec le formulaire ci-dessus — les réponses arrivent ici et par email."}</span></p>
+        <p>${state.scope === "all" ? T("sup.empty_all", "Aucun ticket pour le moment.") : T("sup.empty_mine", "Aucune conversation pour l'instant.")}<br>
+        <span class="sup-empty-sub">${state.scope === "all" ? T("sup.empty_all_sub", "Les demandes des joueurs apparaîtront ici.") : T("sup.empty_mine_sub", "Écris à l'équipe avec le formulaire ci-dessus — les réponses arrivent ici et par email.")}</span></p>
       </div>`;
     return;
   }
@@ -431,7 +448,7 @@ function renderList() {
       <button type="button" class="sup-ticket ${state.activeId === t.id ? "is-active" : ""}" data-id="${t.id}">
         <div class="sup-ticket-top">
           <span class="sup-ticket-cat sup-cat-${esc(t.category)}">${esc(categoryLabel(t.category))}</span>
-          <span class="sup-ticket-status sup-st-${st.cls}">${st.label}</span>
+          <span class="sup-ticket-status sup-st-${st.cls}">${esc(statusLabel(st))}</span>
         </div>
         <div class="sup-ticket-subject">${esc(t.subject)}</div>
         <div class="sup-ticket-foot">
@@ -459,13 +476,13 @@ function renderThread() {
     el.innerHTML = `
       <div class="sup-thread-empty">
         <div class="sup-empty-icon"><i data-icon="lifebuoy" data-icon-size="30"></i></div>
-        <p>Sélectionne une conversation<br><span class="sup-empty-sub">ou écris-nous avec le formulaire.</span></p>
+        <p>${T("sup.thread_empty", "Sélectionne une conversation")}<br><span class="sup-empty-sub">${T("sup.thread_empty_sub", "ou écris-nous avec le formulaire.")}</span></p>
       </div>`;
     return;
   }
 
   if (!state.thread) {
-    el.innerHTML = `<div class="sup-loading"><div class="spinner"></div><p>Chargement de la conversation…</p></div>`;
+    el.innerHTML = `<div class="sup-loading"><div class="spinner"></div><p>${T("sup.thread_loading", "Chargement de la conversation…")}</p></div>`;
     return;
   }
 
@@ -475,17 +492,17 @@ function renderThread() {
 
   el.innerHTML = `
     <div class="sup-thread-head">
-      <button type="button" class="sup-back" id="sup-back" aria-label="Retour à la liste">
+      <button type="button" class="sup-back" id="sup-back" aria-label="${T("sup.back_aria", "Retour à la liste")}">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-        <span>Retour</span>
+        <span>${T("sup.back", "Retour")}</span>
       </button>
       <div class="sup-thread-meta">
         <span class="sup-ticket-cat sup-cat-${esc(t.category)}">${esc(categoryLabel(t.category))}</span>
-        <span class="sup-ticket-status sup-st-${st.cls}">${st.label}</span>
+        <span class="sup-ticket-status sup-st-${st.cls}">${esc(statusLabel(st))}</span>
         ${state.isAdmin && !t.mine ? `<span class="sup-ticket-user">${esc(state.tickets.find((x) => x.id === t.id)?.user_name || "")}</span>` : ""}
       </div>
       <h3 class="sup-thread-subject">${esc(t.subject)}</h3>
-      <span class="sup-thread-date">ouvert ${esc(fmtDate(t.created_at))} · dernière activité ${esc(fmtDate(t.updated_at))}</span>
+      <span class="sup-thread-date">${esc(TP("sup.thread_dates", { created: fmtDate(t.created_at), updated: fmtDate(t.updated_at) }, `ouvert ${fmtDate(t.created_at)} · dernière activité ${fmtDate(t.updated_at)}`))}</span>
     </div>
 
     <div class="sup-msgs" id="sup-msgs">
@@ -494,7 +511,7 @@ function renderThread() {
         return `
         <div class="sup-msg ${isTeam ? "sup-msg-team" : "sup-msg-user"}">
           <div class="sup-msg-head">
-            <span class="sup-msg-author">${isTeam ? "🛠️ L'équipe TheFrontHub" : esc(m.author_name || "Toi")}</span>
+            <span class="sup-msg-author">${isTeam ? esc(T("sup.msg_team", "🛠️ L'équipe TheFrontHub")) : esc(m.author_name || T("sup.msg_you", "Toi"))}</span>
             <span class="sup-msg-date">${esc(fmtDate(m.created_at))}</span>
           </div>
           <div class="sup-msg-body">${esc(m.body).replace(/\n/g, "<br>")}</div>
@@ -505,15 +522,15 @@ function renderThread() {
     <div class="sup-reply">
       ${canReply ? `
       <textarea id="sup-reply-input" class="sup-input" rows="3" maxlength="5000"
-                placeholder="${t.status === "closed" ? "Ticket fermé — réponse d'équipe possible" : "Écrire une réponse…"}"></textarea>
+                placeholder="${esc(t.status === "closed" ? T("sup.reply_placeholder_closed", "Ticket fermé — réponse d'équipe possible") : T("sup.reply_placeholder", "Écrire une réponse…"))}"></textarea>
       <div class="sup-reply-foot">
-        ${t.mine && t.status !== "closed" ? `<button type="button" class="sup-btn sup-btn-ghost" id="sup-close">Marquer résolu</button>` : ""}
-        ${state.isAdmin && t.status !== "closed" ? `<button type="button" class="sup-btn sup-btn-ghost" id="sup-close-admin">Fermer le ticket</button>` : ""}
+        ${t.mine && t.status !== "closed" ? `<button type="button" class="sup-btn sup-btn-ghost" id="sup-close">${T("sup.mark_resolved", "Marquer résolu")}</button>` : ""}
+        ${state.isAdmin && t.status !== "closed" ? `<button type="button" class="sup-btn sup-btn-ghost" id="sup-close-admin">${T("sup.close_ticket", "Fermer le ticket")}</button>` : ""}
         <button type="button" class="sup-btn sup-btn-primary" id="sup-reply-send">
-          <i data-icon="mail" data-icon-size="14"></i> Répondre
+          <i data-icon="mail" data-icon-size="14"></i> ${T("sup.reply", "Répondre")}
         </button>
       </div>` : `
-      <div class="sup-closed-note"><i data-icon="checkCircle" data-icon-size="14"></i> Conversation fermée — ouvre un nouveau ticket si besoin.</div>`}
+      <div class="sup-closed-note"><i data-icon="checkCircle" data-icon-size="14"></i> ${T("sup.closed_note", "Conversation fermée — ouvre un nouveau ticket si besoin.")}</div>`}
     </div>`;
 
   const back = document.getElementById("sup-back");
@@ -529,7 +546,7 @@ function renderThread() {
   const input = document.getElementById("sup-reply-input");
   send?.addEventListener("click", () => {
     const msg = input.value.trim();
-    if (msg.length < 2) { toast("Écris une réponse avant d'envoyer", "warning"); return; }
+    if (msg.length < 2) { toast(T("sup.err_reply_empty", "Écris une réponse avant d'envoyer"), "warning"); return; }
     input.value = "";
     replyTicket(t.id, msg);
   });
@@ -550,8 +567,8 @@ function renderForm() {
   if (!btn) return;
   btn.disabled = state.sending;
   btn.innerHTML = state.sending
-    ? `<span class="sup-btn-spinner" aria-hidden="true"></span> Envoi…`
-    : `<i data-icon="mail" data-icon-size="14"></i> Envoyer`;
+    ? `<span class="sup-btn-spinner" aria-hidden="true"></span> ${T("sup.sending", "Envoi…")}`
+    : `<i data-icon="mail" data-icon-size="14"></i> ${T("sup.send", "Envoyer")}`;
 }
 
 /* ═══ Boot ═══ */

@@ -25,15 +25,59 @@ import {
   tierMultiplier,
   rewardPoints,
   formatPoints,
-  formatDate,
-  formatDateShort,
-  formatDateTime,
   initials,
   placeLabel,
   getPlayer,
   getTournament,
 } from "./tournois-engine.js";
 import { hydratePrfIcons } from "./tournois-icons.js";
+
+/* ════════════════════════════════════════════════════════════════
+   i18n FR/EN — les chaînes UI passent par le moteur commun (i18n.js,
+   dictionnaire de page i18n-dict-tournois.js, préfixe trn.*).
+   T(k, fb)  : traduction simple (fb = texte FR de secours si i18n.js absent).
+   Tp(k, fb, params) : idem avec paramètres {n} interpolés.
+   ════════════════════════════════════════════════════════════════ */
+const T = (k, fb) => (typeof window.t === "function" ? window.t(k) : fb);
+const Tp = (k, fb, params) => (
+  typeof window.t === "function"
+    ? window.t(k, params)
+    : Object.entries(params || {}).reduce((s, [pk, pv]) => s.split(`{${pk}}`).join(pv), fb)
+);
+
+/* Dates localisées — tournois-engine.js fige le format fr-FR (const LOCALE) ;
+   ce fichier ne devant pas être modifié, on refait ici le MÊME formatage Intl
+   avec la langue courante (fr-FR ou en-GB). Mêmes signatures que le moteur. */
+const TRN_LOCALE = () => (window.currentLanguage === "en" ? "en-GB" : "fr-FR");
+
+function trnParseIso(iso) {
+  const d = new Date(iso.length === 10 ? `${iso}T12:00:00Z` : iso);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function formatDate(iso) {
+  const d = trnParseIso(iso);
+  if (!d) return iso;
+  return new Intl.DateTimeFormat(TRN_LOCALE(), {
+    day: "numeric", month: "long", year: "numeric", timeZone: "UTC",
+  }).format(d);
+}
+
+function formatDateShort(iso) {
+  const d = trnParseIso(iso);
+  if (!d) return iso;
+  return new Intl.DateTimeFormat(TRN_LOCALE(), {
+    day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC",
+  }).format(d);
+}
+
+function formatDateTime(iso) {
+  const d = trnParseIso(iso);
+  if (!d) return iso;
+  return new Intl.DateTimeFormat(TRN_LOCALE(), {
+    day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+  }).format(d);
+}
 
 /* ════════════════════════════════════════════════════════════════
    État global
@@ -149,7 +193,7 @@ async function router() {
       console.error("[tournois] loadData failed:", e);
       view.innerHTML = `<div class="prf-error">
         <div class="spinner"></div>
-        <h3>Impossible de charger les données</h3>
+        <h3>${T("trn.error.load", "Impossible de charger les données")}</h3>
         <p>${escapeHtml(e.message)}</p>
       </div>`;
       return;
@@ -166,11 +210,11 @@ async function router() {
   let backRoute = "home";
   if (route === "tournament" && params.slug) {
     const t = getTournament(_data.tournaments, params.slug);
-    bcPath = `<strong>Tournois</strong> / ${escapeHtml(t?.name || params.slug)}`;
+    bcPath = `${T("trn.bc.tournaments", "<strong>Tournois</strong>")} / ${escapeHtml(t?.name || params.slug)}`;
     backRoute = "tournaments";
   } else if (route === "player" && params.id) {
     const p = getPlayer(_data.players, params.id);
-    bcPath = `<strong>Classement</strong> / ${escapeHtml(p?.name || params.id)}`;
+    bcPath = `${T("trn.bc.ranking", "<strong>Classement</strong>")} / ${escapeHtml(p?.name || params.id)}`;
     backRoute = "ranking";
   }
   showBreadcrumb(bcPath);
@@ -194,7 +238,7 @@ async function router() {
     hydratePrfIcons(view);
   } catch (e) {
     console.error("[tournois] render error:", e);
-    view.innerHTML = `<div class="prf-error"><h3>Erreur de rendu</h3><p>${escapeHtml(e.message)}</p></div>`;
+    view.innerHTML = `<div class="prf-error"><h3>${T("trn.error.render", "Erreur de rendu")}</h3><p>${escapeHtml(e.message)}</p></div>`;
   }
 
   // Scroll en haut
@@ -223,8 +267,8 @@ function updateNavActive(route) {
 let _dashMode = "overall"; // "overall" | "weekly"
 
 async function renderDashboard() {
-  setHeader("Tableau de bord", "Classement par points · FFA +10 / Team +5 par victoire",
-    `<span class="prf-chip"><i data-prf-icon="trophy" data-prf-icon-size="14"></i> ${_data.tournaments.length} tournois</span> <span class="prf-chip"><i data-prf-icon="users" data-prf-icon-size="14"></i> ${_data.leaderboard.length} joueurs</span>`);
+  setHeader(T("trn.dash.title", "Tableau de bord"), T("trn.dash.subtitle", "Classement par points · FFA +10 / Team +5 par victoire"),
+    `<span class="prf-chip"><i data-prf-icon="trophy" data-prf-icon-size="14"></i> ${Tp("trn.chip.tournaments", "{n} tournois", { n: _data.tournaments.length })}</span> <span class="prf-chip"><i data-prf-icon="users" data-prf-icon-size="14"></i> ${Tp("trn.chip.players", "{n} joueurs", { n: _data.leaderboard.length })}</span>`);
 
   const weekOnly = _dashMode === "weekly" ? currentWeekKey() : null;
   const ranking = computeDashboardRanking(_data.tournaments, _data.players, _data.scoring, { weekOnly });
@@ -242,12 +286,12 @@ async function renderDashboard() {
   // Top 10 affiché (scrollable si plus)
   const topN = ranking.slice(0, 50);
 
-  const modeLabel = _dashMode === "weekly" ? "Cette semaine" : "Global";
+  const modeLabel = _dashMode === "weekly" ? T("trn.dash.mode.weekly", "Cette semaine") : T("trn.dash.mode.overall", "Global");
 
   view.innerHTML = `
     ${champion ? `
     <div class="prf-hero">
-      <div class="prf-hero-label">${_dashMode === "weekly" ? "Champion de la semaine" : "Champion Global"}</div>
+      <div class="prf-hero-label">${_dashMode === "weekly" ? T("trn.dash.champion.weekly", "Champion de la semaine") : T("trn.dash.champion.overall", "Champion Global")}</div>
       <div class="prf-hero-name">${escapeHtml(champion.player?.name || champion.playerId)}</div>
       <div class="prf-hero-sub">
         ${champion.player?.clan ? `[${escapeHtml(champion.player.clan)}] ` : ""}Rank #${champion.rank}
@@ -259,7 +303,7 @@ async function renderDashboard() {
         </div>
         <div class="prf-hero-stat">
           <div class="prf-hero-stat-val">${champion.wins}</div>
-          <div class="prf-hero-stat-label">Victoires</div>
+          <div class="prf-hero-stat-label">${T("trn.stat.wins", "Victoires")}</div>
         </div>
         <div class="prf-hero-stat">
           <div class="prf-hero-stat-val">${champion.ffaWins}</div>
@@ -274,33 +318,33 @@ async function renderDashboard() {
 
     <div class="prf-stats-grid">
       <div class="prf-stat-card">
-        <div class="label">Joueurs classés</div>
+        <div class="label">${T("trn.dash.ranked_players", "Joueurs classés")}</div>
         <div class="value">${totalPlayers}</div>
         <div class="sub">${modeLabel}</div>
       </div>
       <div class="prf-stat-card">
-        <div class="label">Points distribués</div>
+        <div class="label">${T("trn.dash.points_distributed", "Points distribués")}</div>
         <div class="value">${formatPoints(totalPoints)}</div>
         <div class="sub">${modeLabel}</div>
       </div>
       <div class="prf-stat-card">
-        <div class="label">Victoires FFA</div>
+        <div class="label">${T("trn.dash.ffa_wins", "Victoires FFA")}</div>
         <div class="value">${totalFfaWins}</div>
-        <div class="sub">+10 pts chacune</div>
+        <div class="sub">${T("trn.dash.ffa_sub", "+10 pts chacune")}</div>
       </div>
       <div class="prf-stat-card">
-        <div class="label">Victoires Team</div>
+        <div class="label">${T("trn.dash.team_wins", "Victoires Team")}</div>
         <div class="value">${totalTeamWins}</div>
-        <div class="sub">+5 pts chacune</div>
+        <div class="sub">${T("trn.dash.team_sub", "+5 pts chacune")}</div>
       </div>
     </div>
 
     <div class="prf-card prf-dash-card">
       <div class="prf-card-header">
-        <span class="prf-card-title">Classement — ${modeLabel}</span>
-        <div class="prf-dash-toggle" role="tablist" aria-label="Période du classement">
-          <button class="prf-dash-toggle-btn ${_dashMode === "overall" ? "active" : ""}" data-dash-mode="overall" role="tab" aria-selected="${_dashMode === "overall"}">Global</button>
-          <button class="prf-dash-toggle-btn ${_dashMode === "weekly" ? "active" : ""}" data-dash-mode="weekly" role="tab" aria-selected="${_dashMode === "weekly"}">Cette semaine</button>
+        <span class="prf-card-title">${Tp("trn.dash.table_title", "Classement — {mode}", { mode: modeLabel })}</span>
+        <div class="prf-dash-toggle" role="tablist" aria-label="${T("trn.dash.period_aria", "Période du classement")}">
+          <button class="prf-dash-toggle-btn ${_dashMode === "overall" ? "active" : ""}" data-dash-mode="overall" role="tab" aria-selected="${_dashMode === "overall"}">${T("trn.dash.mode.overall", "Global")}</button>
+          <button class="prf-dash-toggle-btn ${_dashMode === "weekly" ? "active" : ""}" data-dash-mode="weekly" role="tab" aria-selected="${_dashMode === "weekly"}">${T("trn.dash.mode.weekly", "Cette semaine")}</button>
         </div>
       </div>
       <div class="prf-card-body">
@@ -310,7 +354,7 @@ async function renderDashboard() {
             <thead>
               <tr>
                 <th class="prf-th-rank">#</th>
-                <th>Joueur</th>
+                <th>${T("trn.th.player", "Joueur")}</th>
                 <th class="prf-th-num">FFA</th>
                 <th class="prf-th-num">Team</th>
                 <th class="prf-th-num">Top 3</th>
@@ -339,13 +383,13 @@ async function renderDashboard() {
               }).join("")}
             </tbody>
           </table>
-        </div>` : `<p style="color:var(--prf-muted);text-align:center;padding:40px 20px">Aucun tournoi ${_dashMode === "weekly" ? "cette semaine" : "pour le moment"}.</p>`}
+        </div>` : `<p style="color:var(--prf-muted);text-align:center;padding:40px 20px">${_dashMode === "weekly" ? T("trn.empty.week", "Aucun tournoi cette semaine.") : T("trn.empty.now", "Aucun tournoi pour le moment.")}</p>`}
       </div>
     </div>
 
     <div class="prf-dash-scoring-info">
       <i data-prf-icon="info" data-prf-icon-size="14"></i>
-      <span>Barème : FFA — 1er <strong>+10</strong>, 2e +7, 3e +5, 4e +3, 5e +1 · Team — 1er <strong>+5</strong>, 2e +3, 3e +2</span>
+      <span>${T("trn.dash.scoring", "Barème : FFA — 1er <strong>+10</strong>, 2e +7, 3e +5, 4e +3, 5e +1 · Team — 1er <strong>+5</strong>, 2e +3, 3e +2")}</span>
     </div>
   `;
 
@@ -362,8 +406,8 @@ async function renderDashboard() {
    VUE : Accueil
    ════════════════════════════════════════════════════════════════ */
 async function renderHome() {
-  setHeader("Tournois", "Power Ranking · Circuit compétitif OpenFront",
-    `<span class="prf-chip"><i data-prf-icon="trophy" data-prf-icon-size="14"></i> ${_data.tournaments.length} tournois</span> <span class="prf-chip"><i data-prf-icon="users" data-prf-icon-size="14"></i> ${_data.leaderboard.length} joueurs</span>`);
+  setHeader(T("trn.page.title", "Tournois"), T("trn.page.subtitle", "Power Ranking · Circuit compétitif OpenFront"),
+    `<span class="prf-chip"><i data-prf-icon="trophy" data-prf-icon-size="14"></i> ${Tp("trn.chip.tournaments", "{n} tournois", { n: _data.tournaments.length })}</span> <span class="prf-chip"><i data-prf-icon="users" data-prf-icon-size="14"></i> ${Tp("trn.chip.players", "{n} joueurs", { n: _data.leaderboard.length })}</span>`);
 
   const lb = _data.leaderboard;
   const champion = lb[0] ?? null;
@@ -397,24 +441,24 @@ async function renderHome() {
       <section class="trn-hero">
         <div class="trn-hero-bg"></div>
         <div class="trn-hero-content">
-          <div class="trn-hero-eyebrow">CIRCUIT COMPÉTITIF OPENFRONT</div>
-          <h1 class="trn-hero-title">Tournois & Power Ranking</h1>
-          <p class="trn-hero-subtitle">Suivez les performances des meilleurs joueurs du circuit compétitif.</p>
+          <div class="trn-hero-eyebrow">${T("trn.hero.eyebrow", "CIRCUIT COMPÉTITIF OPENFRONT")}</div>
+          <h1 class="trn-hero-title">${T("trn.hero.title", "Tournois & Power Ranking")}</h1>
+          <p class="trn-hero-subtitle">${T("trn.hero.subtitle", "Suivez les performances des meilleurs joueurs du circuit compétitif.")}</p>
 
           <div class="trn-hero-search">
             <i data-prf-icon="search" data-prf-icon-size="20"></i>
-            <input type="text" id="trn-home-search" placeholder="Rechercher un joueur, un clan, un tournoi…" />
-            <button onclick="window._trnSearch()" aria-label="Rechercher">
+            <input type="text" id="trn-home-search" placeholder="${T("trn.hero.search_placeholder", "Rechercher un joueur, un clan, un tournoi…")}" />
+            <button onclick="window._trnSearch()" aria-label="${T("trn.hero.search_aria", "Rechercher")}">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
             </button>
           </div>
 
           <div class="trn-hero-stats">
             <span class="trn-hero-stat">
-              <i data-prf-icon="trophy" data-prf-icon-size="16"></i> ${_data.tournaments.length} tournois
+              <i data-prf-icon="trophy" data-prf-icon-size="16"></i> ${Tp("trn.chip.tournaments", "{n} tournois", { n: _data.tournaments.length })}
             </span>
             <span class="trn-hero-stat">
-              <i data-prf-icon="users" data-prf-icon-size="16"></i> ${lb.length} joueurs classés
+              <i data-prf-icon="users" data-prf-icon-size="16"></i> ${Tp("trn.hero.ranked_players", "{n} joueurs classés", { n: lb.length })}
             </span>
           </div>
         </div>
@@ -425,8 +469,8 @@ async function renderHome() {
         ${champion ? `
         <a class="trn-hl-card trn-hl-gold" href="#/player/${encodeURIComponent(champion.playerId)}">
           <div class="trn-hl-header">
-            <span class="trn-hl-label">CHAMPION ACTUEL</span>
-            <span class="trn-hl-more">Voir plus <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+            <span class="trn-hl-label">${T("trn.hl.champion", "CHAMPION ACTUEL")}</span>
+            <span class="trn-hl-more">${T("trn.hl.more", "Voir plus")} <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
           </div>
           <div class="trn-hl-body">
             ${avatarHtml(champion.player?.name || champion.playerId, "md")}
@@ -441,14 +485,14 @@ async function renderHome() {
         ${mostWins && mostWins.wins > 0 ? `
         <a class="trn-hl-card trn-hl-cyan" href="#/player/${encodeURIComponent(mostWins.playerId)}">
           <div class="trn-hl-header">
-            <span class="trn-hl-label">PLUS DE VICTOIRES</span>
-            <span class="trn-hl-more">Voir plus <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+            <span class="trn-hl-label">${T("trn.hl.most_wins", "PLUS DE VICTOIRES")}</span>
+            <span class="trn-hl-more">${T("trn.hl.more", "Voir plus")} <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
           </div>
           <div class="trn-hl-body">
             ${avatarHtml(mostWins.player?.name || mostWins.playerId, "md")}
             <div class="trf-hl-info">
               <div class="trn-hl-name">${escapeHtml(mostWins.player?.name || mostWins.playerId)}</div>
-              <div class="trn-hl-meta">${mostWins.wins} victoires · ${mostWins.events} tournois</div>
+              <div class="trn-hl-meta">${Tp("trn.hl.wins_events", "{wins} victoires · {events} tournois", { wins: mostWins.wins, events: mostWins.events })}</div>
             </div>
             <div class="trn-hl-watermark"><i data-prf-icon="trophy" data-prf-icon-size="56"></i></div>
           </div>
@@ -457,8 +501,8 @@ async function renderHome() {
         ${latestTournament ? `
         <a class="trn-hl-card trn-hl-purple" href="#/tournament/${encodeURIComponent(latestTournament.slug || "")}">
           <div class="trn-hl-header">
-            <span class="trn-hl-label">DERNIER TOURNOI</span>
-            <span class="trn-hl-more">Voir plus <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+            <span class="trn-hl-label">${T("trn.hl.latest", "DERNIER TOURNOI")}</span>
+            <span class="trn-hl-more">${T("trn.hl.more", "Voir plus")} <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
           </div>
           <div class="trn-hl-body">
             ${avatarHtml(latestWinnerName, "md")}
@@ -497,8 +541,8 @@ async function renderRanking(params = {}) {
   // Pré-remplir la recherche si ?q=... est dans l'URL (depuis la home search bar)
   if (params.q) _lbState.q = params.q;
 
-  setHeader("Classement Power Ranking", "Points cumulés sur tous les tournois",
-    `<span class="prf-chip"><i data-prf-icon="users" data-prf-icon-size="14"></i> ${_data.leaderboard.length} joueurs</span>`);
+  setHeader(T("trn.rank.title", "Classement Power Ranking"), T("trn.rank.subtitle", "Points cumulés sur tous les tournois"),
+    `<span class="prf-chip"><i data-prf-icon="users" data-prf-icon-size="14"></i> ${Tp("trn.chip.players", "{n} joueurs", { n: _data.leaderboard.length })}</span>`);
 
   const rows = _data.leaderboard.map((e) => ({
     rank: e.rank,
@@ -515,18 +559,18 @@ async function renderRanking(params = {}) {
   view.innerHTML = `
     <div class="prf-card">
       <div class="prf-card-header">
-        <span class="prf-card-title">Classement général</span>
+        <span class="prf-card-title">${T("trn.rank.card_title", "Classement général")}</span>
       </div>
       <div class="prf-filters" id="lb-filters">
         ${[
-          { id: "all", label: "Tous", count: rows.length },
-          { id: "recurring", label: "Réguliers (≥2)", count: rows.filter(r => r.events >= 2).length },
+          { id: "all", label: T("trn.filter.all", "Tous"), count: rows.length },
+          { id: "recurring", label: T("trn.filter.recurring", "Réguliers (≥2)"), count: rows.filter(r => r.events >= 2).length },
           { id: "top100", label: "Top 100", count: Math.min(100, rows.length) },
-          { id: "clan", label: "Avec clan", count: rows.filter(r => r.clan).length },
+          { id: "clan", label: T("trn.filter.clan", "Avec clan"), count: rows.filter(r => r.clan).length },
         ].map(f => `<button class="prf-filter-btn ${_lbState.filter === f.id ? "active" : ""}" data-filter="${f.id}">${f.label}<span class="count">${f.count}</span></button>`).join("")}
         <div class="prf-search">
           <span class="prf-search-icon"><i data-prf-icon="search" data-prf-icon-size="14"></i></span>
-          <input type="text" id="lb-search" placeholder="Rechercher un joueur…" value="${escapeHtml(_lbState.q)}">
+          <input type="text" id="lb-search" placeholder="${T("trn.rank.search_placeholder", "Rechercher un joueur…")}" value="${escapeHtml(_lbState.q)}">
         </div>
       </div>
       <div class="prf-table-wrap">
@@ -584,12 +628,12 @@ async function renderRanking(params = {}) {
     tableEl.querySelector("thead").innerHTML = `
       <tr>
         <th class="${sortClass("rank")}" data-sort="rank"># <span class="sort-arrow">${sortArrow("rank")}</span></th>
-        <th>Joueur</th>
+        <th>${T("trn.th.player", "Joueur")}</th>
         <th class="num ${sortClass("points")}" data-sort="points">PR <span class="sort-arrow">${sortArrow("points")}</span></th>
-        <th class="num ${sortClass("events")}" data-sort="events">Tournois <span class="sort-arrow">${sortArrow("events")}</span></th>
-        <th class="num ${sortClass("wins")}" data-sort="wins">Victoires <span class="sort-arrow">${sortArrow("wins")}</span></th>
+        <th class="num ${sortClass("events")}" data-sort="events">${T("trn.th.tournaments", "Tournois")} <span class="sort-arrow">${sortArrow("events")}</span></th>
+        <th class="num ${sortClass("wins")}" data-sort="wins">${T("trn.stat.wins", "Victoires")} <span class="sort-arrow">${sortArrow("wins")}</span></th>
         <th class="num ${sortClass("top3")}" data-sort="top3">Top 3 <span class="sort-arrow">${sortArrow("top3")}</span></th>
-        <th class="num ${sortClass("avgPlace")}" data-sort="avgPlace">Place moy. <span class="sort-arrow">${sortArrow("avgPlace")}</span></th>
+        <th class="num ${sortClass("avgPlace")}" data-sort="avgPlace">${T("trn.th.avg_place", "Place moy.")} <span class="sort-arrow">${sortArrow("avgPlace")}</span></th>
       </tr>
     `;
     tableEl.querySelector("tbody").innerHTML = out.length ? out.map((r) => `
@@ -602,7 +646,7 @@ async function renderRanking(params = {}) {
               <div>
                 ${r.clan ? `<span class="prf-player-clan">[${escapeHtml(r.clan)}]</span>` : ""}
                 <span class="prf-player-name">${escapeHtml(r.name)}</span>
-                ${r.events === 1 ? `<span class="prf-badge prf-badge-new" style="margin-left:6px">Nouveau</span>` : ""}
+                ${r.events === 1 ? `<span class="prf-badge prf-badge-new" style="margin-left:6px">${T("trn.badge.new", "Nouveau")}</span>` : ""}
               </div>
               <div class="prf-player-id">${escapeHtml(r.id)}</div>
             </div>
@@ -614,7 +658,7 @@ async function renderRanking(params = {}) {
         <td class="num">${r.top3}</td>
         <td class="num">${r.avgPlace == null ? "—" : `#${r.avgPlace.toFixed(1)}`}</td>
       </tr>
-    `).join("") : `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--prf-muted)">Aucun résultat.</td></tr>`;
+    `).join("") : `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--prf-muted)">${T("trn.empty.results", "Aucun résultat.")}</td></tr>`;
 
     // Tri au clic sur les en-têtes
     tableEl.querySelector("thead").addEventListener("click", (e) => {
@@ -638,8 +682,8 @@ async function renderRanking(params = {}) {
    VUE : Liste des tournois
    ════════════════════════════════════════════════════════════════ */
 async function renderTournamentsList() {
-  setHeader("Tournois", "Circuit compétitif OpenFront",
-    `<span class="prf-chip"><i data-prf-icon="trophy" data-prf-icon-size="14"></i> ${_data.tournaments.length} tournois</span>`);
+  setHeader(T("trn.page.title", "Tournois"), T("trn.tournaments.subtitle", "Circuit compétitif OpenFront"),
+    `<span class="prf-chip"><i data-prf-icon="trophy" data-prf-icon-size="14"></i> ${Tp("trn.chip.tournaments", "{n} tournois", { n: _data.tournaments.length })}</span>`);
 
   const cards = _data.tournaments.map((t) => {
     const finalPhase = t.phases.find((p) => isFinalPhase(_data.scoring, t, p.type));
@@ -661,14 +705,14 @@ async function renderTournamentsList() {
           ${t.series ? `<span><i data-prf-icon="trophy" data-prf-icon-size="14"></i> ${escapeHtml(t.series)}</span>` : ""}
           ${formatTierMult(t.tier) ? `<span style="color:var(--prf-accent-strong);font-weight:800">${formatTierMult(t.tier)}</span>` : ""}
         </div>
-        ${winnerName ? `<div class="prf-tournament-winner"><i data-prf-icon="crown" data-prf-icon-size="14"></i> Vainqueur : <span class="name">${escapeHtml(winnerName)}</span></div>` : ""}
+        ${winnerName ? `<div class="prf-tournament-winner"><i data-prf-icon="crown" data-prf-icon-size="14"></i> ${T("trn.tournaments.winner", "Vainqueur :")} <span class="name">${escapeHtml(winnerName)}</span></div>` : ""}
       </a>
     `;
   }).join("");
 
   view.innerHTML = `
     <div class="prf-tournament-grid">
-      ${cards || `<p style="color:var(--prf-muted)">Aucun tournoi.</p>`}
+      ${cards || `<p style="color:var(--prf-muted)">${T("trn.empty.tournaments", "Aucun tournoi.")}</p>`}
     </div>
   `;
   hydratePrfIcons(view);
@@ -680,8 +724,8 @@ async function renderTournamentsList() {
 async function renderTournamentDetail(slug) {
   const t = getTournament(_data.tournaments, slug);
   if (!t) {
-    setHeader("Tournoi introuvable", "", "");
-    view.innerHTML = `<div class="prf-error"><h3>Tournoi introuvable</h3><p>Slug : ${escapeHtml(slug)}</p></div>`;
+    setHeader(T("trn.td.notfound", "Tournoi introuvable"), "", "");
+    view.innerHTML = `<div class="prf-error"><h3>${T("trn.td.notfound", "Tournoi introuvable")}</h3><p>${T("trn.td.slug", "Slug :")} ${escapeHtml(slug)}</p></div>`;
     return;
   }
 
@@ -710,8 +754,8 @@ async function renderTournamentDetail(slug) {
       const participants = phase.placements;
       return `
         <div class="prf-phase-section">
-          <h3 class="prf-phase-title">${escapeHtml(label)} ${isFinal ? '<span class="prf-badge prf-badge-major">Finale</span>' : ''}</h3>
-          <p style="color:var(--prf-muted);padding:8px 0">${participants.length} participants (pas de classement détaillé)</p>
+          <h3 class="prf-phase-title">${escapeHtml(label)} ${isFinal ? `<span class="prf-badge prf-badge-major">${T("trn.badge.final", "Finale")}</span>` : ''}</h3>
+          <p style="color:var(--prf-muted);padding:8px 0">${Tp("trn.td.no_ranking", "{n} participants (pas de classement détaillé)", { n: participants.length })}</p>
         </div>
       `;
     }
@@ -740,15 +784,15 @@ async function renderTournamentDetail(slug) {
 
     return `
       <div class="prf-phase-section">
-        <h3 class="prf-phase-title">${escapeHtml(label)} ${isFinal ? '<span class="prf-badge prf-badge-major">Finale</span>' : ''}</h3>
+        <h3 class="prf-phase-title">${escapeHtml(label)} ${isFinal ? `<span class="prf-badge prf-badge-major">${T("trn.badge.final", "Finale")}</span>` : ''}</h3>
         <div class="prf-table-wrap">
           <table class="prf-results-table">
             <thead>
               <tr>
                 <th>Place</th>
-                <th>Joueur</th>
-                <th class="num">Points PR</th>
-                <th class="num">Récompense</th>
+                <th>${T("trn.th.player", "Joueur")}</th>
+                <th class="num">${T("trn.th.pr_points", "Points PR")}</th>
+                <th class="num">${T("trn.th.reward", "Récompense")}</th>
               </tr>
             </thead>
             <tbody>${rows}</tbody>
@@ -764,23 +808,23 @@ async function renderTournamentDetail(slug) {
     const statsMap = computeTournamentPlayerStats(t);
     const statsArr = [...statsMap.values()].sort((a, b) => b.gamesPlayed - a.gamesPlayed || (a.bestPlace ?? 999) - (b.bestPlace ?? 999));
     if (statsArr.length) {
-      const stageLabels = { qualifier: "Qualif", semifinal: "Demi", final: "Finale" };
+      const stageLabels = { qualifier: T("trn.stage.qualifier", "Qualif"), semifinal: T("trn.stage.semifinal", "Demi"), final: T("trn.stage.final", "Finale") };
       statsHtml = `
         <div class="prf-card" style="margin-bottom:20px">
-          <div class="prf-card-header"><span class="prf-card-title">Stats du tournoi (par joueur)</span></div>
+          <div class="prf-card-header"><span class="prf-card-title">${T("trn.td.stats_title", "Stats du tournoi (par joueur)")}</span></div>
           <div class="prf-table-wrap">
             <table class="prf-stats-table">
               <thead>
                 <tr>
-                  <th>Joueur</th>
-                  <th>Parties</th>
+                  <th>${T("trn.th.player", "Joueur")}</th>
+                  <th>${T("trn.th.games", "Parties")}</th>
                   <th>Wins</th>
                   <th>Kills</th>
-                  <th>Survécues</th>
-                  <th>Meilleure place</th>
-                  <th>Stage max</th>
-                  <th>Temps (min)</th>
-                  <th>Pts/partie</th>
+                  <th>${T("trn.th.survived", "Survécues")}</th>
+                  <th>${T("trn.th.best_place", "Meilleure place")}</th>
+                  <th>${T("trn.th.max_stage", "Stage max")}</th>
+                  <th>${T("trn.th.playtime", "Temps (min)")}</th>
+                  <th>${T("trn.th.pts_per_game", "Pts/partie")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -818,7 +862,7 @@ async function renderTournamentDetail(slug) {
       </div>
     </div>
     ${statsHtml}
-    ${phasesHtml || '<p style="color:var(--prf-muted)">Aucune phase.</p>'}
+    ${phasesHtml || `<p style="color:var(--prf-muted)">${T("trn.empty.phases", "Aucune phase.")}</p>`}
   `;
   hydratePrfIcons(view);
 }
@@ -833,9 +877,9 @@ const PR_CHART_PAD = { left: 12, right: 14, top: 16, bottom: 38 };
 function buildPRChartCard(chartData) {
   if (!chartData.length) {
     return `<div class="prf-card">
-      <div class="prf-card-header"><span class="prf-card-title">Évolution du Power Ranking</span></div>
+      <div class="prf-card-header"><span class="prf-card-title">${T("trn.chart.title", "Évolution du Power Ranking")}</span></div>
       <div class="prf-card-body">
-        <div class="prf-pr-chart prf-pr-chart-empty">Aucune donnée</div>
+        <div class="prf-pr-chart prf-pr-chart-empty">${T("trn.chart.empty", "Aucune donnée")}</div>
       </div>
     </div>`;
   }
@@ -871,13 +915,13 @@ function buildPRChartCard(chartData) {
       <div class="prf-pr-chart">
         <div class="prf-pr-chart-header">
           <div>
-            <div class="prf-pr-chart-title">Évolution du Power Ranking</div>
-            <div class="prf-pr-chart-sub">Points cumulés après chaque tournoi</div>
+            <div class="prf-pr-chart-title">${T("trn.chart.title", "Évolution du Power Ranking")}</div>
+            <div class="prf-pr-chart-sub">${T("trn.chart.sub", "Points cumulés après chaque tournoi")}</div>
           </div>
           <div class="prf-pr-chart-badge">POWER RANKING</div>
         </div>
         <div class="prf-pr-chart-wrap" id="prf-pr-chart-wrap">
-          <svg class="prf-pr-chart-svg" id="prf-pr-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Évolution des points PR cumulés — survolez la courbe pour le détail" tabindex="0">
+          <svg class="prf-pr-chart-svg" id="prf-pr-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${T("trn.chart.aria", "Évolution des points PR cumulés — survolez la courbe pour le détail")}" tabindex="0">
             <defs>
               <linearGradient id="prf-pr-area" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0" stop-color="#e8781d" stop-opacity="0.28"/>
@@ -899,13 +943,13 @@ function buildPRChartCard(chartData) {
                 <div class="prf-pr-chart-tip-total"></div>
               </div>
               <div class="prf-pr-chart-tip-gained-wrap">
-                <div class="prf-pr-chart-tip-lbl">Gagnés</div>
+                <div class="prf-pr-chart-tip-lbl">${T("trn.chart.gained", "Gagnés")}</div>
                 <div class="prf-pr-chart-tip-gained"></div>
               </div>
             </div>
           </div>
         </div>
-        <p class="prf-pr-chart-hint">Survolez la courbe (ou utilisez les flèches) pour voir le détail</p>
+        <p class="prf-pr-chart-hint">${T("trn.chart.hint", "Survolez la courbe (ou utilisez les flèches) pour voir le détail")}</p>
       </div>
     </div>
   </div>`;
@@ -1004,8 +1048,8 @@ async function renderPlayerProfile(discordId) {
   const entry = _data.leaderboard.find(e => e.playerId === discordId);
 
   if (!player && !entry) {
-    setHeader("Joueur introuvable", "", "");
-    view.innerHTML = `<div class="prf-error"><h3>Joueur introuvable</h3><p>ID : ${escapeHtml(discordId)}</p></div>`;
+    setHeader(T("trn.player.notfound", "Joueur introuvable"), "", "");
+    view.innerHTML = `<div class="prf-error"><h3>${T("trn.player.notfound", "Joueur introuvable")}</h3><p>${T("trn.td.id_prefix", "ID :")} ${escapeHtml(discordId)}</p></div>`;
     return;
   }
 
@@ -1019,7 +1063,7 @@ async function renderPlayerProfile(discordId) {
   const bestPlace = entry?.bestPlace;
   const avgPlace = entry?.avgPlace;
 
-  setHeader(name, `Profil tournoi · ${clan ? `[${clan}] ` : ""}Rank #${rank}`, "");
+  setHeader(name, Tp("trn.player.subtitle", "Profil tournoi · {clan}Rank #{rank}", { clan: clan ? `[${clan}] ` : "", rank }), "");
 
   // Décomposition des points (awards groupés par tournoi)
   const awards = entry?.awards || [];
@@ -1080,7 +1124,7 @@ async function renderPlayerProfile(discordId) {
       </div>
       <div class="prf-award-points">+${formatPoints(grp.total)}</div>
     </div>
-  `).join("") : `<p style="color:var(--prf-muted);padding:16px">Aucun tournoi joué.</p>`;
+  `).join("") : `<p style="color:var(--prf-muted);padding:16px">${T("trn.player.no_tournaments", "Aucun tournoi joué.")}</p>`;
 
 
 
@@ -1089,15 +1133,15 @@ async function renderPlayerProfile(discordId) {
       <div style="flex:1">
         <div class="prf-profile-name">${escapeHtml(name)}</div>
         <div class="prf-profile-sub">
-          ${clan ? `Clan : <strong>${escapeHtml(clan)}</strong> · ` : ""}Rank Power Ranking : <strong style="color:var(--prf-accent-strong)">#${rank}</strong>
+          ${clan ? `${T("trn.player.clan", "Clan :")} <strong>${escapeHtml(clan)}</strong> · ` : ""}${T("trn.player.rank", "Rank Power Ranking :")} <strong style="color:var(--prf-accent-strong)">#${rank}</strong>
         </div>
         <div class="prf-profile-stats">
-          <div class="prf-profile-stat"><div class="v">${formatPoints(points)}</div><div class="l">Points PR</div></div>
-          <div class="prf-profile-stat"><div class="v">${events}</div><div class="l">Tournois</div></div>
-          <div class="prf-profile-stat"><div class="v">${wins}</div><div class="l">Victoires</div></div>
+          <div class="prf-profile-stat"><div class="v">${formatPoints(points)}</div><div class="l">${T("trn.th.pr_points", "Points PR")}</div></div>
+          <div class="prf-profile-stat"><div class="v">${events}</div><div class="l">${T("trn.th.tournaments", "Tournois")}</div></div>
+          <div class="prf-profile-stat"><div class="v">${wins}</div><div class="l">${T("trn.stat.wins", "Victoires")}</div></div>
           <div class="prf-profile-stat"><div class="v">${top3}</div><div class="l">Top 3</div></div>
-          <div class="prf-profile-stat"><div class="v">${bestPlace == null ? "—" : `#${bestPlace}`}</div><div class="l">Meilleure place</div></div>
-          <div class="prf-profile-stat"><div class="v">${avgPlace == null ? "—" : `#${avgPlace.toFixed(1)}`}</div><div class="l">Place moy.</div></div>
+          <div class="prf-profile-stat"><div class="v">${bestPlace == null ? "—" : `#${bestPlace}`}</div><div class="l">${T("trn.th.best_place", "Meilleure place")}</div></div>
+          <div class="prf-profile-stat"><div class="v">${avgPlace == null ? "—" : `#${avgPlace.toFixed(1)}`}</div><div class="l">${T("trn.th.avg_place", "Place moy.")}</div></div>
           ${totalPlutonium > 0 ? `<div class="prf-profile-stat"><div class="v" style="color:var(--prf-gold)">${totalPlutonium} P</div><div class="l">Plutonium</div></div>` : ""}
         </div>
       </div>
@@ -1105,7 +1149,7 @@ async function renderPlayerProfile(discordId) {
 
     <div class="prf-grid-2">
       <div class="prf-card">
-        <div class="prf-card-header"><span class="prf-card-title">Décomposition des points</span></div>
+        <div class="prf-card-header"><span class="prf-card-title">${T("trn.player.breakdown", "Décomposition des points")}</span></div>
         <div class="prf-card-body">
           <div class="prf-awards-list">${awardsHtml}</div>
         </div>
@@ -1121,19 +1165,21 @@ async function renderPlayerProfile(discordId) {
    VUE : Calendrier
    ════════════════════════════════════════════════════════════════ */
 async function renderCalendar() {
-  setHeader("Calendrier", "Prochains tournois du circuit",
-    `<span class="prf-chip"><i data-prf-icon="calendar" data-prf-icon-size="14"></i> ${_data.calendar.length} événement(s)</span>`);
+  setHeader(T("trn.cal.title", "Calendrier"), T("trn.cal.subtitle", "Prochains tournois du circuit"),
+    `<span class="prf-chip"><i data-prf-icon="calendar" data-prf-icon-size="14"></i> ${Tp("trn.cal.chip_events", "{n} événement(s)", { n: _data.calendar.length })}</span>`);
 
   const events = [..._data.calendar].sort((a, b) =>
     (a.startsAt ?? a.date).localeCompare(b.startsAt ?? b.date)
   );
 
   if (!events.length) {
-    view.innerHTML = `<div class="prf-card"><div class="prf-card-body"><p style="color:var(--prf-muted);padding:20px">Aucun événement à venir.</p></div></div>`;
+    view.innerHTML = `<div class="prf-card"><div class="prf-card-body"><p style="color:var(--prf-muted);padding:20px">${T("trn.cal.empty", "Aucun événement à venir.")}</p></div></div>`;
     return;
   }
 
-  const monthLabels = ["JAN","FÉV","MAR","AVR","MAI","JUN","JUL","AOÛ","SEP","OCT","NOV","DÉC"];
+  const monthLabels = TRN_LOCALE() === "en-GB"
+    ? ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"]
+    : ["JAN","FÉV","MAR","AVR","MAI","JUN","JUL","AOÛ","SEP","OCT","NOV","DÉC"];
 
   view.innerHTML = `
     <div class="prf-cal-list">
@@ -1155,10 +1201,10 @@ async function renderCalendar() {
                 ${ev.format ? ` · ${ev.format.toUpperCase()}` : ""}
                 ${ev.tier ? ` · ${tierBadge(ev.tier)}` : ""}
                 ${ev.series ? ` · ${escapeHtml(ev.series)}` : ""}
-                ${ev.participants ? ` · ${ev.participants} inscrits` : ""}
+                ${ev.participants ? ` · ${Tp("trn.cal.registered", "{n} inscrits", { n: ev.participants })}` : ""}
               </div>
             </div>
-            ${ev.registrationUrl && safeExternalUrl(ev.registrationUrl) ? `<a class="prf-cal-register" href="${escapeHtml(safeExternalUrl(ev.registrationUrl))}" target="_blank" rel="noreferrer noopener">S'inscrire</a>` : ""}
+            ${ev.registrationUrl && safeExternalUrl(ev.registrationUrl) ? `<a class="prf-cal-register" href="${escapeHtml(safeExternalUrl(ev.registrationUrl))}" target="_blank" rel="noreferrer noopener">${T("trn.cal.register", "S'inscrire")}</a>` : ""}
           </div>
         `;
       }).join("")}

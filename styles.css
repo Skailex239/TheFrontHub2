@@ -3310,3 +3310,99 @@ html.tfh-ub-open { --tfh-ub-h: 41px; }   /* fallback si le JS n'a pas encore mes
     max-height: calc(100vh - var(--tfh-cw-nav, 76px) - 84px);
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Sélecteur de langue FR/EN (lang-switcher.js) — drapeaux SVG inline
+   Desktop : bloc sidebar (label + 2 drapeaux) sous le bouton thème.
+   Mobile  : la sidebar devient bottom-nav → version compacte sans label.
+   ════════════════════════════════════════════════════════════════════ */
+.lang-switcher {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 12px;
+  padding: 10px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+}
+.lang-switcher-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.lang-switcher-btns {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.lang-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 30px;
+  padding: 2px;
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+              transform var(--dur-fast) var(--ease);
+}
+.lang-btn:hover {
+  opacity: 1;
+  border-color: var(--muted);
+  transform: translateY(-1px);
+}
+.lang-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.lang-btn.active {
+  opacity: 1;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.lang-flag {
+  width: 100%;
+  height: 100%;
+  border-radius: 3px;
+  display: block;
+}
+
+/* Zones de choix déclarées [data-lang-choice] (inscription / profil) */
+.lang-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Mobile : bottom-nav compacte — drapeaux seuls, même gabarit que le toggle */
+@media (max-width: 768px) {
+  .lang-switcher {
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    background: transparent !important;
+    flex: 0 0 auto !important;
+    gap: 4px;
+  }
+  .lang-switcher-label { display: none !important; }
+  .lang-switcher-btns { gap: 4px; }
+  .lang-btn {
+    width: 36px !important;
+    height: 26px !important;
+    padding: 2px !important;
+  }
+}
+
+/* Choix de langue dans les modales/panneaux : boutons un peu plus grands */
+.lang-choice .lang-btn {
+  width: 52px;
+  height: 38px;
+}

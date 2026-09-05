@@ -12,13 +12,27 @@
 (function () {
   "use strict";
 
+  /* ── i18n (moteur global i18n.js — clés banner.* dans i18n-dict-support.js) ──
+     T(k, fb) : traduit via window.t, retombe sur le texte FR si i18n absent.
+     TK : retombe AUSSI sur le fallback quand la clé manque du dictionnaire
+     (pages ne chargeant pas i18n-dict-support.js → window.t renverrait la clé). */
+  const T = (k, fb) => (typeof window.t === "function" ? window.t(k) : fb);
+  const TK = (k, fb) => {
+    const v = T(k, fb);
+    return v === k || v == null ? fb : v;
+  };
+
   // ── Réglages du message ─────────────────────────────────────────────────
   var BANNER_ID = "2026-09-maj";          // changer → ré-affiche la bande
-  var BANNER_HTML =
-    '<span class="tfh-ub-icon" aria-hidden="true">' +
-    '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg>' +
-    "</span>" +
-    '<span class="tfh-ub-text"><strong>Des mises à jour arrivent prochainement&nbsp;!</strong>&nbsp;De nouvelles fonctionnalités débarquent bientôt sur TheFrontHub. Restez à l\'affût…</span>';
+  // Texte construit à l'injection (inject) pour lire la langue courante.
+  function bannerHtml() {
+    return (
+      '<span class="tfh-ub-icon" aria-hidden="true">' +
+      '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg>' +
+      "</span>" +
+      '<span class="tfh-ub-text"><strong>' + TK("banner.title", "Des mises à jour arrivent prochainement\u00a0!") + "</strong>&nbsp;" + TK("banner.body", "De nouvelles fonctionnalités débarquent bientôt sur TheFrontHub. Restez à l'affût…") + "</span>"
+    );
+  }
 
   var STORAGE_KEY = "tfh:update-banner:" + BANNER_ID;
 
@@ -55,12 +69,12 @@
     banner.id = "tfh-update-banner";
     banner.className = "tfh-update-banner";
     banner.setAttribute("role", "region");
-    banner.setAttribute("aria-label", "Annonce : mises à jour à venir");
+    banner.setAttribute("aria-label", TK("banner.aria", "Annonce : mises à jour à venir"));
 
     banner.innerHTML =
       '<div class="tfh-ub-inner">' +
-        BANNER_HTML +
-        '<button type="button" class="tfh-ub-close" aria-label="Fermer l\'annonce" title="Fermer">' +
+        bannerHtml() +
+        '<button type="button" class="tfh-ub-close" aria-label="' + TK("banner.close_aria", "Fermer l'annonce") + '" title="' + TK("banner.close_title", "Fermer") + '">' +
           '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
         "</button>" +
       "</div>";

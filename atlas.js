@@ -2,17 +2,25 @@
 // Reprend la structure de openfront-atlas en vanilla JS
 // Carte SVG mondiale (chaque pays = 1 path séparé) + pins + page détail
 
+// i18n : window.t est fourni par i18n.min.js (chargé avant ce module).
+// T(k, fb) renvoie la traduction de la langue courante, ou le texte FR de
+// secours si le moteur n'est pas disponible. Les noms de maps/nations
+// (translated_name/display_name) sont des DONNÉES : non traduits.
+const T = (k, fb) => (typeof window.t === "function" ? window.t(k) : fb);
+// Chaînes paramétrées : {n} est remplacé par la valeur (dict fr et en).
+const Tn = (k, fb, n) => T(k, fb).replace("{n}", n);
+
 const ATLAS_VIEW = document.getElementById("atlas-view");
 let mapsData = null;
 let activeFilter = "all";
 
 const CATEGORIES = [
-  { key: "all", label: "Toutes" },
-  { key: "continental", label: "Continentales" },
-  { key: "regional", label: "Régionales" },
-  { key: "fantasy", label: "Autres mondes" },
-  { key: "arcade", label: "Arcade" },
-  { key: "tournament", label: "Tournoi" },
+  { key: "all", label: T("atlas.cat.all", "Toutes") },
+  { key: "continental", label: T("atlas.cat.continental", "Continentales") },
+  { key: "regional", label: T("atlas.cat.regional", "Régionales") },
+  { key: "fantasy", label: T("atlas.cat.fantasy", "Autres mondes") },
+  { key: "arcade", label: T("atlas.cat.arcade", "Arcade") },
+  { key: "tournament", label: T("atlas.cat.tournament", "Tournoi") },
 ];
 
 const CAT_COLORS = {
@@ -99,7 +107,7 @@ async function loadAtlas() {
     window._atlasWorldFeatures = worldFeatures;
     render();
   } catch (e) {
-    ATLAS_VIEW.innerHTML = `<div class="atlas-error"><h3>Erreur</h3><p>${escapeHtml(e.message)}</p></div>`;
+    ATLAS_VIEW.innerHTML = `<div class="atlas-error"><h3>${escapeHtml(T("atlas.error.title", "Erreur"))}</h3><p>${escapeHtml(e.message)}</p></div>`;
   }
 }
 
@@ -130,19 +138,19 @@ function render() {
 
   ATLAS_VIEW.innerHTML = `
     <div class="atlas-intro">
-      <p class="atlas-intro-sub">Explorez les ${totalMaps} cartes d'OpenFront — géographie réelle, mondes fantastiques et arcade. Cliquez sur une carte pour les détails, nations et stratégies.</p>
+      <p class="atlas-intro-sub">${Tn("atlas.intro", "Explorez les {n} cartes d'OpenFront — géographie réelle, mondes fantastiques et arcade. Cliquez sur une carte pour les détails, nations et stratégies.", totalMaps)}</p>
     </div>
     <div class="atlas-stats">
-      <div class="atlas-stat"><span class="atlas-stat-val">${totalMaps}</span><span class="atlas-stat-label">Cartes totales</span></div>
-      <div class="atlas-stat"><span class="atlas-stat-val">${earthMaps}</span><span class="atlas-stat-label">Terre</span></div>
-      <div class="atlas-stat"><span class="atlas-stat-val">${fantasyMaps}</span><span class="atlas-stat-label">Autres mondes</span></div>
-      <div class="atlas-stat"><span class="atlas-stat-val">${arcadeMaps}</span><span class="atlas-stat-label">Arcade/Tournoi</span></div>
+      <div class="atlas-stat"><span class="atlas-stat-val">${totalMaps}</span><span class="atlas-stat-label">${T("atlas.stats.total", "Cartes totales")}</span></div>
+      <div class="atlas-stat"><span class="atlas-stat-val">${earthMaps}</span><span class="atlas-stat-label">${T("atlas.stats.earth", "Terre")}</span></div>
+      <div class="atlas-stat"><span class="atlas-stat-val">${fantasyMaps}</span><span class="atlas-stat-label">${T("atlas.stats.fantasy", "Autres mondes")}</span></div>
+      <div class="atlas-stat"><span class="atlas-stat-val">${arcadeMaps}</span><span class="atlas-stat-label">${T("atlas.stats.arcade", "Arcade/Tournoi")}</span></div>
     </div>
     <div class="atlas-filters">
       ${CATEGORIES.map(c => `<button class="atlas-filter-btn ${c.key === activeFilter ? "active" : ""}" data-cat="${c.key}">${c.label}</button>`).join("")}
     </div>
     ${geoMaps.length > 0 && countryPaths ? `
-    <div class="atlas-map-wrap">
+    <div class="atlas-map-wrap" data-lenis-prevent-wheel>
       <svg class="atlas-map-svg" viewBox="0 0 ${MAP_W} ${MAP_H}" preserveAspectRatio="xMidYMid meet">
         <rect width="${MAP_W}" height="${MAP_H}" fill="#a8d5e8" />
         <g class="atlas-countries">${countryPaths}</g>
@@ -164,11 +172,11 @@ function render() {
         </g>
       </svg>
       <div class="atlas-map-legend">
-        <span class="atlas-legend-item"><span class="atlas-legend-dot" style="background:#06b6d4"></span> Continental</span>
-        <span class="atlas-legend-item"><span class="atlas-legend-dot" style="background:#34d399"></span> Régional</span>
-        <span class="atlas-legend-item"><span class="atlas-legend-dot" style="background:#a855f7"></span> Fantasy</span>
-        <span class="atlas-legend-item"><span class="atlas-legend-dot" style="background:#facc15"></span> Arcade</span>
-        <span class="atlas-legend-item"><span class="atlas-legend-dot" style="background:#ff7a00"></span> Tournoi</span>
+        <span class="atlas-legend-item"><span class="atlas-legend-dot" style="background:#06b6d4"></span> ${T("atlas.legend.continental", "Continental")}</span>
+        <span class="atlas-legend-item"><span class="atlas-legend-dot" style="background:#34d399"></span> ${T("atlas.legend.regional", "Régional")}</span>
+        <span class="atlas-legend-item"><span class="atlas-legend-dot" style="background:#a855f7"></span> ${T("atlas.legend.fantasy", "Fantasy")}</span>
+        <span class="atlas-legend-item"><span class="atlas-legend-dot" style="background:#facc15"></span> ${T("atlas.legend.arcade", "Arcade")}</span>
+        <span class="atlas-legend-item"><span class="atlas-legend-dot" style="background:#ff7a00"></span> ${T("atlas.legend.tournament", "Tournoi")}</span>
       </div>
     </div>` : ""}
     <div class="atlas-grid">
@@ -192,9 +200,9 @@ function render() {
         <div class="atlas-tooltip-name">${escapeHtml(m.translated_name || m.display_name)}</div>
         <div class="atlas-tooltip-stats">
           <span>${m.width || "?"}×${m.height || "?"}</span>
-          <span>${m.nation_count || 0} nations</span>
-          <span>${m.land_pct || "?"}% terre</span>
-          <span>~${m.estimated_max_players || "?"} joueurs</span>
+          <span>${Tn("atlas.tt.nations", "{n} nations", m.nation_count || 0)}</span>
+          <span>${Tn("atlas.tt.land", "{n}% terre", m.land_pct || "?")}</span>
+          <span>${Tn("atlas.tt.players", "~{n} joueurs", m.estimated_max_players || "?")}</span>
         </div>`;
       tooltipEl.style.display = "block";
       moveTooltip(e);
@@ -235,9 +243,9 @@ function renderMapCard(m) {
       <div class="atlas-card-body">
         <div class="atlas-card-name">${escapeHtml(name)}</div>
         <div class="atlas-card-meta">
-          <span>${m.estimated_max_players || "?"} joueurs</span>
-          <span>${m.nation_count || 0} nations</span>
-          <span>${m.playlist_frequency || 0}× playlist</span>
+          <span>${Tn("atlas.card.players", "{n} joueurs", m.estimated_max_players || "?")}</span>
+          <span>${Tn("atlas.card.nations", "{n} nations", m.nation_count || 0)}</span>
+          <span>${Tn("atlas.card.playlist", "{n}× playlist", m.playlist_frequency || 0)}</span>
         </div>
       </div>
     </div>`;
@@ -265,8 +273,8 @@ function showMapDetail(slug) {
 
   modal.innerHTML = `
     <div class="atlas-detail">
-      <button class="atlas-detail-close" onclick="this.closest('.atlas-modal-overlay').remove();document.body.style.overflow=''">&times;</button>
-      <div class="atlas-detail-back" onclick="this.closest('.atlas-modal-overlay').remove();document.body.style.overflow=''">← Retour à l'Atlas</div>
+      <button class="atlas-detail-close" aria-label="${escapeHtml(T("modal.close", "Fermer"))}" title="${escapeHtml(T("modal.close", "Fermer"))}" onclick="this.closest('.atlas-modal-overlay').remove();document.body.style.overflow=''">&times;</button>
+      <div class="atlas-detail-back" onclick="this.closest('.atlas-modal-overlay').remove();document.body.style.overflow=''">${T("atlas.detail.back", "← Retour à l'Atlas")}</div>
       <div class="atlas-detail-grid">
         <div class="atlas-detail-map-wrap">
           <div class="atlas-detail-map-stage" style="aspect-ratio:${aspectRatio}">
@@ -285,30 +293,30 @@ function showMapDetail(slug) {
         <div class="atlas-detail-info">
           <div class="atlas-detail-badges">
             <span class="atlas-detail-cat" style="--cat-color:${color}">${escapeHtml(catLabel)}</span>
-            <span class="atlas-detail-freq">${m.playlist_frequency || 0}× playlist</span>
+            <span class="atlas-detail-freq">${Tn("atlas.card.playlist", "{n}× playlist", m.playlist_frequency || 0)}</span>
           </div>
           <h2 class="atlas-detail-name">${escapeHtml(name)}</h2>
           <div class="atlas-detail-stats">
-            <div class="atlas-detail-stat"><span>${m.width || "?"} × ${m.height || "?"}</span><label>Dimensions</label></div>
-            <div class="atlas-detail-stat"><span>${m.nation_count || 0}</span><label>Nations</label></div>
-            <div class="atlas-detail-stat"><span>~${m.estimated_max_players || "?"}</span><label>Joueurs max</label></div>
-            <div class="atlas-detail-stat"><span>${m.playlist_frequency || 0}×</span><label>Playlist</label></div>
+            <div class="atlas-detail-stat"><span>${m.width || "?"} × ${m.height || "?"}</span><label>${T("atlas.detail.dimensions", "Dimensions")}</label></div>
+            <div class="atlas-detail-stat"><span>${m.nation_count || 0}</span><label>${T("atlas.detail.nations", "Nations")}</label></div>
+            <div class="atlas-detail-stat"><span>~${m.estimated_max_players || "?"}</span><label>${T("atlas.detail.players_max", "Joueurs max")}</label></div>
+            <div class="atlas-detail-stat"><span>${m.playlist_frequency || 0}×</span><label>${T("atlas.detail.playlist", "Playlist")}</label></div>
           </div>
           <div class="atlas-detail-landbar">
             <div class="atlas-landbar-labels">
-              <span style="color:#34d399">Terre ${m.land_pct ? m.land_pct.toFixed(1) : "?"}%</span>
-              <span style="color:#38bdf8">Eau ${m.water_pct ? m.water_pct.toFixed(1) : "?"}%</span>
+              <span style="color:#34d399">${Tn("atlas.detail.land", "Terre {n}%", m.land_pct ? m.land_pct.toFixed(1) : "?")}</span>
+              <span style="color:#38bdf8">${Tn("atlas.detail.water", "Eau {n}%", m.water_pct ? m.water_pct.toFixed(1) : "?")}</span>
             </div>
             <div class="atlas-landbar-track">
               <div class="atlas-landbar-fill" style="width:${m.land_pct || 0}%"></div>
             </div>
           </div>
-          <a class="atlas-detail-play" href="https://openfront.io/" target="_blank" rel="noopener">Jouer sur OpenFront →</a>
+          <a class="atlas-detail-play" href="https://openfront.io/" target="_blank" rel="noopener">${T("atlas.detail.play", "Jouer sur OpenFront →")}</a>
         </div>
       </div>
       ${nations.length > 0 ? `
       <div class="atlas-detail-nations">
-        <h3>Nations <span class="atlas-detail-count">${nations.length}</span></h3>
+        <h3>${T("atlas.detail.nations", "Nations")} <span class="atlas-detail-count">${nations.length}</span></h3>
         <div class="atlas-nations-grid">
           ${nations.map(n => `
             <div class="atlas-nation-card">
@@ -360,13 +368,13 @@ function pzControls(wrap, handlers) {
   const box = document.createElement("div");
   box.className = "atlas-pz-controls";
   box.innerHTML = `
-    <button type="button" class="atlas-pz-btn" data-act="in" aria-label="Zoomer sur la carte" title="Zoomer">
+    <button type="button" class="atlas-pz-btn" data-act="in" aria-label="${escapeHtml(T("atlas.pz.zoom_aria", "Zoomer sur la carte"))}" title="${escapeHtml(T("atlas.pz.zoom_in", "Zoomer"))}">
       <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6M11 8v6"/></svg>
     </button>
-    <button type="button" class="atlas-pz-btn" data-act="out" aria-label="Dézoomer" title="Dézoomer">
+    <button type="button" class="atlas-pz-btn" data-act="out" aria-label="${escapeHtml(T("atlas.pz.zoom_out", "Dézoomer"))}" title="${escapeHtml(T("atlas.pz.zoom_out", "Dézoomer"))}">
       <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/></svg>
     </button>
-    <button type="button" class="atlas-pz-btn" data-act="reset" aria-label="Réinitialiser la vue de la carte" title="Réinitialiser la vue">
+    <button type="button" class="atlas-pz-btn" data-act="reset" aria-label="${escapeHtml(T("atlas.pz.reset_aria", "Réinitialiser la vue de la carte"))}" title="${escapeHtml(T("atlas.pz.reset", "Réinitialiser la vue"))}">
       <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 10-2.3 5.7"/><path d="M20 4v6h-6"/></svg>
     </button>`;
   box.addEventListener("click", (e) => {
@@ -437,8 +445,15 @@ function initMapPanZoom(wrap, svg, MAP_W, MAP_H) {
 
   pzControls(wrap, { in: () => zoomCenter(1 / PZ_STEP), out: () => zoomCenter(PZ_STEP), reset });
 
-  // Molette = zoom (comportement carte, cf. Google Maps)
-  svg.addEventListener("wheel", (e) => {
+  // Molette = zoom (comportement carte, cf. Google Maps).
+  // ⚠️ Listener posé sur le WRAP (pas le svg) : couvre aussi la légende et
+  // les zones autour de la carte — la molette ne doit JAMAIS faire défiler
+  // la page tant que le curseur est sur le bloc carte.
+  // data-lenis-prevent-wheel (posé dans le markup) : Lenis (scroll smooth
+  // global) écoute le wheel sur window en ignorance totale de
+  // preventDefault() — sans cet attribut, la page scrollait PENDANT le zoom
+  // de la carte (bug signalé : « quand on zoome, ça bouge aussi la page »).
+  wrap.addEventListener("wheel", (e) => {
     e.preventDefault();
     const p = svgClientPoint(svg, e.clientX, e.clientY);
     zoomAt(p.x, p.y, wheelFactor(e));
@@ -552,6 +567,9 @@ function initMapPanZoom(wrap, svg, MAP_W, MAP_H) {
 function initDetailPanZoom(stage) {
   if (!stage || stage.dataset.pz === "1") return;
   stage.dataset.pz = "1";
+  // Même protection que la carte du monde : la molette de zoom dans la
+  // modale ne doit pas faire défiler la page derrière (cf. initMapPanZoom).
+  stage.setAttribute("data-lenis-prevent-wheel", "");
 
   // Couche zoom : l'image + l'overlay des nations bougent ensemble
   const layer = document.createElement("div");

@@ -59,6 +59,12 @@ import { fetchOpenFront } from "./openfront-client.js?v=25";
 import { fetchActiveSkinMap, normPlayerName } from "./reward-codes.js";
 import { getSkin } from "./skins.js";
 
+/* i18n : T(clé) → traduction de la langue courante (window.t est posé par
+ * i18n.min.js, dictionnaire de page i18n-dict-dashboard.js) ; repli = texte
+ * FR actuel. LOCALE() localise les dates/nombres (fr-FR / en-GB). */
+const T = (k, fb) => (typeof window.t === "function" ? window.t(k) : fb);
+const LOCALE = () => (window.currentLanguage === "en" ? "en-GB" : "fr-FR");
+
 /* ════════════════════════════════════════════════════════════════
    Constantes (barème)
    ════════════════════════════════════════════════════════════════ */
@@ -141,7 +147,7 @@ function escapeHtml(s) {
 }
 
 function formatPoints(n) {
-  return new Intl.NumberFormat("fr-FR").format(n || 0);
+  return new Intl.NumberFormat(LOCALE()).format(n || 0);
 }
 
 /**
@@ -198,7 +204,7 @@ function getWeekStartMs(now) {
 /** Formate un timestamp (ms) en date longue française (ex: "lundi 11 août 2026")
  *  dans le fuseau Europe/Paris pour rester cohérent avec getWeekStartMs. */
 function formatFrenchDate(ms) {
-  return new Intl.DateTimeFormat("fr-FR", {
+  return new Intl.DateTimeFormat(LOCALE(), {
     timeZone: WEEK_TZ,
     weekday: "long",
     day: "numeric",
@@ -569,7 +575,7 @@ function updateLastUpdateLabel(ts) {
   if (!ts || !lastUpdateEl) return;
   const d = new Date(typeof ts === "number" ? ts : ts);
   if (Number.isNaN(d.getTime())) return;
-  lastUpdateEl.textContent = "Mis à jour le " + new Intl.DateTimeFormat("fr-FR", {
+  lastUpdateEl.textContent = T("dash.updated_on", "Mis à jour le") + " " + new Intl.DateTimeFormat(LOCALE(), {
     day: "2-digit", month: "2-digit", year: "numeric",
     hour: "2-digit", minute: "2-digit",
   }).format(d);
@@ -747,8 +753,8 @@ function render() {
     view.innerHTML = `
       <div class="dash-empty-state">
         <div class="dash-empty-icon"><i data-icon="chart"></i></div>
-        <h3>Chargement…</h3>
-        <p>Récupération du classement…</p>
+        <h3>${T("dash.loading_title", "Chargement…")}</h3>
+        <p>${T("dash.loading_sub", "Récupération du classement…")}</p>
       </div>`;
     if (window.hydrateIcons) window.hydrateIcons(view);
     return;
@@ -761,8 +767,8 @@ function render() {
     view.innerHTML = `
       <div class="dash-empty-state">
         <div class="dash-empty-icon"><i data-icon="chart"></i></div>
-        <h3>Aucune donnée disponible</h3>
-        <p>Chargement…</p>
+        <h3>${T("dash.no_data_title", "Aucune donnée disponible")}</h3>
+        <p>${T("dash.loading_title", "Chargement…")}</p>
       </div>`;
     if (window.hydrateIcons) window.hydrateIcons(view);
     return;
@@ -787,30 +793,30 @@ function render() {
     ${liveTag}
 
     <div class="dash-intro">
-      <p class="dash-intro-sub">TheFrontHub synchronise automatiquement votre historique de parties et vos statistiques OpenFront, visualise vos conquêtes et classe vos performances à l'échelle mondiale.</p>
-      <button class="dash-help-btn" id="dash-help-btn" aria-label="Voir le barème des points" aria-expanded="false">
+      <p class="dash-intro-sub">${T("dash.intro_sub", "TheFrontHub synchronise automatiquement votre historique de parties et vos statistiques OpenFront, visualise vos conquêtes et classe vos performances à l'échelle mondiale.")}</p>
+      <button class="dash-help-btn" id="dash-help-btn" aria-label="${T("dash.help_aria", "Voir le barème des points")}" aria-expanded="false">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
       </button>
-      <div class="dash-help-popover" id="dash-help-popover" role="dialog" aria-label="Barème des points">
-        <div class="dash-help-popover-header">Barème des points</div>
+      <div class="dash-help-popover" id="dash-help-popover" role="dialog" aria-label="${T("dash.help_title", "Barème des points")}">
+        <div class="dash-help-popover-header">${T("dash.help_title", "Barème des points")}</div>
         <ul class="dash-help-popover-list">
           <li><span class="dash-help-mode">FFA</span><span class="dash-help-pts">+10 pts</span></li>
           <li><span class="dash-help-mode">Team</span><span class="dash-help-pts">+5 pts</span></li>
-          <li><span class="dash-help-mode">classé (1v1)</span><span class="dash-help-pts">+1 pt</span></li>
-          <li><span class="dash-help-mode">classé (2v2)</span><span class="dash-help-pts">+1 pt</span></li>
+          <li><span class="dash-help-mode">${T("dash.help_ranked_1v1", "classé (1v1)")}</span><span class="dash-help-pts">+1 pt</span></li>
+          <li><span class="dash-help-mode">${T("dash.help_ranked_2v2", "classé (2v2)")}</span><span class="dash-help-pts">+1 pt</span></li>
         </ul>
-        <p class="dash-help-note">Le classé rapporte juste 1 pt, pas en plus du casual.</p>
+        <p class="dash-help-note">${T("dash.help_note", "Le classé rapporte juste 1 pt, pas en plus du casual.")}</p>
       </div>
     </div>
 
     <div class="dash-toolbar">
       <div class="dash-search">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.3" y2="16.3"/></svg>
-        <input type="search" id="dash-search-input" placeholder="Rechercher un joueur…" value="${escapeHtml(_searchQuery)}" autocomplete="off" spellcheck="false" aria-label="Rechercher un joueur dans le classement">
-        <button type="button" class="dash-search-clear" id="dash-search-clear" aria-label="Effacer la recherche"${_searchQuery ? "" : " hidden"}><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        <input type="search" id="dash-search-input" placeholder="${T("dash.search_placeholder", "Rechercher un joueur…")}" value="${escapeHtml(_searchQuery)}" autocomplete="off" spellcheck="false" aria-label="${T("dash.search_aria", "Rechercher un joueur dans le classement")}">
+        <button type="button" class="dash-search-clear" id="dash-search-clear" aria-label="${T("dash.search_clear", "Effacer la recherche")}"${_searchQuery ? "" : " hidden"}><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
-      <div class="dash-filters" role="group" aria-label="Filtrer par mode de jeu">
-        <button type="button" class="dash-filter${_pointFilter === "all" ? " active" : ""}" data-filter="all" aria-pressed="${_pointFilter === "all"}">Tous</button>
+      <div class="dash-filters" role="group" aria-label="${T("dash.filters_aria", "Filtrer par mode de jeu")}">
+        <button type="button" class="dash-filter${_pointFilter === "all" ? " active" : ""}" data-filter="all" aria-pressed="${_pointFilter === "all"}">${T("dash.filter_all", "Tous")}</button>
         <button type="button" class="dash-filter${_pointFilter === "ffa" ? " active" : ""}" data-filter="ffa" aria-pressed="${_pointFilter === "ffa"}">FFA</button>
         <button type="button" class="dash-filter${_pointFilter === "team" ? " active" : ""}" data-filter="team" aria-pressed="${_pointFilter === "team"}">Team</button>
       </div>
@@ -819,14 +825,14 @@ function render() {
     <div class="dash-grid">
       <section class="dash-panel">
         <div class="dash-panel-header">
-          <h2 class="dash-panel-title">Top joueurs — Toutes saisons</h2>
+          <h2 class="dash-panel-title">${T("dash.panel_global", "Top joueurs — Toutes saisons")}</h2>
           <span class="dash-panel-sub" id="dash-sub-global"></span>
         </div>
         <div class="dash-panel-body" id="dash-body-global"></div>
       </section>
       <section class="dash-panel">
         <div class="dash-panel-header">
-          <h2 class="dash-panel-title">Top joueurs — Cette semaine</h2>
+          <h2 class="dash-panel-title">${T("dash.panel_weekly", "Top joueurs — Cette semaine")}</h2>
           <span class="dash-panel-sub" id="dash-sub-weekly"></span>
         </div>
         <div class="dash-panel-body" id="dash-body-weekly"></div>
@@ -939,7 +945,7 @@ const WEEKLY_PLUTONIUM_REWARD = 10;
 
 /** Badge [Plutonium 10] + infobulle « preview » — affiché à côté du 1er de la semaine. */
 function weeklyPlutoniumBadge() {
-  const tip = `Récompense en preview : ${WEEKLY_PLUTONIUM_REWARD} Plutonium pour le 1er de la semaine. Mise en place officielle dans peu de temps.`;
+  const tip = T("dash.pu_tip", "Récompense en preview : {n} Plutonium pour le 1er de la semaine. Mise en place officielle dans peu de temps.").replace("{n}", WEEKLY_PLUTONIUM_REWARD);
   return `<span class="dash-pu" data-tip="${tip}" tabindex="0" role="note" aria-label="${tip}">${plutoniumSvg(12)}<b>${WEEKLY_PLUTONIUM_REWARD}</b></span>`;
 }
 
@@ -985,7 +991,7 @@ function renderRanking(topN, opts = {}) {
     // Ligne du joueur connecté : chip « TOI » + fond surligné (.dash-row-me)
     const isMe = !!opts.mePid && p.publicId === opts.mePid;
     const meChip = isMe
-      ? `<span class="dash-me-chip" title="Votre position dans le classement">TOI</span>`
+      ? `<span class="dash-me-chip" title="${T("dash.me_chip_title", "Votre position dans le classement")}">${T("dash.me_chip", "TOI")}</span>`
       : "";
 
     // Badge Plutonium (preview) : uniquement à côté du 1er du panel hebdo,
@@ -996,7 +1002,7 @@ function renderRanking(topN, opts = {}) {
     const puBadge = opts.weekly && p.rank === 1 && _pointFilter === "all"
       ? weeklyPlutoniumBadge()
       : "";
-    const nameHtml = `<span class="dash-player-name${skinClass}"${hubName && p.username && hubName !== p.username ? ` title="En jeu : ${escapeHtml(p.username)}"` : ""}>${escapeHtml(name)}</span>`;
+    const nameHtml = `<span class="dash-player-name${skinClass}"${hubName && p.username && hubName !== p.username ? ` title="${escapeHtml(T("dash.ingame", "En jeu : {n}").replace("{n}", p.username))}"` : ""}>${escapeHtml(name)}</span>`;
     const nameLine = (meChip || puBadge)
       ? `<span class="dash-player-line">${nameHtml}${meChip}${puBadge}</span>`
       : nameHtml;
@@ -1022,8 +1028,8 @@ function renderRanking(topN, opts = {}) {
   return `
     <div class="dash-list" data-lenis-prevent>
       ${rows || (opts.searching
-        ? `<p class="dash-empty">Aucun joueur ne correspond à « ${escapeHtml(_searchQuery)} ».</p>`
-        : `<p class="dash-empty">Aucun joueur classé pour le moment.</p>`)}
+        ? `<p class="dash-empty">${T("dash.search_none", "Aucun joueur ne correspond à « {q} ».").replace("{q}", escapeHtml(_searchQuery))}</p>`
+        : `<p class="dash-empty">${T("dash.empty_list", "Aucun joueur classé pour le moment.")}</p>`)}
     </div>`;
 }
 
@@ -1037,20 +1043,25 @@ function weeklyTrendHtml(p, prevRanks) {
   if (!p.points) return "";
   const prev = prevRanks.get(p.publicId);
   if (prev == null) {
-    return `<span class="dash-trend dash-trend-new" title="N'était pas classé la semaine dernière" aria-label="Nouveau dans le classement de la semaine">NEW</span>`;
+    return `<span class="dash-trend dash-trend-new" title="${T("dash.trend_new_title", "N'était pas classé la semaine dernière")}" aria-label="${T("dash.trend_new_aria", "Nouveau dans le classement de la semaine")}">NEW</span>`;
   }
   const delta = prev - p.rank;
   if (delta === 0) {
-    return `<span class="dash-trend dash-trend-same" title="${prev}${rankOrdinalSuffix(prev)} la semaine dernière — position inchangée" aria-label="Position inchangée">–</span>`;
+    return `<span class="dash-trend dash-trend-same" title="${T("dash.trend_same_title", "{rank} la semaine dernière — position inchangée").replace("{rank}", prev + rankOrdinalSuffix(prev))}" aria-label="${T("dash.trend_same_aria", "Position inchangée")}">–</span>`;
   }
   if (delta > 0) {
-    return `<span class="dash-trend dash-trend-up" title="↑ ${delta} place${delta > 1 ? "s" : ""} vs semaine dernière (${prev}${rankOrdinalSuffix(prev)})" aria-label="Monté de ${delta} place${delta > 1 ? "s" : ""}">↑${delta}</span>`;
+    return `<span class="dash-trend dash-trend-up" title="${T("dash.trend_up_title", "↑ {n} place{s} vs semaine dernière ({rank})").replace("{n}", delta).replace("{s}", delta > 1 ? "s" : "").replace("{rank}", prev + rankOrdinalSuffix(prev))}" aria-label="${T("dash.trend_up_aria", "Monté de {n} place{s}").replace("{n}", delta).replace("{s}", delta > 1 ? "s" : "")}">↑${delta}</span>`;
   }
-  return `<span class="dash-trend dash-trend-down" title="↓ ${-delta} place${delta < -1 ? "s" : ""} vs semaine dernière (${prev}${rankOrdinalSuffix(prev)})" aria-label="Descendu de ${-delta} place${delta < -1 ? "s" : ""}">↓${-delta}</span>`;
+  return `<span class="dash-trend dash-trend-down" title="${T("dash.trend_down_title", "↓ {n} place{s} vs semaine dernière ({rank})").replace("{n}", -delta).replace("{s}", delta < -1 ? "s" : "").replace("{rank}", prev + rankOrdinalSuffix(prev))}" aria-label="${T("dash.trend_down_aria", "Descendu de {n} place{s}").replace("{n}", -delta).replace("{s}", delta < -1 ? "s" : "")}">↓${-delta}</span>`;
 }
 
-/** Suffixe ordinal français : 1ᵉʳ, 2ᵉ, 3ᵉ… */
+/** Suffixe ordinal : 1ᵉʳ/2ᵉ… (FR) · 1st/2nd… (EN, courant i18n). */
 function rankOrdinalSuffix(n) {
+  if (window.currentLanguage === "en") {
+    const v = n % 100;
+    if (v >= 11 && v <= 13) return "th";
+    return n % 10 === 1 ? "st" : n % 10 === 2 ? "nd" : n % 10 === 3 ? "rd" : "th";
+  }
   return n === 1 ? "ᵉʳ" : "ᵉ";
 }
 
@@ -1061,12 +1072,12 @@ function mePinnedRowHtml(me) {
   const name = hubNameForPid(me.publicId) || me.username || me.publicId;
   const profileUrl = `profile.html?pid=${encodeURIComponent(me.publicId)}&player=${encodeURIComponent(name)}`;
   return `
-    <a class="dash-row dash-row-me dash-me-pinned" href="${profileUrl}" aria-label="Votre position : ${me.rank} avec ${formatPoints(me.points)} points">
+    <a class="dash-row dash-row-me dash-me-pinned" href="${profileUrl}" aria-label="${T("dash.me_pinned_aria", "Votre position : {rank} avec {pts} points").replace("{rank}", me.rank).replace("{pts}", formatPoints(me.points))}">
       <span class="dash-rank-slot"><span class="dash-rank-badge">${me.rank}</span></span>
       <span class="dash-player">
         <span class="dash-player-line">
           <span class="dash-player-name">${escapeHtml(name)}</span>
-          <span class="dash-me-chip">TOI</span>
+          <span class="dash-me-chip">${T("dash.me_chip", "TOI")}</span>
         </span>
       </span>
       <span class="dash-score">
@@ -1113,8 +1124,8 @@ function updateLists() {
     const sub = document.getElementById(subId);
     if (sub) {
       if (searching) {
-        let label = `${total} résultat${total > 1 ? "s" : ""} pour « ${_searchQuery} »`;
-        if (total > shown.length) label += " · 20 premiers affichés";
+        let label = T("dash.results_for", "{n} résultat{s} pour « {q} »").replace("{n}", total).replace("{s}", total > 1 ? "s" : "").replace("{q}", _searchQuery);
+        if (total > shown.length) label += " " + T("dash.results_truncated", "· 20 premiers affichés");
         sub.textContent = label;
       } else {
         sub.textContent = baseSub(fullView.length);
@@ -1123,9 +1134,9 @@ function updateLists() {
   };
 
   fill("dash-body-global", "dash-sub-global", _mergedViews.global, false,
-    (n) => `Classement cumulé · ${n} joueurs`);
+    (n) => T("dash.sub_global", "Classement cumulé · {n} joueurs").replace("{n}", n));
   fill("dash-body-weekly", "dash-sub-weekly", _mergedViews.weekly, true,
-    (n) => `Depuis le ${formatFrenchDate(getWeekStartMs(Date.now()))} · ${n} joueurs actifs`);
+    (n) => T("dash.sub_weekly", "Depuis le {date} · {n} joueurs actifs").replace("{date}", formatFrenchDate(getWeekStartMs(Date.now()))).replace("{n}", n));
 }
 
 /** Vide la recherche et ré-affiche les listes complètes. */
@@ -1162,15 +1173,16 @@ function updateAuthUI(user) {
   loginBtn.style.display = "none";
   userContainer.style.display = "block";
 
-  const name = user.name || "Joueur";
-  const publicId = user.publicId || "Non lié";
+  const name = user.name || T("dash.default_player", "Joueur");
+  const notLinked = T("auth.not_linked", "Non lié");
+  const publicId = user.publicId || notLinked;
 
   const setText = (id, val) => {
     const el = document.getElementById(id);
     if (el) el.textContent = val;
   };
   setText("user-display-name", name);
-  setText("user-public-id-side", publicId !== "Non lié" ? publicId : "En ligne");
+  setText("user-public-id-side", publicId !== notLinked ? publicId : T("auth.dropdown_online", "En ligne"));
   setText("dropdown-username-display", name);
   setText("dropdown-publicid-display", publicId);
 
@@ -1218,7 +1230,7 @@ onAuthStateChanged(auth, async (user) => {
     refreshMeRows();
   } else {
     // Premier login sans profil : on affiche le badge + ouvre le setup modal
-    currentUser.name = user.displayName || "Joueur";
+    currentUser.name = user.displayName || T("dash.default_player", "Joueur");
     updateAuthUI(currentUser);
     refreshMeRows();
     // Redirige vers profile.html pour finaliser le setup (le dashboard n'a pas
@@ -1230,7 +1242,7 @@ onAuthStateChanged(auth, async (user) => {
       const params = new URLSearchParams(window.location.search);
       if (params.get("setup") !== "1") {
         // Petit délai pour laisser le toast se figurer
-        showToast("Bienvenue ! Finalisez votre profil pour accéder à vos stats.", "info", 3500);
+        showToast(T("dash.toast_welcome_setup", "Bienvenue ! Finalisez votre profil pour accéder à vos stats."), "info", 3500);
         setTimeout(() => { window.location.href = "profile.html"; }, 1200);
         return;
       }
@@ -1260,11 +1272,11 @@ function setDiscordRedirecting(redirecting) {
   if (redirecting) {
     btn.disabled = true;
     btn.classList.add("is-redirecting");
-    if (label) label.textContent = "Redirection vers Discord…";
+    if (label) label.textContent = T("dash.redirecting_discord", "Redirection vers Discord…");
   } else {
     btn.disabled = false;
     btn.classList.remove("is-redirecting");
-    if (label) label.textContent = "Continuer avec Discord";
+    if (label) label.textContent = T("auth.continue_discord", "Continuer avec Discord");
   }
 }
 
@@ -1286,7 +1298,7 @@ window.handleLogin = async function (provider) {
 
 window.handleLogout = async function (event) {
   if (event) event.stopPropagation();
-  if (!confirm("Voulez-vous vous déconnecter ?")) return;
+  if (!confirm(T("auth.logout_confirm", "Voulez-vous vous déconnecter ?"))) return;
   try { await signOut(auth); } catch (e) { console.warn("[dashboard] logout error:", e.message); }
   currentUser = null;
   updateAuthUI(null);
@@ -1325,7 +1337,7 @@ document.addEventListener("click", (e) => {
 
 window.startOwnershipVerification = async function () {
   if (!currentUser) {
-    showToast("Veuillez vous connecter d'abord.", "warning");
+    showToast(T("dash.toast_login_first", "Veuillez vous connecter d'abord."), "warning");
     return;
   }
   const usernameInput = document.getElementById("profile-username");
@@ -1334,35 +1346,35 @@ window.startOwnershipVerification = async function () {
   const publicId = (publicIdInput?.value || "").trim();
 
   if (!username || !publicId) {
-    showToast("Veuillez remplir tous les champs.", "warning");
+    showToast(T("dash.toast_fill_all", "Veuillez remplir tous les champs."), "warning");
     return;
   }
   if (username.length < 2 || username.length > 30) {
-    showToast("Le pseudo doit faire entre 2 et 30 caractères.", "warning");
+    showToast(T("dash.toast_username_len", "Le pseudo doit faire entre 2 et 30 caractères."), "warning");
     return;
   }
   if (!/^[A-Za-z0-9]{8}$/.test(publicId)) {
-    showToast("Le Public ID doit faire exactement 8 caractères alphanumériques (ex: HabCsQYR).", "warning");
+    showToast(T("dash.toast_pid_len", "Le Public ID doit faire exactement 8 caractères alphanumériques (ex: HabCsQYR)."), "warning");
     return;
   }
   if (/[^a-zA-Z0-9_\- ]/.test(username)) {
-    showToast("Le pseudo ne peut contenir que des lettres, chiffres, espaces, _ et -.", "warning");
+    showToast(T("dash.toast_username_chars", "Le pseudo ne peut contenir que des lettres, chiffres, espaces, _ et -."), "warning");
     return;
   }
 
-  showToast("Vérification du Public ID…", "info", 3000);
+  showToast(T("dash.toast_verifying", "Vérification du Public ID…"), "info", 3000);
   try {
     const playerData = await fetchOpenFront(`/public/player/${encodeURIComponent(publicId)}`);
     if (!playerData || !playerData.publicId) {
-      showToast("Public ID introuvable sur OpenFront. Vérifiez votre saisie.", "error");
+      showToast(T("dash.toast_pid_not_found", "Public ID introuvable sur OpenFront. Vérifiez votre saisie."), "error");
       return;
     }
   } catch (e) {
     if (e?.isNotFound || e?.status === 404) {
-      showToast("Public ID introuvable sur OpenFront. Vérifiez votre saisie.", "error");
+      showToast(T("dash.toast_pid_not_found", "Public ID introuvable sur OpenFront. Vérifiez votre saisie."), "error");
       return;
     }
-    showToast("Impossible de vérifier le Public ID (API indisponible). Réessayez plus tard.", "error", 6000);
+    showToast(T("dash.toast_pid_api_error", "Impossible de vérifier le Public ID (API indisponible). Réessayez plus tard."), "error", 6000);
     console.error("[ownership] API check failed:", e);
     return;
   }
@@ -1383,28 +1395,28 @@ window.startOwnershipVerification = async function () {
   const exEl = document.getElementById("ownership-example");
   if (codeEl) codeEl.textContent = _ownershipCode;
   if (exEl) exEl.textContent = _ownershipCode + " " + username;
-  showToast("Code généré. Suivez les instructions ci-dessous.", "info");
+  showToast(T("dash.toast_code_generated", "Code généré. Suivez les instructions ci-dessous."), "info");
   if (window.hydrateIcons) window.hydrateIcons(document.getElementById("profile-modal"));
 };
 
 window.confirmOwnershipVerification = async function () {
   if (!_ownershipCode || !_ownershipPublicId) return;
   const btn = document.getElementById("confirm-ownership-btn");
-  const original = btn?.textContent || "Confirmer";
-  if (btn) { btn.disabled = true; btn.textContent = "Vérification…"; }
+  const original = btn?.textContent || T("dash.btn_confirm", "Confirmer");
+  if (btn) { btn.disabled = true; btn.textContent = T("dash.btn_verifying", "Vérification…"); }
   try {
     const gamesData = await fetchOpenFront(`/public/player/${encodeURIComponent(_ownershipPublicId)}/games`);
     const games = Array.isArray(gamesData?.results) ? gamesData.results : [];
     const found = games.some((g) => g.username && g.username.includes(_ownershipCode));
     if (!found) {
-      showToast("Code non trouvé dans vos parties récentes. Jouez une partie avec le code dans votre pseudo, puis confirmez.", "error", 6000);
+      showToast(T("dash.toast_code_not_found", "Code non trouvé dans vos parties récentes. Jouez une partie avec le code dans votre pseudo, puis confirmez."), "error", 6000);
       if (btn) { btn.disabled = false; btn.textContent = original; }
       return;
     }
     await saveUserProfile(_ownershipUsername, _ownershipPublicId);
   } catch (e) {
     console.error("[ownership] Confirmation failed:", e);
-    showToast("Erreur lors de la vérification. Réessayez.", "error");
+    showToast(T("dash.toast_verify_error", "Erreur lors de la vérification. Réessayez."), "error");
     if (btn) { btn.disabled = false; btn.textContent = original; }
   }
 };
@@ -1442,11 +1454,11 @@ async function saveUserProfile(username, publicId) {
     if (modal) modal.classList.remove("active");
     window.cancelOwnershipVerification();
     updateAuthUI(currentUser);
-    showToast("Profil vérifié et enregistré avec succès ! Redirection…", "success");
+    showToast(T("dash.toast_profile_saved", "Profil vérifié et enregistré avec succès ! Redirection…"), "success");
     setTimeout(() => { window.location.href = `profile.html?publicId=${encodeURIComponent(publicId)}&player=${encodeURIComponent(username)}`; }, 800);
   } catch (e) {
     console.error("[dashboard] Save profile error:", e);
-    showToast("Erreur lors de la sauvegarde du profil.", "error");
+    showToast(T("dash.toast_save_error", "Erreur lors de la sauvegarde du profil."), "error");
     throw e;
   }
 }
@@ -1555,7 +1567,7 @@ document.addEventListener("click", (e) => {
     }
   } catch (e) {
     console.error("[dashboard] init failed:", e);
-    view.innerHTML = `<div class="dash-empty-state"><div class="dash-empty-icon"><i data-icon="warning"></i></div><h3>Erreur</h3><p>${escapeHtml(e.message || "Chargement impossible.")}</p></div>`;
+    view.innerHTML = `<div class="dash-empty-state"><div class="dash-empty-icon"><i data-icon="warning"></i></div><h3>${T("dash.error_title", "Erreur")}</h3><p>${escapeHtml(e.message || T("dash.error_generic", "Chargement impossible."))}</p></div>`;
     if (window.hydrateIcons) window.hydrateIcons(view);
   }
 })();

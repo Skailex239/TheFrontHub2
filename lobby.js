@@ -40,6 +40,10 @@
 
 "use strict";
 
+// Helper i18n : T(clé, fallback, params) — passe par window.t (i18n.js,
+// chargé en <head>) et retombe sur le libellé FR si le moteur est absent.
+const T = (k, fb, params) => (typeof window.t === "function" ? window.t(k, params) : fb);
+
 /* ── Helpers ─────────────────────────────────────────────────────────── */
 
 // Nom de carte affichable : passe par i18n (window.t, chargé sur toutes les
@@ -171,18 +175,21 @@ function modifierPills(game) {
   if (Array.isArray(cfg.disabledUnits) && cfg.disabledUnits.length) pills.push("disabledUnits");
 
   if (mods.goldMultiplier && Number(mods.goldMultiplier) !== 1) {
-    pills.push(`Or ×${mods.goldMultiplier}`);
+    pills.push(T("lobby.pill_gold_x", `Or ×${mods.goldMultiplier}`, { n: mods.goldMultiplier }));
   }
   if (mods.startingGold) {
     const m = Math.round(Number(mods.startingGold) / 1_000_000);
-    if (m > 0 && m !== 5) pills.push(`Or ${m}M`); // 5M = défaut, pas de pill
+    if (m > 0 && m !== 5) pills.push(T("lobby.pill_gold_m", `Or ${m}M`, { n: m })); // 5M = défaut, pas de pill
   }
   return pills.slice(0, 4); // max 4 pills visibles
 }
 
 function pillLabel(p) {
-  if (PILL_LABELS.hasOwnProperty(p)) return PILL_LABELS[p];
-  return p; // libellés dynamiques ("Or ×3") déjà lisibles
+  if (PILL_LABELS.hasOwnProperty(p)) {
+    const fb = PILL_LABELS[p];
+    return fb == null ? p : T("lobby.pill_" + p, fb);
+  }
+  return p; // libellés dynamiques ("Or ×3") déjà traduits au push
 }
 
 /** Format d'équipe : {teams, perTeam, hvn} → "Duos · 4 équipes" etc. */
@@ -194,14 +201,16 @@ function describeTeams(cfg) {
   const pt = cfg.playerTeams;
   if (typeof pt === "number" && pt > 0) {
     const per = max ? Math.floor(max / pt) : 0;
-    return per > 0 ? `${pt} équipes de ${per}` : `${pt} équipes`;
+    return per > 0
+      ? T("lobby.teams_of", `${pt} équipes de ${per}`, { n: pt, m: per })
+      : T("lobby.teams", `${pt} équipes`, { n: pt });
   }
   if (typeof pt === "string") {
     const s = pt.trim().toLowerCase();
-    if (s === "humans vs nations") return "Humains vs Nations";
+    if (s === "humans vs nations") return T("lobby.humans_vs_nations", "Humains vs Nations");
     const n = TEAM_SIZES[s];
     if (n) {
-      const label = PER_TEAM_LABEL[n] || `${n} joueurs`;
+      const label = PER_TEAM_LABEL[n] || T("lobby.players_n", `${n} joueurs`, { n });
       return max ? `${label} · ${Math.floor(max / n)} équipes` : label;
     }
   }
@@ -210,21 +219,26 @@ function describeTeams(cfg) {
 
 /** Compte à rebours lisible ("Imminent", "3 min", "1h 20min", "En cours"). */
 function countdownText(startsAt, serverNow) {
-  if (!startsAt) return "En attente";
+  if (!startsAt) return T("lobby.cd_pending", "En attente");
   const delta = startsAt - serverNow;
-  if (delta <= 0) return "En cours";
+  if (delta <= 0) return T("lobby.cd_ongoing", "En cours");
   const s = Math.floor(delta / 1000);
-  if (s < 60) return s <= 10 ? "Imminent" : `${s} s`;
+  if (s < 60) return s <= 10 ? T("lobby.cd_imminent", "Imminent") : `${s} s`;
   const m = Math.floor(s / 60);
   if (m < 60) return `${m} min`;
   const h = Math.floor(m / 60);
   return `${h} h ${m % 60 ? (m % 60) + " min" : ""}`.trim();
 }
 
+/** Le compte à rebours est-il « urgent » (imminent / déjà en cours) ? */
+function isUrgentCountdown(txt) {
+  return txt === T("lobby.cd_imminent", "Imminent") || txt === T("lobby.cd_ongoing", "En cours");
+}
+
 function modeLabel(game) {
   const cfg = game.gameConfig || {};
-  if (game.publicGameType === "special") return "Spécial";
-  if (cfg.rankedType) return cfg.rankedType === "2v2" ? "Classé 2v2" : "Classé 1v1";
+  if (game.publicGameType === "special") return T("lobby.sec_special", "Spécial");
+  if (cfg.rankedType) return cfg.rankedType === "2v2" ? T("lobby.ranked_2v2", "Classé 2v2") : T("lobby.ranked_1v1", "Classé 1v1");
   return describeTeams(cfg);
 }
 
@@ -269,7 +283,7 @@ function announceFavoriteGames(isNew) {
   }
   fresh.forEach((mapName, i) => {
     setTimeout(() => {
-      window.showToast?.(`Nouvelle partie sur ta carte favorite : ${mapDisplayName(mapName)}`, "info", 7000, "star");
+      window.showToast?.(T("lobby.toast_new_fav", `Nouvelle partie sur ta carte favorite : ${mapDisplayName(mapName)}`, { map: mapDisplayName(mapName) }), "info", 7000, "star");
     }, i * 400);
   });
 }
@@ -541,10 +555,10 @@ function buildSkeleton() {
 
   v.innerHTML = `
     <div id="lobby-root">
-      <div class="lobby-filter" role="group" aria-label="Filtrer les parties">
-        <span class="lobby-filter-label">Afficher</span>
+      <div class="lobby-filter" role="group" aria-label="${esc(T("lobby.filter_aria", "Filtrer les parties"))}">
+        <span class="lobby-filter-label">${esc(T("lobby.filter_show", "Afficher"))}</span>
         <div class="lobby-filter-group">
-          ${FILTERS.map((f) => `<button type="button" class="lobby-filter-btn" data-filter="${f.key}" aria-pressed="${f.key === "all"}">${esc(f.label)}</button>`).join("")}
+          ${FILTERS.map((f) => `<button type="button" class="lobby-filter-btn" data-filter="${f.key}" aria-pressed="${f.key === "all"}">${esc(T("lobby.filter_" + f.key, f.label))}</button>`).join("")}
         </div>
         <span class="lobby-filter-updated" id="lobby-updated"></span>
       </div>
@@ -575,26 +589,27 @@ function buildSkeleton() {
 
   const sections = $("#lobby-sections");
   for (const sec of SECTIONS) {
+    const secLabel = T("lobby.sec_" + sec.key, sec.label);
     const el = document.createElement("section");
     el.className = "lobby-section";
     el.id = `lobby-sec-${sec.key}`;
     el.innerHTML = `
       <header class="lobby-section-head">
-        <h2 class="lobby-section-title">${esc(sec.label)}</h2>
+        <h2 class="lobby-section-title">${esc(secLabel)}</h2>
         <span class="lobby-section-count" id="lobby-count-${sec.key}"></span>
         <span class="lobby-section-rule" aria-hidden="true"></span>
         <div class="lobby-section-nav">
-          <button class="lobby-arrow" data-dir="-1" aria-label="Défiler vers la gauche">
+          <button class="lobby-arrow" data-dir="-1" aria-label="${esc(T("lobby.scroll_left", "Défiler vers la gauche"))}">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
-          <button class="lobby-arrow" data-dir="1" aria-label="Défiler vers la droite">
+          <button class="lobby-arrow" data-dir="1" aria-label="${esc(T("lobby.scroll_right", "Défiler vers la droite"))}">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
         </div>
       </header>
       <div class="lobby-track-zone">
         <div class="lobby-track" id="lobby-track-${sec.key}" tabindex="0" role="list"
-             aria-label="Parties ${esc(sec.label)}"></div>
+             aria-label="${esc(T("lobby.track_aria", `Parties ${sec.label}`, { mode: secLabel }))}"></div>
       </div>`;
     sections.appendChild(el);
 
@@ -634,8 +649,8 @@ function setFavBtn(btn, filled) {
   if (!btn) return;
   btn.setAttribute("aria-pressed", String(filled));
   btn.innerHTML = favIconSvg(filled);
-  btn.title = filled ? "Retirer des cartes favorites" : "Ajouter aux cartes favorites";
-  btn.setAttribute("aria-label", filled ? "Retirer la carte des favoris" : "Ajouter la carte aux favoris");
+  btn.title = filled ? T("lobby.fav_remove_title", "Retirer des cartes favorites") : T("lobby.fav_add_title", "Ajouter aux cartes favorites");
+  btn.setAttribute("aria-label", filled ? T("lobby.fav_remove_aria", "Retirer la carte des favoris") : T("lobby.fav_add_aria", "Ajouter la carte aux favoris"));
 }
 
 /** La carte (maquette B — surface claire au design system). */
@@ -662,11 +677,11 @@ function buildCard(game) {
       <span class="lobby-card-img-fallback">${esc(mapName.slice(0, 1).toUpperCase())}</span>
       <span class="lobby-card-shade" aria-hidden="true"></span>
       <span class="lobby-card-timer" data-role="timer"></span>
-      <span class="lobby-card-almost" data-role="almost" hidden>Presque pleine</span>
+      <span class="lobby-card-almost" data-role="almost" hidden>${esc(T("lobby.almost_full", "Presque pleine"))}</span>
       <span class="lobby-card-pills"></span>
       <button type="button" class="lobby-card-fav" data-role="fav"
-              aria-pressed="false" title="Ajouter aux cartes favorites"
-              aria-label="Ajouter la carte aux favoris">${favIconSvg(false)}</button>
+              aria-pressed="false" title="${esc(T("lobby.fav_add_title", "Ajouter aux cartes favorites"))}"
+              aria-label="${esc(T("lobby.fav_add_aria", "Ajouter la carte aux favoris"))}">${favIconSvg(false)}</button>
     </span>
     <span class="lobby-card-body">
       <h3 class="lobby-card-map"></h3>
@@ -674,7 +689,7 @@ function buildCard(game) {
       <span class="lobby-card-fill" aria-hidden="true"><span class="lobby-card-fill-bar" data-role="fill"></span></span>
       <span class="lobby-card-foot">
         <span class="lobby-card-players" data-role="players"></span>
-        <span class="lobby-card-cta" aria-hidden="true">Rejoindre
+        <span class="lobby-card-cta" aria-hidden="true">${esc(T("lobby.join", "Rejoindre"))}
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
         </span>
       </span>
@@ -743,7 +758,7 @@ function updateCard(card, game, opts) {
   const txt = countdownText(Number(game.startsAt) || 0, serverNow());
   if (tEl) {
     if (tEl.textContent !== txt) tEl.textContent = txt;
-    tEl.classList.toggle("urgent", txt === "Imminent" || txt === "En cours");
+    tEl.classList.toggle("urgent", isUrgentCountdown(txt));
   }
 }
 
@@ -868,15 +883,15 @@ function render(isFull) {
       emptyEl.innerHTML = `
         <div class="lobby-loading">
           <div class="spinner"></div>
-          <p>Connexion aux serveurs OpenFront…</p>
+          <p>${esc(T("lobby.connecting", "Connexion aux serveurs OpenFront…"))}</p>
         </div>`;
     } else if (filtering) {
       emptyEl.hidden = false;
       emptyEl.innerHTML = `
         <div class="lobby-empty-inner">
           <div class="lobby-empty-icon"><i data-icon="star" data-icon-size="32"></i></div>
-          <h3>Aucune partie sur tes cartes favorites</h3>
-          <p>Clique l'étoile d'une carte pour l'ajouter à tes favoris —<br>tu seras prévenu dès qu'une partie s'ouvre dessus.</p>
+          <h3>${T("lobby.fav_empty_title", "Aucune partie sur tes cartes favorites")}</h3>
+          <p>${T("lobby.fav_empty_text", `Clique l'étoile d'une carte pour l'ajouter à tes favoris —<br>tu seras prévenu dès qu'une partie s'ouvre dessus.`)}</p>
         </div>`;
     } else if (state.source === "fallback" || state.source === "offline") {
       // Mode dégradé : le flux temps réel est injoignable depuis ce réseau
@@ -884,9 +899,9 @@ function render(isFull) {
       emptyEl.innerHTML = `
         <div class="lobby-empty-inner">
           <div class="lobby-empty-icon"><i data-icon="globe" data-icon-size="32"></i></div>
-          <h3>Flux temps réel indisponible</h3>
-          <p>Impossible de joindre les serveurs OpenFront en direct depuis ce réseau.<br>Les parties réapparaîtront dès la reconnexion.</p>
-          <button class="lobby-retry-btn" type="button">Réessayer</button>
+          <h3>${T("lobby.stream_down_title", "Flux temps réel indisponible")}</h3>
+          <p>${T("lobby.stream_down_text", `Impossible de joindre les serveurs OpenFront en direct depuis ce réseau.<br>Les parties réapparaîtront dès la reconnexion.`)}</p>
+          <button class="lobby-retry-btn" type="button">${esc(T("lobby.retry", "Réessayer"))}</button>
         </div>`;
       const retry = $(".lobby-retry-btn", emptyEl);
       if (retry) retry.addEventListener("click", () => {
@@ -901,8 +916,8 @@ function render(isFull) {
       emptyEl.innerHTML = `
         <div class="lobby-empty-inner">
           <div class="lobby-empty-icon"><i data-icon="hourglass" data-icon-size="32"></i></div>
-          <h3>Aucune partie en attente</h3>
-          <p>Les nouvelles parties OpenFront apparaîtront ici automatiquement.</p>
+          <h3>${T("lobby.empty_title", "Aucune partie en attente")}</h3>
+          <p>${T("lobby.empty_text", "Les nouvelles parties OpenFront apparaîtront ici automatiquement.")}</p>
         </div>`;
     }
     // FIX (bug favoris) : on ne masque PLUS #lobby-root en entier — il contient
@@ -943,8 +958,9 @@ function render(isFull) {
 
     if (games.length === 0) {
       const msg = filtering
-        ? "Aucune partie sur tes cartes favorites"
-        : `Aucune partie ${esc(sec.label.toLowerCase())} en attente`;
+        ? T("lobby.fav_empty_title", "Aucune partie sur tes cartes favorites")
+        : T("lobby.track_empty", `Aucune partie ${esc(sec.label.toLowerCase())} en attente`,
+            { mode: esc(T("lobby.sec_" + sec.key, sec.label).toLowerCase()) });
       if (track.dataset.empty !== "1" || track.dataset.emptyMsg !== msg) {
         track.dataset.empty = "1";
         track.dataset.emptyMsg = msg;
@@ -1018,7 +1034,7 @@ function renderHero() {
     const bannerMode = [modeLabel(next), ...modifierPills(next).map((p) => pillLabel(p))].join(" · ");
     hero.innerHTML = `
       <span class="lobby-banner-dot" aria-hidden="true"></span>
-      <span class="lobby-banner-label">Prochaine partie</span>
+      <span class="lobby-banner-label">${esc(T("lobby.next_game", "Prochaine partie"))}</span>
       <span class="lobby-banner-thumb">
         <img alt="" src="${esc(mapThumb(mapName))}" onerror="this.remove()">
         <span class="lobby-banner-thumb-fallback">${esc(mapName.slice(0, 1).toUpperCase())}</span>
@@ -1027,10 +1043,10 @@ function renderHero() {
       <span class="lobby-banner-mode">${esc(bannerMode)}</span>
       <span class="lobby-banner-players" data-role="hero-players"></span>
       <span class="lobby-card-timer" data-role="hero-timer"></span>
-      <span class="lobby-banner-cta">Rejoindre
+      <span class="lobby-banner-cta">${esc(T("lobby.join", "Rejoindre"))}
         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
       </span>`;
-    hero.setAttribute("aria-label", `Rejoindre la prochaine partie : ${mapDisplayName(mapName)}`);
+    hero.setAttribute("aria-label", T("lobby.hero_aria", `Rejoindre la prochaine partie : ${mapDisplayName(mapName)}`, { map: mapDisplayName(mapName) }));
   }
 
   // Mise à jour dynamique
@@ -1042,18 +1058,18 @@ function renderHero() {
   if (tEl) {
     const txt = countdownText(Number(next.startsAt) || 0, serverNow());
     tEl.textContent = txt;
-    tEl.classList.toggle("urgent", txt === "Imminent" || txt === "En cours");
+    tEl.classList.toggle("urgent", isUrgentCountdown(txt));
   }
 }
 
 /* ── Barre d'état (topbar) ──────────────────────────────────────────── */
 
 const SOURCE_META = {
-  direct:   { cls: "connected", label: "Temps réel", title: "WebSocket OpenFront (direct)" },
-  proxy:    { cls: "connected", label: "Temps réel", title: "WebSocket OpenFront (proxy Cloudflare)" },
-  fallback: { cls: "delayed",   label: "Cache 5 min", title: "Flux temps réel indisponible — données rafraîches toutes les 5 min" },
-  offline:  { cls: "error",     label: "Hors ligne", title: "Impossible de joindre OpenFront" },
-  idle:     { cls: "",          label: "Connexion…", title: "Connexion en cours" },
+  direct:   { cls: "connected", labelKey: "lobby.status_live", labelFb: "Temps réel", titleKey: "lobby.status_live_title", titleFb: "WebSocket OpenFront (direct)" },
+  proxy:    { cls: "connected", labelKey: "lobby.status_live", labelFb: "Temps réel", titleKey: "lobby.status_proxy_title", titleFb: "WebSocket OpenFront (proxy Cloudflare)" },
+  fallback: { cls: "delayed",   labelKey: "lobby.status_cache", labelFb: "Cache 5 min", titleKey: "lobby.status_cache_title", titleFb: "Flux temps réel indisponible — données rafraîches toutes les 5 min" },
+  offline:  { cls: "error",     labelKey: "lobby.status_offline", labelFb: "Hors ligne", titleKey: "lobby.status_offline_title", titleFb: "Impossible de joindre OpenFront" },
+  idle:     { cls: "",          labelKey: "lobby.status_connecting", labelFb: "Connexion…", titleKey: "lobby.status_connecting_title", titleFb: "Connexion en cours" },
 };
 
 function renderStatus() {
@@ -1061,9 +1077,9 @@ function renderStatus() {
   if (!el) return;
   const meta = SOURCE_META[state.source] || SOURCE_META.idle;
   el.className = `lobby-status ${meta.cls}`;
-  el.title = meta.title;
+  el.title = T(meta.titleKey, meta.titleFb);
   const label = $("#lobby-status-label", el);
-  if (label) label.textContent = meta.label;
+  if (label) label.textContent = T(meta.labelKey, meta.labelFb);
 
   const stats = document.getElementById("lobby-stats");
   if (stats) {
@@ -1071,7 +1087,9 @@ function renderStatus() {
     const players = ["ffa", "team", "special"].reduce(
       (sum, k) => sum + state.games[k].reduce((s, g) => s + (Number(g.numClients) || 0), 0), 0);
     stats.textContent = total > 0
-      ? `${total} partie${total > 1 ? "s" : ""} en attente · ${players} joueur${players > 1 ? "s" : ""}`
+      ? T("lobby.stats",
+          `${total} partie${total > 1 ? "s" : ""} en attente · ${players} joueur${players > 1 ? "s" : ""}`,
+          { total, players, gs: total > 1 ? "s" : "", ps: players > 1 ? "s" : "" })
       : "";
   }
 }
@@ -1082,9 +1100,9 @@ function ensureStatusBar() {
   if (!right || document.getElementById("lobby-status")) return;
   right.innerHTML = `
     <span id="lobby-stats" class="lobby-stats"></span>
-    <span id="lobby-status" class="lobby-status" title="Connexion en cours">
+    <span id="lobby-status" class="lobby-status" title="${esc(T("lobby.status_connecting_title", "Connexion en cours"))}">
       <span class="lobby-status-dot"></span>
-      <span id="lobby-status-label">Connexion…</span>
+      <span id="lobby-status-label">${esc(T("lobby.status_connecting", "Connexion…"))}</span>
     </span>`;
 }
 
@@ -1142,7 +1160,7 @@ async function toggleFavoriteRemote(slug) {
 
 /** Invite à se connecter (modal + toast). */
 function promptLogin() {
-  window.showToast?.("Connecte-toi avec Discord pour enregistrer tes cartes favorites", "warning", 5000);
+  window.showToast?.(T("lobby.toast_login_favorites", "Connecte-toi avec Discord pour enregistrer tes cartes favorites"), "warning", 5000);
   window.toggleAuthModal?.();
 }
 
@@ -1161,14 +1179,15 @@ async function onFavClick(btn) {
   if (!r.ok) {
     if (r.auth) { promptLogin(); return; }
     setFavBtn(btn, state.favorites.has(slug)); // revert
-    window.showToast?.("Impossible de mettre à jour tes favoris, réessaie", "error");
+    window.showToast?.(T("lobby.toast_fav_error", "Impossible de mettre à jour tes favoris, réessaie"), "error");
     return;
   }
   // Répercute sur toutes les cartes de la même carte (plusieurs parties possibles)
   $$('.lobby-card[data-map="' + slug + '"] [data-role=fav]').forEach((b) => setFavBtn(b, r.favorited));
   window.showToast?.(
-    r.favorited ? `${mapDisplayName(mapName)} ajoutée à tes cartes favorites`
-                : `${mapDisplayName(mapName)} retirée de tes cartes favorites`,
+    r.favorited
+      ? T("lobby.toast_fav_added", `${mapDisplayName(mapName)} ajoutée à tes cartes favorites`, { map: mapDisplayName(mapName) })
+      : T("lobby.toast_fav_removed", `${mapDisplayName(mapName)} retirée de tes cartes favorites`, { map: mapDisplayName(mapName) }),
     "success", 3500, r.favorited ? "star" : "starOutline",
   );
   // En mode « Favoris », un retrait d'étoile doit retirer la carte de la vue
@@ -1186,9 +1205,9 @@ function startClock() {
     const upEl = document.getElementById("lobby-updated");
     if (upEl && state.updatedAt) {
       const s = Math.max(0, Math.round((Date.now() - state.updatedAt) / 1000));
-      const txt = s < 5 ? "Actualisé à l'instant"
-        : s < 60 ? `Actualisé il y a ${s} s`
-        : `Actualisé il y a ${Math.floor(s / 60)} min`;
+      const txt = s < 5 ? T("lobby.updated_now", "Actualisé à l'instant")
+        : s < 60 ? T("lobby.updated_s", `Actualisé il y a ${s} s`, { n: s })
+        : T("lobby.updated_min", `Actualisé il y a ${Math.floor(s / 60)} min`, { n: Math.floor(s / 60) });
       if (upEl.textContent !== txt) upEl.textContent = txt;
     }
     // Maj légère : uniquement timers + compteurs (pas de re-render structurel)
@@ -1201,7 +1220,7 @@ function startClock() {
       if (game) {
         const txt = countdownText(Number(game.startsAt) || 0, serverNow());
         if (el.textContent !== txt) el.textContent = txt;
-        el.classList.toggle("urgent", txt === "Imminent" || txt === "En cours");
+        el.classList.toggle("urgent", isUrgentCountdown(txt));
       }
     });
     // Hero timer
@@ -1214,7 +1233,7 @@ function startClock() {
       if (game) {
         const txt = countdownText(Number(game.startsAt) || 0, serverNow());
         heroT.textContent = txt;
-        heroT.classList.toggle("urgent", txt === "Imminent" || txt === "En cours");
+        heroT.classList.toggle("urgent", isUrgentCountdown(txt));
       }
     }
   }, COUNTDOWN_TICK);

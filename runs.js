@@ -1,5 +1,19 @@
 const $ = (id) => document.getElementById(id);
 
+/* ═══ i18n (moteur global i18n.js — dictionnaire : i18n-dict-runs.js) ═══
+   T(clé, fallback) : traduit via window.t, retombe sur le texte FR sinon.
+   TP(clé, params, fallback) : idem avec substitution {param}. */
+const T = (k, fb) => (typeof window.t === "function" ? window.t(k) : fb);
+const TP = (k, params, fb) => {
+  if (typeof window.t !== "function") return fb;
+  const v = window.t(k, params);
+  return v && v !== k ? v : fb;
+};
+// Locale des dates/nombres selon la langue courante (fr-FR / en-GB)
+function localeTag() {
+  return (typeof window !== "undefined" && window.currentLanguage === "en") ? "en-GB" : "fr-FR";
+}
+
 const connectedUsernames = new Set();
 
 // Nom de carte affichable : passe par i18n (window.t, chargé sur toutes les
@@ -100,7 +114,7 @@ function applySkinsToDom() {
     const shown = displayNameFor(raw);
     if (shown && shown !== raw && a.textContent !== shown) {
       a.textContent = shown;
-      a.title = 'En jeu : ' + raw;
+      a.title = TP("runs.ingame_title", { name: raw }, "En jeu : " + raw);
     }
   });
 }
@@ -191,8 +205,8 @@ async function loadTopRuns({ limit, windowDays }) {
   tbody.innerHTML = '';
   errorBox.hidden = true;
 
-  status.textContent = 'Chargement\u2026';
-  meta.textContent = 'Fen\u00eatre: ' + windowDays + ' jours \u2022 limite: ' + limit;
+  status.textContent = T("runs.loading", "Chargement\u2026");
+  meta.textContent = TP("runs.meta_window", { days: windowDays, limit: limit }, "Fen\u00eatre: " + windowDays + " jours \u2022 limite: " + limit);
 
   const startedAt = Date.now();
 
@@ -208,7 +222,7 @@ async function loadTopRuns({ limit, windowDays }) {
     } catch (gzErr) {
       // Fallback to uncompressed file
       const plainRes = await fetch('runs.json', { cache: 'no-store' });
-      if (!plainRes.ok) throw new Error('Impossible de charger runs.json');
+      if (!plainRes.ok) throw new Error(T("runs.err_file", "Impossible de charger runs.json"));
       allRunsData = await plainRes.json();
     }
 
@@ -227,7 +241,7 @@ async function loadTopRuns({ limit, windowDays }) {
     filtered.sort(function(a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
     const runs = filtered.slice(0, limit);
 
-    status.textContent = runs.length ? '' : 'Aucun run trouv\u00e9 dans les ' + windowDays + ' derniers jours.';
+    status.textContent = runs.length ? "" : TP("runs.none_found", { days: windowDays }, "Aucun run trouv\u00e9 dans les " + windowDays + " derniers jours.");
 
     const frag = document.createDocumentFragment();
     runs.forEach(function(r, idx) {
@@ -252,7 +266,7 @@ async function loadTopRuns({ limit, windowDays }) {
       // data-player garde le pseudo original pour les patchs asynchrones
       // (skins / aliases) et handlePlayerClick utilise le pseudo original.
       var shownName = displayNameFor(playerName);
-      var titleAttr = shownName !== playerName ? ' title="En jeu : ' + escapeHtml(playerName) + '"' : '';
+      var titleAttr = shownName !== playerName ? ' title="' + escapeHtml(TP("runs.ingame_title", { name: playerName }, "En jeu : " + playerName)) + '"' : '';
       tdPlayer.innerHTML = '<a' + skinAttr + ' data-player="' + escapeHtml(playerName) + '" href="#" onclick="handlePlayerClick(\'' + escapeHtml(playerName).replace(/'/g, "\\'") + "');return false\"" + titleAttr + ' style="cursor:pointer;text-decoration:none">' + escapeHtml(shownName) + '</a>';
 
       const tdMap = document.createElement('td');
@@ -268,7 +282,7 @@ async function loadTopRuns({ limit, windowDays }) {
       tdPlayers.textContent = String(r.players != null ? r.players : '');
 
       const tdDate = document.createElement('td');
-      tdDate.textContent = r.timestamp ? new Date(r.timestamp).toLocaleString('fr-FR') : '';
+      tdDate.textContent = r.timestamp ? new Date(r.timestamp).toLocaleString(localeTag()) : '';
 
       tr.append(tdRank, tdPlayer, tdMap, tdTime, tdDiff, tdPlayers, tdDate);
       frag.appendChild(tr);
@@ -279,15 +293,21 @@ async function loadTopRuns({ limit, windowDays }) {
     const totalInFile = allRunsData.totalCount || rawRuns.length;
     const ms = Date.now() - startedAt;
 
-    meta.textContent = '';
-    generatedMeta.textContent = 'Top ' + runs.length + ' sur ' + filtered.length + ' runs (' + windowDays + 'j) \u2022 Total: ' + totalInFile.toLocaleString('fr-FR') + ' \u2022 ' + ms + 'ms';
+    meta.textContent = "";
+    generatedMeta.textContent = TP("runs.gen_meta", {
+      top: runs.length,
+      total: filtered.length,
+      days: windowDays,
+      all: totalInFile.toLocaleString(localeTag()),
+      ms: ms,
+    }, "Top " + runs.length + " sur " + filtered.length + " runs (" + windowDays + "j) \u2022 Total: " + totalInFile.toLocaleString("fr-FR") + " \u2022 " + ms + "ms");
   } catch (e) {
     status.textContent = '';
     const message = e && e.message ? e.message : String(e);
 
     errorBox.hidden = false;
     errorBox.innerHTML =
-      '<div class="runs-error-title">Erreur</div>' +
+      '<div class="runs-error-title">' + escapeHtml(T("runs.error_title", "Erreur")) + '</div>' +
       '<div class="runs-error-msg">' + escapeHtml(message) + '</div>';
 
     meta.textContent = '';
