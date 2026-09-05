@@ -15,8 +15,8 @@
 //   - On next visit: user sees fresh data, still instantly
 //   - Works even on flaky 3G
 
-const CACHE_NAME = 'thefronthub-v52';
-const CACHE_IMMUTABLE = 'thefronthub-imm-v18';
+const CACHE_NAME = 'thefronthub-v53';
+const CACHE_IMMUTABLE = 'thefronthub-imm-v19';
 const SWR_MAX_AGE_MS = 30 * 60 * 1000;  // 30 min — consider cache fresh this long
 
 // Static assets to pre-cache on install (HTML pages + core JS + CSS + icons)
@@ -61,6 +61,7 @@ const STATIC_ASSETS = [
   '/dist/auth.min.js',
   '/dist/support.min.js',
   '/dist/update-banner.min.js',
+  '/dist/chat-widget.min.js',
   // Shared modules (used as ESM imports)
   '/shared/maps.js',
   // Favicons + logo

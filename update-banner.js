@@ -27,6 +27,27 @@
     if (localStorage.getItem(STORAGE_KEY) === "dismissed") return;
   } catch (e) { /* localStorage indisponible (navigation privée) → on affiche */ }
 
+  /* FIX « banderole cache le logo » : la sidebar est position:fixed (top:0,
+     z-index 50) tandis que la banderole est z-index 500 → elle recouvrait le
+     logo en haut à gauche. On pose désormais une classe tfh-ub-open sur
+     <html> + une variable CSS --tfh-ub-h (hauteur réelle de la bande) : le
+     CSS (styles.css) descend la sidebar sous la bande tant qu'elle est
+     visible, et la remet à top:0 dès la fermeture. */
+  var root = document.documentElement;
+
+  function syncHeight() {
+    var banner = document.getElementById("tfh-update-banner");
+    if (!banner) return;
+    var h = banner.offsetHeight;
+    if (h > 0) root.style.setProperty("--tfh-ub-h", h + "px");
+  }
+
+  function teardown() {
+    root.classList.remove("tfh-ub-open");
+    root.style.removeProperty("--tfh-ub-h");
+    window.removeEventListener("resize", syncHeight);
+  }
+
   function inject() {
     if (document.getElementById("tfh-update-banner")) return;
 
@@ -49,6 +70,16 @@
     if (first) document.body.insertBefore(banner, first);
     else document.body.appendChild(banner);
 
+    // Descend la sidebar fixed sous la bande (logo toujours visible).
+    root.classList.add("tfh-ub-open");
+    syncHeight();
+    window.addEventListener("resize", syncHeight);
+    // Les polices web peuvent changer la hauteur (texte sur 2 lignes mobile).
+    setTimeout(syncHeight, 300);
+    if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
+      document.fonts.ready.then(syncHeight).catch(function () {});
+    }
+
     var closeBtn = banner.querySelector(".tfh-ub-close");
     if (closeBtn) {
       closeBtn.addEventListener("click", function () {
@@ -57,6 +88,7 @@
         try { localStorage.setItem(STORAGE_KEY, "dismissed"); } catch (e) { /* ignore */ }
         setTimeout(function () {
           if (banner.parentNode) banner.parentNode.removeChild(banner);
+          teardown();
         }, 200);
       });
     }

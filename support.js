@@ -1,4 +1,4 @@
-// support.js — Support & messagerie TheFrontHub (v1)
+// support.js — Support & messagerie TheFrontHub (v2)
 //
 // Nouvelle catégorie « Support » : contacte l'équipe, suis tes conversations,
 // reçois les réponses ici (et par email). L'équipe répond depuis cette même
@@ -20,6 +20,65 @@ const SUP_STATUS = {
   answered: { label: "Répondu",  cls: "answered" },
   closed:   { label: "Fermé",    cls: "closed" },
 };
+
+// Logo Discord — même path que le footer (support.html)
+const SUP_DISCORD_SVG = `<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true" focusable="false"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028 14.09 14.09 0 001.226-1.994.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>`;
+
+// Icône « chat » style lucide (absente du jeu icons.js) — inline SVG stroke 24×24
+const SUP_CHAT_SVG = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`;
+
+const SUP_ARROW_SVG = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>`;
+
+// FAQ — réponses courtes, formulations maison (HTML interne maîtrisé, pas de
+// contenu utilisateur → pas d'échappement nécessaire ici).
+const SUP_FAQ = [
+  {
+    q: "Comment se connecter à TheFrontHub ?",
+    a: `Un seul clic : clique sur « Connexion » puis « Continuer avec Discord ».
+        Aucun mot de passe, aucun email — ta session Discord fait tout.`,
+  },
+  {
+    q: "Comment sont calculés les points classés ?",
+    a: `Les points se gagnent sur tes victoires en classé 1v1 et 2v2, selon ta
+        place finale dans la partie. Plus tu finis haut, plus tu gagnes.`,
+  },
+  {
+    q: "À quelle fréquence les classements sont-ils mis à jour ?",
+    a: `Automatiquement et régulièrement, à partir des données officielles
+        d'OpenFront.io. Si ton rang ne bouge pas, c'est que ta dernière partie
+        n'a pas encore été synchronisée.`,
+  },
+  {
+    q: "Comment participer aux tournois ?",
+    a: `Rends-toi sur la <a href="tournois.html">page Tournois</a> : les
+        inscriptions sont ouvertes jusqu'à la date de lancement indiquée.
+        Les annonces passent aussi sur le
+        <a href="https://discord.gg/AZhmqRvbNh" target="_blank" rel="noreferrer" aria-label="Discord TheFrontHub (nouvel onglet)">Discord</a>.`,
+  },
+  {
+    q: "Comment signaler un bug ou un joueur ?",
+    a: `Ouvre un ticket avec le formulaire ci-dessous, catégorie « Bug / Problème »
+        ou « Signalement ». Décris précisément (pseudos, dates, ce qui s'est
+        passé) — l'équipe te répond ici et par email.`,
+  },
+  {
+    q: "Comment proposer une idée ?",
+    a: `Ouvre un ticket catégorie « Idée / Suggestion », ou viens en discuter sur
+        le <a href="https://discord.gg/AZhmqRvbNh" target="_blank" rel="noreferrer" aria-label="Discord TheFrontHub (nouvel onglet)">Discord</a>.
+        Les idées de la communauté façonnent les prochaines mises à jour.`,
+  },
+  {
+    q: "Comment supprimer mon compte ou mes données ?",
+    a: `Envoie ta demande par email à
+        <a href="mailto:support@thefronthub.com">support@thefronthub.com</a> :
+        ton compte et tes données personnelles seront supprimés.`,
+  },
+  {
+    q: "Le site est-il officiel d'OpenFront.io ?",
+    a: `Non — TheFrontHub est un projet communautaire réalisé par des fans,
+        sans aucune affiliation avec OpenFront.io.`,
+  },
+];
 
 const state = {
   user: null,        // compte connecté (api/me.php) ou null
@@ -62,6 +121,29 @@ function categoryLabel(key) {
 function statusMeta(status) {
   return SUP_STATUS[status] || SUP_STATUS.open;
 }
+
+/* Chat en direct : widget global posé par dist/chat-widget.min.js (agent 4-c).
+   Fallback gracieux si le widget n'est pas (encore) chargé. */
+function openLiveChat() {
+  const widget = window.TfhChatWidget;
+  if (widget && typeof widget.open === "function") {
+    try {
+      widget.open();
+      return;
+    } catch (err) {
+      console.warn("[support] TfhChatWidget.open() a échoué :", err);
+    }
+  }
+  const msg = "Chat en direct bientôt disponible — écris-nous via le formulaire ou sur le Discord en attendant.";
+  if (typeof window.showToast === "function") {
+    toast(msg, "info", 6000, "info");
+  } else {
+    alert(msg);
+  }
+}
+
+// Exposé pour la délégation d'événements et le debug console
+if (typeof window !== "undefined") window.TfhSupportOpenChat = openLiveChat;
 
 /* ═══ Boot : qui suis-je ? ═══ */
 
@@ -214,6 +296,49 @@ function render() {
     return;
   }
   v.innerHTML = `
+    <div class="sup-canals" aria-label="Canaux de contact">
+      <article class="sup-canal">
+        <span class="sup-canal-icon" aria-hidden="true">${SUP_DISCORD_SVG}</span>
+        <h3 class="sup-canal-title">Rejoindre le Discord TheFrontHub</h3>
+        <p class="sup-canal-desc">La communauté et l'équipe en direct : entraide, annonces et tournois.</p>
+        <a class="sup-canal-cta sup-canal-cta-primary" href="https://discord.gg/AZhmqRvbNh" target="_blank" rel="noreferrer" aria-label="Rejoindre le Discord TheFrontHub (nouvel onglet)">
+          Rejoindre le Discord ${SUP_ARROW_SVG}
+        </a>
+      </article>
+
+      <article class="sup-canal">
+        <span class="sup-canal-icon" aria-hidden="true"><i data-icon="mail" data-icon-size="20"></i></span>
+        <h3 class="sup-canal-title">Email support@thefronthub.com</h3>
+        <p class="sup-canal-desc">Pour toute demande officielle — réponse sous 48 h.</p>
+        <a class="sup-canal-cta" href="mailto:support@thefronthub.com" aria-label="Envoyer un email à support@thefronthub.com">
+          Écrire un email ${SUP_ARROW_SVG}
+        </a>
+      </article>
+
+      <article class="sup-canal">
+        <span class="sup-canal-icon" aria-hidden="true">${SUP_CHAT_SVG}</span>
+        <h3 class="sup-canal-title">Chat en direct</h3>
+        <p class="sup-canal-desc">Discute en direct avec l'équipe.</p>
+        <button type="button" class="sup-canal-cta sup-chat-open" aria-label="Ouvrir le chat en direct avec l'équipe">
+          Ouvrir le chat ${SUP_ARROW_SVG}
+        </button>
+      </article>
+    </div>
+
+    <section class="sup-faq" aria-labelledby="sup-faq-title">
+      <h2 id="sup-faq-title" class="sup-title"><i data-icon="info" data-icon-size="16"></i> Questions fréquentes</h2>
+      <div class="sup-faq-list">
+        ${SUP_FAQ.map((f) => `
+        <details class="sup-faq-item">
+          <summary>
+            <span class="sup-faq-q">${f.q}</span>
+            <svg class="sup-faq-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><polyline points="6 9 12 15 18 9"/></svg>
+          </summary>
+          <div class="sup-faq-body"><p>${f.a}</p></div>
+        </details>`).join("")}
+      </div>
+    </section>
+
     <div class="sup-grid">
       <div class="sup-left">
         <section class="sup-card sup-new" aria-labelledby="sup-new-title">
@@ -432,10 +557,15 @@ function renderForm() {
 /* ═══ Boot ═══ */
 
 function boot() {
-  if (!view()) {
+  const v = view();
+  if (!v) {
     console.warn("[support] #support-view introuvable");
     return;
   }
+  // Délégation : les boutons « Ouvrir le chat » survivent aux re-rendus de render()
+  v.addEventListener("click", (e) => {
+    if (e.target.closest(".sup-chat-open")) openLiveChat();
+  });
   render();
   initAccount();
 }

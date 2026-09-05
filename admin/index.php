@@ -60,34 +60,60 @@ task_page_head('Admin — TheFrontHub');
 ?>
 <body class="app-body">
 <header class="topbar">
-  <div class="brand">
-    <img class="brand-logo" src="<?= task_e($base) ?>/assets/logo.png?v=<?= TASK_ASSET_VER ?>" alt="Logo TheFrontHub">
-    <span class="brand-name">TheFrontHub</span>
-    <span class="brand-chip">Espace admin</span>
+  <div class="topbar-left">
+    <button type="button" id="btn-sidebar" class="icon-btn nav-burger" aria-label="Ouvrir le menu de navigation" aria-expanded="false" aria-controls="admin-sidebar">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <div class="brand">
+      <img class="brand-logo" src="<?= task_e($base) ?>/assets/logo.png?v=<?= TASK_ASSET_VER ?>" alt="Logo TheFrontHub">
+      <span class="brand-name">TheFrontHub</span>
+      <span class="brand-chip">Espace admin</span>
+    </div>
   </div>
-  <nav class="view-tabs" role="tablist" aria-label="Sections de l'espace admin">
-    <button type="button" class="view-tab is-active" id="tab-tasks" role="tab" aria-selected="true" aria-controls="view-tasks" title="Tâches (tableau)">
-      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg>
-      <span>Tâches</span>
-    </button>
-    <button type="button" class="view-tab" id="tab-chat" role="tab" aria-selected="false" aria-controls="view-chat" title="Chat admin">
-      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-      <span>Chat</span>
-      <span class="view-tab-badge" id="gchat-unread" hidden></span>
-    </button>
-  </nav>
   <div class="topbar-right">
     <button type="button" id="btn-theme" class="icon-btn" title="Basculer le thème clair/sombre" aria-label="Basculer le thème clair/sombre">
       <svg class="ico-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
       <svg class="ico-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
     </button>
-    <div class="me">
-      <img id="me-avatar" src="<?= task_e($boot['me']['avatar']) ?>" alt="" onerror="this.style.visibility='hidden'">
-      <span id="me-name"><?= task_e($boot['me']['name']) ?></span>
-    </div>
     <a class="btn ghost small" href="<?= task_e($base) ?>/logout.php">Déconnexion</a>
   </div>
 </header>
+
+<nav id="admin-sidebar" class="admin-sidebar" role="navigation" aria-label="Sections de l'espace admin">
+  <div class="side-group">
+    <button type="button" class="side-item is-active" id="side-tasks" data-view="tasks" aria-current="page" title="Tâches (tableau)">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg>
+      <span class="side-label">Tâches</span>
+    </button>
+    <button type="button" class="side-item" id="side-chat" data-view="chat" title="Chat équipe">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+      <span class="side-label">Chat équipe</span>
+      <span class="side-badge" id="gchat-unread" hidden></span>
+    </button>
+    <button type="button" class="side-item" id="side-support" data-view="support" title="Tickets support">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><path d="M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M16.24 7.76l2.83-2.83M4.93 19.07l2.83-2.83"/></svg>
+      <span class="side-label">Tickets support</span>
+      <span class="side-badge side-badge-strong" id="side-badge-support" hidden></span>
+    </button>
+    <button type="button" class="side-item" id="side-supchat" data-view="supchat" title="Chat support (en direct avec les joueurs)">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22z"/></svg>
+      <span class="side-label">Chat support</span>
+      <span class="side-badge side-badge-red" id="side-badge-supchat" hidden></span>
+    </button>
+    <button type="button" class="side-item" id="side-mails" data-view="mails" title="Mails support@thefronthub.com">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M22 6l-10 7L2 6"/></svg>
+      <span class="side-label">Mails</span>
+      <span class="side-badge side-badge-red" id="side-badge-mails" hidden></span>
+    </button>
+  </div>
+  <div class="side-me">
+    <img id="me-avatar" src="<?= task_e($boot['me']['avatar']) ?>" alt="" onerror="this.style.visibility='hidden'">
+    <span id="me-name"><?= task_e($boot['me']['name']) ?></span>
+  </div>
+</nav>
+<div class="side-backdrop" id="side-backdrop" hidden></div>
+
+<div class="app-main">
 
 <div id="view-tasks" role="tabpanel" aria-label="Tâches">
 <main class="wrap">
@@ -189,6 +215,121 @@ task_page_head('Admin — TheFrontHub');
     </form>
   </section>
 </div>
+
+<!-- ═══ Tickets support ═══ -->
+<div class="pane" id="view-support" hidden role="tabpanel" aria-label="Tickets support">
+  <div class="split" id="support-split">
+    <aside class="split-side">
+      <div class="split-side-head">
+        <h1 class="pane-title">Tickets support</h1>
+        <div class="seg" role="group" aria-label="Filtrer les tickets par statut">
+          <button type="button" class="seg-btn is-active" data-tfilter="open">Ouverts</button>
+          <button type="button" class="seg-btn" data-tfilter="all">Tous</button>
+          <button type="button" class="seg-btn" data-tfilter="closed">Fermés</button>
+        </div>
+      </div>
+      <div class="split-list" id="ticket-list" role="list" aria-label="Liste des tickets">
+        <div class="split-loading">Chargement des tickets…</div>
+      </div>
+    </aside>
+    <section class="split-main">
+      <div class="thread-empty" id="support-empty">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><path d="M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M16.24 7.76l2.83-2.83M4.93 19.07l2.83-2.83"/></svg>
+        <p>Sélectionne un ticket pour afficher le fil.</p>
+      </div>
+      <div class="thread" id="support-thread" hidden>
+        <header class="thread-head">
+          <button type="button" class="icon-btn thread-back" id="btn-support-back" aria-label="Retour à la liste des tickets">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+          <div class="thread-head-main">
+            <h2 id="support-subject">—</h2>
+            <p class="thread-sub"><span class="chip" id="support-cat"></span><span class="thread-meta" id="support-meta"></span></p>
+          </div>
+          <span class="tstatus" id="support-status"></span>
+          <button type="button" class="btn ghost small" id="btn-support-close">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            <span>Fermer le ticket</span>
+          </button>
+        </header>
+        <div class="thread-scroll" id="support-msgs" role="log" aria-label="Messages du ticket" aria-live="polite"></div>
+        <form id="support-form" class="thread-composer">
+          <textarea id="f-support-msg" rows="1" maxlength="4000" placeholder="Répondre au joueur… (Entrée pour envoyer)" aria-label="Réponse au ticket"></textarea>
+          <button type="submit" class="chat-ico send" id="btn-support-send" title="Envoyer (Entrée)" aria-label="Envoyer la réponse">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+          </button>
+        </form>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- ═══ Chat support (en direct) ═══ -->
+<div class="pane" id="view-supchat" hidden role="tabpanel" aria-label="Chat support">
+  <p class="pane-hint">💬 L'équipe répond en direct — le joueur voit chaque réponse immédiatement sur le site.</p>
+  <div class="split" id="supchat-split">
+    <aside class="split-side">
+      <div class="split-side-head">
+        <h1 class="pane-title">Chat support</h1>
+      </div>
+      <div class="split-list" id="conv-list" role="list" aria-label="Conversations avec les joueurs">
+        <div class="split-loading">Chargement des conversations…</div>
+      </div>
+    </aside>
+    <section class="split-main">
+      <div class="thread-empty" id="supchat-empty">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22z"/></svg>
+        <p>Sélectionne une conversation pour répondre en direct.</p>
+      </div>
+      <div class="thread" id="supchat-thread" hidden>
+        <header class="thread-head">
+          <button type="button" class="icon-btn thread-back" id="btn-supchat-back" aria-label="Retour à la liste des conversations">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+          <img class="thread-avatar" id="supchat-avatar" alt="" onerror="this.style.visibility='hidden'">
+          <div class="thread-head-main">
+            <h2 id="supchat-name">—</h2>
+            <p class="thread-sub"><span class="thread-meta">Conversation directe — réponses en temps réel</span></p>
+          </div>
+        </header>
+        <div class="thread-scroll" id="supchat-msgs" role="log" aria-label="Messages du chat support" aria-live="polite"></div>
+        <form id="supchat-form" class="thread-composer">
+          <textarea id="f-supchat-msg" rows="1" maxlength="2000" placeholder="Répondre en direct… (Entrée pour envoyer)" aria-label="Message au joueur"></textarea>
+          <button type="submit" class="chat-ico send" id="btn-supchat-send" title="Envoyer (Entrée)" aria-label="Envoyer le message">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+          </button>
+        </form>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- ═══ Mails support@thefronthub.com ═══ -->
+<div class="pane" id="view-mails" hidden role="tabpanel" aria-label="Mails support">
+  <div class="split" id="mails-split">
+    <aside class="split-side">
+      <div class="split-side-head">
+        <h1 class="pane-title">Mails</h1>
+        <button type="button" class="icon-btn" id="btn-mails-refresh" title="Actualiser la boîte" aria-label="Actualiser la boîte mail">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        </button>
+      </div>
+      <div class="split-list" id="mails-list" role="list" aria-label="Boîte mail support@thefronthub.com">
+        <div class="split-loading">Chargement de la boîte…</div>
+      </div>
+    </aside>
+    <section class="split-main">
+      <div class="thread-empty" id="mails-empty">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M22 6l-10 7L2 6"/></svg>
+        <p>Sélectionne un mail pour le lire.</p>
+      </div>
+      <article class="mail-view" id="mails-view" hidden></article>
+    </section>
+  </div>
+  <div class="mails-state" id="mails-state" hidden></div>
+</div>
+
+</div><!-- /.app-main -->
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
@@ -415,5 +556,6 @@ window.TASK_BOOT = <?= json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG 
 </script>
 <script src="<?= task_e($base) ?>/assets/app.js?v=<?= TASK_ASSET_VER ?>"></script>
 <script src="<?= task_e($base) ?>/assets/chat.js?v=<?= TASK_ASSET_VER ?>"></script>
+<script src="<?= task_e($base) ?>/assets/support.js?v=<?= TASK_ASSET_VER ?>"></script>
 </body>
 </html>

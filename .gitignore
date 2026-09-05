@@ -160,3 +160,6 @@ dashboard-*.png
 # PHP upload endpoint (ne jamais commit le secret)
 /_upload.php.local
 
+
+# Secrets boîte mail support@ (config IMAP locale, jamais commitée)
+/api/mail-config.php

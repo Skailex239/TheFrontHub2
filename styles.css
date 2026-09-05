@@ -2971,3 +2971,342 @@ button:active:not(:disabled),
   opacity: 0;
   transition: opacity .2s ease;
 }
+
+/* FIX « la banderole cache le logo » : la sidebar est position:fixed top:0
+   (z-index 50) tandis que la banderole est z-index 500 → elle recouvrait le
+   logo en haut à gauche. update-banner.js pose désormais la classe tfh-ub-open
+   sur <html> + la variable --tfh-ub-h (hauteur réelle de la bande) : tant que
+   la bande est visible, la sidebar (et le hamburger 769-900px) descendent
+   sous elle ; à la fermeture, tout revient à top:0. ≤768px la sidebar devient
+   la bottom-nav (logo masqué) → rien à décaler. */
+html.tfh-ub-open { --tfh-ub-h: 41px; }   /* fallback si le JS n'a pas encore mesuré */
+@media (min-width: 769px) {
+  html.tfh-ub-open .sidebar { top: var(--tfh-ub-h, 41px); }
+  html.tfh-ub-open .mobile-nav-btn { top: calc(var(--tfh-ub-h, 41px) + 14px); }
+  html.tfh-ub-open .loading-bar-track { top: var(--tfh-ub-h, 41px); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CHAT WIDGET (bulle flottante, toutes pages)
+   Injectée par chat-widget.js (IIFE autonome) : bulle ronde 52px bas-droite
+   → panneau 340×480 « Chat avec l'équipe » (api/chat.php).
+   Z-index 700 : au-dessus du contenu et de la banderole (500), SOUS les
+   modales auth (1000+) et les toasts (10000). Mobile : la bulle/le panneau
+   se posent au-dessus de la bottom-nav via --tfh-cw-nav (hauteur mesurée par
+   le JS, fallback 76px). Sombre : :root[data-theme="dark"].
+   ═══════════════════════════════════════════════════════════════════════════ */
+.tfh-cw-bubble {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(255, 107, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.12);
+  transition: transform .15s var(--ease), box-shadow .15s var(--ease), background .15s var(--ease);
+  -webkit-tap-highlight-color: transparent;
+}
+.tfh-cw-bubble:hover {
+  background: var(--accent-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(255, 107, 0, 0.42), 0 3px 8px rgba(0, 0, 0, 0.14);
+}
+.tfh-cw-bubble:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
+.tfh-cw-bubble:active { transform: scale(.94); }
+
+/* Badge point : messages de l'équipe non lus */
+.tfh-cw-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--red);
+  border: 2px solid var(--bg);
+  pointer-events: none;
+}
+
+/* ── Panneau ────────────────────────────────────────────────────────────── */
+.tfh-cw-panel {
+  position: fixed;
+  bottom: 84px;                 /* 20 (bulle) + 52 + 12 d'air */
+  right: 20px;
+  z-index: 700;
+  display: flex;
+  flex-direction: column;
+  width: 340px;
+  height: 480px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 120px);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  animation: tfh-cw-in .18s var(--ease-out);
+}
+@keyframes tfh-cw-in {
+  from { opacity: 0; transform: translateY(10px) scale(.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tfh-cw-panel { animation: none; }
+  .tfh-cw-bubble, .tfh-cw-bubble:hover, .tfh-cw-bubble:active { transition: none; transform: none; }
+}
+
+/* Header : titre + statut + pseudo + réduction */
+.tfh-cw-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle);
+  flex: 0 0 auto;
+}
+.tfh-cw-head-txt { flex: 1 1 auto; min-width: 0; }
+.tfh-cw-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--fg);
+  line-height: 1.2;
+}
+.tfh-cw-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  line-height: 1.2;
+}
+.tfh-cw-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18);
+}
+.tfh-cw-me {
+  flex: 0 1 auto;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-secondary);
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 3px 8px;
+}
+.tfh-cw-min {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background .15s var(--ease), color .15s var(--ease);
+}
+.tfh-cw-min:hover { background: var(--bg-muted); color: var(--fg); }
+.tfh-cw-min:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Zone d'erreur inline (échec réseau / envoi sans toast global) */
+.tfh-cw-error {
+  flex: 0 0 auto;
+  margin: 8px 12px 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--red);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: var(--radius);
+}
+
+/* Messages */
+.tfh-cw-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tfh-cw-loading {
+  margin: auto;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.tfh-cw-msg { display: flex; flex-direction: column; }
+.tfh-cw-msg.is-user { align-items: flex-end; }
+.tfh-cw-msg.is-admin { align-items: flex-start; }
+.tfh-cw-msg-bubble {
+  max-width: 82%;
+  padding: 7px 11px;
+  border-radius: var(--radius-lg);
+  font-size: 13px;
+  line-height: 1.45;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.tfh-cw-msg.is-admin .tfh-cw-msg-bubble {
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  border-bottom-left-radius: 4px;
+}
+.tfh-cw-msg.is-user .tfh-cw-msg-bubble {
+  background: var(--accent);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.tfh-cw-msg.is-pending .tfh-cw-msg-bubble { opacity: .6; }
+.tfh-cw-msg-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 1px;
+}
+.tfh-cw-msg-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-hover);
+}
+:root[data-theme="dark"] .tfh-cw-msg-name { color: var(--accent); }
+.tfh-cw-msg-time {
+  font-size: 10px;
+  color: var(--fg-subtle);
+}
+.tfh-cw-msg.is-user .tfh-cw-msg-time { color: rgba(255, 255, 255, 0.75); }
+
+/* Écran « connecte-toi » (401) */
+.tfh-cw-gate {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 20px;
+  text-align: center;
+  color: var(--fg-muted);
+}
+.tfh-cw-gate[hidden] { display: none; }
+.tfh-cw-gate-txt {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-secondary);
+  max-width: 240px;
+}
+.tfh-cw-login {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 22px;
+  border: none;
+  border-radius: var(--radius);
+  background: #5865F2;            /* Discord */
+  color: #fff;
+  font-family: var(--f);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s var(--ease), transform .15s var(--ease);
+}
+.tfh-cw-login:hover { background: #4752C4; transform: translateY(-1px); }
+.tfh-cw-login:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Composer : textarea auto-resize 1-4 lignes + bouton ≥44px */
+.tfh-cw-composer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+.tfh-cw-composer[hidden] { display: none; }
+.tfh-cw-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 40px;                    /* 1 ligne au repos */
+  max-height: 100px;               /* ~4 lignes (le JS ajuste) */
+  padding: 10px 12px;
+  font-family: var(--f);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--fg);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  resize: none;
+  overflow: hidden;
+  transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
+}
+.tfh-cw-input::placeholder { color: var(--fg-subtle); }
+.tfh-cw-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.14);
+}
+.tfh-cw-input:disabled { opacity: .55; }
+.tfh-cw-send {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-lg);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  transition: background .15s var(--ease), transform .15s var(--ease);
+}
+.tfh-cw-send:hover { background: var(--accent-hover); }
+.tfh-cw-send:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.tfh-cw-send:active { transform: scale(.92); }
+.tfh-cw-send:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── Mobile ≤768px : au-dessus de la bottom-nav (hauteur réelle mesurée
+     par le JS dans --tfh-cw-nav, fallback 76px) ── */
+@media (max-width: 768px) {
+  .tfh-cw-bubble {
+    bottom: calc(var(--tfh-cw-nav, 76px) + 12px);
+    right: 12px;
+  }
+  .tfh-cw-panel {
+    bottom: calc(var(--tfh-cw-nav, 76px) + 74px);   /* nav + 12 + bulle 52 + 10 */
+    right: 12px;
+    width: calc(100vw - 24px);
+    height: 70vh;
+    max-height: calc(100vh - var(--tfh-cw-nav, 76px) - 84px);
+  }
+}

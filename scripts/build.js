@@ -55,6 +55,8 @@ const targets = [
   { entry: "support.js",     out: "support.min.js",      bundled: true },
   // Banderole « mises à jour » — script autonome (IIFE), chargé en defer
   { entry: "update-banner.js", out: "update-banner.min.js", bundled: false },
+  // Chat flottant joueur ↔ équipe — script autonome (IIFE), chargé en defer
+  { entry: "chat-widget.js", out: "chat-widget.min.js", bundled: false },
   { entry: "tournois.js",    out: "tournois.min.js",     bundled: true },
   { entry: "runs.js",        out: "runs.min.js",         bundled: false },
   // Standalone scripts (just minified)

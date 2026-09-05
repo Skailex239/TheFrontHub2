@@ -68,7 +68,12 @@ $meName = task_display_name(
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     $getAction = (string) ($_GET['action'] ?? '');
-    if ($getAction !== 'state' && $getAction !== 'chat.list') {
+    $getAllowed = ['state', 'chat.list',
+        /* Support : tickets + chat joueur (barre latérale de l'admin) */
+        'support.tickets', 'support.thread', 'supchat.convs', 'supchat.poll',
+        /* Mails de la boîte support@thefronthub.com (IMAP) */
+        'mails.list', 'mails.view'];
+    if (!in_array($getAction, $getAllowed, true)) {
         fail(404, 'unknown_action', 'Action inconnue.');
     }
 
@@ -143,6 +148,418 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
             'count'    => $count,
             'ttl_days' => TASK_CHAT_FILE_TTL_DAYS,
         ] + ($chatTaskId === 0 ? ['people' => task_people_map($pdo)] : []));
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════
+       SUPPORT — tickets + chat joueur ↔ équipe (section barre latérale)
+       Réutilise les tables tfh_support_* de api/support.php (auto-créées)
+       et tfh_support_chat de api/chat.php.
+       ═══════════════════════════════════════════════════════════════════ */
+
+    /** Pseudo affiché d'un joueur (id site) — cache mémoire de la requête. */
+    function sup_user_map(PDO $pdo, array $userIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $userIds))));
+        if ($ids === []) {
+            return [];
+        }
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $st = $pdo->prepare(
+            "SELECT id, username, global_name, avatar_url FROM tfh_users WHERE id IN ($placeholders)"
+        );
+        $st->execute($ids);
+        $out = [];
+        foreach ($st->fetchAll() as $row) {
+            $g = trim((string) ($row['global_name'] ?? ''));
+            $u = trim((string) ($row['username'] ?? ''));
+            $out[(int) $row['id']] = [
+                'name'   => $g !== '' ? $g : ($u !== '' ? $u : 'Joueur'),
+                'avatar' => (string) ($row['avatar_url'] ?? ''),
+            ];
+        }
+        return $out;
+    }
+
+    /* ── Liste de tous les tickets ── */
+    if ($getAction === 'support.tickets') {
+        $statusFilter = (string) ($_GET['status'] ?? '');
+        $sql = 'SELECT t.id, t.user_id, t.category, t.subject, t.status, t.created_at, t.updated_at
+                FROM tfh_support_tickets t';
+        $params = [];
+        if ($statusFilter === 'open') {
+            $sql .= ' WHERE t.status IN ("open", "answered")';
+        } elseif (in_array($statusFilter, ['closed'], true)) {
+            $sql .= ' WHERE t.status = "closed"';
+        }
+        $sql .= ' ORDER BY t.updated_at DESC, t.id DESC LIMIT 200';
+        $st = $pdo->prepare($sql);
+        $st->execute($params);
+        $rows = $st->fetchAll();
+        $users = sup_user_map($pdo, array_map(static fn ($r) => (int) $r['user_id'], $rows));
+        $tickets = [];
+        foreach ($rows as $row) {
+            $uid = (int) $row['user_id'];
+            $cst = $pdo->prepare(
+                'SELECT body, author_role FROM tfh_support_messages WHERE ticket_id = ? ORDER BY id DESC LIMIT 1'
+            );
+            $cst->execute([(int) $row['id']]);
+            $last = $cst->fetch();
+            $cst2 = $pdo->prepare('SELECT COUNT(*) AS n FROM tfh_support_messages WHERE ticket_id = ?');
+            $cst2->execute([(int) $row['id']]);
+            $tickets[] = [
+                'id'          => (int) $row['id'],
+                'user_id'     => $uid,
+                'user_name'   => $users[$uid]['name'] ?? null,
+                'user_avatar' => $users[$uid]['avatar'] ?? '',
+                'category'    => (string) $row['category'],
+                'subject'     => (string) $row['subject'],
+                'status'      => (string) $row['status'],
+                'messages'    => (int) ($cst2->fetch()['n'] ?? 0),
+                'last_role'   => $last !== false ? (string) $last['author_role'] : 'user',
+                'preview'     => $last !== false ? mb_substr((string) $last['body'], 0, 120) : '',
+                'created_at'  => (string) $row['created_at'],
+                'updated_at'  => (string) $row['updated_at'],
+            ];
+        }
+        json_out([
+            'ok'      => true,
+            'tickets' => $tickets,
+            'open_count' => count(array_filter($tickets, static fn ($t) => $t['status'] === 'open')),
+        ]);
+    }
+
+    /* ── Fil complet d'un ticket ── */
+    if ($getAction === 'support.thread') {
+        $id = (int) ($_GET['id'] ?? 0);
+        if ($id <= 0) {
+            fail(422, 'bad_id', 'Ticket invalide.');
+        }
+        $st = $pdo->prepare('SELECT * FROM tfh_support_tickets WHERE id = ? LIMIT 1');
+        $st->execute([$id]);
+        $ticket = $st->fetch();
+        if ($ticket === false) {
+            fail(404, 'ticket_not_found', 'Ticket introuvable.');
+        }
+        $mst = $pdo->prepare(
+            'SELECT id, author_role, user_id, body, created_at
+             FROM tfh_support_messages WHERE ticket_id = ? ORDER BY id ASC LIMIT 500'
+        );
+        $mst->execute([$id]);
+        $rows = $mst->fetchAll();
+        $users = sup_user_map($pdo, array_map(
+            static fn ($r) => $r['user_id'] !== null ? (int) $r['user_id'] : 0,
+            $rows
+        ));
+        $owner = $users[(int) $ticket['user_id']] ?? ['name' => 'Joueur #' . (int) $ticket['user_id'], 'avatar' => ''];
+        $messages = [];
+        foreach ($rows as $row) {
+            $uid = $row['user_id'] !== null ? (int) $row['user_id'] : null;
+            $messages[] = [
+                'id'          => (int) $row['id'],
+                'author_role' => (string) $row['author_role'],
+                'author_name' => $uid !== null ? ($users[$uid]['name'] ?? null) : 'Équipe',
+                'author_avatar' => $uid !== null ? ($users[$uid]['avatar'] ?? '') : '',
+                'body'        => (string) $row['body'],
+                'created_at'  => (string) $row['created_at'],
+            ];
+        }
+        json_out([
+            'ok' => true,
+            'ticket' => [
+                'id'         => (int) $ticket['id'],
+                'user_id'    => (int) $ticket['user_id'],
+                'user_name'  => $owner['name'],
+                'category'   => (string) $ticket['category'],
+                'subject'    => (string) $ticket['subject'],
+                'status'     => (string) $ticket['status'],
+                'created_at' => (string) $ticket['created_at'],
+                'updated_at' => (string) $ticket['updated_at'],
+            ],
+            'messages' => $messages,
+        ]);
+    }
+
+    /* ── Conversations du chat joueur ↔ équipe ── */
+    if ($getAction === 'supchat.convs') {
+        try {
+            $st = $pdo->prepare(
+                'SELECT conv_id,
+                        MAX(id) AS last_id,
+                        SUM(CASE WHEN author_role = "user" AND read_by_admin = 0 THEN 1 ELSE 0 END) AS unread,
+                        COUNT(*) AS total
+                 FROM tfh_support_chat
+                 GROUP BY conv_id
+                 ORDER BY last_id DESC
+                 LIMIT 100'
+            );
+            $st->execute();
+        } catch (PDOException $e) {
+            /* Table chat absente (errno 1146) → aucune conversation. */
+            if ((int) ($e->errorInfo[1] ?? 0) === 1146) {
+                json_out(['ok' => true, 'convs' => []]);
+            }
+            throw $e;
+        }
+        $rows = $st->fetchAll();
+        $convs = [];
+        foreach ($rows as $row) {
+            $convId = (string) $row['conv_id'];
+            $ust = $pdo->prepare(
+                'SELECT u.username, u.global_name, u.avatar_url
+                 FROM tfh_users u
+                 JOIN tfh_user_identities i ON i.user_id = u.id AND i.provider = "discord"
+                 WHERE i.provider_uid = ? COLLATE utf8mb4_unicode_ci
+                 LIMIT 1'
+            );
+            $ust->execute([$convId]);
+            $urow = $ust->fetch();
+            $lst = $pdo->prepare(
+                'SELECT author_role, author_name, body, created_at FROM tfh_support_chat WHERE id = ? LIMIT 1'
+            );
+            $lst->execute([(int) $row['last_id']]);
+            $last = $lst->fetch();
+            $g = $urow !== false ? trim((string) ($urow['global_name'] ?? '')) : '';
+            $u = $urow !== false ? trim((string) ($urow['username'] ?? '')) : '';
+            $name = $g !== '' ? $g : ($u !== '' ? $u : 'Discord …' . substr($convId, -4));
+            $convs[] = [
+                'conv_id'    => $convId,
+                'name'       => $name,
+                'avatar'     => $urow !== false ? (string) ($urow['avatar_url'] ?? '') : '',
+                'unread'     => (int) ($row['unread'] ?? 0),
+                'total'      => (int) ($row['total'] ?? 0),
+                'last_role'  => $last !== false ? (string) $last['author_role'] : 'user',
+                'last_body'  => $last !== false ? mb_substr((string) $last['body'], 0, 120) : '',
+                'last_at'    => $last !== false ? (string) $last['created_at'] : '',
+            ];
+        }
+        json_out(['ok' => true, 'convs' => $convs]);
+    }
+
+    /* ── Messages d'une conversation chat (poll, marque lus) ── */
+    if ($getAction === 'supchat.poll') {
+        $convId = (string) ($_GET['conv'] ?? '');
+        if (!preg_match('/^\d{15,21}$/', $convId)) {
+            fail(422, 'bad_conv', 'Conversation invalide.');
+        }
+        $after = max(0, (int) ($_GET['after'] ?? 0));
+        $st = $pdo->prepare(
+            'SELECT id, author_role, author_name, body, created_at
+             FROM tfh_support_chat
+             WHERE conv_id = ? AND id > ?
+             ORDER BY id ASC LIMIT 300'
+        );
+        $st->execute([$convId, $after]);
+        $messages = [];
+        $lastId = $after;
+        foreach ($st->fetchAll() as $row) {
+            $id = (int) $row['id'];
+            $messages[] = [
+                'id'         => $id,
+                'role'       => (string) $row['author_role'],
+                'name'       => (string) $row['author_name'],
+                'body'       => (string) $row['body'],
+                'created_at' => (string) $row['created_at'],
+            ];
+            $lastId = $id;
+        }
+        if ($messages !== []) {
+            $pdo->prepare(
+                'UPDATE tfh_support_chat SET read_by_admin = 1 WHERE conv_id = ? AND author_role = "user" AND read_by_admin = 0'
+            )->execute([$convId]);
+        }
+        json_out(['ok' => true, 'messages' => $messages, 'last_id' => $lastId]);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════
+       MAILS — boîte support@thefronthub.com via IMAP (section barre latérale)
+       Configuration : api/mail-config.php (voir api/mail-config.example.php,
+       jamais commité). Sans config, on renvoie un état « indisponible »
+       avec un mode d'emploi — jamais d'erreur bloquante.
+       ═══════════════════════════════════════════════════════════════════ */
+
+    /** Extrait (texte prioritaire, sinon HTML dégrossi) d'un mail IMAP. */
+    function sup_mail_extract_body($mbox, int $msgno): string
+    {
+        $structure = @imap_fetchstructure($mbox, $msgno);
+        if ($structure === false) {
+            return '';
+        }
+        $pick = static function ($parts, string $want, string $prefix = '') use (&$pick, $mbox, $msgno): string {
+            foreach ($parts as $idx => $part) {
+                $section = $prefix === '' ? (string) ($idx + 1) : ($prefix . '.' . ($idx + 1));
+                $type = (int) $part->type;
+                $subtype = strtoupper((string) ($part->subtype ?? ''));
+                if ($type === 0 && $subtype === $want) {
+                    $raw = @imap_fetchbody($mbox, $msgno, $section);
+                    if ($raw === false || $raw === '') {
+                        continue;
+                    }
+                    $encoding = (int) ($part->encoding ?? 0);
+                    if ($encoding === 3) {
+                        $raw = base64_decode($raw) ?: $raw;
+                    } elseif ($encoding === 4) {
+                        $raw = quoted_printable_decode($raw);
+                    }
+                    $charset = '';
+                    if (!empty($part->parameters)) {
+                        foreach ($part->parameters as $p) {
+                            if (strcasecmp((string) $p->attribute, 'charset') === 0) {
+                                $charset = (string) $p->value;
+                            }
+                        }
+                    }
+                    if ($charset !== '' && strcasecmp($charset, 'utf-8') !== 0 && function_exists('mb_convert_encoding')) {
+                        $raw = mb_convert_encoding($raw, 'UTF-8', $charset);
+                    }
+                    return $raw;
+                }
+                if (!empty($part->parts) && is_array($part->parts)) {
+                    $found = $pick($part->parts, $want, $section);
+                    if ($found !== '') {
+                        return $found;
+                    }
+                }
+            }
+            return '';
+        };
+        if (!empty($structure->parts) && is_array($structure->parts)) {
+            $text = $pick($structure->parts, 'PLAIN');
+            if ($text !== '') {
+                return $text;
+            }
+            $html = $pick($structure->parts, 'HTML');
+            if ($html !== '') {
+                /* Dégrossit le HTML pour lecture simple. */
+                $html = preg_replace('/<style[\s\S]*?<\/style>/i', '', $html) ?? $html;
+                $html = preg_replace('/<script[\s\S]*?<\/script>/i', '', $html) ?? $html;
+                $html = preg_replace('/<br\s*\/?>/i', "\n", $html) ?? $html;
+                $html = preg_replace('/<\/(p|div|tr|h[1-6])>/i', "\n", $html) ?? $html;
+                $html = strip_tags($html);
+                $html = html_entity_decode($html, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                return trim($html);
+            }
+        }
+        /* Message mono-partie : le body est le contenu direct. */
+        $raw = @imap_body($mbox, $msgno);
+        if ($raw === false) {
+            return '';
+        }
+        $encoding = (int) ($structure->encoding ?? 0);
+        if ($encoding === 3) {
+            $raw = base64_decode($raw) ?: $raw;
+        } elseif ($encoding === 4) {
+            $raw = quoted_printable_decode($raw);
+        }
+        $type = (int) $structure->type;
+        if ($type === 2) {
+            $raw = strip_tags($raw);
+        }
+        return $raw;
+    }
+
+    /* ── Liste des mails de la boîte support ── */
+    if ($getAction === 'mails.list') {
+        $cfg = sup_mail_config();
+        if ($cfg === null) {
+            json_out([
+                'ok'        => true,
+                'available' => false,
+                'reason'    => 'not_configured',
+                'hint'      => 'Crée le fichier api/mail-config.php à partir de api/mail-config.example.php (mot de passe de la boîte support@thefronthub.com), puis recharge cette page.',
+            ]);
+        }
+        if (!function_exists('imap_open')) {
+            json_out([
+                'ok'        => true,
+                'available' => false,
+                'reason'    => 'imap_unavailable',
+                'hint'      => "L'extension PHP IMAP n'est pas active sur l'hébergement. Utilise le webmail o2switch (mail.thefronthub.com) ou active l'extension IMAP dans cPanel → Sélectionner une version de PHP.",
+            ]);
+        }
+        $dsn = (string) ($cfg['dsn'] ?? '{localhost:143/notls}INBOX');
+        $mbox = @imap_open($dsn, (string) $cfg['user'], (string) $cfg['pass']);
+        if ($mbox === false) {
+            json_out([
+                'ok'        => true,
+                'available' => false,
+                'reason'    => 'login_failed',
+                'hint'      => 'Connexion IMAP refusée : vérifie le mot de passe dans api/mail-config.php. Détail : ' . (string) imap_last_error(),
+            ]);
+        }
+        $limit = min(max(1, (int) ($cfg['limit'] ?? 30)), 100);
+        $total = (int) imap_num_msg($mbox);
+        $mails = [];
+        $start = max(1, $total - $limit + 1);
+        for ($i = $total; $i >= $start; $i--) {
+            $ov = @imap_fetch_overview($mbox, (string) $i, FT_UID);
+            if (!is_array($ov) || !isset($ov[0])) {
+                continue;
+            }
+            $o = $ov[0];
+            $mails[] = [
+                'uid'      => (int) $o->uid,
+                'from'     => (string) ($o->from ?? ''),
+                'subject'  => (string) (@imap_utf8((string) ($o->subject ?? ''))),
+                'date'     => (string) ($o->date ?? ''),
+                'ts'       => isset($o->udate) ? (int) $o->udate : 0,
+                'seen'     => !empty($o->seen),
+                'answered' => !empty($o->answered),
+                'size'     => (int) ($o->size ?? 0),
+            ];
+        }
+        imap_close($mbox);
+        json_out([
+            'ok'        => true,
+            'available' => true,
+            'mailbox'   => (string) $cfg['user'],
+            'total'     => $total,
+            'mails'     => $mails,
+        ]);
+    }
+
+    /* ── Contenu d'un mail ── */
+    if ($getAction === 'mails.view') {
+        $cfg = sup_mail_config();
+        if ($cfg === null || !function_exists('imap_open')) {
+            fail(409, 'mail_unavailable', 'Lecteur de mails indisponible.');
+        }
+        $uid = (int) ($_GET['uid'] ?? 0);
+        if ($uid <= 0) {
+            fail(422, 'bad_uid', 'Mail invalide.');
+        }
+        $dsn = (string) ($cfg['dsn'] ?? '{localhost:143/notls}INBOX');
+        $mbox = @imap_open($dsn, (string) $cfg['user'], (string) $cfg['pass']);
+        if ($mbox === false) {
+            fail(409, 'imap_failed', 'Connexion IMAP impossible : ' . (string) imap_last_error());
+        }
+        $num = (int) @imap_msgno($mbox, $uid);
+        if ($num <= 0) {
+            imap_close($mbox);
+            fail(404, 'mail_not_found', 'Mail introuvable.');
+        }
+        $ov = @imap_fetch_overview($mbox, (string) $uid, FT_UID);
+        $o = is_array($ov) && isset($ov[0]) ? $ov[0] : null;
+        $headers = @imap_headerinfo($mbox, $num);
+        $messageId = '';
+        if ($headers !== false && !empty($headers->message_id)) {
+            $messageId = (string) $headers->message_id;
+        }
+        $body = sup_mail_extract_body($mbox, $num);
+        if (function_exists('imap_setflag_full')) {
+            @imap_setflag_full($mbox, (string) $uid, '\\Seen', ST_UID);
+        }
+        imap_close($mbox);
+        json_out([
+            'ok' => true,
+            'mail' => [
+                'uid'         => $uid,
+                'from'        => $o !== null ? (string) ($o->from ?? '') : '',
+                'subject'     => $o !== null ? (string) (@imap_utf8((string) ($o->subject ?? ''))) : '',
+                'date'        => $o !== null ? (string) ($o->date ?? '') : '',
+                'message_id'  => $messageId,
+                'body'        => $body,
+            ],
+        ]);
     }
 
     /* Archive automatique : les tâches terminées depuis plus de 14 jours
@@ -580,6 +997,47 @@ function task_req_milestone(array $in): string
         $m = function_exists('mb_substr') ? mb_substr($m, 0, 80, 'UTF-8') : substr($m, 0, 80);
     }
     return $m;
+}
+
+/** Mail UTF-8 générique côté admin — best-effort, jamais bloquant. */
+function sup_admin_mail(string $to, string $subject, string $body, string $from, string $inReplyTo = ''): bool
+{
+    if ($to === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
+        return false;
+    }
+    $headers = implode("\r\n", array_filter([
+        'From: ' . ($from !== '' ? $from : 'TheFrontHub <no-reply@thefronthub.com>'),
+        $inReplyTo !== '' ? 'In-Reply-To: ' . $inReplyTo : '',
+        $inReplyTo !== '' ? 'References: ' . $inReplyTo : '',
+        'Content-Type: text/plain; charset=UTF-8',
+        'X-Mailer: TheFrontHub-Admin',
+    ]));
+    try {
+        $encodedSubject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
+        return @mail($to, $encodedSubject, $body, $headers) === true;
+    } catch (Throwable $e) {
+        error_log('[tfh-task] mail() indisponible : ' . $e->getMessage());
+        return false;
+    }
+}
+
+/** Charge api/mail-config.php (boîte support@) ; null si absent/incomplet.
+ *  Déclarée au niveau fichier : utilisée en GET (mails.list/view) ET en POST (mails.reply). */
+function sup_mail_config(): ?array
+{
+    $path = __DIR__ . '/../api/mail-config.php';
+    if (!is_readable($path)) {
+        return null;
+    }
+    try {
+        $cfg = require $path;
+    } catch (Throwable $e) {
+        return null;
+    }
+    if (!is_array($cfg) || empty($cfg['enabled']) || empty($cfg['user']) || empty($cfg['pass'])) {
+        return null;
+    }
+    return $cfg;
 }
 
 switch ($action) {
@@ -1345,6 +1803,120 @@ switch ($action) {
         }
         $pdo->prepare('DELETE FROM tfh_task_admins WHERE discord_id = ?')->execute([$did]);
         task_log_activity($pdo, null, '', $meId, $meName, 'admin_remove', 'Admin retiré : ' . $did);
+        json_out(['ok' => true]);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════
+       SUPPORT — réponses de l'équipe (tickets + chat) et mails
+       ═══════════════════════════════════════════════════════════════════ */
+
+    case 'support.reply': {
+        $ticketId = (int) ($in['ticket_id'] ?? 0);
+        $message  = task_req_str($in, 'message', 5000, true);
+        if ($ticketId <= 0) {
+            fail(422, 'bad_id', 'Ticket invalide.');
+        }
+        $st = $pdo->prepare('SELECT * FROM tfh_support_tickets WHERE id = ? LIMIT 1');
+        $st->execute([$ticketId]);
+        $ticket = $st->fetch();
+        if ($ticket === false) {
+            fail(404, 'ticket_not_found', 'Ticket introuvable.');
+        }
+        try {
+            $pdo->prepare(
+                'INSERT INTO tfh_support_messages (ticket_id, author_role, user_id, body) VALUES (?, "team", NULL, ?)'
+            )->execute([$ticketId, $message]);
+        } catch (PDOException $e) {
+            if ((int) ($e->errorInfo[1] ?? 0) === 1146) {
+                fail(409, 'schema_missing', 'Les tables support ne sont pas encore créées — ouvre un ticket depuis le site pour les initialiser.');
+            }
+            throw $e;
+        }
+        $pdo->prepare('UPDATE tfh_support_tickets SET status = "answered", updated_at = NOW() WHERE id = ?')
+            ->execute([$ticketId]);
+
+        /* Mail au joueur (best-effort) — même contenu que la réponse site. */
+        $ust = $pdo->prepare(
+            'SELECT u.email, u.username, u.global_name
+             FROM tfh_users u WHERE u.id = ? LIMIT 1'
+        );
+        $ust->execute([(int) $ticket['user_id']]);
+        $urow = $ust->fetch();
+        if ($urow !== false && !empty($urow['email'])) {
+            $displayName = task_display_name(
+                isset($urow['username']) ? (string) $urow['username'] : null,
+                isset($urow['global_name']) ? (string) $urow['global_name'] : null,
+                'Joueur'
+            );
+            $subject = (string) $ticket['subject'];
+            sup_admin_mail(
+                (string) $urow['email'],
+                "[TheFrontHub] L'équipe a répondu à ton ticket #{$ticketId}",
+                "Bonjour {$displayName},\r\n\r\n"
+                . "L'équipe TheFrontHub vient de répondre à ton ticket « {$subject} » :\r\n\r\n"
+                . $message . "\r\n\r\n"
+                . "→ Pour poursuivre la conversation : https://thefronthub.com/support.html",
+                'TheFrontHub Support <support@thefronthub.com>'
+            );
+        }
+        task_log_activity($pdo, null, '', $meId, $meName, 'support_reply', 'Réponse au ticket #' . $ticketId);
+        json_out(['ok' => true, 'status' => 'answered']);
+    }
+
+    case 'support.close': {
+        $ticketId = (int) ($in['ticket_id'] ?? 0);
+        if ($ticketId <= 0) {
+            fail(422, 'bad_id', 'Ticket invalide.');
+        }
+        $st = $pdo->prepare('SELECT id FROM tfh_support_tickets WHERE id = ? LIMIT 1');
+        $st->execute([$ticketId]);
+        if ($st->fetch() === false) {
+            fail(404, 'ticket_not_found', 'Ticket introuvable.');
+        }
+        $pdo->prepare('UPDATE tfh_support_tickets SET status = "closed", updated_at = NOW() WHERE id = ?')
+            ->execute([$ticketId]);
+        task_log_activity($pdo, null, '', $meId, $meName, 'support_close', 'Ticket #' . $ticketId . ' fermé');
+        json_out(['ok' => true, 'status' => 'closed']);
+    }
+
+    case 'supchat.reply': {
+        $convId  = (string) ($in['conv'] ?? '');
+        $content = task_req_str($in, 'content', 2000, true);
+        if (!preg_match('/^\d{15,21}$/', $convId)) {
+            fail(422, 'bad_conv', 'Conversation invalide.');
+        }
+        try {
+            $pdo->prepare(
+                'INSERT INTO tfh_support_chat (conv_id, author_role, author_name, body, read_by_user, read_by_admin)
+                 VALUES (?, "admin", ?, ?, 0, 1)'
+            )->execute([$convId, $meName, $content]);
+        } catch (PDOException $e) {
+            if ((int) ($e->errorInfo[1] ?? 0) === 1146) {
+                fail(409, 'schema_missing', 'La table chat n\'existe pas encore — elle se crée dès qu\'un joueur ouvre le chat sur le site.');
+            }
+            throw $e;
+        }
+        json_out(['ok' => true, 'id' => (int) $pdo->lastInsertId()]);
+    }
+
+    case 'mails.reply': {
+        $to         = task_req_str($in, 'to', 254, true);
+        $subject    = task_req_str($in, 'subject', 200, true);
+        $body       = task_req_str($in, 'body', 20000, true);
+        $inReplyTo  = (string) ($in['in_reply_to'] ?? '');
+        if (!filter_var($to, FILTER_VALIDATE_EMAIL)) {
+            fail(422, 'bad_email', 'Adresse email invalide.');
+        }
+        $cfg = sup_mail_config();
+        $from = 'TheFrontHub Support <support@thefronthub.com>';
+        if (is_array($cfg) && !empty($cfg['from'])) {
+            $from = (string) $cfg['from'];
+        }
+        $sent = sup_admin_mail($to, $subject, $body, $from, $inReplyTo);
+        if (!$sent) {
+            fail(500, 'mail_failed', "L'envoi a échoué — vérifie la configuration mail de l'hébergement.");
+        }
+        task_log_activity($pdo, null, '', $meId, $meName, 'mail_reply', 'Mail envoyé à ' . $to);
         json_out(['ok' => true]);
     }
 
