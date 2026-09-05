@@ -2902,9 +2902,20 @@ button:active:not(:disabled),
   border-bottom: 1px solid var(--accent-border);
   color: var(--fg);
 }
+/* FIX bande grise illisible en mode sombre : le variant sombre n'existait que
+   pour data-theme="dark" (mode sombre EXPLICITE). En mode sombre AUTO (OS en
+   dark, pas d'attribut), la bande gardait son dégradé clair (#fff au milieu)
+   → texte gris clair sur fond gris clair. On couvre désormais les DEUX chemins
+   du mode sombre avec un fond sombre OPAQUE (var(--bg)) + lueurs orange. */
 :root[data-theme="dark"] .tfh-update-banner {
-  background: linear-gradient(90deg, rgba(255, 107, 0, 0.16), rgba(255, 255, 255, 0.02) 55%, rgba(255, 107, 0, 0.16));
+  background: linear-gradient(90deg, rgba(255, 107, 0, 0.22), var(--bg) 55%, rgba(255, 107, 0, 0.22));
   border-bottom-color: rgba(255, 107, 0, 0.35);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .tfh-update-banner {
+    background: linear-gradient(90deg, rgba(255, 107, 0, 0.22), var(--bg) 55%, rgba(255, 107, 0, 0.22));
+    border-bottom-color: rgba(255, 107, 0, 0.35);
+  }
 }
 .tfh-ub-inner {
   display: flex;
