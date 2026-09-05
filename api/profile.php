@@ -99,11 +99,28 @@ try {
             ->execute([$username, $publicId, $user['id']]);
     }
 
-    $pdo->prepare(
-        'INSERT INTO tfh_public_aliases (user_id, username, public_id)
-         VALUES (?, ?, ?)
-         ON DUPLICATE KEY UPDATE username = VALUES(username), public_id = VALUES(public_id)'
-    )->execute([$user['id'], $username ?? ('user' . $user['id']), $publicId]);
+    $aliasUpd = static function () use ($pdo, $user, $username, $publicId): void {
+        try {
+            $pdo->prepare(
+                'INSERT INTO tfh_public_aliases (user_id, username, public_id)
+                 VALUES (?, ?, ?)
+                 ON DUPLICATE KEY UPDATE username = VALUES(username), public_id = VALUES(public_id),
+                   /* publicId change -> on invalide le pseudo en jeu cache pour refetch */
+                   game_username = IF(public_id <> VALUES(public_id) OR (public_id IS NULL) <> (VALUES(public_id) IS NULL), NULL, game_username)'
+            )->execute([$user['id'], $username ?? ('user' . $user['id']), $publicId]);
+        } catch (PDOException $e) {
+            if ((int) $e->getCode() !== 42S22) { // 42S22 = colonne game_username absente (SQL pas encore passe)
+                throw $e;
+            }
+            // Fallback degrada : upsert sans la colonne (meme comportement qu'avant)
+            $pdo->prepare(
+                'INSERT INTO tfh_public_aliases (user_id, username, public_id)
+                 VALUES (?, ?, ?)
+                 ON DUPLICATE KEY UPDATE username = VALUES(username), public_id = VALUES(public_id)'
+            )->execute([$user['id'], $username ?? ('user' . $user['id']), $publicId]);
+        }
+    };
+    $aliasUpd();
 
     if ($publicId !== null) {
         $pdo->prepare(

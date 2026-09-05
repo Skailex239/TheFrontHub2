@@ -215,6 +215,13 @@ function loadHubNames() {
           _hubNamesByPid.set(String(a.publicId), String(a.username));
           _hubNamesByNorm.set(normPlayerName(String(a.username)), String(a.publicId));
         }
+        // aliases[] inclut le pseudo EN JEU (OpenFront) : on le bridge aussi
+        // pour matcher les runs/leaderboards clés par pseudo en jeu.
+        if (a.publicId && Array.isArray(a.aliases)) {
+          for (const n of a.aliases) {
+            if (n) _hubNamesByNorm.set(normPlayerName(String(n)), String(a.publicId));
+          }
+        }
       }
     })
     .catch(() => { /* non bloquant — pseudos en jeu affichés tels quels */ });

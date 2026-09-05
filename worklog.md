@@ -1995,3 +1995,21 @@ Stage Summary:
 - RÉPONSE CLOUDFLARE : Le Worker n'est obligatoire que pour le CORS (l'API bloque les requêtes cross-origin depuis github.io). Pour le rate-limit, ce n'est plus nécessaire (51 req << limite). Alternatives au Worker : proxies CORS publics (corsproxy.io, codetabs, allorigins — déjà en fallback dans openfront-client.js) MAIS ils sont peu fiables. Le Worker reste le meilleur choix (gratuit, rapide, fiable).
 - Pour supprimer Cloudflare entièrement : il faudrait basculer sur Alternative 1 (GitHub Actions précalcule leaderboard.json, le site charge un fichier statique, 0 requête API navigateur).
 - PAT : [PAT REDACTED] utilisé en one-time URL push, NON stocké dans git config. L'utilisateur DOIT le révoquer.
+
+---
+Task ID: 12
+Agent: main (Z.ai Code)
+Task: Déploiement du système i18n FR/EN après exécution de sql-language.sql par l'utilisateur
+
+Work Log:
+- Vérifié l'état du projet : i18n complet en local (i18n.js, lang-switcher.js, 9 dictionnaires i18n-dict-*.js, api/language.php, api/me.php lit la colonne language), intégré dans toutes les pages HTML
+- Vérifié api/sql-language.sql : ALTER TABLE tfh_users ADD COLUMN IF NOT EXISTS language VARCHAR(5) DEFAULT 'fr' (idempotent)
+- Vérifié que les ?v= cache-bust ont été bumpés dans les HTML (app.min.js v19→20, lobby v7→8, auth-ui v2→3, chat-widget v1→2, update-banner v2→3, tutorial v3→4)
+- Rebuild dist via node scripts/build.js (117 ms, tous les min.js régénérés dont i18n-dict-*.min.js et lang-switcher.min.js)
+- Commit 45de4de "FEAT i18n complet FR/EN" (67 fichiers) + push origin main OK (4fa50fd..45de4de)
+- SQL exécuté par l'utilisateur AVANT le push → ordre correct (colonne language existe déjà quand le code arrive)
+
+Stage Summary:
+- DÉPLOIEMENT DÉCLENCHÉ : le cron deploy.sh sur o2switch (~5 min) va git reset + rsync vers public_html
+- Le site sera en FR/EN dans ~5-10 min ; l'utilisateur doit tester : choix drapeaux à l'inscription Discord, switch FR/EN dans la nav, réglage langue sur la page compte
+- Aucun problème bloquant ; le push contient aussi la suppression des mails admin (commit précédent 4fa50fd déjà en ligne)

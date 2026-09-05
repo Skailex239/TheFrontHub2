@@ -176,6 +176,20 @@ async function loadConnectedUsernames() {
             hubNameToPid[String(data.username).toLowerCase()] = String(data.publicId);
           }
         }
+        // aliases[] = TOUS les noms connus du joueur (pseudo EN JEU OpenFront
+        // + pseudo hub). On bridge chaque nom → publicId pour que les
+        // leaderboards speedruns (clés = pseudos en jeu) affichent le
+        // pseudo hub choisi dans les paramètres.
+        if (data.publicId && Array.isArray(data.aliases)) {
+          var pid = String(data.publicId);
+          for (var i = 0; i < data.aliases.length; i++) {
+            var n = data.aliases[i];
+            if (!n) continue;
+            connectedUsernames.add(String(n));
+            hubNameToPid[String(n).toLowerCase()] = pid;
+            pidByNormName[normPlayerName(String(n))] = pid;
+          }
+        }
       });
       applySkinsToDom();
     }, function() {});

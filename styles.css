@@ -3343,16 +3343,15 @@ html.tfh-ub-open { --tfh-ub-h: 41px; }   /* fallback si le JS n'a pas encore mes
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 30px;
-  padding: 2px;
+  padding: 4px;
   border: 2px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--bg);
   cursor: pointer;
   opacity: 0.55;
+  line-height: 0;
   transition: opacity var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
-              transform var(--dur-fast) var(--ease);
+              transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
 }
 .lang-btn:hover {
   opacity: 1;
@@ -3366,13 +3365,22 @@ html.tfh-ub-open { --tfh-ub-h: 41px; }   /* fallback si le JS n'a pas encore mes
 .lang-btn.active {
   opacity: 1;
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+/* Le drapeau garde ses proportions officielles : hauteur fixe, largeur auto
+   (UK 2:1 → 40×20, FR 3:2 → 30×20). .flag-wrap clippe les coins proprement. */
+.flag-wrap {
+  display: block;
+  line-height: 0;
+  border-radius: 3px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 .lang-flag {
-  width: 100%;
-  height: 100%;
-  border-radius: 3px;
   display: block;
+  height: 20px;
+  width: auto;
 }
 
 /* Zones de choix déclarées [data-lang-choice] (inscription / profil) */
@@ -3394,15 +3402,10 @@ html.tfh-ub-open { --tfh-ub-h: 41px; }   /* fallback si le JS n'a pas encore mes
   }
   .lang-switcher-label { display: none !important; }
   .lang-switcher-btns { gap: 4px; }
-  .lang-btn {
-    width: 36px !important;
-    height: 26px !important;
-    padding: 2px !important;
-  }
+  .lang-btn { padding: 2px !important; }
+  .lang-flag { height: 17px; }
 }
 
 /* Choix de langue dans les modales/panneaux : boutons un peu plus grands */
-.lang-choice .lang-btn {
-  width: 52px;
-  height: 38px;
-}
+.lang-choice .lang-btn { padding: 5px; }
+.lang-choice .lang-flag { height: 26px; }

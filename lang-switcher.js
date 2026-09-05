@@ -15,25 +15,49 @@
  * Le changement de langue passe par window.setLanguage(lang) (i18n.js) :
  * localStorage + POST /api/language.php (si connecté) + reload.
  *
- * Drapeaux : SVG inline (les émojis drapeaux ne s'affichent pas sous
- * Windows — on veut un rendu identique partout).
+ * Drapeaux : SVG inline aux proportions officielles (les émojis drapeaux
+ * ne s'affichent pas sous Windows — on veut un rendu identique partout).
+ *   - France  : 3 bandes verticales, couleurs JOLI (#002654 / #fff / #ED2939)
+ *   - Royaume-Uni : construction officielle de l'Union Jack (saltire blanc,
+ *     saltire rouge DÉCALÉ via clip-path, croix blanche 10/30, croix rouge
+ *     6/30). Les ids de clip-path sont uniques par instance (plusieurs
+ *     switchers peuvent coexister sur une même page).
  */
 (function () {
   "use strict";
 
-  var FLAG_FR = '<svg class="lang-flag" viewBox="0 0 24 16" aria-hidden="true">' +
-    '<rect width="8" height="16" fill="#002395"/><rect x="8" width="8" height="16" fill="#fff"/>' +
-    '<rect x="16" width="8" height="16" fill="#ED2939"/></svg>';
-  var FLAG_EN = '<svg class="lang-flag" viewBox="0 0 24 16" aria-hidden="true">' +
-    '<rect width="24" height="16" fill="#012169"/>' +
-    '<path d="M0 0l24 16M24 0L0 16" stroke="#fff" stroke-width="3.2"/>' +
-    '<path d="M0 0l24 16M24 0L0 16" stroke="#C8102E" stroke-width="1.8"/>' +
-    '<path d="M12 0v16M0 8h24" stroke="#fff" stroke-width="5"/>' +
-    '<path d="M12 0v16M0 8h24" stroke="#C8102E" stroke-width="3"/></svg>';
+  var uid = 0;
+
+  function flagFR() {
+    return '<svg class="lang-flag" viewBox="0 0 30 20" aria-hidden="true" focusable="false" role="img">' +
+      '<rect width="30" height="20" fill="#002654"/>' +
+      '<rect x="10" width="10" height="20" fill="#FFFFFF"/>' +
+      '<rect x="20" width="10" height="20" fill="#ED2939"/>' +
+      '</svg>';
+  }
+
+  function flagEN() {
+    uid += 1;
+    var s = "tfhuk-" + uid + "-s";
+    var t = "tfhuk-" + uid + "-t";
+    return '<svg class="lang-flag" viewBox="0 0 60 30" aria-hidden="true" focusable="false" role="img">' +
+      '<defs>' +
+      '<clipPath id="' + s + '"><path d="M0,0 v30 h60 v-30 z"/></clipPath>' +
+      '<clipPath id="' + t + '"><path d="M30,15 h30 v15 z v15 h-30 z h-30 v-15 z v-15 h30 z"/></clipPath>' +
+      '</defs>' +
+      '<g clip-path="url(#' + s + ')">' +
+      '<path d="M0,0 v30 h60 v-30 z" fill="#012169"/>' +
+      '<path d="M0,0 L60,30 M60,0 L0,30" stroke="#FFFFFF" stroke-width="6"/>' +
+      '<path d="M0,0 L60,30 M60,0 L0,30" clip-path="url(#' + t + ')" stroke="#C8102E" stroke-width="4"/>' +
+      '<path d="M30,0 v30 M0,15 h60" stroke="#FFFFFF" stroke-width="10"/>' +
+      '<path d="M30,0 v30 M0,15 h60" stroke="#C8102E" stroke-width="6"/>' +
+      '</g>' +
+      '</svg>';
+  }
 
   var LANGS = [
-    { code: "fr", flag: FLAG_FR, label: "Français" },
-    { code: "en", flag: FLAG_EN, label: "English" },
+    { code: "fr", flag: flagFR, label: "Français" },
+    { code: "en", flag: flagEN, label: "English" },
   ];
 
   function esc(s) {
@@ -45,7 +69,8 @@
     return LANGS.map(function (l) {
       return '<button type="button" class="lang-btn" data-lang="' + l.code + '"' +
         ' aria-label="' + esc(l.label) + '" title="' + esc(l.label) + '">' +
-        l.flag + '</button>';
+        '<span class="flag-wrap">' + l.flag() + '</span>' +
+        '</button>';
     }).join("");
   }
 
