@@ -2013,3 +2013,27 @@ Stage Summary:
 - DÉPLOIEMENT DÉCLENCHÉ : le cron deploy.sh sur o2switch (~5 min) va git reset + rsync vers public_html
 - Le site sera en FR/EN dans ~5-10 min ; l'utilisateur doit tester : choix drapeaux à l'inscription Discord, switch FR/EN dans la nav, réglage langue sur la page compte
 - Aucun problème bloquant ; le push contient aussi la suppression des mails admin (commit précédent 4fa50fd déjà en ligne)
+
+---
+Task ID: 13
+Agent: main (Z.ai Code)
+Task: FIX fusion pseudos partout + beaux drapeaux FR/EN + vérification screenshots FR/EN
+
+Work Log:
+- Diagnostic fusion pseudos : depuis la migration Firestore→MySQL, tfh_public_aliases ne garde que le pseudo hub ; les leaderboards (clés = pseudos en jeu) ne peuvent plus matcher → ancien pseudo affiché partout
+- Créé api/sql-game-username.sql (colonne game_username, À EXÉCUTER par l'utilisateur dans phpMyAdmin)
+- api/public-aliases.php : fetch auto du pseudo OpenFront en jeu (curl, cache DB, max 3/requête, fallback dégradé si colonne absente) + aliases[] = [pseudo en jeu, pseudo hub]
+- api/profile.php : invalidation game_username si public_id change (closure + fallback 42S22)
+- runs.js + profile.js : bridge aliases→publicId (pidByNormName/_hubNamesByNorm) → pseudo hub sur Speedruns/Profil aussi
+- app.js : rien à faire (bridge usernameToPid consomme déjà aliases)
+- lang-switcher.js : drapeaux SVG officiels (Union Jack clip-path avec ids uniques par instance, France JOLI #002654/#ED2939), structure .flag-wrap
+- styles.css : .lang-btn redesign (padding, ratio officiel hauteur 20px desktop/17px mobile, ombre, active ring), marge droite mobile
+- BUGS PHP CORRIGÉS EN PROD : (1) 42S22 en littéral numérique = parse error → (string)'42S22' ; (2) prepare() UPDATE hors try/catch → PDOException non attrapée si colonne absente → phase fetch/update gardée
+- Déploiements : 51b8258, 91aed8f, e5cf31d, f8212bb — aliases endpoint HTTP 200 confirmé (marqueur v3)
+- Vérifié live via agent-browser : FR desktop (accueil/lobby/runs/profil), EN desktop (speedruns/ranked/dashboard), mobile 390px FR+EN — tout traduit, drapeaux parfaits, varxard affiché avec pseudo hub en orange (#13 ranked) = fusion OK, crédit minhkarl.github.io visible sur lobby
+
+Stage Summary:
+- FUSION PSEUDOS : résolue côté serveur (game_username) — l'utilisateur DOIT exécuter api/sql-game-username.sql dans phpMyAdmin pour activer le fetch des pseudos en jeu (le site marche sans, mais sans la fusion pour les joueurs dont le pseudo en jeu ≠ pseudo hub et non-matchés par ranked.json)
+- Drapeaux : vrais drapeaux officiels partout (sidebar desktop, bottom-nav mobile, zones data-lang-choice)
+- Cache-bust actuels : styles.css v77, lang-switcher v2, runs.min v9
+- EN attente : run de sql-game-username.sql par l'utilisateur, puis aliases[] inclura les pseudos en jeu (vérifiable via curl /api/public-aliases.php → champs aliases avec 2 noms)

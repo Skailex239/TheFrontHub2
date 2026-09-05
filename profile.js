@@ -21,7 +21,7 @@ import {
 import { fetchOpenFront } from "./openfront-client.js?v=24";
 import {
   getSkin, getUnlockableSkins, DEFAULT_SKIN_ID, RARITY_META, normalizeCode,
-} from "./skins.js?v=1";
+} from "./skins.js?v=2";
 import {
   fetchOwnedSkins, redeemCode, activateSkin, applySkinToElement,
   invalidateActiveSkinCache, fetchActiveSkinMap, normPlayerName,

@@ -82,6 +82,13 @@ export const SKINS = [
     rarity: "mythic",
     cssClass: "skin-prisme",
   },
+  {
+    id: "gerbe",
+    name: "Gerbe",
+    description: "Moisson animée — vert blé, vert tendre et gris de pierre qui glissent comme une gerbe au vent.",
+    rarity: "rare",
+    cssClass: "skin-gerbe",
+  },
   // ── Prochains cosmétiques : à venir ────────────────────────────
   // {
   //   id: "exemple",

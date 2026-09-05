@@ -2879,13 +2879,33 @@ button:active:not(:disabled),
   100% { background-position: 350% center; }
 }
 
+/* Gerbe — moisson animée (vert blé → vert gerbe → gris pierre → gris sauge) */
+.skin-gerbe {
+  background: linear-gradient(100deg,
+    #a3d45e 0%, #6ea83c 26%, #97a29a 52%, #7c8a74 76%, #a3d45e 100%);
+  background-size: 240% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  font-weight: 700;
+  filter: drop-shadow(0 0 6px rgba(110, 168, 60, 0.32));
+  animation: skin-gerbe-flow 5s linear infinite;
+}
+
+@keyframes skin-gerbe-flow {
+  0%   { background-position: 0% center; }
+  100% { background-position: 240% center; }
+}
+
 /* Accessibilité : pas d'animation si l'utilisateur la refuse */
 @media (prefers-reduced-motion: reduce) {
   .skin-lagon,
   .skin-aurora,
   .skin-braise,
   .skin-dusk,
-  .skin-prisme {
+  .skin-prisme,
+  .skin-gerbe {
     animation: none;
   }
 }

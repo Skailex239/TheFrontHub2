@@ -14,6 +14,7 @@
 | `braise`   | Braise     | Épique     | `.skin-braise`  | Braises animées (ambre → orange → rouge), balayage 5,5 s |
 | `dusk`     | Crépuscule | Légendaire | `.skin-dusk`    | Coucher de soleil animé (ambre → rose → violet), balayage 6 s |
 | `prisme`   | Prisme     | Mythique   | `.skin-prisme`  | Spectre prismatique complet (6 couleurs pures), balayage 7 s |
+| `gerbe`    | Gerbe      | Rare       | `.skin-gerbe`   | Moisson animée (vert blé → vert gerbe → gris pierre → gris sauge), balayage 5 s |
 
 Règles :
 - `skin_id` doit matcher `^[a-z0-9_-]{1,32}$` (validé côté serveur ET frontend).
