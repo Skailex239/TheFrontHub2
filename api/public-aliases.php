@@ -27,24 +27,32 @@ rate_limit($pdo, 'aliases:' . client_ip(), 60, 60);
 function of_fetch_game_username(string $publicId): ?string
 {
     $url = 'https://api.openfront.io/public/player/' . rawurlencode($publicId);
-    $ctx = stream_context_create([
-        'http' => [
-            'method'  => 'GET',
-            'timeout' => 4,
-            'header'  => "Accept: application/json\r\nUser-Agent: TheFrontHub/1.0\r\n",
-            'ignore_errors' => true,
-        ],
+    if (!function_exists('curl_init')) {
+        return null; // pas de cURL : on restera sur le pseudo hub seul
+    }
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 3,
+        CURLOPT_TIMEOUT        => 5,
+        CURLOPT_USERAGENT      => 'TheFrontHub/1.0 (+https://thefronthub.com)',
+        CURLOPT_HTTPHEADER     => ['Accept: application/json'],
     ]);
-    $raw = @file_get_contents($url, false, $ctx);
-    if ($raw === false || $raw === '') {
+    $body = curl_exec($ch);
+    $err  = curl_error($ch);
+    curl_close($ch);
+    if ($body === false || $body === '') {
+        if ($err !== '') {
+            error_log('[tfh-api] aliases: openfront fetch error: ' . $err);
+        }
         return null;
     }
-    $j = json_decode($raw, true);
+    $j = json_decode((string) $body, true);
     $u = is_array($j) ? ($j['username'] ?? null) : null;
     if (!is_string($u)) {
         return null;
     }
-    $u = trim(mb_substr($u, 0, 64));
+    $u = trim(function_exists('mb_substr') ? mb_substr($u, 0, 64) : substr($u, 0, 64));
     return ($u !== '') ? $u : null;
 }
 
@@ -53,7 +61,7 @@ try {
         'SELECT user_id, username, public_id, game_username FROM tfh_public_aliases ORDER BY updated_at DESC LIMIT 1000'
     )->fetchAll();
 } catch (PDOException $e) {
-    if ((int) $e->getCode() !== 42S22) { // 42S22 = colonne game_username absente (SQL pas encore passe)
+    if ((string) $e->getCode() !== '42S22') { // 42S22 = colonne game_username absente (SQL pas encore passe)
         throw $e;
     }
     error_log('[tfh-api] public-aliases: colonne game_username absente, fallback sans pseudo en jeu');

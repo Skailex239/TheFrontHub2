@@ -109,7 +109,7 @@ try {
                    game_username = IF(public_id <> VALUES(public_id) OR (public_id IS NULL) <> (VALUES(public_id) IS NULL), NULL, game_username)'
             )->execute([$user['id'], $username ?? ('user' . $user['id']), $publicId]);
         } catch (PDOException $e) {
-            if ((int) $e->getCode() !== 42S22) { // 42S22 = colonne game_username absente (SQL pas encore passe)
+            if ((string) $e->getCode() !== '42S22') { // 42S22 = colonne game_username absente (SQL pas encore passe)
                 throw $e;
             }
             // Fallback degrada : upsert sans la colonne (meme comportement qu'avant)
