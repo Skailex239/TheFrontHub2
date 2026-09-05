@@ -663,7 +663,14 @@
 /* ═══ Responsive ═══ */
 @media (max-width: 900px) {
   .dash-grid { grid-template-columns: 1fr; gap: 32px; }
-  .dash-list { max-height: 520px; }
+  /* FIX (audit 2026-09) : 520px pour 40+ joueurs = scroll imbriqué qui piège
+     le scroll de la page sur mobile → on laisse la liste s'étendre naturellement */
+  .dash-list {
+    max-height: none;
+    overflow-y: visible;
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
   /* Clear the mobile hamburger button (44px + 14px top = ~58px) */
   .dash-view { padding: 70px 16px 60px; }
   .dash-panel-title { font-size: 14px; }

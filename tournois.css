@@ -159,7 +159,11 @@ body.tournois-page .num {
 }
 .prf-drawer {
   position: fixed;
-  inset-y: 0;
+  /* FIX (audit 2026-09) : « inset-y: 0 » est de la syntaxe Tailwind INVALIDE en CSS
+     → le drawer n'était ancré ni en haut ni en bas et flottait à sa position DOM
+     (hors écran sur mobile). On ancre correctement. */
+  top: 0;
+  bottom: 0;
   left: 0;
   z-index: 61;
   width: 280px;
@@ -1699,6 +1703,16 @@ a.prf-link:hover,
   .prf-menu-toggle {
     display: flex;
     margin-right: auto;
+  }
+}
+
+/* FIX (audit 2026-09) : entre 769 et 900px le hamburger GLOBAL du site
+   (fixed top:14 left:14, z-index 60) se superpose au toggle du menu PR.
+   On décale la top-nav pour que les deux boutons soient cliquables.
+   (≤768px le hamburger global est masqué → pas besoin de décalage) */
+@media (max-width: 900px) and (min-width: 769px) {
+  .prf-topnav {
+    padding-left: 64px;
   }
 }
 

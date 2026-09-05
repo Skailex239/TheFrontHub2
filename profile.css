@@ -52,7 +52,10 @@
   background: var(--orange-gradient);
   display: flex; align-items: center; justify-content: center;
   color: #fff; font-weight: 800; font-size: 26px; font-family: var(--f);
+  overflow: hidden;
 }
+/* FIX : l'image 512x512 sortait du conteneur 64x64 (aucune contrainte) → logo géant */
+.pf-gate-logo img { width: 100%; height: 100%; object-fit: contain; }
 .pf-discord-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 10px;
   width: 100%; padding: 13px 20px; margin-bottom: 18px;

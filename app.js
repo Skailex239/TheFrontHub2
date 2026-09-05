@@ -1935,6 +1935,8 @@ function updateURL(){
   if(typeof currentMapSize !== 'undefined' && currentMapSize === 'compact') p.set('mapSize','compact');
   // Preserve game mode (solo/duos/trios/quads) if non-default
   if(typeof currentGameMode !== 'undefined' && currentGameMode && currentGameMode !== 'solo') p.set('gameMode',currentGameMode);
+  // Preserve ranked mode 1v1/2v2 (fix audit 2026-09 : le 2v2 doit rester partageable)
+  if(typeof window._rankedMode !== 'undefined' && window._rankedMode === '2v2') p.set('rankedMode','2v2');
   // Preserve player search (deep-linking)
   const searchInput=document.getElementById('player-search');
   if(searchInput && searchInput.value.trim()) p.set('player',searchInput.value.trim());
@@ -2059,6 +2061,12 @@ if (gameModeParam && ['solo','duos','trios','quads','hvn'].includes(gameModePara
   document.querySelectorAll('.mode-dropdown-item').forEach(item => {
     item.classList.toggle('active', item.dataset.mode === gameModeParam);
   });
+}
+// FIX (audit 2026-09) : deep-link ?tab=ranked&rankedMode=2v2 était ignoré —
+// la page rechargeait toujours le 1v1 (miroir de la logique gameMode ci-dessus).
+const rankedModeParam = urlParams.get('rankedMode');
+if (rankedModeParam === '1v1' || rankedModeParam === '2v2') {
+  switchRankedMode(rankedModeParam); // hoisted — met à jour toggle + labels + _rankedMode
 }
 // Compat: old ?mode=compact URL
 if (modeParam === 'compact' && !mapSizeParam) {
@@ -2839,6 +2847,16 @@ window.isFavorite = isFavorite;
 function switchRankedMode(mode) {
   if (mode !== '1v1' && mode !== '2v2') return;
   window._rankedMode = mode;
+  
+  // Deep-link (fix audit 2026-09) : l'URL reflète le mode pour que le
+  // leaderboard 2v2 soit partageable/bookmarquable (?tab=ranked&rankedMode=2v2)
+  try {
+    const u = new URLSearchParams(window.location.search);
+    if (u.get('rankedMode') !== mode) {
+      u.set('rankedMode', mode);
+      history.replaceState(null, '', window.location.pathname + '?' + u.toString() + window.location.hash);
+    }
+  } catch (e) { /* environnement sans history API */ }
   
   // Update toggle buttons
   document.querySelectorAll('.mode-toggle-btn').forEach(btn => {
