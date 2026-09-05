@@ -110,6 +110,7 @@ $aliases = array_map(
 
 json_out([
     'ok'      => true,
+    'v'       => 3, // marqueur debug déploiement
     'aliases' => $aliases,
     'count'   => count($aliases),
 ]);
