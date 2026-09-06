@@ -849,13 +849,19 @@ async function loadStats(publicId) {
   (async () => {
     let weekScore = 0, weekRank = "—", weekFFA = 0, weekTeam = 0, weekTotalPoints = 0;
     try {
-      const scoresRes = await fetch("dashboard_scores.json.gz", { cache: "force-cache" });
+      // ⚠️ cache "no-cache" (revalidation 304) et PAS "force-cache" : avec
+      // force-cache le navigateur peut resservir une réponse PÉRIMÉE (ex.
+      // dashboard_scores de la semaine précédente après le reset du lundi).
+      // Résultat : weekStart périmé → le point « live » du graphique hebdo
+      // était ajouté à droite avec les données de la semaine précédente
+      // (inversion S1/S2 sur la courbe du profil). no-cache = toujours frais.
+      const scoresRes = await fetch("dashboard_scores.json.gz", { cache: "no-cache" });
       let scoresData = null;
       if (scoresRes.ok) {
         const ds = new DecompressionStream("gzip");
         scoresData = await new Response(scoresRes.body.pipeThrough(ds)).json();
       } else {
-        const fallback = await fetch("dashboard_scores.json");
+        const fallback = await fetch("dashboard_scores.json", { cache: "no-cache" });
         if (fallback.ok) scoresData = await fallback.json();
       }
       if (scoresData && scoresData.players) {
@@ -899,6 +905,9 @@ async function loadStats(publicId) {
     // Alimenté par sync-dashboard.js : un snapshot figé par semaine écoulée,
     // la semaine en cours est rafraîchie toutes les 5 min. Chaque lundi,
     // une nouvelle colonne S1, S2, S3… s'ajoute au graphique du profil.
+    // weekly_history_seed.json = semaines reconstituées a posteriori (ex.
+    // semaine du 24/08 reconstruite depuis prev_weekly_*) fusionnées dans
+    // l'historique pour que la courbe démarre à la vraie semaine 1.
     fetch("weekly_history.json.gz", { cache: "no-cache" })
       .then(async (res) => {
         if (res.ok) {
@@ -908,7 +917,10 @@ async function loadStats(publicId) {
           const fb = await fetch("weekly_history.json", { cache: "no-cache" });
           if (fb.ok) window._profileWeekHistory = await fb.json();
         }
-        if (window._profileWeekHistory) renderWeeklyChart();
+        if (window._profileWeekHistory) {
+          await mergeWeeklySeed();
+          renderWeeklyChart();
+        }
       })
       .catch(() => { /* pas encore d'historique (1re semaine) → courbe à 1 point */ });
 
@@ -1531,6 +1543,29 @@ document.addEventListener("click", (e) => {
    Lignes colorées par mode : FFA=rouge, Team=bleu, Classé=violet, Total=noir.
    Points avec cercle contenant le rang (#X) sur la série Total. */
 
+/* Fusionne les semaines « seed » (weekly_history_seed.json) manquantes dans
+   l'historique hebdo. Comble les semaines antérieures au démarrage réel de
+   weekly_history.json sans JAMAIS écraser une semaine réellement enregistrée
+   par le sync (les clés existantes gagnent toujours). */
+async function mergeWeeklySeed() {
+  try {
+    const res = await fetch("weekly_history_seed.json", { cache: "no-cache" });
+    if (!res.ok) return;
+    const seed = await res.json();
+    const hist = window._profileWeekHistory;
+    if (!seed || !seed.weeks || !hist) return;
+    if (!hist.weeks) hist.weeks = {};
+    let added = 0;
+    for (const [key, wk] of Object.entries(seed.weeks)) {
+      if (!hist.weeks[key] && wk && wk.players) {
+        hist.weeks[key] = wk;
+        added++;
+      }
+    }
+    if (added) console.log(`[profile] Historique hebdo : ${added} semaine(s) seed fusionnée(s)`);
+  } catch { /* seed indisponible — non bloquant */ }
+}
+
 /* Construit la liste chronologique des semaines :
    historique figé (weekly_history.json) + point live (semaine en cours,
    données les plus fraîches) en dernière position. */
@@ -1561,17 +1596,39 @@ function buildWeeklyWeeks(data) {
     w.ranked = data.ffaRanked + data.teamRanked;
     w.rank = data.rank;
   } else {
-    weeks.push({
-      key: liveKey || "live",
-      start: data.weekStart || new Date().toISOString(),
-      total: data.total,
-      ffa: data.ffa,
-      team: data.team,
-      ranked: data.ffaRanked + data.teamRanked,
-      rank: data.rank,
-    });
+    // ⚠️ Garde-fou cache : si les données live sont PLUS ANCIENNES que la
+    // dernière semaine de l'historique (dashboard_scores périmé dans le
+    // navigateur, ex. après le reset du lundi), on ne les ajoute PAS.
+    // Sinon un point « S2 » à droite affichait la semaine précédente →
+    // inversion S1/S2 sur la courbe (bug signalé par Skailex).
+    const lastKey = weeks.length ? weeks[weeks.length - 1].key : null;
+    if (!lastKey || liveKey >= lastKey) {
+      weeks.push({
+        key: liveKey || "live",
+        start: data.weekStart || new Date().toISOString(),
+        total: data.total,
+        ffa: data.ffa,
+        team: data.team,
+        ranked: data.ffaRanked + data.teamRanked,
+        rank: data.rank,
+      });
+    }
   }
-  weeks.forEach((w, i) => { w.label = "S" + (i + 1); });
+  // Labels = semaine de SAISON (pas index dans le tableau) : S1 = première
+  // semaine suivie par le site (lundi 24/08/2026 00h00 Paris).
+  // Un trou dans l'historique ne décale plus la numérotation — la semaine du
+  // 31/08 reste S2 même si une semaine manque. Fallback = index si la date
+  // est antérieure à la saison (données hors périmètre).
+  // 🔄 Nouvelle saison de classement hebdo → mettre à jour WEEKLY_SEASON_START.
+  const WEEKLY_SEASON_START_MS = Date.parse("2026-08-23T22:00:00.000Z"); // lundi 24/08 00h00 Paris
+  weeks.forEach((w, i) => {
+    let n = null;
+    const t = Date.parse(w.start);
+    if (Number.isFinite(t) && Number.isFinite(WEEKLY_SEASON_START_MS) && t >= WEEKLY_SEASON_START_MS) {
+      n = 1 + Math.round((t - WEEKLY_SEASON_START_MS) / (7 * 86400000));
+    }
+    w.label = "S" + (n && n >= 1 ? n : i + 1);
+  });
   return weeks;
 }
 
@@ -2570,10 +2627,28 @@ function setupCockpitKeyboardShortcuts() {
   });
 }
 
-/** Copy the current profile URL to clipboard. */
+/** Copie l'URL du profil consulté dans le presse-papiers.
+ *  ⚠️ Partage TOUJOURS le profil AFFICHÉ, jamais le compte connecté :
+ *  sur le profil d'un autre joueur, _rewardCardState.publicId (carte code)
+ *  et currentProfile (sidebar) restent ceux du VISITEUR connecté — l'ancien
+ *  ordre de priorité partageait donc le mauvais compte (bug signalé).
+ *  Cas spécial : viewingPublicId === "__speedrun__" = profil speedrun sans
+ *  compte lié → l'URL courante (?player=NOM) est déjà la bonne. */
 function cockpitShareProfile() {
-  const pid = _rewardCardState.publicId || (currentProfile && currentProfile.publicId) || viewingPublicId;
-  const url = pid ? `${window.location.origin}${window.location.pathname}?pid=${encodeURIComponent(pid)}` : window.location.href;
+  let url;
+  if (viewingPublicId && viewingPublicId !== "__speedrun__") {
+    // Profil d'un autre joueur consulté (?player=…&publicId=…) → on partage
+    // CELUI-CI sous forme canonique ?pid=<publicId consulté>.
+    url = `${window.location.origin}${window.location.pathname}?pid=${encodeURIComponent(viewingPublicId)}`;
+  } else if (viewingPublicId === "__speedrun__") {
+    // Profil speedrun sans compte lié : l'URL courante ?player=NOM est la
+    // seule forme qui permet de retrouver ce profil.
+    url = window.location.href;
+  } else {
+    // Propre profil (connecté, pas de consultation étrangère en cours).
+    const pid = (currentProfile && currentProfile.publicId) || _rewardCardState.publicId;
+    url = pid ? `${window.location.origin}${window.location.pathname}?pid=${encodeURIComponent(pid)}` : window.location.href;
+  }
   if (navigator.clipboard?.writeText) {
     navigator.clipboard.writeText(url).then(
       () => showToast(T("pf.link_copied", "Lien du profil copié !"), "success"),
