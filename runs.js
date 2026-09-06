@@ -33,6 +33,9 @@ function mapDisplayName(raw) {
 //   "[LBU] Skailex" ou "VarXard.9236" avec le compte du joueur)
 const activeSkinsByName = new Map();
 const activeSkinsByNorm = new Map();
+// publicId → skinId (fix 2026-09-06 : matching direct par publicId, les
+// pseudos de runs changent trop souvent — tags de clan, renommages)
+const activeSkinsByPid = new Map();
 
 // Normalise un pseudo : retire le tag de clan en préfixe et le
 // discriminateur OpenFront, en minuscules.
@@ -87,6 +90,7 @@ async function loadActiveSkins() {
     const data = await res.json();
     (data.active || []).forEach(function(row) {
       if (!row.publicId || !row.skinId) return;
+      activeSkinsByPid.set(String(row.publicId), row.skinId);
       if (row.username) {
         activeSkinsByName.set(row.username, row.skinId);
         activeSkinsByNorm.set(normPlayerName(row.username), row.skinId);
@@ -109,9 +113,12 @@ function applySkinsToDom() {
   document.querySelectorAll('td.global-player a').forEach(function(a) {
     const raw = a.getAttribute('data-player') || (a.textContent || '').trim();
     if (!raw) return;
-    const skinId = skinIdForPlayer(raw);
+    // Fix 2026-09-06 : le publicId du run (data-pid) est prioritaire —
+    // résout pseudo hub + skin même pour les anciens pseudos du joueur.
+    const pid = a.getAttribute('data-pid') || resolvePidForName(raw) || '';
+    const skinId = (pid && activeSkinsByPid.get(String(pid))) || skinIdForPlayer(raw);
     if (skinId) a.classList.add('skin-' + skinId);
-    const shown = displayNameFor(raw);
+    const shown = (pid && hubNameByPid[String(pid)]) || displayNameFor(raw);
     if (shown && shown !== raw && a.textContent !== shown) {
       a.textContent = shown;
       a.title = TP("runs.ingame_title", { name: raw }, "En jeu : " + raw);
@@ -198,13 +205,15 @@ async function loadConnectedUsernames() {
   }
 }
 
-function handlePlayerClick(name) {
+function handlePlayerClick(name, pid) {
   // Liaison PARTOUT : tout clic sur un pseudo ouvre son profil.
   //  - publicId résolu (compte lié) → profil COMPLET ;
   //  - sinon → profil public « speedrun » (records du joueur).
-  var pid = resolvePidForName(name);
+  // Fix 2026-09-06 : le publicId peut venir directement du run
+  // (r.playerId) — fiable même pour les anciens pseudos du joueur.
+  var resolved = pid || resolvePidForName(name);
   var url = 'profile.html?player=' + encodeURIComponent(name);
-  if (pid) url += '&publicId=' + encodeURIComponent(pid);
+  if (resolved) url += '&publicId=' + encodeURIComponent(resolved);
   window.location.href = url;
 }
 window.handlePlayerClick = handlePlayerClick;
@@ -273,15 +282,22 @@ async function loadTopRuns({ limit, windowDays }) {
       var rawName = r.player || '\u2014';
       var playerName = String(rawName).replace(/[\x00-\x1F\x7F-\x9F]/g, '').trim() || '\u2014';
       if (playerName.length > 28) playerName = playerName.slice(0, 25) + '...';
+      // Fix 2026-09-06 : le run porte playerId = publicId OpenFront.
+      // Résolution pseudo hub + skin par publicId D'ABORD (fiable pour
+      // tous les pseudos historiques : "[MSC] Skailex", "Skailex on YT"…),
+      // fallback par nom ensuite.
+      var pidForRun = r.playerId || resolvePidForName(playerName) || '';
       // Skin actif du joueur (si possédé ET activé) → classe .skin-*
-      var skinId = skinIdForPlayer(playerName) || '';
+      var skinId = (pidForRun && activeSkinsByPid.get(String(pidForRun))) || skinIdForPlayer(playerName) || '';
       var skinAttr = skinId ? ' class="skin-' + skinId + '"' : '';
       // Pseudo AFFICHÉ : pseudo hub (profil TheFrontHub) sinon pseudo en jeu.
       // data-player garde le pseudo original pour les patchs asynchrones
       // (skins / aliases) et handlePlayerClick utilise le pseudo original.
-      var shownName = displayNameFor(playerName);
+      var shownName = (pidForRun && hubNameByPid[String(pidForRun)]) || displayNameFor(playerName);
       var titleAttr = shownName !== playerName ? ' title="' + escapeHtml(TP("runs.ingame_title", { name: playerName }, "En jeu : " + playerName)) + '"' : '';
-      tdPlayer.innerHTML = '<a' + skinAttr + ' data-player="' + escapeHtml(playerName) + '" href="#" onclick="handlePlayerClick(\'' + escapeHtml(playerName).replace(/'/g, "\\'") + "');return false\"" + titleAttr + ' style="cursor:pointer;text-decoration:none">' + escapeHtml(shownName) + '</a>';
+      var pidAttr = pidForRun ? ' data-pid="' + escapeHtml(String(pidForRun)) + '"' : '';
+      var clickJs = "handlePlayerClick('" + escapeHtml(playerName).replace(/'/g, "\\'") + "'," + (pidForRun ? "'" + String(pidForRun).replace(/[^A-Za-z0-9_-]/g, '') + "'" : "null") + ");return false";
+      tdPlayer.innerHTML = '<a' + skinAttr + pidAttr + ' data-player="' + escapeHtml(playerName) + '" href="#" onclick="' + clickJs + '"' + titleAttr + ' style="cursor:pointer;text-decoration:none">' + escapeHtml(shownName) + '</a>';
 
       const tdMap = document.createElement('td');
       tdMap.innerHTML = escapeHtml(mapDisplayName(r.map));

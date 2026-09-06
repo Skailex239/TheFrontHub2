@@ -400,6 +400,22 @@ function loadPublicAliases() {
             pidToHubName.set(pidVal, String(data.username));
             hubNameChanged = true;
           }
+          // --- Fusion par publicId RÉEL (fix 2026-09-06) ---
+          // Chaque run porte playerId = publicId OpenFront. En indexant
+          // aliasMap sous le publicId RÉEL, getCanonicalName() (qui lit
+          // run.playerId) fusionne TOUS les pseudos historiques du joueur
+          // ("[MSC] Skailex", "Skailex on YT"…) dans le pseudo hub — même
+          // si aliases[] ne connaît plus que le pseudo actuel (la chaîne
+          // openFrontSessions est morte depuis la bascule MySQL).
+          if (data.username) {
+            const hubEntry = aliasMap[pidVal];
+            if (!hubEntry || hubEntry.name !== String(data.username)) {
+              aliasMap[pidVal] = { name: String(data.username), aliases: data.aliases || [] };
+              changed = true;
+            } else {
+              hubEntry.aliases = data.aliases || hubEntry.aliases;
+            }
+          }
         }
 
         if (!data.username || !data.aliases || data.aliases.length <= 1) return;
