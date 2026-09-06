@@ -37,9 +37,10 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   "sup.status_answered": "Répondu",
   "sup.status_closed": "Fermé",
 
-  /* ── Écran d'accueil (non connecté) ── */
+  /* ── Écran d'accueil (non connecté) — les 3 canaux restent accessibles,
+        seuls les tickets « formels » suivis demandent une session Discord ── */
   "sup.gate_title": "Besoin d'aide ? Contacte l'équipe",
-  "sup.gate_text": "Connecte-toi avec Discord pour ouvrir un ticket de support, suivre tes conversations et recevoir les réponses de l'équipe ici et par email.",
+  "sup.gate_text": "Connecte-toi avec Discord pour ouvrir un ticket de support, suivre tes conversations et recevoir les réponses de l'équipe ici et par email. Sans compte, utilise le chat en direct, le Discord ou l'email ci-dessus.",
   "sup.gate_login": "Connexion avec Discord",
 
   /* ── Canaux de contact ── */
@@ -53,7 +54,7 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   "sup.canal_email_cta": "Écrire un email",
   "sup.canal_email_aria": "Envoyer un email à support@thefronthub.com",
   "sup.canal_chat_title": "Chat en direct",
-  "sup.canal_chat_desc": "Discute en direct avec l'équipe.",
+  "sup.canal_chat_desc": "Discute en direct avec l'équipe — un pseudo suffit, sans compte.",
   "sup.canal_chat_cta": "Ouvrir le chat",
   "sup.canal_chat_aria": "Ouvrir le chat en direct avec l'équipe",
 
@@ -163,9 +164,10 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
   "sup.status_answered": "Answered",
   "sup.status_closed": "Closed",
 
-  /* ── Signed-out gate ── */
+  /* ── Signed-out view — all 3 channels stay available, only "formal"
+        tracked tickets require a Discord session ── */
   "sup.gate_title": "Need help? Contact the team",
-  "sup.gate_text": "Sign in with Discord to open a support ticket, follow your conversations and receive the team's replies here and by email.",
+  "sup.gate_text": "Sign in with Discord to open a support ticket, follow your conversations and receive the team's replies here and by email. No account? Use the live chat, Discord or email above.",
   "sup.gate_login": "Sign in with Discord",
 
   /* ── Contact channels ── */
@@ -179,7 +181,7 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
   "sup.canal_email_cta": "Write an email",
   "sup.canal_email_aria": "Send an email to support@thefronthub.com",
   "sup.canal_chat_title": "Live chat",
-  "sup.canal_chat_desc": "Chat with the team in real time.",
+  "sup.canal_chat_desc": "Chat with the team in real time — no account needed, just a username.",
   "sup.canal_chat_cta": "Open chat",
   "sup.canal_chat_aria": "Open the live chat with the team",
 

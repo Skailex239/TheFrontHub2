@@ -16,10 +16,16 @@ declare(strict_types=1);
  *                                récent ; marque les réponses de l'équipe lues)
  * POST { action:'send', content } → { ok, message }
  *
- * Une session Discord est OBLIGATOIRE (pas d'anonymat : on connaît l'auteur).
- * La conversation est identifiée par l'ID Discord du joueur (conv_id).
- * Table tfh_support_chat auto-créée au premier appel (errno 1146) ; schéma
- * documenté dans api/sql-chat.sql pour un passage manuel éventuel en cPanel.
+ * Deux modes d'accès :
+ *  1. Session Discord (compte complet)  → conv_id = ID Discord du joueur.
+ *  2. Invité (sans compte)              → le client appelle d'abord
+ *     POST { action:'guest_start', name:'Pseudo' } → { ok, conv_id, token }.
+ *     Le token (64 hex) n'est stocké qu'en hash SHA-256 et doit être
+ *     renvoyé par le client sur chaque appel : &guest=<conv_id>&gtok=<token>
+ *     (GET) / { guest, gtok } (POST send). La conversation persiste côté
+ *     client via localStorage — rien de dépendant d'une session PHP.
+ * Tables tfh_support_chat + tfh_support_chat_guests auto-créées au premier
+ * appel (errno 1146).
  */
 
 define('TFH_API', true);
@@ -27,6 +33,8 @@ require __DIR__ . '/config.php';
 
 const CHAT_BODY_MAX     = 2000;
 const CHAT_POLL_LIMIT   = 200;
+const GUEST_NAME_MIN    = 2;
+const GUEST_NAME_MAX    = 32;
 /* Notification équipe par mail uniquement au PREMIER message d'une
  * conversation (les suivants : badge « non lus » dans le panel). */
 const CHAT_NOTIFY_EMAIL = 'support@thefronthub.com';
@@ -52,6 +60,20 @@ function chat_table_sql(): string
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
 }
 
+/** Conversations invitées : conv_id 'g' + 24 hex, token stocké hashé. */
+function chat_guest_table_sql(): string
+{
+    return 'CREATE TABLE IF NOT EXISTS tfh_support_chat_guests (
+        conv_id VARCHAR(32) NOT NULL,
+        token_hash CHAR(64) NOT NULL,
+        name VARCHAR(64) NOT NULL,
+        ip VARCHAR(45) NOT NULL DEFAULT "",
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (conv_id),
+        KEY idx_token (token_hash(12))
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
+}
+
 /**
  * Exécute une requête ; si la table manque (errno 1146 — premier
  * déploiement), crée le schéma puis retente une fois.
@@ -74,9 +96,63 @@ function chat_query(PDO $pdo, string $sql, array $params = []): PDOStatement
     }
 }
 
+/* Exécute une requête ; si LA TABLE INVITÉS manque (errno 1146), crée le
+ * schéma puis retente une fois (même mécanique que chat_query). */
+function chat_guest_query(PDO $pdo, string $sql, array $params = []): PDOStatement
+{
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt;
+    } catch (PDOException $e) {
+        $driverErrno = (int) ($e->errorInfo[1] ?? 0);
+        if ($driverErrno !== 1146) {
+            throw $e;
+        }
+        $pdo->exec(chat_guest_table_sql());
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt;
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Authentifie une conversation invitée : conv_id 'g…' + token hex 64.
+ * Retourne [conv_id, name] si le couple correspond en base, sinon null.
+ * Table absente (jamais déployée) → null également.
+ */
+function chat_guest(PDO $pdo, string $convId, string $token): ?array
+{
+    if (!preg_match('/^g[0-9a-f]{24}$/', $convId) || !preg_match('/^[a-f0-9]{64}$/', $token)) {
+        return null;
+    }
+    try {
+        $st = $pdo->prepare(
+            'SELECT conv_id, name FROM tfh_support_chat_guests WHERE conv_id = ? AND token_hash = ? LIMIT 1'
+        );
+        $st->execute([$convId, hash('sha256', $token)]);
+        $row = $st->fetch();
+        return $row !== false ? ['conv_id' => (string) $row['conv_id'], 'name' => (string) $row['name']] : null;
+    } catch (PDOException $e) {
+        return null;
+    }
+}
+
+/** Pseudo invité : retire les caractères de contrôle, normalise les espaces, 2–32 chars. */
+function chat_guest_name(string $raw): ?string
+{
+    $name = preg_replace('/[\x00-\x1F\x7F]/u', '', $raw);
+    $name = trim((string) preg_replace('/\s+/u', ' ', $name));
+    $len  = function_exists('mb_strlen') ? mb_strlen($name, 'UTF-8') : strlen($name);
+    if ($len < GUEST_NAME_MIN || $len > GUEST_NAME_MAX) {
+        return null;
+    }
+    return $name;
+}
 
 /** ID Discord (conv_id) du joueur connecté, via tfh_user_identities. */
 function chat_discord_id(PDO $pdo, array $user): ?string
@@ -134,23 +210,31 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if ($method === 'GET') {
     rate_limit($pdo, 'chat-get:' . client_ip(), 240, 60);
 
-    $user = current_user($pdo);
-    if ($user === null) {
-        json_out(['ok' => false, 'error' => 'auth_required'], 401);
-    }
-    $convId = chat_discord_id($pdo, $user);
-    if ($convId === null || $convId === '') {
-        json_out(['ok' => false, 'error' => 'no_identity'], 403);
-    }
+    $user   = current_user($pdo);
+    $convId = null;
 
-    $me = [
-        'name'   => chat_display_name($user),
-        /* tfh_users.avatar_url = URL CDN complète (posée au callback Discord) ;
-         * fallback : avatar par défaut déduit du snowflake. */
-        'avatar' => (isset($user['avatar_url']) && (string) $user['avatar_url'] !== '')
-            ? (string) $user['avatar_url']
-            : discord_avatar_url($convId, null),
-    ];
+    if ($user !== null) {
+        $convId = chat_discord_id($pdo, $user);
+        if ($convId === null || $convId === '') {
+            json_out(['ok' => false, 'error' => 'no_identity'], 403);
+        }
+        $me = [
+            'name'   => chat_display_name($user),
+            /* tfh_users.avatar_url = URL CDN complète (posée au callback Discord) ;
+             * fallback : avatar par défaut déduit du snowflake. */
+            'avatar' => (isset($user['avatar_url']) && (string) $user['avatar_url'] !== '')
+                ? (string) $user['avatar_url']
+                : discord_avatar_url($convId, null),
+        ];
+    } else {
+        /* Invité : conversation + token (renvoyés par guest_start au client). */
+        $guest = chat_guest($pdo, (string) ($_GET['guest'] ?? ''), (string) ($_GET['gtok'] ?? ''));
+        if ($guest === null) {
+            json_out(['ok' => false, 'error' => 'auth_required'], 401);
+        }
+        $convId = $guest['conv_id'];
+        $me     = ['name' => $guest['name'], 'avatar' => ''];
+    }
 
     /* ── État initial (sans messages) ── */
     $action = (string) ($_GET['action'] ?? '');
@@ -229,22 +313,62 @@ if (!is_array($data)) {
     fail(400, 'bad_json', 'Corps JSON invalide.');
 }
 
-$user = current_user($pdo);
-if ($user === null) {
-    json_out(['ok' => false, 'error' => 'auth_required'], 401);
-}
-$convId = chat_discord_id($pdo, $user);
-if ($convId === null || $convId === '') {
-    json_out(['ok' => false, 'error' => 'no_identity'], 403);
+$action = (string) ($data['action'] ?? '');
+
+/* ── Ouverture d'un ticket INVITÉ (sans session Discord) ──
+ * Rate-limit strict par IP : 5 ouvertures / 10 min — l'objectif est de
+ * permettre à un vrai visiteur d'écrire, pas de remplir la base. */
+if ($action === 'guest_start') {
+    rate_limit($pdo, 'chat-guest:' . client_ip(), 5, 600);
+
+    $name = chat_guest_name((string) ($data['name'] ?? ''));
+    if ($name === null) {
+        fail(422, 'bad_name', 'Le pseudo doit contenir entre 2 et 32 caractères.');
+    }
+
+    $convId = 'g' . bin2hex(random_bytes(12));   // 25 caractères ≤ 32
+    $token  = bin2hex(random_bytes(32));          // 64 hex — seul le hash part en base
+
+    try {
+        chat_guest_query(
+            $pdo,
+            'INSERT INTO tfh_support_chat_guests (conv_id, token_hash, name, ip) VALUES (?, ?, ?, ?)',
+            [$convId, hash('sha256', $token), tfh_cut($name, 64), client_ip()]
+        );
+    } catch (PDOException $e) {
+        error_log('[tfh-chat] guest_start: ' . $e->getMessage());
+        fail(500, 'guest_start_failed', 'Ouverture du ticket impossible pour le moment.');
+    }
+
+    json_out(['ok' => true, 'conv_id' => $convId, 'token' => $token, 'name' => $name]);
 }
 
-$action = (string) ($data['action'] ?? '');
 if ($action !== 'send') {
     fail(404, 'unknown_action', 'Action inconnue.');
 }
 
-/* Anti-spam : 20 messages / minute / joueur. */
+$user   = current_user($pdo);
+$guest  = null;
+
+if ($user !== null) {
+    $convId = chat_discord_id($pdo, $user);
+    if ($convId === null || $convId === '') {
+        json_out(['ok' => false, 'error' => 'no_identity'], 403);
+    }
+} else {
+    $guest = chat_guest($pdo, (string) ($data['guest'] ?? ''), (string) ($data['gtok'] ?? ''));
+    if ($guest === null) {
+        json_out(['ok' => false, 'error' => 'auth_required'], 401);
+    }
+    $convId = $guest['conv_id'];
+}
+
+/* Anti-spam : 20 messages / minute / conversation, et pour les invités
+ * 10 / minute / IP (une même IP peut multiplier les conversations). */
 rate_limit($pdo, 'chat-send:' . $convId, 20, 60);
+if ($guest !== null) {
+    rate_limit($pdo, 'chat-send-g:' . client_ip(), 10, 60);
+}
 
 $body = trim((string) ($data['content'] ?? ''));
 if ($body === '') {
@@ -254,7 +378,7 @@ if (function_exists('mb_strlen') ? mb_strlen($body, 'UTF-8') > CHAT_BODY_MAX : s
     $body = function_exists('mb_substr') ? mb_substr($body, 0, CHAT_BODY_MAX, 'UTF-8') : substr($body, 0, CHAT_BODY_MAX);
 }
 
-$displayName = chat_display_name($user);
+$displayName = $guest !== null ? $guest['name'] : chat_display_name($user);
 chat_query(
     $pdo,
     'INSERT INTO tfh_support_chat (conv_id, author_role, author_name, body, read_by_user, read_by_admin)
@@ -271,11 +395,12 @@ $st = chat_query(
 );
 $countRow = $st->fetch();
 if ($countRow !== false && (int) $countRow['n'] === 1) {
+    $kind = ($convId !== '' && $convId[0] === 'g') ? 'invité' : 'Discord ' . $convId;
     chat_mail(
         CHAT_NOTIFY_EMAIL,
         '[TheFrontHub] Nouveau chat — ' . $displayName,
         "Un joueur ouvre le chat en direct sur TheFrontHub.\r\n\r\n"
-        . "Joueur : {$displayName} (Discord {$convId})\r\n"
+        . "Joueur : {$displayName} ({$kind})\r\n"
         . "Message :\r\n{$body}\r\n\r\n"
         . "→ Répondre : https://admin.thefronthub.com (section Chat support)"
     );

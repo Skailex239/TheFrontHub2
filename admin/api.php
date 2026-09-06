@@ -302,6 +302,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         $convs = [];
         foreach ($rows as $row) {
             $convId = (string) $row['conv_id'];
+            $isGuest = str_starts_with($convId, 'g');
             $ust = $pdo->prepare(
                 'SELECT u.username, u.global_name, u.avatar_url
                  FROM tfh_users u
@@ -319,10 +320,27 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
             $g = $urow !== false ? trim((string) ($urow['global_name'] ?? '')) : '';
             $u = $urow !== false ? trim((string) ($urow['username'] ?? '')) : '';
             $name = $g !== '' ? $g : ($u !== '' ? $u : 'Discord …' . substr($convId, -4));
+            $avatar = $urow !== false ? (string) ($urow['avatar_url'] ?? '') : '';
+            if ($isGuest) {
+                /* Conversation invitée : pseudo stocké dans tfh_support_chat_guests
+                   (fallback : auteur du dernier message). Pas d'email ni de profil. */
+                $gst = $pdo->prepare('SELECT name FROM tfh_support_chat_guests WHERE conv_id = ? LIMIT 1');
+                try {
+                    $gst->execute([$convId]);
+                    $grow = $gst->fetch();
+                } catch (PDOException $e) {
+                    $grow = false;   // table invités absente
+                }
+                $gname = $grow !== false ? trim((string) $grow['name'])
+                    : trim((string) ($last['author_name'] ?? ''));
+                $name   = 'Invité · ' . ($gname !== '' ? $gname : substr($convId, 1, 6));
+                $avatar = '';
+            }
             $convs[] = [
                 'conv_id'    => $convId,
                 'name'       => $name,
-                'avatar'     => $urow !== false ? (string) ($urow['avatar_url'] ?? '') : '',
+                'avatar'     => $avatar,
+                'guest'      => $isGuest,
                 'unread'     => (int) ($row['unread'] ?? 0),
                 'total'      => (int) ($row['total'] ?? 0),
                 'last_role'  => $last !== false ? (string) $last['author_role'] : 'user',
@@ -336,7 +354,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     /* ── Messages d'une conversation chat (poll, marque lus) ── */
     if ($getAction === 'supchat.poll') {
         $convId = (string) ($_GET['conv'] ?? '');
-        if (!preg_match('/^\d{15,21}$/', $convId)) {
+        /* Discord snowflake (15–21 chiffres) OU conversation invitée g+24 hex. */
+        if (!preg_match('/^(\d{15,21}|g[0-9a-f]{24})$/', $convId)) {
             fail(422, 'bad_conv', 'Conversation invalide.');
         }
         $after = max(0, (int) ($_GET['after'] ?? 0));
@@ -1669,7 +1688,8 @@ switch ($action) {
     case 'supchat.reply': {
         $convId  = (string) ($in['conv'] ?? '');
         $content = task_req_str($in, 'content', 2000, true);
-        if (!preg_match('/^\d{15,21}$/', $convId)) {
+        /* Discord snowflake OU conversation invitée g+24 hex. */
+        if (!preg_match('/^(\d{15,21}|g[0-9a-f]{24})$/', $convId)) {
             fail(422, 'bad_conv', 'Conversation invalide.');
         }
         try {

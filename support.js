@@ -299,20 +299,11 @@ async function closeTicket(id) {
 
 const view = () => document.getElementById("support-view");
 
-function render() {
-  const v = view();
-  if (!v) return;
-  if (!state.user) {
-    v.innerHTML = `
-      <div class="sup-gate">
-        <div class="sup-gate-icon"><i data-icon="lifebuoy" data-icon-size="34"></i></div>
-        <h2>${T("sup.gate_title", "Besoin d'aide ? Contacte l'équipe")}</h2>
-        <p>${T("sup.gate_text", "Connecte-toi avec Discord pour ouvrir un ticket de support, suivre tes conversations et recevoir les réponses de l'équipe ici et par email.")}</p>
-        <button type="button" class="sup-btn sup-btn-primary" onclick="toggleAuthModal()">${T("sup.gate_login", "Connexion avec Discord")}</button>
-      </div>`;
-    return;
-  }
-  v.innerHTML = `
+/* Canaux de contact (Discord / email / chat) — visibles CONNECTÉ OU NON : un
+   visiteur sans compte peut rejoindre le Discord, écrire par email ou ouvrir
+   un ticket avec le chat en direct (un pseudo suffit dans le widget). */
+function canalsHTML() {
+  return `
     <div class="sup-canals" aria-label="${T("sup.canals_aria", "Canaux de contact")}">
       <article class="sup-canal">
         <span class="sup-canal-icon" aria-hidden="true">${SUP_DISCORD_SVG}</span>
@@ -335,13 +326,17 @@ function render() {
       <article class="sup-canal">
         <span class="sup-canal-icon" aria-hidden="true">${SUP_CHAT_SVG}</span>
         <h3 class="sup-canal-title">${T("sup.canal_chat_title", "Chat en direct")}</h3>
-        <p class="sup-canal-desc">${T("sup.canal_chat_desc", "Discute en direct avec l'équipe.")}</p>
+        <p class="sup-canal-desc">${T("sup.canal_chat_desc", "Discute en direct avec l'équipe — un pseudo suffit, sans compte.")}</p>
         <button type="button" class="sup-canal-cta sup-chat-open" aria-label="${T("sup.canal_chat_aria", "Ouvrir le chat en direct avec l'équipe")}">
           ${T("sup.canal_chat_cta", "Ouvrir le chat")} ${SUP_ARROW_SVG}
         </button>
       </article>
-    </div>
+    </div>`;
+}
 
+/* FAQ — identique connecté / non connecté. */
+function faqHTML() {
+  return `
     <section class="sup-faq" aria-labelledby="sup-faq-title">
       <h2 id="sup-faq-title" class="sup-title"><i data-icon="info" data-icon-size="16"></i> ${T("sup.faq_title", "Questions fréquentes")}</h2>
       <div class="sup-faq-list">
@@ -354,7 +349,36 @@ function render() {
           <div class="sup-faq-body"><p>${T(f.ak, f.a)}</p></div>
         </details>`).join("")}
       </div>
-    </section>
+    </section>`;
+}
+
+function render() {
+  const v = view();
+  if (!v) return;
+  if (!state.user) {
+    /* Non connecté : on garde l'accès aux 3 canaux (Discord, email, chat
+       en direct avec simple pseudo). Seuls les tickets « formels » suivis
+       ici + par email nécessitent une session Discord. */
+    v.innerHTML = `
+      ${canalsHTML()}
+
+      ${faqHTML()}
+
+      <div class="sup-grid">
+        <div class="sup-left">
+          <section class="sup-card sup-new" aria-labelledby="sup-gate-title">
+            <h2 id="sup-gate-title" class="sup-title"><i data-icon="lifebuoy" data-icon-size="16"></i> ${T("sup.gate_title", "Besoin d'aide ? Contacte l'équipe")}</h2>
+            <p class="sup-new-sub">${T("sup.gate_text", "Connecte-toi avec Discord pour ouvrir un ticket de support, suivre tes conversations et recevoir les réponses de l'équipe ici et par email. Sans compte, utilise le chat en direct, le Discord ou l'email ci-dessus.")}</p>
+            <button type="button" class="sup-btn sup-btn-primary" onclick="toggleAuthModal()">${T("sup.gate_login", "Connexion avec Discord")}</button>
+          </section>
+        </div>
+      </div>`;
+    return;
+  }
+  v.innerHTML = `
+    ${canalsHTML()}
+
+    ${faqHTML()}
 
     <div class="sup-grid">
       <div class="sup-left">

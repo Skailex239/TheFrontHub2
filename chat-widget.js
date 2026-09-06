@@ -2,9 +2,13 @@
 //
 // Petite bulle ronde en bas à droite du site ; clic → panneau de discussion
 // avec l'équipe TheFrontHub (API : /api/chat.php, voir agent-ctx/CONTRAT-SUPPORT-2026.md).
-// - Session Discord obligatoire : si non connecté, le panneau affiche un
-//   écran « Connecte-toi » (le login réutilise window.handleLogin('discord')
-//   si elle existe, sinon la redirection OAuth directe).
+// - Deux modes d'accès :
+//    1. Session Discord : état 200 → chat classique.
+//    2. INVITÉ (sans compte) : 401 → écran « entre ton pseudo » → POST
+//       guest_start → identifiants { conv, token } stockés en localStorage
+//       (tfh:chatwidget:guest) et renvoyés sur chaque appel. Le login
+//       Discord reste proposé en option secondaire (window.handleLogin('discord')
+//       si elle existe, sinon redirection OAuth directe).
 // - Polling « quasi temps réel » : 2,5 s panneau ouvert, 20 s fermé
 //   (uniquement pour le badge de messages non lus de l'équipe).
 // - Envoi optimiste (id négatif temporaire) puis resynchronisé par le poll ;
@@ -30,6 +34,7 @@
   var API           = "/api/chat.php";
   var LS_LASTID     = "tfh:chatwidget:lastid";
   var LS_UNREAD     = "tfh:chatwidget:unread";
+  var LS_GUEST      = "tfh:chatwidget:guest";   // { conv, token, name } — ticket sans compte
   var LOGIN_URL     = "/api/auth/discord/login.php";  // chemin réel (api/auth/discord/login.php)
   var POLL_OPEN_MS  = 2500;    // panneau ouvert  → quasi temps réel
   var POLL_CLOSED_MS = 20000;  // panneau fermé   → badge uniquement
@@ -43,6 +48,7 @@
   var isOpen   = false;
   var authed   = false;        // state répondu OK au moins une fois
   var meName   = "";
+  var guest    = null;         // { conv, token, name } — mode invité (sans Discord)
   var lastId   = 0;
   var unread   = 0;
   var rendered = new Set();    // ids déjà affichés (anti-doublon / resync optimiste)
@@ -137,8 +143,11 @@
         '<svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
           '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>' +
         "</svg>" +
-        '<p class="tfh-cw-gate-txt">' + TK("cw.gate_text", "Connecte-toi avec Discord pour discuter avec l\u2019équipe") + "</p>" +
-        '<button type="button" class="tfh-cw-login">' + TK("cw.login", "Se connecter") + "</button>" +
+        '<p class="tfh-cw-gate-txt"></p>' +
+        '<input type="text" class="tfh-cw-guest-input" maxlength="32" autocomplete="off" spellcheck="false" ' +
+          'placeholder="' + TK("cw.guest_placeholder", "Ton pseudo") + '" aria-label="' + TK("cw.guest_input_aria", "Ton pseudo") + '">' +
+        '<button type="button" class="tfh-cw-login tfh-cw-login-accent tfh-cw-guest-start">' + TK("cw.guest_start", "Ouvrir le ticket") + "</button>" +
+        '<button type="button" class="tfh-cw-login-ghost">' + TK("cw.login", "Se connecter avec Discord") + "</button>" +
       "</div>" +
       '<form class="tfh-cw-composer">' +
         '<textarea class="tfh-cw-input" rows="1" maxlength="2000" placeholder="' + TK("cw.placeholder", "Écris ton message…") + '" aria-label="' + TK("cw.input_aria", "Ton message") + '"></textarea>' +
@@ -150,7 +159,12 @@
     document.body.appendChild(panel);
 
     panel.querySelector(".tfh-cw-min").addEventListener("click", closePanel);
-    panel.querySelector(".tfh-cw-login").addEventListener("click", doLogin);
+    panel.querySelector(".tfh-cw-login-ghost").addEventListener("click", doLogin);
+    panel.querySelector(".tfh-cw-guest-start").addEventListener("click", startGuest);
+    var guestInput = panel.querySelector(".tfh-cw-guest-input");
+    guestInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); startGuest(); }
+    });
     panel.querySelector(".tfh-cw-composer").addEventListener("submit", onSubmit);
 
     var ta = panel.querySelector(".tfh-cw-input");
@@ -211,15 +225,28 @@
   }
 
   /* ── API ──────────────────────────────────────────────────────────────── */
+  /* Identifiants invité en querystring (state / poll). */
+  function guestQuery() {
+    if (!guest || !guest.conv || !guest.token) return "";
+    return "&guest=" + encodeURIComponent(guest.conv) + "&gtok=" + encodeURIComponent(guest.token);
+  }
+
   function apiGet(params) {
-    return fetch(API + "?" + params, {
+    return fetch(API + "?" + params + guestQuery(), {
       method: "GET",
       credentials: "same-origin",
       cache: "no-store",
     });
   }
 
-  /* Premier open : état de session → historique récent. */
+  function clearGuest() {
+    guest = null;
+    try { localStorage.removeItem(LS_GUEST); } catch (e) { /* navigation privée */ }
+  }
+
+  /* Premier open : état de session → historique récent.
+   * 401 = ni session Discord ni invité valide → écran pseudo (ou
+   * « conversation expirée » si on avait un ticket invité en stock). */
   function connect() {
     authed = false;
     setComposerEnabled(false);
@@ -227,7 +254,12 @@
     setLoader(TK("cw.connecting", "Connexion au chat…"));
 
     apiGet("action=state").then(function (res) {
-      if (res.status === 401) { showGate(); return null; }
+      if (res.status === 401) {
+        var wasGuest = !!guest;
+        if (wasGuest) clearGuest();          // token mort → on repart propre
+        showGate(wasGuest);
+        return null;
+      }
       return res.json();
     }).then(function (data) {
       if (!data) return;                       // gate affiché
@@ -254,7 +286,7 @@
     });
   }
 
-  function showGate() {
+  function showGate(expired) {
     if (!panel) return;
     clearLoader();
     showError("");
@@ -262,6 +294,75 @@
     panel.querySelector(".tfh-cw-gate").hidden = false;
     panel.querySelector(".tfh-cw-composer").hidden = true;
     panel.querySelector(".tfh-cw-me").hidden = true;
+
+    var txt = panel.querySelector(".tfh-cw-gate-txt");
+    if (txt) {
+      txt.textContent = expired
+        ? TK("cw.guest_expired", "Ta conversation a expiré — entre ton pseudo pour en ouvrir une nouvelle.")
+        : TK("cw.gate_text", "Entre ton pseudo pour ouvrir un ticket — l\u2019équipe te répond en direct.");
+    }
+    var inp = panel.querySelector(".tfh-cw-guest-input");
+    if (inp) { inp.value = guest && guest.name ? guest.name : ""; inp.disabled = false; }
+    var btn = panel.querySelector(".tfh-cw-guest-start");
+    if (btn) { btn.disabled = false; btn.textContent = TK("cw.guest_start", "Ouvrir le ticket"); }
+
+    if (isOpen) setTimeout(function () { if (inp) inp.focus(); }, 60);
+  }
+
+  /* ── Ticket invité : pseudo → guest_start → state ───────────────────── */
+  function startGuest() {
+    if (!panel || sending) return;
+    var input = panel.querySelector(".tfh-cw-guest-input");
+    var name = ((input && input.value) || "").trim().replace(/\s+/g, " ");
+    if (name.length < 2 || name.length > 32) {
+      showError(TK("cw.guest_invalid", "Entre un pseudo de 2 à 32 caractères."));
+      if (input) input.focus();
+      return;
+    }
+
+    sending = true;
+    showError("");
+    var btn = panel.querySelector(".tfh-cw-guest-start");
+    if (btn) { btn.disabled = true; btn.textContent = TK("cw.guest_saving", "Ouverture…"); }
+    if (input) input.disabled = true;
+
+    fetch(API, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "guest_start", name: name }),
+    }).then(function (res) {
+      return res.json().then(function (d) { return { status: res.status, data: d }; })
+                       .catch(function () { return { status: res.status, data: null }; });
+    }).then(function (r) {
+      sending = false;
+      if (r.status === 429) {
+        resetGate();
+        showError(TK("cw.err_ratelimited", "Trop de tentatives — réessaie dans quelques minutes."));
+        return;
+      }
+      var d = r.data;
+      if (!d || !d.ok || !d.conv_id || !d.token) {
+        resetGate();
+        showError(TK("cw.err_unavailable", "Chat indisponible pour le moment."));
+        return;
+      }
+      guest = { conv: String(d.conv_id), token: String(d.token), name: String(d.name || name) };
+      lsSet(LS_GUEST, JSON.stringify(guest));
+      connect();                             // repart sur state avec les identifiants invité
+    }).catch(function () {
+      sending = false;
+      resetGate();
+      showError(TK("cw.err_network", "Connexion impossible — vérifie ta connexion internet."));
+    });
+  }
+
+  function resetGate() {
+    if (!panel) return;
+    var btn = panel.querySelector(".tfh-cw-guest-start");
+    if (btn) { btn.disabled = false; btn.textContent = TK("cw.guest_start", "Ouvrir le ticket"); }
+    var inp = panel.querySelector(".tfh-cw-guest-input");
+    if (inp) inp.disabled = false;
   }
 
   function showChatUI() {
@@ -357,7 +458,12 @@
   function tick() {
     if (!authed) { schedulePoll(); return; }   // pas encore connecté → rien à espérer
     apiGet("action=poll&since=" + lastId).then(function (res) {
-      if (res.status === 401) { authed = false; schedulePoll(); return; }
+      if (res.status === 401) {
+        authed = false;
+        if (guest) clearGuest();               // identifiants invité révoqués
+        schedulePoll();
+        return;
+      }
       return res.json();
     }).then(function (data) {
       if (data && data.ok) ingest(data, {});
@@ -385,13 +491,22 @@
     appendMessage({ id: tempId, role: "user", name: meName, body: content, pending: true });
     scroll();
 
+    var payload = { action: "send", content: content };
+    if (guest) { payload.guest = guest.conv; payload.gtok = guest.token; }
+
     fetch(API, {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "send", content: content }),
+      body: JSON.stringify(payload),
     }).then(function (res) {
-      if (res.status === 401) { authed = false; showGate(); throw new Error("auth"); }
+      if (res.status === 401) {
+        authed = false;
+        var wasGuest = !!guest;
+        if (wasGuest) clearGuest();
+        showGate(wasGuest);
+        throw new Error("auth");
+      }
       return res.json();
     }).then(function (data) {
       sending = false;
@@ -489,6 +604,14 @@
     if (storedLast > 0) lastId = storedLast;
     var storedUnread = parseInt(lsGet(LS_UNREAD) || "0", 10);
     if (storedUnread > 0) unread = storedUnread;
+
+    // Ticket invité éventuel (les identifiants vivent dans le navigateur).
+    try {
+      var g = JSON.parse(lsGet(LS_GUEST) || "null");
+      if (g && typeof g.conv === "string" && typeof g.token === "string" && g.conv && g.token) {
+        guest = { conv: g.conv, token: g.token, name: typeof g.name === "string" ? g.name : "" };
+      }
+    } catch (e) { guest = null; }
 
     injectBubble();
     syncNavHeight();
