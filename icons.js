@@ -127,7 +127,7 @@ if (typeof document !== "undefined") {
 //   - "light"  → force clair (data-theme="light")
 //   - "dark"   → force sombre (data-theme="dark")
 //
-// Clic sur le bouton = cycle auto → light → dark → auto → ...
+// Clic sur le bouton = bascule du thème VISIBLE (clair ↔ sombre), garanti.
 // Le choix est sauvegardé en localStorage('tfs-theme').
 // Au chargement, on lit le localStorage et on applique.
 
@@ -175,21 +175,25 @@ function getThemeMode() {
 }
 
 /**
- * Cycle through auto → light → dark → auto.
- * Called when user clicks the .theme-toggle button.
+ * Toggle between light and dark — flips what the user SEES, guaranteed.
+ *
+ * (Fix : l'ancien cycle auto → light → dark → auto contenait un cran
+ * INVISIBLE — depuis « dark », un clic tombait sur « auto », identique au
+ * sombre quand le système est sombre → l'utilisateur devait cliquer 2 fois
+ * pour voir un changement (toast « Auto (suit le système) » trompeur).
+ * Désormais : 1 clic = 1 changement visible. Le mode auto reste l'état par
+ * défaut initial (aucune préférence stockée) et s'applique toujours au
+ * chargement tant que l'utilisateur n'a pas cliqué.)
  */
 function toggleTheme() {
-  const current = getThemeMode();
-  let next;
-  if (current === 'auto') next = 'light';
-  else if (current === 'light') next = 'dark';
-  else next = 'auto';
+  const effective = getEffectiveTheme(); // ce que l'utilisateur voit MAINTENANT
+  const next = effective === 'dark' ? 'light' : 'dark';
 
   try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
   applyStoredTheme();
 
   // Show a toast if available
-  const labels = { auto: 'Auto (suit le système)', light: 'Thème clair', dark: 'Thème sombre' };
+  const labels = { light: 'Thème clair', dark: 'Thème sombre' };
   if (typeof window.showToast === 'function') {
     window.showToast(labels[next], 'info', 1500);
   } else {

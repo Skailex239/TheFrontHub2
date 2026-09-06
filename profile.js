@@ -338,8 +338,11 @@ onAuthStateChanged(auth, async (user) => {
   updateSidebarUI(user, profile);
 
   if (!profile || !profile.publicId) {
-    // New user → setup form
+    // New user → setup form (+ restaure un éventuel défi de propriété en
+    // cours : LE MÊME code qu'avant de quitter la page — voir
+    // restorePendingOwnershipChallenge).
     showView("profile-setup");
+    restorePendingOwnershipChallenge();
     return;
   }
 
@@ -1141,6 +1144,77 @@ async function checkGameWin(gameId, clientId) {
 
 /* ── Setup: ownership verification ── */
 
+/* ── Persistance du défi de propriété (fix régression 2026-09) ────────────
+ * La partie OpenFront qui prouve la propriété peut durer de quelques
+ * minutes à 3 h et l'utilisateur navigue sur le site entre-temps. Le code
+ * doit donc survivre aux changements de page / reloads / redémarrages du
+ * navigateur : il est stocké en localStorage par uid Discord/Firebase et
+ * réutilisé TEL QUEL au retour sur la page (étape 2 réaffichée d'office).
+ * Il n'est supprimé qu'après une liaison RÉUSSIE — jamais sur navigation.
+ * (Avant : simple variable JS `_ownershipCode` → un nouveau code était
+ * généré à chaque clic, rendant le défi en cours impossible à valider.) */
+const OWNERSHIP_KEY = "tfh-ownership-challenge-";
+
+function ownershipStorageKey() {
+  return currentUser?.uid ? OWNERSHIP_KEY + currentUser.uid : null;
+}
+
+function loadOwnershipChallenge() {
+  const key = ownershipStorageKey();
+  if (!key) return null;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || typeof data.code !== "string" || !/^TFH[A-Z0-9]{4}$/.test(data.code)) return null;
+    if (typeof data.publicId !== "string" || !/^[A-Za-z0-9]{8}$/.test(data.publicId)) return null;
+    if (typeof data.username !== "string" || data.username.length < 2 || data.username.length > 30) return null;
+    return { code: data.code, publicId: data.publicId, username: data.username, ts: Number(data.ts) || 0 };
+  } catch (e) {
+    return null; // JSON invalide / localStorage indisponible → on régénérera un défi neuf
+  }
+}
+
+function saveOwnershipChallenge(challenge) {
+  const key = ownershipStorageKey();
+  if (!key) return;
+  try { localStorage.setItem(key, JSON.stringify(challenge)); } catch (e) { /* navigation privée : dégradation = ancien comportement */ }
+}
+
+/** Supprime le défi stocké — uniquement après une liaison réussie. */
+function clearOwnershipChallenge() {
+  const key = ownershipStorageKey();
+  if (!key) return;
+  try { localStorage.removeItem(key); } catch (e) { /* ignore */ }
+}
+
+/** Affiche l'étape 2 (défi en jeu) avec le code, et pré-remplit l'étape 1. */
+function showOwnershipStep2(challenge) {
+  _ownershipCode = challenge.code;
+  _ownershipPublicId = challenge.publicId;
+  _ownershipUsername = challenge.username;
+  const usernameInput = document.getElementById("setup-username");
+  const publicIdInput = document.getElementById("setup-public-id");
+  if (usernameInput) usernameInput.value = challenge.username;
+  if (publicIdInput) publicIdInput.value = challenge.publicId;
+  const codeEl = document.getElementById("ownership-code-display");
+  if (codeEl) codeEl.textContent = challenge.code;
+  const s1 = document.getElementById("profile-setup-step1");
+  const s2 = document.getElementById("profile-setup-step2");
+  if (s1) s1.style.display = "none";
+  if (s2) s2.style.display = "block";
+}
+
+/** Au chargement de la page (utilisateur sans profil lié) : si un défi est
+ *  en cours, on réaffiche DIRECTEMENT l'étape 2 avec LE MÊME code — l'usager
+ *  peut vérifier s'il a fait sa partie sans rien regénérer. */
+function restorePendingOwnershipChallenge() {
+  try {
+    const pending = loadOwnershipChallenge();
+    if (pending) showOwnershipStep2(pending);
+  } catch (e) { /* non-bloquant */ }
+}
+
 window.startOwnershipVerification = async () => {
   if (!currentUser) {
     showToast(T("pf.setup_login_first", "Veuillez vous connecter d'abord."), "warning");
@@ -1165,6 +1239,17 @@ window.startOwnershipVerification = async () => {
   }
   if (/[^a-zA-Z0-9_\- ]/.test(username)) {
     showToast(T("pf.pseudo_chars", "Le pseudo ne peut contenir que des lettres, chiffres, espaces, _ et -."), "warning");
+    return;
+  }
+
+  // Défi déjà en cours pour ce compte ? → réutilise LE MÊME code, sans reset.
+  // (l'utilisateur revient après avoir mis le code dans son pseudo, ou après
+  //  un simple passage sur une autre page : rien ne doit changer. Le check
+  //  est placé AVANT les appels réseau pour marcher même si l'API rame.)
+  const pending = loadOwnershipChallenge();
+  if (pending && pending.publicId === publicId && pending.username === username) {
+    showOwnershipStep2(pending);
+    showToast(T("pf.code_pending", "Défi déjà en cours — même code : {code}. Joue (ou finis) ta partie, puis reviens cliquer sur Vérifier.", { code: pending.code }), "info", 6000);
     return;
   }
 
@@ -1225,15 +1310,9 @@ window.startOwnershipVerification = async () => {
   const CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sans O/0 ni I/1
   let code = "TFH";
   for (let i = 0; i < 4; i++) code += CHARS[Math.floor(Math.random() * CHARS.length)];
-  _ownershipCode = code;
-  _ownershipPublicId = publicId;
-  _ownershipUsername = username;
-  const codeEl = document.getElementById("ownership-code-display");
-  if (codeEl) codeEl.textContent = code;
-  const s1 = document.getElementById("profile-setup-step1");
-  const s2 = document.getElementById("profile-setup-step2");
-  if (s1) s1.style.display = "none";
-  if (s2) s2.style.display = "block";
+  const challenge = { code, publicId, username, ts: Date.now() };
+  saveOwnershipChallenge(challenge); // persisté : survit aux navigations/reloads
+  showOwnershipStep2(challenge);
   showToast(T("pf.play_with_code", "Joue une partie avec le code {code} dans ton pseudo, puis clique sur Vérifier.", { code }), "info", 7000);
 };
 
@@ -1252,6 +1331,16 @@ window.copyOwnershipCode = function () {
 };
 
 window.confirmOwnershipVerification = async () => {
+  // Sécurité : si la page vient d'être rechargée et que l'étape 2 n'a pas
+  // encore été re-rendue, on repêche le défi persistant (même code).
+  if (!_ownershipCode || !_ownershipPublicId) {
+    const pending = loadOwnershipChallenge();
+    if (pending) {
+      _ownershipCode = pending.code;
+      _ownershipPublicId = pending.publicId;
+      _ownershipUsername = pending.username;
+    }
+  }
   if (!_ownershipCode || !_ownershipPublicId) return;
   const btn = document.getElementById("confirm-ownership-btn");
   const original = btn?.textContent || T("pf.confirm", "Confirmer");
@@ -1272,6 +1361,8 @@ window.confirmOwnershipVerification = async () => {
     }
     // Verified → save to Firestore
     await saveUserProfile(_ownershipUsername, _ownershipPublicId);
+    // Liaison réussie → le défi persistant n'a plus de raison d'exister.
+    clearOwnershipChallenge();
   } catch (e) {
     console.error("[ownership] Confirmation failed:", e);
     showToast(T("pf.verify_error", "Erreur lors de la vérification. Réessayez."), "error");
@@ -1280,6 +1371,11 @@ window.confirmOwnershipVerification = async () => {
 };
 
 window.cancelOwnershipVerification = () => {
+  // ⚠️ On ne supprime PAS le défi persistant (loadOwnershipChallenge) :
+  // « Modifier mes infos » ne doit pas invalider le code que l'utilisateur
+  // a peut-être déjà mis dans son pseudo en jeu. S'il relance la liaison
+  // avec les mêmes infos, le MÊME code est réaffiché (reuse dans
+  // startOwnershipVerification). Effacement uniquement après liaison OK.
   _ownershipCode = null;
   _ownershipPublicId = null;
   _ownershipUsername = null;
