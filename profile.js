@@ -297,6 +297,7 @@ onAuthStateChanged(auth, async (user) => {
       renderHero(user, ownProfile);
       loadVipForProfile();
       await loadStats(ownProfile.publicId);
+      loadProfileSpeedruns(ownProfile.publicId, true, [ownProfile.username]);
       return;
     }
 
@@ -310,6 +311,7 @@ onAuthStateChanged(auth, async (user) => {
     renderPublicProfile(pubReq.username, pubReq.publicId);
     loadVipForProfile();
     await loadStats(pubReq.publicId);
+    loadProfileSpeedruns(pubReq.publicId, false, [pubReq.username]);
     return;
   }
 
@@ -352,6 +354,7 @@ onAuthStateChanged(auth, async (user) => {
   // Lance l'écoute VIP (skin par publicId) — re-applique le skin dès que les rewards arrivent
   loadVipForProfile();
   await loadStats(profile.publicId);
+  loadProfileSpeedruns(profile.publicId, true, [profile.username]);
 });
 
 /**
@@ -1365,7 +1368,10 @@ window.confirmOwnershipVerification = async () => {
     clearOwnershipChallenge();
   } catch (e) {
     console.error("[ownership] Confirmation failed:", e);
-    showToast(T("pf.verify_error", "Erreur lors de la vérification. Réessayez."), "error");
+    // Fix 2026-09-06 : affiche la vraie raison renvoyée par l'API
+    // (pseudo déjà pris, public ID déjà lié à un autre compte…)
+    // au lieu d'un message générique qui masquait le problème.
+    showToast(e?.message ? e.message : T("pf.verify_error", "Erreur lors de la vérification. Réessayez."), "error", 7000);
     if (btn) { btn.disabled = false; btn.textContent = original; }
   }
 };
@@ -1433,6 +1439,7 @@ async function saveUserProfile(username, publicId) {
     renderHero(currentUser, currentProfile);
     loadVipForProfile(); // écoute VIP pour appliquer le skin par publicId
     await loadStats(publicId);
+    loadProfileSpeedruns(publicId, true, [username]);
   } catch (e) {
     console.error("[profile] Save profile error:", e);
     showToast(T("pf.profile_save_error", "Erreur lors de la sauvegarde du profil."), "error");
@@ -2249,12 +2256,229 @@ setTimeout(() => {
       renderPublicProfile(pubReq.username, pubReq.publicId);
       loadVipForProfile();
       loadStats(pubReq.publicId);
+      loadProfileSpeedruns(pubReq.publicId, false, [pubReq.username]);
     } else {
       console.warn("[profile] Auth state timeout — showing gate");
       showView("profile-gate");
     }
   }
 }, 8000);
+
+/* ════════════════════════════════════════════════════════════════
+   SPEEDRUNS PAR CARTE (section « Speedruns » du profil)
+   ════════════════════════════════════════════════════════════════
+   Source : runs_public.json.gz (payload public compact ~110 Ko =
+   top 25 par carte, régénéré par la sync toutes les 5 min). On y
+   retrouve les runs du joueur via ses alias publics (pseudo hub +
+   pseudos en jeu), puis on calcule son meilleur temps et son rang
+   sur chaque carte. Le playerId des runs est un ID de SESSION
+   (change à chaque partie) → matching par NOM uniquement (même
+   convention que app.js, qui ne s'y fie jamais aveuglément).
+   Tout échec = section laissée masquée, jamais d'erreur bloquante. */
+
+let _speedrunPayloadCache = { data: null, at: 0 };
+const SPEEDRUN_PAYLOAD_TTL = 5 * 60 * 1000; // la sync régénère toutes les 5 min
+let _speedrunLoadToken = 0;
+
+function speedrunEsc(str) {
+  return String(str == null ? "" : str).replace(/[&<>"']/g, (s) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[s]
+  ));
+}
+
+/** Décompacte le payload public {k: clés, r: lignes} → tableau d'objets run.
+ *  (Même format que decodeCompactPayload d'app.js — copie locale car app.js
+ *  est un script de page non importable depuis le module profil.) */
+function decodeSpeedrunPayload(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload.k) && Array.isArray(payload.r) && Array.isArray(payload.r[0])) {
+    const keys = payload.k;
+    return payload.r.map((row) => {
+      const o = {};
+      keys.forEach((k, i) => { o[k] = row[i]; });
+      return o;
+    });
+  }
+  if (Array.isArray(payload.runs)) return payload.runs;
+  return Array.isArray(payload) ? payload : [];
+}
+
+async function fetchSpeedrunPayload() {
+  if (_speedrunPayloadCache.data && Date.now() - _speedrunPayloadCache.at < SPEEDRUN_PAYLOAD_TTL) {
+    return _speedrunPayloadCache.data;
+  }
+  let data = null;
+  try {
+    const res = await fetch("runs_public.json.gz", { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const ds = new DecompressionStream("gzip");
+    data = await new Response(res.body.pipeThrough(ds)).json();
+  } catch (e) {
+    // Fallback fichier non compressé
+    const res = await fetch("runs_public.json", { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    data = await res.json();
+  }
+  _speedrunPayloadCache = { data, at: Date.now() };
+  return data;
+}
+
+/** Alias (pseudos) connus d'un publicId : pseudo hub + pseudos en jeu,
+ *  via l'API publique des alias. Retourne null si introuvable/indispo. */
+async function fetchAliasesForPublicId(publicId) {
+  try {
+    const res = await fetch("/api/public-aliases.php", { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const entry = (data.aliases || []).find((a) => String(a.publicId || "") === String(publicId));
+    if (!entry) return null;
+    const names = new Set();
+    if (entry.username) names.add(String(entry.username));
+    (Array.isArray(entry.aliases) ? entry.aliases : []).forEach((n) => { if (n) names.add(String(n)); });
+    return names;
+  } catch (e) {
+    return null;
+  }
+}
+
+/** Prédicat de matching : pseudo du run exact (insensible casse) ou
+ *  normalisé (tags de clan, discriminateurs .9236 — règle du site). */
+function speedrunAliasMatcher(nameSet) {
+  const exact = new Set([...nameSet].map((n) => n.toLowerCase()));
+  const norm = new Set([...nameSet].map((n) => normPlayerName(n)).filter(Boolean));
+  return (run) => {
+    const p = String(run.player || "");
+    if (!p) return false;
+    return exact.has(p.toLowerCase()) || norm.has(normPlayerName(p));
+  };
+}
+
+/** Par carte : meilleur run du joueur + rang dans le top 25 de la carte. */
+function computeSpeedrunsPerMap(runs, matchFn) {
+  const byMap = new Map();
+  for (const r of runs) {
+    if (!r || !r.map || typeof r.duration_s !== "number" || !Number.isFinite(r.duration_s)) continue;
+    let list = byMap.get(r.map);
+    if (!list) { list = []; byMap.set(r.map, list); }
+    list.push(r);
+  }
+  const result = [];
+  byMap.forEach((mapRuns, map) => {
+    mapRuns.sort((a, b) => a.duration_s - b.duration_s);
+    let best = null;
+    let entries = 0;
+    mapRuns.forEach((r) => {
+      if (!matchFn(r)) return;
+      entries += 1;
+      if (!best || r.duration_s < best.duration_s) best = r;
+    });
+    if (!best) return;
+    const rank = mapRuns.findIndex((r) => r === best) + 1;
+    result.push({ map, best, rank, entries });
+  });
+  // Meilleurs rangs d'abord, puis temps croissant
+  result.sort((a, b) => a.rank - b.rank || a.best.duration_s - b.best.duration_s);
+  return result;
+}
+
+/** Nom de carte francisé via i18n (même mécanique que runs.js). */
+function speedrunMapName(raw) {
+  if (!raw) return "—";
+  const key = "map." + raw;
+  const translated = typeof window.t === "function" ? window.t(key) : null;
+  return translated && translated !== key ? translated : raw;
+}
+
+/** Temps au format m:ss (identique à runs.js / index). */
+function speedrunFormatTime(sec) {
+  if (typeof sec !== "number" || !Number.isFinite(sec)) return "—";
+  const m = Math.floor(sec / 60);
+  const s = String(Math.round(sec % 60)).padStart(2, "0");
+  return m + ":" + s;
+}
+
+function renderSpeedrunsSection(items, updatedISO, isOwn) {
+  const sec = document.getElementById("pf2-speedruns");
+  if (!sec) return;
+  const grid = sec.querySelector(".pf2-speed-grid");
+  const empty = sec.querySelector(".pf2-speed-empty");
+  const countEl = sec.querySelector(".pf2-panel-count");
+  const subEl = sec.querySelector(".pf2-panel-sub");
+
+  if (!items.length) {
+    if (grid) grid.innerHTML = "";
+    // Vide → panneau discret sur SON profil, masqué sur les profils publics.
+    if (empty) empty.hidden = !isOwn;
+    sec.hidden = !isOwn;
+    return;
+  }
+  if (empty) empty.hidden = true;
+  if (countEl) countEl.textContent = String(items.length);
+  if (subEl && updatedISO) {
+    try {
+      subEl.textContent = T("pf.speed_updated", "Top 25 · {date}", {
+        date: new Date(updatedISO).toLocaleDateString(LOCALE(), { day: "numeric", month: "short", year: "numeric" }),
+      });
+    } catch (e) { /* i18n absent */ }
+  }
+
+  const cards = items.map((it) => {
+    const rankCls = it.rank === 1 ? " gold" : it.rank === 2 ? " silver" : it.rank === 3 ? " bronze" : "";
+    const thumb = mapThumbUrl(it.map);
+    const thumbHtml = thumb
+      ? `<img src="${speedrunEsc(thumb)}" alt="" loading="lazy">`
+      : speedrunEsc(speedrunMapName(it.map).charAt(0));
+    const diff = it.best.difficulty ? ` · ${speedrunEsc(it.best.difficulty)}` : "";
+    let dateTxt = "";
+    try {
+      dateTxt = it.best.timestamp
+        ? new Date(it.best.timestamp).toLocaleDateString(LOCALE(), { day: "numeric", month: "short" })
+        : "";
+    } catch (e) { /* ignore */ }
+    const entriesTxt = it.entries > 1
+      ? ` <span class="pf2-speed-entries">${speedrunEsc(T("pf.speed_entries", "{n} runs top 25", { n: it.entries }))}</span>`
+      : "";
+    const mapName = speedrunMapName(it.map);
+    return `
+      <article class="pf2-speed-card">
+        <div class="pf2-speed-thumb" aria-hidden="true">${thumbHtml}</div>
+        <div class="pf2-speed-info">
+          <span class="pf2-speed-map" title="${speedrunEsc(mapName)}">${speedrunEsc(mapName)}</span>
+          <span class="pf2-speed-time">${speedrunEsc(speedrunFormatTime(it.best.duration_s))}</span>
+          <span class="pf2-speed-meta">#${it.rank}${diff}${dateTxt ? " · " + speedrunEsc(dateTxt) : ""}${entriesTxt}</span>
+        </div>
+        <span class="pf2-speed-rank${rankCls}" aria-label="${speedrunEsc(T("pf.speed_rank_aria", "Rang {n}", { n: it.rank }))}">${it.rank}</span>
+      </article>`;
+  }).join("");
+
+  if (grid) grid.innerHTML = cards;
+  sec.hidden = false;
+}
+
+/** Charge et affiche les speedruns du joueur (par carte) — non bloquant.
+ *  Appelé depuis les 3 chemins d'affichage (profil propre, profil public,
+ *  post-liaison). extraNames : pseudos hub connus en secours si l'API
+ *  d'alias est indisponible. */
+async function loadProfileSpeedruns(publicId, isOwn, extraNames) {
+  const sec = document.getElementById("pf2-speedruns");
+  if (!sec || !publicId) return;
+  const token = ++_speedrunLoadToken;
+  try {
+    const [payload, aliases] = await Promise.all([
+      fetchSpeedrunPayload(),
+      fetchAliasesForPublicId(publicId),
+    ]);
+    if (token !== _speedrunLoadToken) return; // une demande plus récente a pris le dessus
+    const names = aliases || new Set();
+    if (Array.isArray(extraNames)) extraNames.forEach((n) => { if (n) names.add(String(n)); });
+    const runs = decodeSpeedrunPayload(payload);
+    const items = names.size ? computeSpeedrunsPerMap(runs, speedrunAliasMatcher(names)) : [];
+    renderSpeedrunsSection(items, payload?.u || null, isOwn);
+  } catch (e) {
+    console.warn("[profile] speedruns load failed (non-critique):", e?.message || e);
+    // Section laissée masquée — jamais d'erreur bloquante sur le profil.
+  }
+}
 
 /* ════════════════════════════════════════════════════════════════
    COCKPIT HELPERS — count-up animation, progress rings SVG,

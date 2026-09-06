@@ -910,3 +910,77 @@ a.pfsr-replay:hover{background:var(--accent);color:#fff;border-color:var(--accen
   cursor: pointer;
 }
 .pf-ownership-back:hover { color: var(--fg); text-decoration: underline; }
+
+/* ── Speedruns par carte (top 25 public) — fix + feature 2026-09-06 ── */
+
+.pf2-speed { margin-top: 16px; }
+
+.pf2-speed-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+  gap: 10px;
+}
+
+.pf2-speed-card {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  min-width: 0;
+  transition: border-color .15s ease, transform .15s ease;
+}
+.pf2-speed-card:hover { border-color: var(--accent-border); }
+
+.pf2-speed-thumb {
+  width: 46px; height: 31px; flex-shrink: 0;
+  border-radius: 6px; overflow: hidden;
+  background: var(--accent-subtle);
+  color: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 14px;
+}
+.pf2-speed-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.pf2-speed-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.pf2-speed-map {
+  font-size: 12.5px; font-weight: 700; color: var(--fg);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pf2-speed-time {
+  font-size: 15px; font-weight: 800; color: var(--accent); letter-spacing: .02em;
+}
+.pf2-speed-meta {
+  font-size: 11px; color: var(--fg-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pf2-speed-entries {
+  margin-left: 5px; padding: 0 5px; border-radius: var(--radius-pill);
+  background: var(--accent-subtle); color: var(--accent);
+  border: 1px solid var(--accent-border); font-size: 10px; font-weight: 700;
+}
+
+.pf2-speed-rank {
+  margin-left: auto; flex-shrink: 0;
+  min-width: 27px; height: 27px; padding: 0 7px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--bg); border: 1px solid var(--border);
+  font-size: 12px; font-weight: 800; color: var(--fg-muted);
+}
+.pf2-speed-rank.gold   { background: rgba(234, 179, 8, .14);  border-color: rgba(234, 179, 8, .45);  color: #ca8a04; }
+.pf2-speed-rank.silver { background: rgba(148, 163, 184, .16); border-color: rgba(148, 163, 184, .5); color: #64748b; }
+.pf2-speed-rank.bronze { background: rgba(180, 95, 6, .12);   border-color: rgba(180, 95, 6, .45);   color: #b45309; }
+:root.dark .pf2-speed-rank.gold   { color: #facc15; }
+:root.dark .pf2-speed-rank.silver { color: #cbd5e1; }
+:root.dark .pf2-speed-rank.bronze { color: #fbbf24; }
+
+.pf2-speed-empty {
+  margin: 0; font-size: 12.5px; color: var(--fg-muted); line-height: 1.55;
+}
+
+@media (max-width: 640px) {
+  .pf2-speed-grid { grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 8px; }
+  .pf2-speed-thumb { width: 40px; height: 27px; }
+  .pf2-speed-time { font-size: 14px; }
+}

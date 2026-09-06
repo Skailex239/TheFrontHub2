@@ -120,19 +120,33 @@ try {
             }
         }
 
+        /* ── Fix 2026-09-06 (bug « public ID / pseudo pas gardés ») ──
+         * NE PLUS écraser `username` à chaque re-login Discord ! Avant :
+         *   UPDATE tfh_users SET username = <pseudo Discord> ...
+         * détruisait le pseudo hub choisi par le joueur (profil → « Modifier
+         * mon pseudo ») à CHAQUE reconnexion, et les 2 UPDATE ci-dessous
+         * répercutaient ce pseudo Discord sur les alias publics + rewards
+         * (leaderboards, profils) — le compte semblait « se réinitialiser ».
+         * Désormais :
+         *  - compte SANS publicId (jamais lié) → username suit Discord
+         *    (valeur par défaut tant que le joueur n'a rien choisi) ;
+         *  - compte LIÉ → le pseudo hub est préservé, seul global_name
+         *    (nom d'affichage Discord) continue de se rafraîchir.          */
         $pdo->prepare(
             'UPDATE tfh_users
-             SET username = ?, global_name = ?, avatar_url = ?, locale = ?,
+             SET username = IF(public_id IS NULL, ?, username),
+                 global_name = ?, avatar_url = ?, locale = ?,
                  discord_flags = ?, discord_premium_type = ?, discord_created_at = ?,
                  email = COALESCE(?, email), email_verified = ?, last_login_at = NOW()
              WHERE id = ?'
         )->execute([$username, $globalName, $avatarUrl, $locale, $flags, $premiumType, $dcCreatedAt, $email, $verified, $userId]);
 
-        /* Synchronise l'affichage public si le pseudo a change */
-        $pdo->prepare('UPDATE tfh_public_aliases SET username = COALESCE(?, username) WHERE user_id = ?')
+        /* Synchronise l'affichage public UNIQUEMENT pour les comptes non liés
+           (public_id IS NULL) — jamais sur le pseudo hub d'un compte lié. */
+        $pdo->prepare('UPDATE tfh_public_aliases SET username = ? WHERE user_id = ? AND public_id IS NULL')
             ->execute([$username, $userId]);
-        $pdo->prepare('UPDATE tfh_public_rewards SET username = COALESCE(?, username) WHERE user_id = ?')
-            ->execute([$username, $userId]);
+        /* tfh_public_rewards : lignes toujours liées à un publicId → pseudo géré
+           exclusivement par api/profile.php (choix du joueur), jamais ici. */
     } else {
         /* Nouveau compte */
         if ($email !== null) {

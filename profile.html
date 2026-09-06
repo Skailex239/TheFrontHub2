@@ -23,8 +23,8 @@
 
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=79" as="style">
-<link rel="preload" href="profile.css?v=39" as="style">
-<link rel="preload" href="dist/profile.min.js?v=20" as="script" crossorigin>
+<link rel="preload" href="profile.css?v=40" as="style">
+<link rel="preload" href="dist/profile.min.js?v=21" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=6" as="script" crossorigin>
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
@@ -35,7 +35,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="favicon-180x180.png">
   <link rel="stylesheet" href="styles.css?v=79">
   <link rel="stylesheet" href="auth.css?v=20">
-  <link rel="stylesheet" href="profile.css?v=39">
+  <link rel="stylesheet" href="profile.css?v=40">
   <link rel="stylesheet" href="skins.css?v=7">
   <link rel="stylesheet" href="animations.css?v=6" media="print" onload="this.media='all'">
   <noscript><link rel="stylesheet" href="animations.css?v=6"></noscript>
@@ -50,7 +50,7 @@
   <script type="module" src="dist/icons.min.js?v=6"></script>
 
 <!-- i18n : dict de page (synchrone, avant i18n.js) + moteur + sélecteur de langue -->
-<script src="dist/i18n-dict-profile.min.js?v=2"></script>
+<script src="dist/i18n-dict-profile.min.js?v=3"></script>
 <script src="dist/i18n-dict-widgets.min.js?v=1"></script>
 <script src="dist/i18n.min.js?v=4" defer></script>
 <script src="dist/lang-switcher.min.js?v=2" defer></script>
@@ -321,6 +321,18 @@
       <!-- ═══ Graphique hebdo : en HAUT du profil, sous les cartes de stats (ajouté par JS) ═══ -->
       <div id="pf2-weekly-top"></div>
 
+      <!-- ═══ Speedruns par carte (rempli par JS — top 25 public) ═══ -->
+      <section class="pf2-panel pf2-speed" id="pf2-speedruns" hidden aria-label="Speedruns par carte" data-i18n-aria="pf.speed_aria">
+        <header class="pf2-panel-head">
+          <h3 data-i18n="pf.speed_title">Speedruns</h3>
+          <span class="pf2-panel-count">0</span>
+          <span class="pf2-panel-sub"></span>
+          <i class="pf2-panel-rule"></i>
+        </header>
+        <div class="pf2-speed-grid"></div>
+        <p class="pf2-speed-empty" hidden data-i18n="pf.speed_none">Aucun record dans les tops 25 pour l'instant — joue des parties FFA (400 bots, taille normale) pour y apparaître !</p>
+      </section>
+
       <!-- ═══ Grille 2 colonnes : dossier à gauche / panneau joueur à droite ═══ -->
       <div class="pf2-columns">
         <div class="pf2-col-main" id="career-stats-section" aria-label="Historique et activité" data-i18n-aria="pf.col_main_aria"></div>
@@ -390,7 +402,7 @@
 <script src="dist/toast.min.js?v=2" defer></script>
 <script src="dist/lenis.min.js?v=7"></script>
 <script src="dist/animations.min.js?v=2" defer></script>
-<script src="dist/profile.min.js?v=20" type="module"></script>
+<script src="dist/profile.min.js?v=21" type="module"></script>
 
 <script type="module" src="dist/tutorial.min.js?v=4"></script>
 <script>
