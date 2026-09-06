@@ -452,6 +452,16 @@ function loadPublicAliases() {
         changed = true;
       });
 
+      // FIX 2026-09-06 (mémo) : la mémo de résolution peut contenir des ""
+      // posés par un premier processData AVANT l'arrivée des aliases
+      // (public-aliases.php est lent à froid : fetch OpenFront jusqu'à 5 s
+      // par joueur). Sans invalidation, « [LBU] Zorbit » resterait brut
+      // pour toujours alors que « [LBU] Skailex » fusionnait via la map
+      // des skins. On purge à chaque changement d'aliases.
+      if (changed || pidBridgeChanged || hubNameChanged) {
+        _aliasResCache.clear();
+      }
+
       if ((changed || hubNameChanged) && _rawRuns.length > 0) {
         debouncedRender();
       }
