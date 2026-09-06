@@ -1855,7 +1855,7 @@ function renderGlobal(){
       // Solo : ligne entière → profil.
       const parts=String(p.player||'').split(' + ').map(s=>s.trim()).filter(Boolean);
       const playerInner=parts.map(n=>
-        '<span class="global-player'+skinClassFor(n)+'" onclick="event.stopPropagation();showPlayer('+jsq(n)+')" title="'+esc(runTitleFor(r,n))+'">'+esc(displayNameFor(n))+'</span>'
+        '<span class="global-player'+skinClassFor(n)+'" onclick="event.stopPropagation();showPlayer('+jsq(n)+')" title="'+esc(n)+'">'+esc(displayNameFor(n))+'</span>'
       ).join('<span class="run-team-sep">+</span>');
       return '<tr class="'+isMeClass+'" style="cursor:pointer" onclick="showPlayer('+jsq(p.player)+')"><td class="global-rank '+rc+'">'+(i+1)+'</td><td class="global-player-cell">'+playerInner+'</td><td class="global-points">'+p.points+'</td><td class="global-wins">'+p.wins+'</td></tr>';
     }).join("")+'</tbody></table>';
@@ -1869,7 +1869,7 @@ function renderHof(){
     // clic sur la carte → pancarte (modal stats, gérée par showPlayer).
     const parts=String(p.player||'').split(' + ').map(s=>s.trim()).filter(Boolean);
     const nameHtml=parts.map(n=>
-      '<span class="hof-player-name'+skinClassFor(n)+'" onclick="event.stopPropagation();showPlayer('+jsq(n)+')" title="'+esc(runTitleFor(r,n))+'">'+esc(displayNameFor(n))+'</span>'
+      '<span class="hof-player-name'+skinClassFor(n)+'" onclick="event.stopPropagation();showPlayer('+jsq(n)+')" title="'+esc(n)+'">'+esc(displayNameFor(n))+'</span>'
     ).join('<span class="run-team-sep">+</span>');
     return '<div class="hof-card hof-'+(i+1)+'"><div class="hof-name'+skinClassFor(p.player)+'" onclick="showPlayer('+jsq(p.player)+')">'+nameHtml+'</div><div class="hof-rank" style="color:'+rank.color+'">'+rank.name+'</div><div class="hof-pts">'+p.points+' pts</div><div class="hof-detail">'+p.golds+' '+T("compare.gold","1er")+' · '+p.silvers+' '+T("compare.silver","2e")+' · '+p.bronzes+' '+T("compare.bronze","3e")+'</div></div>';
   }).join("");
