@@ -32,35 +32,35 @@
   var STR = {
     fr: {
       title: "Nous respectons votre vie privée",
-      body: "Ce site utilise des cookies pour la <b>mesure d'audience</b> (Google Analytics) et la <b>publicité</b> (Google AdSense). Rien n'est déposé avant votre choix — et le site fonctionne exactement pareil si vous refusez.",
+      body: "Des cookies pour la <b>mesure d'audience</b> et la <b>publicité</b>. Rien n'est déposé avant votre choix.",
       accept: "Tout accepter",
       deny: "Tout refuser",
       custom: "Personnaliser",
       close: "Fermer",
       mtitle: "Préférences cookies",
       ana_t: "Mesure d'audience",
-      ana_d: "Google Analytics, pages visitées — données pseudonymisées, conservées 13 mois maximum.",
+      ana_d: "Google Analytics — pages visitées, conservées 13 mois maximum.",
       ads_t: "Publicité",
-      ads_d: "Google AdSense. Désactivé → publicités non personnalisées, sans traçage publicitaire.",
+      ads_d: "Google AdSense — désactivé : pubs non personnalisées.",
       save: "Enregistrer mes choix",
-      note: "Vous pouvez changer d'avis à tout moment via le bouton 🍪 en bas à gauche.",
+      note: "Modifiable à tout moment via le bouton 🍪.",
       fab: "Préférences cookies",
       toast: "Préférences cookies enregistrées"
     },
     en: {
       title: "We respect your privacy",
-      body: "This site uses cookies for <b>audience measurement</b> (Google Analytics) and <b>advertising</b> (Google AdSense). Nothing is stored before your choice — and the site works exactly the same if you decline.",
+      body: "Cookies for <b>audience measurement</b> and <b>ads</b>. Nothing is stored before your choice.",
       accept: "Accept all",
       deny: "Reject all",
       custom: "Customize",
       close: "Close",
       mtitle: "Cookie preferences",
       ana_t: "Audience measurement",
-      ana_d: "Google Analytics, visited pages — pseudonymized data, kept for 13 months maximum.",
+      ana_d: "Google Analytics — visited pages, kept 13 months max.",
       ads_t: "Advertising",
-      ads_d: "Google AdSense. Disabled → non-personalized ads, no ad tracking.",
+      ads_d: "Google AdSense — off: non-personalized ads.",
       save: "Save my choices",
-      note: "You can change your mind anytime via the 🍪 button in the bottom-left corner.",
+      note: "Change your mind anytime via the 🍪 button.",
       fab: "Cookie preferences",
       toast: "Cookie preferences saved"
     }
@@ -206,14 +206,15 @@
     ".tfsck-note{font-size:11px;color:var(--fg-subtle,#A1A1AA);text-align:center;margin:14px 0 0;line-height:1.5}" +
     ".tfsck-save{width:100%;margin-top:16px;flex:none}" +
 
-    /* ── Bouton flottant 🍪 ── */
-    ".tfsck-fab{position:fixed;left:14px;bottom:14px;z-index:2147482900;width:40px;height:40px;border-radius:12px;" +
+    /* ── Bouton flottant 🍪 (empilé au-dessus de la bulle chat) ── */
+    ".tfsck-fab{position:fixed;right:20px;bottom:84px;z-index:2147482900;width:40px;height:40px;border-radius:12px;" +
       "border:1px solid var(--border,#E4E4E7);background:var(--bg-subtle,#FAFAFA);color:var(--fg-muted,#71717A);" +
       "cursor:pointer;display:flex;align-items:center;justify-content:center;" +
       "box-shadow:0 2px 10px rgba(0,0,0,.10);opacity:.55;transition:opacity .2s,transform .2s,color .2s}" +
     ".tfsck-fab:hover{opacity:1;transform:translateY(-2px);color:var(--orange,#ff6b00)}" +
     ".tfsck-fab svg{width:20px;height:20px}" +
-    ".tfsck-fab[hidden]{display:none}";
+    ".tfsck-fab[hidden]{display:none}" +
+    "@media (max-width:768px){.tfsck-fab{right:12px;bottom:calc(var(--tfh-cw-nav, 76px) + 74px)}}";
 
   /* ═══════════════ Icônes ═══════════════ */
 
