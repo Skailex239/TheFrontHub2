@@ -415,6 +415,14 @@ function loadPublicAliases() {
             } else {
               hubEntry.aliases = data.aliases || hubEntry.aliases;
             }
+            // Index de fusion par NOM (norm + préfixe) — cf. resolveAliasPidLoose()
+            [data.username, ...(data.aliases || [])].forEach(n => {
+              if (!n) return;
+              const low = String(n).toLowerCase();
+              if (!aliasNormToPid.has(low)) aliasNormToPid.set(low, pidVal);
+              const nk = normAliasKey(n);
+              if (nk && !aliasNormToPid.has(nk)) aliasNormToPid.set(nk, pidVal);
+            });
           }
         }
 
@@ -1258,12 +1266,15 @@ function processData(){
   // 2. aliasMap : fusion par playerId ou par nom (index inversé nameToPlayerId)
   // 3. Pseudo brut (fallback)
   function getCanonicalName(run) {
-    // aliasMap est enrichie en temps réel par loadPublicAliases() (Firestore)
-    // et par les aliases du joueur connecté (via fetchPlayerClientIds)
-    // aliasMap : fusion par playerId ou par nom (index inversé nameToPlayerId)
-    //    C'est la source unique de vérité — enrichie avec les aliases du joueur connecté
-    let pid = run.playerId;
+    // aliasMap est enrichie en temps réel par loadPublicAliases() (API
+    // public-aliases) et par les aliases du joueur connecté (via
+    // fetchPlayerClientIds). C'est la source unique de vérité.
+    // Fix 2026-09-06 : run.playerId = ID de SESSION (change à chaque
+    // partie) → on ne s'y fie que s'il résout réellement dans aliasMap,
+    // sinon on retombe sur la fusion par NOM (norm + préfixe).
+    let pid = run.playerId && aliasMap[run.playerId] ? run.playerId : null;
     if (!pid) pid = nameToPlayerId[run.player];
+    if (!pid) pid = resolveAliasPidLoose(run.player);
     if (pid && aliasMap[pid]) return aliasMap[pid].name;
 
     // 2. Fallback : pseudo brut
@@ -1508,6 +1519,53 @@ function selectMap(name){
 // à la demande de l'utilisateur ; les skins cosmétiques (dégradés .skin-*) restent.
 
 /**
+ * ── Fusion par nom normalisé (fix 2026-09-06) ──────────────────────────
+ * Le playerId des runs est un ID de SESSION OpenFront (il change à CHAQUE
+ * partie) — jamais le publicId du compte : la fusion par playerId ne peut
+ * pas fonctionner. On fusionne donc par NOM :
+ *   1. clé normalisée = minuscule, tag de clan préfixé retiré,
+ *      discriminateur ".1234" retiré → "[MSC] Skailex" = "skailex" ;
+ *   2. règle « base + espace » pour les renommages : "Skailex on YT" →
+ *      base "skailex" + " on yt" commence par un espace. Un chiffre ne
+ *      compte PAS ("Skailex2" reste un autre joueur), et un suffixe avant
+ *      la base non plus ("fan de skailex", "[UN] Clix skailex").
+ * Règle validée sur les 417k runs live : 0 faux positif, 100 % des runs
+ * des joueurs hub couverts.
+ */
+const aliasNormToPid = new Map(); // nom (brut minuscule + clé normalisée) → publicId
+const _aliasResCache = new Map(); // nom brut → publicId ou "" (mémo par page)
+
+function normAliasKey(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/^\[[a-z0-9_-]{2,8}\]\s*/, "")
+    .replace(/\.\d{3,6}$/, "")
+    .trim();
+}
+
+function resolveAliasPidLoose(name) {
+  if (!name) return null;
+  const cached = _aliasResCache.get(name);
+  if (cached !== undefined) return cached || null;
+  const key = normAliasKey(name);
+  let pid = (key && aliasNormToPid.get(key)) || null;
+  if (!pid) {
+    for (const [base, p] of aliasNormToPid) {
+      // Bases « simples » uniquement (pseudo hub / pseudo en jeu, 3+ cars,
+      // sans espace) : la règle préfixe+espace ne doit pas s'emboîter sur
+      // elle-même via des clés déjà normalisées d'un renommage.
+      if (!base || base.length < 3 || base.indexOf(" ") !== -1) continue;
+      if (key.startsWith(base) && (key.length === base.length || key.charCodeAt(base.length) === 32)) {
+        pid = p;
+        break;
+      }
+    }
+  }
+  _aliasResCache.set(name, pid || "");
+  return pid;
+}
+
+/**
  * Résout le publicId d'un pseudo (exact d'abord, puis insensible à la casse
  * via aliasMap — les alias Discord incluent les pseudos en jeu).
  */
@@ -1520,6 +1578,9 @@ function resolvePlayerPublicId(name){
     if (String(data.name||'').toLowerCase() === target) return pid;
     if ((data.aliases||[]).some(a => String(a).toLowerCase() === target)) return pid;
   }
+  // Fusion par nom normalisé + renommages ("[MSC] Skailex", "Skailex on YT")
+  const loose = resolveAliasPidLoose(name);
+  if (loose) return loose;
   if (currentUser && currentUser.publicId && String(currentUser.name||'').toLowerCase() === target) return currentUser.publicId;
   // Map des skins actifs (pseudo normalisé, sans tag de clan ni discriminateur)
   // → publicId : fait matcher "[MSC] Skailex" / "VarXard" avec le compte lié

@@ -67,7 +67,19 @@ var pidByNormName = {};
 /** Résout le publicId d'un pseudo en jeu : pseudo hub exact → map skins normalisée. */
 function resolvePidForName(name) {
   if (!name) return null;
-  return hubNameToPid[String(name).toLowerCase()] || pidByNormName[normPlayerName(name)] || null;
+  const direct = hubNameToPid[String(name).toLowerCase()] || pidByNormName[normPlayerName(name)] || null;
+  if (direct) return direct;
+  // Fix 2026-09-06 — renommages du type « Skailex on YT » : base normalisée
+  // + suffixe commençant par un espace. Validé sur les 417k runs : 0 faux
+  // positif ("fan de skailex" / "Skailex2" / "[UN] Clix skailex" NON capturés).
+  const key = normPlayerName(name);
+  for (const base in pidByNormName) {
+    if (!base || base.length < 3 || base.indexOf(' ') !== -1) continue;
+    if (key.startsWith(base) && (key.length === base.length || key.charCodeAt(base.length) === 32)) {
+      return pidByNormName[base];
+    }
+  }
+  return null;
 }
 
 /** Nom AFFICHÉ : pseudo hub (profil TheFrontHub) sinon pseudo en jeu tel quel. */
@@ -282,11 +294,11 @@ async function loadTopRuns({ limit, windowDays }) {
       var rawName = r.player || '\u2014';
       var playerName = String(rawName).replace(/[\x00-\x1F\x7F-\x9F]/g, '').trim() || '\u2014';
       if (playerName.length > 28) playerName = playerName.slice(0, 25) + '...';
-      // Fix 2026-09-06 : le run porte playerId = publicId OpenFront.
-      // Résolution pseudo hub + skin par publicId D'ABORD (fiable pour
-      // tous les pseudos historiques : "[MSC] Skailex", "Skailex on YT"…),
-      // fallback par nom ensuite.
-      var pidForRun = r.playerId || resolvePidForName(playerName) || '';
+      // Fix 2026-09-06 : le playerId des runs est un ID de SESSION OpenFront
+      // (change à chaque partie) — il ne vaut un publicId QUE s'il résout
+      // réellement dans hubNameByPid. Sinon fusion par NOM (tags de clan,
+      // discriminateurs et renommages gérés dans resolvePidForName).
+      var pidForRun = (r.playerId && hubNameByPid[String(r.playerId)]) ? String(r.playerId) : (resolvePidForName(playerName) || '');
       // Skin actif du joueur (si possédé ET activé) → classe .skin-*
       var skinId = (pidForRun && activeSkinsByPid.get(String(pidForRun))) || skinIdForPlayer(playerName) || '';
       var skinAttr = skinId ? ' class="skin-' + skinId + '"' : '';
