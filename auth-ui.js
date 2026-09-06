@@ -189,7 +189,7 @@ onAuthStateChanged(auth, async (user) => {
   }
 
   // Login tout juste effectué sur CETTE page → même comportement que app.js :
-  // profil complet → profile.html ; sinon → index.html (modal de configuration)
+  // profil complet → profile.html ; sinon → profile.html (étape de liaison)
   let justLoggedIn = false;
   try { justLoggedIn = sessionStorage.getItem("tfs_just_logged_in") === "1"; } catch {}
   if (justLoggedIn) {
@@ -200,8 +200,10 @@ onAuthStateChanged(auth, async (user) => {
       setTimeout(() => { window.location.href = "profile.html"; }, 800);
       return;
     }
-    // Pas encore de profil → index.html déclenche le modal de configuration
-    window.location.href = "index.html";
+    // Profil sans Public ID (ou pas encore de profil) → profile.html :
+    // la page profil affiche l'étape de liaison OpenFront (le Public ID est
+    // vérifié une fois puis conservé à chaque connexion).
+    window.location.href = "profile.html";
     return;
   }
 

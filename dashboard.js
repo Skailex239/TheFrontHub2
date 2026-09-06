@@ -1235,9 +1235,9 @@ onAuthStateChanged(auth, async (user) => {
     refreshMeRows();
     // Redirige vers profile.html pour finaliser le setup (le dashboard n'a pas
     // vocation à héberger tout le flow d'ownership verification ici).
-    if (profile == null) {
-      // Pas de doc Firestore du tout → l'utilisateur n'a jamais finalisé.
-      // On l'envoie sur profile.html qui gère le setup.
+    if (profile == null || !profile.publicId) {
+      // Pas de doc du tout, OU profil sans Public ID (jamais lié) →
+      // on l'envoie sur profile.html qui gère le setup / la liaison OpenFront.
       // On évite la boucle en ne redirigeant que si l'URL ne contient pas ?setup=1
       const params = new URLSearchParams(window.location.search);
       if (params.get("setup") !== "1") {

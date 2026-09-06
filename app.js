@@ -174,6 +174,14 @@ onAuthStateChanged(auth, async (user) => {
         setTimeout(() => { window.location.href = "profile.html"; }, 800);
         return;
       }
+      if (data && !data.publicId) {
+        // Profil SANS Public ID → la page profil affiche directement l'étape
+        // de liaison OpenFront (le Public ID est vérifié UNE fois, puis il
+        // est conservé à chaque connexion — jamais écrasé par le login).
+        console.log("[auth] Login réussi — profil sans Public ID → profile.html (liaison)");
+        setTimeout(() => { window.location.href = "profile.html"; }, 400);
+        return;
+      }
       // No profile yet → stay on index.html and show setup modal below
     }
 
@@ -492,11 +500,14 @@ window.startOwnershipVerification = async () => {
   }
 
   // L8: Verify publicId exists via OpenFront API
+  // ⚠️ /public/player/{pid} renvoie { publicId, createdAt, username, stats, clans }
+  // — PAS de champ "games" (les parties sont sur /public/player/{pid}/games).
+  // On vérifie donc playerData.publicId, comme profile.js le fait déjà.
   window.showToast(T("home.verifying_publicid", "Vérification du Public ID..."), "info", 3000);
   try {
     const { fetchOpenFront } = await import('./openfront-client.js');
     const playerData = await fetchOpenFront(`/public/player/${encodeURIComponent(publicId)}`);
-    if (!playerData || !playerData.games) {
+    if (!playerData || !playerData.publicId) {
       window.showToast(T("home.publicid_not_found", "Public ID introuvable sur OpenFront. Vérifiez votre saisie."), "error");
       return;
     }
@@ -534,17 +545,20 @@ window.confirmOwnershipVerification = async () => {
     const { fetchOpenFront } = await import('./openfront-client.js');
     const playerData = await fetchOpenFront(`/public/player/${encodeURIComponent(_ownershipPublicId)}`);
 
-    // L7: Search for the challenge code in recent game usernames
-    const games = playerData.games || [];
-    let found = false;
-    for (const g of games) {
-      if (g.username && g.username.includes(_ownershipCode)) {
-        found = true;
-        break;
-      }
+    // L7: Search for the challenge code in recent game usernames.
+    // Les parties vivent sur /public/player/{pid}/games (champ results[]) —
+    // /public/player/{pid} ne renvoie PAS de champ games.
+    let games = [];
+    try {
+      const gamesData = await fetchOpenFront(`/public/player/${encodeURIComponent(_ownershipPublicId)}/games`);
+      if (Array.isArray(gamesData && gamesData.results)) games = gamesData.results;
+    } catch (e) {
+      console.warn("[ownership] games fetch failed:", e);
     }
-    // Also check the main username field
-    if (!found && playerData.user && playerData.user.username && playerData.user.username.includes(_ownershipCode)) {
+    const needle = String(_ownershipCode).toUpperCase();
+    let found = games.some((g) => String(g.username || "").toUpperCase().includes(needle));
+    // Aussi le pseudo actuel du joueur (s'il a gardé le code dans son pseudo)
+    if (!found && playerData && playerData.username && String(playerData.username).toUpperCase().includes(needle)) {
       found = true;
     }
 
