@@ -15,8 +15,8 @@
 //   - On next visit: user sees fresh data, still instantly
 //   - Works even on flaky 3G
 
-const CACHE_NAME = 'thefronthub-v65';
-const CACHE_IMMUTABLE = 'thefronthub-imm-v24';
+const CACHE_NAME = 'thefronthub-v66';
+const CACHE_IMMUTABLE = 'thefronthub-imm-v25';
 const SWR_MAX_AGE_MS = 30 * 60 * 1000;  // 30 min — consider cache fresh this long
 
 // Static assets to pre-cache on install (HTML pages + core JS + CSS + icons)
@@ -41,6 +41,7 @@ const STATIC_ASSETS = [
   '/skins.css',
   '/animations.css',
   '/toast.css',
+  '/TheFrontHub Logo Text White.png',
   '/cookies.js',
   // Minified JS bundles
   '/dist/app.min.js',

@@ -133,6 +133,24 @@ if (typeof document !== "undefined") {
 
 const THEME_KEY = 'tfs-theme';
 
+// ─── Logo header : version à texte BLANC en mode sombre ───
+// Le « TheFront » du logo standard est noir → illisible sur fond sombre.
+// On swappe donc le src selon le thème VISIBLE (clair ↔ sombre), y compris
+// en mode auto quand le système bascule.
+const LOGO_SRC_LIGHT = 'TheFrontHub Logo Text.png';
+const LOGO_SRC_DARK = 'TheFrontHub Logo Text White.png';
+
+function applyLogoTheme() {
+  const dark = getEffectiveTheme() === 'dark';
+  const want = dark ? LOGO_SRC_DARK : LOGO_SRC_LIGHT;
+  document.querySelectorAll('.logo img').forEach((img) => {
+    const src = img.getAttribute('src') || '';
+    const isDark = src.indexOf('White') !== -1;
+    if ((dark && isDark) || (!dark && !isDark)) return; // déjà correct
+    img.src = want;
+  });
+}
+
 /**
  * Apply theme based on stored preference.
  * Called on page load (see bottom of this file).
@@ -150,6 +168,7 @@ function applyStoredTheme() {
     // localStorage might throw in private mode, ignore
     console.warn('[theme] Could not read localStorage:', e.message);
   }
+  applyLogoTheme();
 }
 
 /**
@@ -211,12 +230,17 @@ if (typeof window !== 'undefined') {
   // applies before the user sees anything thanks to module defer semantics.
   applyStoredTheme();
 
+  // Logo header suit le thème (data-theme changé par n'importe quel script)
+  new MutationObserver(applyLogoTheme).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-theme']
+  });
+
   // Listen for system theme changes (only affects "auto" mode)
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     // Only re-apply if user is in auto mode
     if (getThemeMode() === 'auto') {
-      // No attribute change needed — CSS prefers-color-scheme handles it
-      // Just notify the user (optional)
+      applyLogoTheme(); // le CSS suit prefers-color-scheme, le logo aussi
     }
   });
 }
