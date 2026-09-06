@@ -1549,7 +1549,7 @@ document.addEventListener("click", (e) => {
    par le sync (les clés existantes gagnent toujours). */
 async function mergeWeeklySeed() {
   try {
-    const res = await fetch("weekly_history_seed.json", { cache: "no-cache" });
+    const res = await fetch("data/weekly_history_seed.json", { cache: "no-cache" });
     if (!res.ok) return;
     const seed = await res.json();
     const hist = window._profileWeekHistory;
