@@ -2954,12 +2954,25 @@ button:active:not(:disabled),
   box-shadow: inset 0 0 0 1px rgba(128, 128, 128, .28);
   text-shadow: 0 1px 2px rgba(255, 255, 255, .85);
 }
+/* Sombre : explicite (data-theme="dark") OU hérité (.dark), puis auto (OS)
+   pour les visiteurs sans préférence explicite — même logique que le
+   reste du site (styles.css ligne ~2159). */
+:root[data-theme="dark"] .pfb-name.pfb-on,
 :root.dark .pfb-name.pfb-on {
   background-image:
     linear-gradient(rgba(12, 10, 18, .22), rgba(12, 10, 18, .22)),
     var(--pfb-img);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
   text-shadow: 0 1px 3px rgba(0, 0, 0, .85);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pfb-name.pfb-on {
+    background-image:
+      linear-gradient(rgba(12, 10, 18, .22), rgba(12, 10, 18, .22)),
+      var(--pfb-img);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, .85);
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
