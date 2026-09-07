@@ -257,6 +257,21 @@
   height: 12px;
 }
 
+/* ── Mention de consentement RGPD (sous le bouton Discord) ───────── */
+.auth-consent {
+  display: block;
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg-muted, var(--fg-secondary));
+  text-align: center;
+}
+
+.auth-consent a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
 /* ── Note de sécurité ────────────────────────────────────────────── */
 .auth-security-note {
   display: flex;

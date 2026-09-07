@@ -250,7 +250,7 @@ async function loadTopRuns({ limit, windowDays }) {
     let allRunsData;
     try {
       const ds = new DecompressionStream('gzip');
-      const gzRes = await fetch('runs.json.gz', { cache: 'no-store' });
+      const gzRes = await fetch('runs.json.gz', { cache: 'no-store', credentials: 'omit' });
       if (!gzRes.ok) throw new Error('HTTP ' + gzRes.status);
       const decompressed = gzRes.body.pipeThrough(ds);
       allRunsData = await new Response(decompressed).json();

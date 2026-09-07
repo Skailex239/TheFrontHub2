@@ -6,6 +6,7 @@
 // éléments communs réutilisés (nav.*, footer.*, auth.*, modal.close → i18n.js).
 window.__TFH_I18N_PARTIALS__ = window.__TFH_I18N_PARTIALS__ || {};
 window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr || {}, {
+  "dash.preview_note": "Aperçu du classement (top 100 classé) — actualisation en direct…",
   // ── Chrome de page (dashboard.html) ─────────────────────────────────
   "dash.skip": "Aller au contenu principal",
   "dash.logo_aria": "Aller au tableau de bord",
@@ -105,6 +106,7 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   "dash.toast_save_error": "Erreur lors de la sauvegarde du profil."
 });
 window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en || {}, {
+  "dash.preview_note": "Leaderboard preview (ranked top 100) — refreshing live…",
   // ── Page chrome (dashboard.html) ────────────────────────────────────
   "dash.skip": "Skip to main content",
   "dash.logo_aria": "Go to the dashboard",

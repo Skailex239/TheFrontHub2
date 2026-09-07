@@ -956,3 +956,33 @@
   .dash-trend { min-width: 28px; font-size: 10px; padding: 2px 4px; }
   .dash-me-chip { font-size: 9px; padding: 1px 6px; }
 }
+
+/* ── Aperçu statique pré-généré (scripts/gen-ranked-preview.js) ────
+   Affiché instantanément au chargement (robots + connexions lentes),
+   remplacé par le classement live dès que les données arrivent. */
+.dash-static-preview .dash-panel-preview {
+  grid-column: 1 / -1;
+}
+.dash-preview-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.dash-preview-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: dash-preview-pulse 1.6s ease-in-out infinite;
+}
+@keyframes dash-preview-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.8); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dash-preview-dot { animation: none; }
+}

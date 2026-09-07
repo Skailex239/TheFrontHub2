@@ -750,6 +750,11 @@ function computePrevWeeklyRanks() {
 
 function render() {
   if (!_rankedData && _mergedViews.global.length === 0 && _mergedViews.weekly.length === 0) {
+    /* Aperçu statique pré-généré (scripts/gen-ranked-preview.js) encore en
+     * place → on le CONSERVE au lieu d'un « Chargement… » sans contenu
+     * (robots d'indexation, échec réseau, API lente). Le premier lot de
+     * données live remplacera le preview normalement. */
+    if (view.querySelector(".dash-static-preview")) return;
     view.innerHTML = `
       <div class="dash-empty-state">
         <div class="dash-empty-icon"><i data-icon="chart"></i></div>

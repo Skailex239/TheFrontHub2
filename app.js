@@ -1110,13 +1110,13 @@ async function autoRefresh(){
     const headers = {};
     if (_lastETag) headers['If-None-Match'] = _lastETag;
     try {
-      let r = await fetch(autoFileGz, { headers, cache: 'no-store' });
+      let r = await fetch(autoFileGz, { headers, cache: 'no-store', credentials: 'omit' });
       // Fallback to full files if public payload doesn't exist
       // ⚠️ Perf (audit 2026-08-27) : on transmet AUSSI les headers conditionnels
       // (If-None-Match) au fallback — avant, runs.json.gz (15,6 Mo) était
       // re-téléchargé INTÉGRALEMENT à chaque cycle d'autoRefresh (toutes les 3 min).
       if (!r.ok && r.status === 404) {
-        r = await fetch(fallbackGz, { headers, cache: 'no-store' });
+        r = await fetch(fallbackGz, { headers, cache: 'no-store', credentials: 'omit' });
       }
       if (r.status === 304) {
         return; // Pas de changement — silent

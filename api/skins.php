@@ -67,6 +67,21 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
      * "VarXard.9236" avec le compte du joueur. Cache fichier 5 min :
      * 0 requête OpenFront dans ~toutes les réponses. */
     if (isset($_GET['activeMap'])) {
+        /* Cache fichier de la RÉPONSE complète (audit AdSense 2026-09 : la
+         * première version pouvait dépasser 3,5 s — la reconstruction
+         * résout jusqu'à N requêtes OpenFront séquentielles à 3 s de
+         * timeout). TTL 20 min → réponse < 100 ms dans ~tous les cas.
+         * Invalidation : /api/skins.php POST activate (et TTL). */
+        $amCacheFile = sys_get_temp_dir() . '/tfh_activemap_v1.json';
+        $amTtl = 1200; // 20 min
+        if (is_file($amCacheFile) && (time() - (int) filemtime($amCacheFile)) < $amTtl) {
+            $amCached = json_decode((string) file_get_contents($amCacheFile), true);
+            if (is_array($amCached) && isset($amCached['ok'])) {
+                header('X-TFH-Cache: hit');
+                json_out($amCached);
+            }
+        }
+
         $rows = $pdo->query(
             'SELECT s.public_id, s.skin_id, u.username
              FROM tfh_user_skins s
@@ -89,10 +104,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
         }
         $ofTtl = 300; // 5 min
         $dirty = false;
+        /* Budget de rafraîchissement par requête : au-delà, on garde le
+         * username en cache (même périmé) — le reste se résout aux appels
+         * suivants. Borde la latence de reconstruction à ~8 × 3 s max,
+         * en pratique largement moins. */
+        $ofBudget = 8;
         foreach ($active as &$a) {
             $pid = $a['publicId'];
             $fresh = isset($ofCache[$pid]['at']) && $ofCache[$pid]['at'] >= time() - $ofTtl;
-            if (!$fresh) {
+            if (!$fresh && $ofBudget > 0) {
+                $ofBudget--;
                 $uname = null;
                 $url = 'https://api.openfront.io/public/player/' . rawurlencode($pid);
                 $ctx = stream_context_create(['http' => ['timeout' => 3, 'ignore_errors' => true]]);
@@ -113,7 +134,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
             @file_put_contents($ofCacheFile, json_encode($ofCache), LOCK_EX);
         }
 
-        json_out(['ok' => true, 'count' => count($active), 'active' => $active]);
+        /* Écrit le cache réponse (TTL 20 min) puis sert. */
+        $amPayload = ['ok' => true, 'count' => count($active), 'active' => $active];
+        @file_put_contents($amCacheFile, json_encode($amPayload), LOCK_EX);
+        header('X-TFH-Cache: miss');
+        json_out($amPayload);
     }
 
     /* Skins d'un joueur (public — nécessaire pour afficher les pseudos skinnés) */
@@ -288,6 +313,10 @@ try {
             }
 
             $pdo->commit();
+
+            /* Invalide le cache réponse de ?activeMap=1 : la carte publique
+             * des skins actifs reflète le changement immédiatement. */
+            @unlink(sys_get_temp_dir() . '/tfh_activemap_v1.json');
 
             json_out(['ok' => true, 'activeSkinId' => $skinId]);
         }
