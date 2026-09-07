@@ -26,7 +26,7 @@
 <link rel="preload" href="styles.css?v=80" as="style">
 <link rel="preload" href="dashboard.css?v=21" as="style">
 <link rel="preload" href="dist/dashboard.min.js?v=15" as="script" crossorigin>
-<link rel="preload" href="dist/icons.min.js?v=7" as="script" crossorigin>
+<link rel="preload" href="dist/icons.min.js?v=8" as="script" crossorigin>
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Orbitron:wght@900&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
@@ -40,7 +40,7 @@
 <link rel="stylesheet" href="animations.css?v=6">
 <link rel="stylesheet" href="dashboard.css?v=21">
 <style>.skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}</style>
-<script type="module" src="dist/icons.min.js?v=7"></script>
+<script type="module" src="dist/icons.min.js?v=8"></script>
 <link rel="stylesheet" href="ads.css?v=2">
 
 <!-- i18n : dict de page (synchrone, avant i18n.js) + moteur + sélecteur de langue -->
@@ -281,7 +281,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=24').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=25').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>

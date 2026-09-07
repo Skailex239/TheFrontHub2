@@ -143,7 +143,9 @@ const LOGO_SRC_DARK = 'TheFrontHub Logo Text White.png';
 function applyLogoTheme() {
   const dark = getEffectiveTheme() === 'dark';
   const want = dark ? LOGO_SRC_DARK : LOGO_SRC_LIGHT;
-  document.querySelectorAll('.logo img').forEach((img) => {
+  // Header (.logo img) + footer (.tfh-footer-logo img) : le logo texte du
+  // footer (« TheFront » noir) est lui aussi illisible en mode sombre.
+  document.querySelectorAll('.logo img, .tfh-footer-logo img').forEach((img) => {
     const src = img.getAttribute('src') || '';
     const isDark = src.indexOf('White') !== -1;
     if ((dark && isDark) || (!dark && !isDark)) return; // déjà correct

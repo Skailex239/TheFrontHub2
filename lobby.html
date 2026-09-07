@@ -38,7 +38,7 @@
 <link rel="stylesheet" href="lobby.css?v=17">
 <link rel="stylesheet" href="ads.css?v=2">
 <style>.skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}</style>
-<script type="module" src="dist/icons.min.js?v=7"></script>
+<script type="module" src="dist/icons.min.js?v=8"></script>
 
 <!-- i18n : dict de page (synchrone, avant i18n.js) + moteur + sélecteur de langue -->
 <script src="dist/i18n-dict-lobby.min.js?v=1"></script>
@@ -274,7 +274,7 @@
   // Service Worker — offline + cache stale-while-revalidate
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=24').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=25').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>
