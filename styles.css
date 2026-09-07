@@ -2952,7 +2952,10 @@ button:active:not(:disabled),
   padding: 2px 7px;
   margin: -2px -3px;          /* absorbe le padding : pas de décalage de ligne */
   box-shadow: inset 0 0 0 1px rgba(128, 128, 128, .28);
-  text-shadow: 0 1px 2px rgba(255, 255, 255, .85);
+  /* text-shadow est INTERDIT ici : il transperce les glyphs des skins à
+   * background-clip:text (text-fill transparent) et les assombrit.
+   * drop-shadow() contourne le glyphe rendu — lisible sur bannière. */
+  filter: drop-shadow(0 1px 1px rgba(255, 255, 255, .9));
 }
 /* Sombre : explicite (data-theme="dark") OU hérité (.dark), puis auto (OS)
    pour les visiteurs sans préférence explicite — même logique que le
@@ -2963,7 +2966,7 @@ button:active:not(:disabled),
     linear-gradient(rgba(12, 10, 18, .22), rgba(12, 10, 18, .22)),
     var(--pfb-img);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, .85);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .8));
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .pfb-name.pfb-on {
@@ -2971,7 +2974,7 @@ button:active:not(:disabled),
       linear-gradient(rgba(12, 10, 18, .22), rgba(12, 10, 18, .22)),
       var(--pfb-img);
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
-    text-shadow: 0 1px 3px rgba(0, 0, 0, .85);
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .8));
   }
 }
 
