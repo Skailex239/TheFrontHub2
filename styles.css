@@ -2966,7 +2966,9 @@ button:active:not(:disabled),
     linear-gradient(rgba(12, 10, 18, .22), rgba(12, 10, 18, .22)),
     var(--pfb-img);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .8));
+  /* pas de drop-shadow en sombre : les gradients des skins sont déjà
+   * clairs/vifs sur fond sombre — une ombre ne fait que les ternir. */
+  filter: none;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .pfb-name.pfb-on {
@@ -2974,7 +2976,7 @@ button:active:not(:disabled),
       linear-gradient(rgba(12, 10, 18, .22), rgba(12, 10, 18, .22)),
       var(--pfb-img);
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
-    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .8));
+    filter: none;
   }
 }
 
