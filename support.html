@@ -38,9 +38,9 @@
 <script type="module" src="dist/icons.min.js?v=9"></script>
 
 <!-- i18n : dict de page (synchrone, avant i18n.js) + moteur + sélecteur de langue -->
-<script src="dist/i18n-dict-support.min.js?v=3"></script>
+<script src="dist/i18n-dict-support.min.js?v=4"></script>
 <script src="dist/i18n-dict-widgets.min.js?v=3"></script>
-<script src="dist/i18n.min.js?v=4" defer></script>
+<script src="dist/i18n.min.js?v=5" defer></script>
 <script src="dist/lang-switcher.min.js?v=2" defer></script>
 
 <!-- Cookies / CNIL — Consent Mode v2, gtag chargé par cookies.js après le choix -->
@@ -233,7 +233,7 @@
     </div>
     <div class="modal-header">
       <div class="modal-title" id="auth-modal-title" data-i18n="auth.modal_title">Rejoins TheFrontHub</div>
-      <div class="modal-subtitle" data-i18n="auth.modal_subtitle">Connexion ou inscription en 1 clic avec Discord — sans mot de passe, sans email.</div>
+      <div class="modal-subtitle" data-i18n="auth.modal_subtitle">Connexion ou inscription en 1 clic avec Discord — sans mot de passe.</div>
     </div>
     <div class="auth-options">
       <button class="auth-btn discord" id="auth-btn-discord" onclick="handleLogin('discord')">
@@ -262,7 +262,7 @@
 <!-- Toast container -->
 <div id="toast-container"></div>
 
-<script type="module" src="dist/support.min.js?v=3"></script>
+<script type="module" src="dist/support.min.js?v=4"></script>
 <script type="module" src="dist/auth-ui.min.js?v=4"></script>
 <script src="dist/toast.min.js?v=2"></script>
 <script src="dist/lenis.min.js?v=7"></script>
@@ -271,7 +271,7 @@
   // Service Worker — offline + cache stale-while-revalidate
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=25').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=26').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>

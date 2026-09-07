@@ -46,7 +46,7 @@ const SUP_FAQ = [
     qk: "sup.faq1_q",
     q: "Comment se connecter à TheFrontHub ?",
     ak: "sup.faq1_a",
-    a: `Un seul clic : clique sur « Connexion » puis « Continuer avec Discord ». Aucun mot de passe, aucun email — ta session Discord fait tout.`,
+    a: `Un seul clic : clique sur « Connexion » puis « Continuer avec Discord ». Aucun mot de passe — ta session Discord fait tout.`,
   },
   {
     qk: "sup.faq2_q",

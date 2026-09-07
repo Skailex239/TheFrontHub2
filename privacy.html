@@ -36,9 +36,9 @@
 <script type="module" src="dist/icons.min.js?v=9"></script>
 
 <!-- i18n : dict de page (synchrone, avant i18n.js) + moteur + sélecteur de langue -->
-<script src="dist/i18n-dict-pages.min.js?v=2"></script>
+<script src="dist/i18n-dict-pages.min.js?v=3"></script>
 <script src="dist/i18n-dict-widgets.min.js?v=3"></script>
-<script src="dist/i18n.min.js?v=4" defer></script>
+<script src="dist/i18n.min.js?v=5" defer></script>
 <script src="dist/lang-switcher.min.js?v=2" defer></script>
 
 <!-- Cookies / CNIL — Consent Mode v2, gtag chargé par cookies.js après le choix -->
@@ -207,8 +207,9 @@
     <section class="doc-card">
       <h2><span class="doc-num">2</span><span data-i18n="priv.data_t">Données collectées</span></h2>
       <p data-i18n="priv.data_intro">Selon ton usage du site, trois catégories de données peuvent être traitées&nbsp;:</p>
-      <h3 data-i18n="priv.data_discord_t">Compte Discord (si tu te connectes)</h3>
-      <p data-i18n-html="priv.data_discord_d">La connexion se fait via Discord OAuth&nbsp;: nous recevons ton <b>identifiant Discord</b>, ton <b>pseudo</b> et l'URL de ton <b>avatar</b>. Aucun mot de passe, aucun email&nbsp;: Discord gère l'authentification. Ces données servent uniquement à créer et afficher ton profil TheFrontHub.</p>
+      <h3 data-i18n="priv.data_oauth_t">Données de connexion (OAuth2 Discord et Google)</h3>
+      <p data-i18n-html="priv.data_oauth_d">Lors de l'association de ton profil, nous collectons les informations transmises par Discord ou Google, à savoir&nbsp;: ton <b>identifiant unique</b>, ton <b>pseudo</b>, ton <b>avatar</b> ainsi que l'<b>adresse e-mail</b> associée à ton compte.</p>
+      <p data-i18n-html="priv.data_oauth_pwd"><b>Rappel&nbsp;: TheFrontHub ne collecte ni ne stocke aucun mot de passe.</b></p>
       <h3 data-i18n="priv.data_game_t">Statistiques de jeu publiques</h3>
       <p data-i18n-html="priv.data_game_d">Le site synchronise les <b>données publiques d'OpenFront.io</b> (pseudos, parties, scores, temps, classements) pour construire les leaderboards et profils joueurs. Ces informations sont déjà publiques dans le jeu.</p>
       <h3 data-i18n="priv.data_tech_t">Données techniques</h3>
@@ -216,7 +217,16 @@
     </section>
 
     <section class="doc-card">
-      <h2><span class="doc-num">3</span><span data-i18n="priv.cookies_t">Cookies et stockage local</span></h2>
+      <h2><span class="doc-num">3</span><span data-i18n="priv.use_t">Utilisation de tes données</span></h2>
+      <p data-i18n="priv.use_intro">Les données collectées servent uniquement aux finalités suivantes&nbsp;:</p>
+      <p data-i18n-html="priv.use_1"><b>Fonctionnement du site&nbsp;:</b> création et affichage de ton profil, construction des leaderboards et synchronisation de tes statistiques OpenFront.io.</p>
+      <p data-i18n-html="priv.use_2"><b>Gestion du compte et support&nbsp;:</b> ton adresse e-mail sert uniquement à l'identification de ton compte et à te répondre en cas de demande de support. Elle n'est jamais transmise à des tiers, ni vendue, ni utilisée pour du démarchage commercial ou des spams.</p>
+      <p data-i18n-html="priv.use_3"><b>Amélioration du site&nbsp;:</b> mesure d'audience anonyme via Google Analytics, active uniquement si tu l'acceptes.</p>
+      <p data-i18n-html="priv.use_4"><b>Financement du site&nbsp;:</b> affichage de publicités via Google AdSense, actif uniquement si tu l'acceptes. TheFrontHub dégage de modestes revenus publicitaires qui couvrent l'hébergement et soutiennent le développement du site.</p>
+    </section>
+
+    <section class="doc-card">
+      <h2><span class="doc-num">4</span><span data-i18n="priv.cookies_t">Cookies et stockage local</span></h2>
       <p data-i18n="priv.cookies_d">Voici la liste exhaustive des traceurs utilisés sur TheFrontHub&nbsp;:</p>
       <div class="doc-table-wrap">
       <table class="doc-table">
@@ -235,17 +245,17 @@
     </section>
 
     <section class="doc-card">
-      <h2><span class="doc-num">4</span><span data-i18n="priv.ga_t">Google Analytics</span></h2>
+      <h2><span class="doc-num">5</span><span data-i18n="priv.ga_t">Google Analytics</span></h2>
       <p data-i18n-html="priv.ga_d">Nous utilisons Google Analytics 4 (ID <code>G-GNY8ZYKCZB</code>) pour mesurer l'audience du site de façon anonyme. Grâce au <b>Consent Mode v2</b>, la mesure est <b>désactivée par défaut</b>&nbsp;: aucun cookie analytics n'est déposé et aucun hit n'est envoyé tant que tu n'as pas accepté la «&nbsp;mesure d'audience&nbsp;». Les données sont transmises à Google, qui peut les traiter hors Union européenne (encadrement via les clauses contractuelles types). En savoir plus&nbsp;: <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">Confidentialité Google</a>.</p>
     </section>
 
     <section class="doc-card">
-      <h2><span class="doc-num">5</span><span data-i18n="priv.ads_t">Google AdSense (publicité)</span></h2>
-      <p data-i18n-html="priv.ads_d">Le site affiche des annonces via Google AdSense (éditeur <code>ca-pub-2991878097014222</code>) pour financer l'hébergement. <b>Sans ton consentement</b> publicitaire, seules des <b>annonces non personnalisées</b> peuvent être servies, sans profil publicitaire. Si tu acceptes, Google et ses partenaires peuvent déposer des cookies pour personnaliser les annonces selon tes visites. Tu peux revoir tes préférences à tout moment via le bouton 🍪 ou sur <a href="https://adssettings.google.com" target="_blank" rel="noreferrer">adssettings.google.com</a> — voir aussi <a href="https://policies.google.com/technologies/ads" target="_blank" rel="noreferrer">publicités Google</a>.</p>
+      <h2><span class="doc-num">6</span><span data-i18n="priv.ads_t">Google AdSense (publicité)</span></h2>
+      <p data-i18n-html="priv.ads_d">TheFrontHub est un site gratuit dont le financement repose en partie sur la publicité&nbsp;: les annonces Google AdSense (éditeur <code>ca-pub-2991878097014222</code>) génèrent de modestes revenus qui couvrent l'hébergement et soutiennent le développement du site. <b>Sans ton consentement</b> publicitaire, seules des <b>annonces non personnalisées</b> peuvent être servies, sans profil publicitaire. Si tu acceptes, Google et ses partenaires peuvent déposer des cookies pour personnaliser les annonces selon tes visites. Tu peux revoir tes préférences à tout moment via le bouton 🍪 ou sur <a href="https://adssettings.google.com" target="_blank" rel="noreferrer">adssettings.google.com</a> — voir aussi <a href="https://policies.google.com/technologies/ads" target="_blank" rel="noreferrer">publicités Google</a>.</p>
     </section>
 
     <section class="doc-card">
-      <h2><span class="doc-num">6</span><span data-i18n="priv.consent_t">Gérer ton consentement</span></h2>
+      <h2><span class="doc-num">7</span><span data-i18n="priv.consent_t">Gérer ton consentement</span></h2>
       <p data-i18n="priv.consent_d">Tu as accepté, refusé ou personnalisé tes choix&nbsp;? Tu peux les modifier à tout moment&nbsp;: le bouton 🍪 en bas à droite de l'écran rouvre le panneau de préférences, et le bouton ci-dessous aussi.</p>
       <div class="doc-actions">
         <button type="button" class="doc-btn" onclick="if(window.openCookiePreferences){window.openCookiePreferences();}" data-i18n="priv.btn_manage">🍪 Gérer mes cookies</button>
@@ -253,27 +263,27 @@
     </section>
 
     <section class="doc-card">
-      <h2><span class="doc-num">7</span><span data-i18n="priv.duration_t">Durée de conservation</span></h2>
-      <p data-i18n-html="priv.duration_d"><b>Compte Discord&nbsp;:</b> conservé tant que ton profil est actif&nbsp;; supprimé sur simple demande par email. <b>Statistiques de jeu&nbsp;:</b> conservées pour l'historique des classements (durée de vie du site). <b>Traceurs&nbsp;:</b> 13 mois maximum (conformément aux recommandations de la CNIL). <b>Journaux techniques&nbsp;:</b> durée limitée définie par l'hébergeur (o2switch).</p>
+      <h2><span class="doc-num">8</span><span data-i18n="priv.duration_t">Durée de conservation</span></h2>
+      <p data-i18n-html="priv.duration_d"><b>Compte (Discord ou Google), y compris l'adresse e-mail&nbsp;:</b> conservé tant que ton profil est actif&nbsp;; supprimé sur simple demande par email. <b>Statistiques de jeu&nbsp;:</b> conservées pour l'historique des classements (durée de vie du site). <b>Traceurs&nbsp;:</b> 13 mois maximum (conformément aux recommandations de la CNIL). <b>Journaux techniques&nbsp;:</b> durée limitée définie par l'hébergeur (o2switch).</p>
     </section>
 
     <section class="doc-card">
-      <h2><span class="doc-num">8</span><span data-i18n="priv.rights_t">Tes droits (RGPD)</span></h2>
+      <h2><span class="doc-num">9</span><span data-i18n="priv.rights_t">Tes droits (RGPD)</span></h2>
       <p data-i18n-html="priv.rights_d">Tu disposes des droits suivants sur tes données personnelles&nbsp;: <b>accès</b>, <b>rectification</b>, <b>effacement</b>, <b>limitation</b>, <b>opposition</b> et <b>portabilité</b>. Pour les exercer, une seule adresse&nbsp;: <a href="mailto:support@thefronthub.com">support@thefronthub.com</a> — nous répondons sous 30 jours. Si tu estimes que tes droits ne sont pas respectés, tu peux introduire une réclamation auprès de la <a href="https://www.cnil.fr" target="_blank" rel="noreferrer">CNIL</a>.</p>
     </section>
 
     <section class="doc-card">
-      <h2><span class="doc-num">9</span><span data-i18n="priv.security_t">Sécurité</span></h2>
-      <p data-i18n-html="priv.security_d">Le site est intégralement servi en <b>HTTPS</b>, hébergé en <b>France</b> (o2switch, Toulouse). Les accès d'administration sont restreints et authentifiés. Aucun mot de passe n'est stocké&nbsp;: l'authentification est déléguée à Discord.</p>
+      <h2><span class="doc-num">10</span><span data-i18n="priv.security_t">Sécurité</span></h2>
+      <p data-i18n-html="priv.security_d">Le site est intégralement servi en <b>HTTPS</b>, hébergé en <b>France</b> (o2switch, Toulouse). Les accès d'administration sont restreints et authentifiés. Aucun mot de passe n'est stocké&nbsp;: l'authentification est déléguée à Discord et Google. Les adresses e-mail sont conservées de manière confidentielle et servent uniquement à l'identification des comptes et au support.</p>
     </section>
 
     <section class="doc-card">
-      <h2><span class="doc-num">10</span><span data-i18n="priv.minors_t">Mineurs</span></h2>
+      <h2><span class="doc-num">11</span><span data-i18n="priv.minors_t">Mineurs</span></h2>
       <p data-i18n="priv.minors_d">TheFrontHub s'adresse au grand public. Si tu es mineur, demande l'accord d'un parent avant de créer un compte ou d'accepter les cookies publicitaires.</p>
     </section>
 
     <section class="doc-card">
-      <h2><span class="doc-num">11</span><span data-i18n="priv.changes_t">Modifications de cette politique</span></h2>
+      <h2><span class="doc-num">12</span><span data-i18n="priv.changes_t">Modifications de cette politique</span></h2>
       <p data-i18n="priv.changes_d">Cette politique peut évoluer (nouvelles fonctionnalités, évolutions légales). La date de mise à jour en haut de page est modifiée à chaque changement notable&nbsp;; les traceurs restent soumis au consentement quel que soit le cas.</p>
     </section>
 
@@ -350,7 +360,7 @@
     </div>
     <div class="modal-header">
       <div class="modal-title" id="auth-modal-title" data-i18n="auth.modal_title">Rejoins TheFrontHub</div>
-      <div class="modal-subtitle" data-i18n="auth.modal_subtitle">Connexion ou inscription en 1 clic avec Discord — sans mot de passe, sans email.</div>
+      <div class="modal-subtitle" data-i18n="auth.modal_subtitle">Connexion ou inscription en 1 clic avec Discord — sans mot de passe.</div>
     </div>
     <div class="auth-options">
       <button class="auth-btn discord" id="auth-btn-discord" onclick="handleLogin('discord')">
@@ -387,7 +397,7 @@
   // Service Worker — offline + cache stale-while-revalidate
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=25').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=26').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>

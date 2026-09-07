@@ -61,7 +61,7 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   /* ── FAQ ── */
   "sup.faq_title": "Questions fréquentes",
   "sup.faq1_q": "Comment se connecter à TheFrontHub ?",
-  "sup.faq1_a": "Un seul clic : clique sur « Connexion » puis « Continuer avec Discord ». Aucun mot de passe, aucun email — ta session Discord fait tout.",
+  "sup.faq1_a": "Un seul clic : clique sur « Connexion » puis « Continuer avec Discord ». Aucun mot de passe — ta session Discord fait tout.",
   "sup.faq2_q": "Comment sont calculés les points classés ?",
   "sup.faq2_a": "Les points se gagnent sur tes victoires en classé 1v1 et 2v2, selon ta place finale dans la partie. Plus tu finis haut, plus tu gagnes.",
   "sup.faq3_q": "À quelle fréquence les classements sont-ils mis à jour ?",
@@ -188,7 +188,7 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
   /* ── FAQ ── */
   "sup.faq_title": "Frequently asked questions",
   "sup.faq1_q": "How do I sign in to TheFrontHub?",
-  "sup.faq1_a": "One click: click \"Sign in\" then \"Continue with Discord\". No password, no email — your Discord session does everything.",
+  "sup.faq1_a": "One click: click \"Sign in\" then \"Continue with Discord\". No password — your Discord session does everything.",
   "sup.faq2_q": "How are ranked points calculated?",
   "sup.faq2_a": "Points are earned from your wins in 1v1 and 2v2 ranked, based on your final placement in the game. The higher you finish, the more you earn.",
   "sup.faq3_q": "How often are the leaderboards updated?",
