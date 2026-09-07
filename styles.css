@@ -2374,6 +2374,18 @@ button:active:not(:disabled),
   z-index: 1;
 }
 
+/* FIX (2026-09) — La sidebar fixe (260px) recouvrait la colonne marque du
+   footer (logo, tagline, bouton Discord) dès que le conteneur centré passait
+   sous la sidebar, c.-à-d. sur la plupart des écrans < ~1800px de large.
+   On décale le footer de la largeur de la sidebar, exactement comme .content
+   (margin-left:260px au-delà de 900px ; en dessous la sidebar devient un
+   drawer hors-canvas et .content repasse à margin-left:0). */
+@media (min-width: 901px) {
+  .tfh-footer {
+    margin-left: 260px;
+  }
+}
+
 .tfh-footer::before {
   content: '';
   position: absolute;
