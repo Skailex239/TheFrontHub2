@@ -29,6 +29,25 @@ function valid_banner_id(string $id): bool
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
     rate_limit($pdo, 'banners-get:' . client_ip(), 120, 60);
 
+    /* La table tfh_user_banners est créée via SQL (phpMyAdmin). Tant qu'elle
+     * n'existe pas, on répond gracieusement « vide » au lieu d'un 500 brut :
+     * les pages appellent ces endpoints à chaque vue de profil. */
+    try {
+        banners_get($pdo);
+    } catch (PDOException $e) {
+        if ((string) $e->getCode() === '42S02') { // table introuvable
+            if (isset($_GET['activeMap'])) {
+                json_out(['ok' => true, 'count' => 0, 'active' => []]);
+            }
+            json_out(['ok' => true, 'ownedBanners' => [], 'activeBannerId' => null]);
+        }
+        error_log('[tfh-api] banners: ' . $e->getMessage());
+        fail(500, 'db_error', 'Erreur inattendue, réessaie.');
+    }
+}
+
+function banners_get(PDO $pdo): void
+{
     /* Carte publique des bannières ACTIVES (bulk — pour de futurs affichages
      * type classements / lobby). Même contrat que skins.php?activeMap=1. */
     if (isset($_GET['activeMap'])) {
