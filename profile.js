@@ -25,7 +25,11 @@ import {
 import {
   fetchOwnedSkins, redeemCode, activateSkin, applySkinToElement,
   invalidateActiveSkinCache, fetchActiveSkinMap, normPlayerName,
-} from "./reward-codes.js?v=1";
+} from "./reward-codes.js?v=2";
+import {
+  BANNERS, getBanner, DEFAULT_BANNER_ID, renderBannerUrl, currentTheme,
+  applyBannerToCard, paintBanner, fetchOwnedBanners, activateBanner,
+} from "./banners.js?v=1";
 import {
   computePlaytimeStats, extractCareerWins, totalWins, pointsFor,
   formatDurationCompact, formatPct, formatFrenchDate,
@@ -62,7 +66,7 @@ let _allGamesCache = null; // toutes les games paginées (pour playtime + map st
 let _allGamesLoading = false;
 let _mapStatsSortBy = "count";
 let _mapStatsShowAll = false;
-let _rewardCardState = { publicId: null, ownedSkins: [], activeSkinId: null };
+let _rewardCardState = { publicId: null, ownedSkins: [], activeSkinId: null, ownedBanners: [], activeBannerId: null };
 
 // VIP skin: publicId → rewardType (matching par PUBLIC ID, pas par alias)
 let vipPlayersByPid = new Map();
@@ -432,6 +436,9 @@ function renderPublicProfile(username, publicId) {
   // via le publicId du joueur visualisé (et non celui de l'utilisateur courant).
   const virtualProfile = { username, publicId };
   applyProfileSkin(virtualProfile, null);
+
+  // Bannière pixel art du joueur visité (null → plaquette standard).
+  applyBannerToCard(document.querySelector(".pf2-id"), publicId);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -692,6 +699,10 @@ function renderHero(user, profile) {
   // Applique le skin VIP résolu par publicId (le listener VIP re-appliquera quand
   // les rewards arriveront). Fallback username = null ici car pas encore chargé.
   applyProfileSkin(profile, null);
+
+  // Bannière pixel art de la plaquette (slot indépendant des skins —
+  // bannière active du profil affiché, clair/sombre re-rendus par banners.js).
+  applyBannerToCard(document.querySelector(".pf2-id"), profile.publicId);
 }
 
 /** Copie le Public ID dans le presse-papiers (chip de la carte identité). */
@@ -1976,6 +1987,13 @@ function renderRewardCodeCard(publicId) {
         </div>
         <div class="rw-chips" id="rw-chips"></div>
       </div>
+      <div class="rw-owned rw-owned-banners" id="rw-banners" hidden>
+        <div class="rw-owned-head">
+          <h3>${T("pf.rw_banners", "Mes bannières")} <span class="rw-count" id="owned-banners-count">0</span></h3>
+          <span class="rw-gallery-hint">${T("pf.rw_banners_hint", "Clique pour l’appliquer sur ta plaquette")}</span>
+        </div>
+        <div class="rw-chips" id="rw-banner-chips"></div>
+      </div>
     </div>
   `;
 
@@ -1993,6 +2011,7 @@ function renderRewardCodeCard(publicId) {
   btn.addEventListener("click", handleRedeem);
 
   refreshOwnedSkins(publicId);
+  refreshOwnedBanners(publicId);
 }
 
 async function refreshOwnedSkins(publicId) {
@@ -2076,6 +2095,35 @@ async function handleRedeem() {
 
   try {
     const result = await redeemCode(code, publicId);
+
+    /* ── Bannière pixel art : auto-activation sur la plaquette ─────
+     * (skins.php a routé le code vers tfh_user_banners — kind:"banner") */
+    if (result.kind === "banner") {
+      const bName = getBanner(result.skinId)?.name || result.skinId;
+      let message = result.alreadyOwned
+        ? T("pf.banner_already", "Tu possèdes déjà la bannière « {name} » — réactivée.", { name: bName })
+        : T("pf.banner_unlocked", "Bannière « {name} » débloquée et appliquée sur ta plaquette !", { name: bName });
+      try {
+        const act = await activateBanner(publicId, result.skinId);
+        _rewardCardState.activeBannerId = act.activeBannerId;
+        paintBanner(document.querySelector(".pf2-id"), act.activeBannerId);
+      } catch (e) {
+        if (!result.alreadyOwned) {
+          message = `${result.message} ${T("pf.rw_activate_below", "Active-le ci-dessous.")}`;
+        }
+      }
+      setRwFeedback("success", message);
+      showToast(
+        result.alreadyOwned
+          ? T("pf.banner_reactivated_short", "Bannière « {name} » réactivée", { name: bName })
+          : T("pf.banner_unlocked_short", "Bannière « {name} » débloquée !", { name: bName }),
+        result.alreadyOwned ? "info" : "success"
+      );
+      input.value = "";
+      await refreshOwnedBanners(publicId);
+      return; // le bloc finally restaure le bouton
+    }
+
     let message = result.message;
 
     // Auto-activation : le skin débloqué s'applique aussitôt au pseudo.
@@ -2126,6 +2174,101 @@ async function handleActivate(skinId) {
     if (currentProfile) renderHero(currentUser, currentProfile);
   } catch (e) {
     showToast(e.message || T("pf.skin_activate_fail", "Activation impossible"), "error");
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   BANNIÈRES PIXEL ART (plaquette de pseudo)
+   Possession/activation via /api/banners.php (tfh_user_banners).
+   Le rachat passe par le MÊME champ de code (skins.php route les
+   skin_id préfixés banner_ vers la table des bannières).
+   ══════════════════════════════════════════════════════════════ */
+
+async function refreshOwnedBanners(publicId) {
+  const wrap = document.getElementById("rw-banners");
+  if (!wrap) return;
+  try {
+    const { ownedBanners, activeBannerId } = await fetchOwnedBanners(publicId);
+    _rewardCardState.ownedBanners = ownedBanners;
+    _rewardCardState.activeBannerId = activeBannerId;
+    renderOwnedBanners(ownedBanners, activeBannerId);
+  } catch (e) {
+    console.warn("[profile] refreshOwnedBanners failed:", e);
+  }
+}
+
+/**
+ * Chips « Mes bannières » : aperçu pixel art en miniature + puce « Aucune »
+ * (plaquette standard). N'apparaît QUE si le joueur possède au moins une
+ * bannière du catalogue.
+ */
+function renderOwnedBanners(ownedBanners, activeBannerId) {
+  const wrap = document.getElementById("rw-banners");
+  const chipsEl = document.getElementById("rw-banner-chips");
+  const countEl = document.getElementById("owned-banners-count");
+  if (!wrap || !chipsEl) return;
+
+  const owned = BANNERS.filter((b) => (ownedBanners || []).some((o) => o.bannerId === b.id));
+  if (owned.length === 0) {
+    wrap.hidden = true;
+    chipsEl.innerHTML = "";
+    if (countEl) countEl.textContent = "0";
+    return;
+  }
+
+  wrap.hidden = false;
+  if (countEl) countEl.textContent = String(owned.length);
+
+  const preview = (banner) => {
+    const url = renderBannerUrl(banner, currentTheme());
+    return `<img src="${url}" alt="" width="${banner.cols}" height="${banner.rows}" loading="lazy">`;
+  };
+
+  const chip = (banner) => {
+    const rarity = RARITY_META[banner.rarity] || RARITY_META.common;
+    const active = activeBannerId === banner.id;
+    return `
+      <button type="button" class="rw-chip rw-chip-banner ${active ? "active" : ""}" data-banner-id="${esc(banner.id)}" title="${esc(banner.description)}">
+        <span class="rw-chip-preview">${preview(banner)}</span>
+        <span class="rw-chip-label">${esc(banner.name)}</span>
+        <span class="rw-chip-dot" style="background:${rarity.color}"></span>
+        ${active ? `<span class="rw-chip-badge">${T("pf.rw_active", "Actif")}</span>` : ""}
+      </button>
+    `;
+  };
+
+  const noneActive = !activeBannerId;
+  chipsEl.innerHTML =
+    `<button type="button" class="rw-chip rw-chip-banner ${noneActive ? "active" : ""}" data-banner-id="none" title="${esc(T("pf.rw_banner_none_title", "Retire la bannière — plaquette standard"))}">
+       <span class="rw-chip-preview rw-chip-none-preview">${T("pf.rw_banner_none", "Aucune")}</span>
+       <span class="rw-chip-label">${T("pf.rw_banner_none_label", "Standard")}</span>
+     </button>` +
+    owned.map(chip).join("");
+
+  chipsEl.querySelectorAll(".rw-chip[data-banner-id]").forEach((el) => {
+    el.addEventListener("click", () => handleActivateBanner(el.dataset.bannerId));
+  });
+}
+
+async function handleActivateBanner(bannerId) {
+  // Verrou : l'activation ne concerne que le profil du compte connecté
+  if (!editingAllowed) { showToast(T("pf.banner_lock", "Les bannières s’activent sur ton propre profil."), "warning"); return; }
+  const publicId = _rewardCardState.publicId;
+  if (!publicId) return;
+  try {
+    const result = await activateBanner(publicId, bannerId);
+    _rewardCardState.activeBannerId = result.activeBannerId;
+    // Applique (ou retire) immédiatement sur la plaquette affichée
+    paintBanner(document.querySelector(".pf2-id"), result.activeBannerId);
+    showToast(
+      bannerId === DEFAULT_BANNER_ID
+        ? T("pf.banner_removed", "Bannière retirée — plaquette standard")
+        : T("pf.banner_activated", "Bannière « {name} » appliquée sur ta plaquette !", { name: getBanner(bannerId)?.name || bannerId }),
+      "success"
+    );
+    renderOwnedBanners(_rewardCardState.ownedBanners, result.activeBannerId);
+  } catch (e) {
+    showToast(e.message || T("pf.banner_activate_fail", "Activation impossible"), "error");
   }
 }
 

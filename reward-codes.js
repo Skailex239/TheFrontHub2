@@ -230,6 +230,23 @@ export async function redeemCode(rawCode, publicId) {
   // Pré-validation locale du format (la vraie validation est côté serveur)
   const result = await apiPost({ action: "redeem", code, publicId });
 
+  // Bannière pixel art (skin_id préfixé banner_) : routée côté serveur vers
+  // tfh_user_banners. Le nom exact est résolu par l'appelant (catalogue
+  // banners.js) pour éviter un double import du module ici.
+  if (result.kind === "banner") {
+    invalidateActiveSkinCache(publicId); // sans effet pour les bannières, par hygiène
+    return {
+      ok: true,
+      alreadyOwned: !!result.alreadyOwned,
+      kind: "banner",
+      skinId: result.skinId,
+      skinName: result.skinId,
+      message: result.alreadyOwned
+        ? "Tu possèdes déjà cette bannière"
+        : "Bannière débloquée !",
+    };
+  }
+
   const skin = getSkin(result.skinId);
   if (result.alreadyOwned) {
     return {

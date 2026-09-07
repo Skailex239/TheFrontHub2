@@ -212,6 +212,31 @@ try {
                 fail(409, 'code_exhausted', 'Ce code a atteint sa limite d\'utilisations');
             }
 
+            /* ---------- Bannières (skin_id préfixé `banner_`) ----------
+             * Même table de codes, table de possession dédiée :
+             * tfh_user_banners (slot actif indépendant des skins). */
+            if (strpos($skinId, 'banner_') === 0) {
+                if (!preg_match('/^banner_[a-z0-9_-]{1,32}$/', $skinId)) {
+                    $pdo->rollBack();
+                    fail(400, 'invalid_skin', 'Code invalide (bannière inconnue)');
+                }
+
+                $ownB = $pdo->prepare('SELECT 1 FROM tfh_user_banners WHERE public_id = ? AND banner_id = ?');
+                $ownB->execute([$publicId, $skinId]);
+                if ($ownB->fetch() !== false) {
+                    $pdo->rollBack();
+                    json_out(['ok' => true, 'alreadyOwned' => true, 'skinId' => $skinId, 'kind' => 'banner']);
+                }
+
+                $pdo->prepare('UPDATE tfh_reward_codes SET uses = uses + 1 WHERE code = ?')->execute([$code]);
+                $pdo->prepare(
+                    'INSERT INTO tfh_user_banners (public_id, banner_id, code_used, active) VALUES (?, ?, ?, 0)'
+                )->execute([$publicId, $skinId, $code]);
+
+                $pdo->commit();
+                json_out(['ok' => true, 'alreadyOwned' => false, 'skinId' => $skinId, 'kind' => 'banner']);
+            }
+
             /* Déjà possédé ? */
             $own = $pdo->prepare('SELECT 1 FROM tfh_user_skins WHERE public_id = ? AND skin_id = ?');
             $own->execute([$publicId, $skinId]);
@@ -239,6 +264,10 @@ try {
             }
             if ($skinId !== 'default' && !valid_skin_id($skinId)) {
                 fail(400, 'invalid_skin', 'skinId invalide');
+            }
+            /* Les bannières s'activent via /api/banners.php (slot dédié). */
+            if (strpos($skinId, 'banner_') === 0) {
+                fail(400, 'invalid_skin', 'Les bannières s\'activent via /api/banners.php');
             }
 
             $pdo->beginTransaction();

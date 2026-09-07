@@ -413,6 +413,9 @@ const server = http.createServer(async (req, res) => {
     "/auth.js": ["auth.js", "text/javascript; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
     "/toast.js": ["toast.js", "text/javascript; charset=utf-8"],
+    "/skins.js": ["skins.js", "text/javascript; charset=utf-8"],
+    "/reward-codes.js": ["reward-codes.js", "text/javascript; charset=utf-8"],
+    "/banners.js": ["banners.js", "text/javascript; charset=utf-8"],
     "/sw.js": ["sw.js", "text/javascript; charset=utf-8"],
   };
 
