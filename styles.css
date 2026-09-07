@@ -2933,14 +2933,30 @@ button:active:not(:disabled),
    classements ranked / speedruns / hebdo : l'élément porte data-pfb-pid,
    le décorateur lui ajoute .pfb-name + .pfb-on et la variable --pfb-img.
    Même pavage que la plaquette du profil (auto 100% + repeat-x) → pixels
-   ~9-12 px, trame périodique sans raccord.
-   Lisibilité (fix 2026-09-07) : un VOILE semi-transparent est posé SUR la
-   bannière (1er background = linear-gradient plein) + text-shadow — les
-   skins pastel (prisme, gerbe…) restent lisibles sur les bannières claires
-   en mode jour. La bannière reste bien visible, le pseudo domine.
+   fins, trame périodique sans raccord.
+   ⚠️ Le motif est peint par ::before, JAMAIS sur le background de
+   l'élément : les skins de pseudo utilisent background-clip:text
+   (gradient clippé au glyphe) — poser un background-image écraserait le
+   gradient du skin et le rendrait illisible/noir.
+   Lisibilité : un VOILE semi-transparent est posé sur la bannière (1ère
+   couche du ::before). La bannière reste visible, le pseudo domine.
    Re-rendu clair/sombre géré par l'observateur de thème de banners.js.
    ════════════════════════════════════════════════════════════════ */
 .pfb-name.pfb-on {
+  position: relative;
+  isolation: isolate;         /* contexte d'empilement : ::before(-1) reste dans le chip */
+  border-radius: 6px;
+  padding: 2px 7px;
+  margin: -2px -3px;          /* absorbe le padding : pas de décalage de ligne */
+  box-shadow: inset 0 0 0 1px rgba(128, 128, 128, .28);
+}
+.pfb-name.pfb-on::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;                /* sous le texte, au-dessus du fond de ligne */
+  border-radius: inherit;
+  pointer-events: none;
   background-image:
     linear-gradient(rgba(255, 255, 255, .48), rgba(255, 255, 255, .48)),
     var(--pfb-img);
@@ -2948,35 +2964,30 @@ button:active:not(:disabled),
   background-position: left center, left center;
   background-repeat: repeat-x, repeat-x;
   image-rendering: pixelated;
-  border-radius: 6px;
-  padding: 2px 7px;
-  margin: -2px -3px;          /* absorbe le padding : pas de décalage de ligne */
-  box-shadow: inset 0 0 0 1px rgba(128, 128, 128, .28);
-  /* text-shadow est INTERDIT ici : il transperce les glyphs des skins à
-   * background-clip:text (text-fill transparent) et les assombrit.
-   * drop-shadow() contourne le glyphe rendu — lisible sur bannière. */
-  filter: drop-shadow(0 1px 1px rgba(255, 255, 255, .9));
 }
 /* Sombre : explicite (data-theme="dark") OU hérité (.dark), puis auto (OS)
    pour les visiteurs sans préférence explicite — même logique que le
    reste du site (styles.css ligne ~2159). */
-:root[data-theme="dark"] .pfb-name.pfb-on,
-:root.dark .pfb-name.pfb-on {
+:root[data-theme="dark"] .pfb-name.pfb-on::before,
+:root.dark .pfb-name.pfb-on::before {
   background-image:
     linear-gradient(rgba(12, 10, 18, .22), rgba(12, 10, 18, .22)),
     var(--pfb-img);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
-  /* pas de drop-shadow en sombre : les gradients des skins sont déjà
-   * clairs/vifs sur fond sombre — une ombre ne fait que les ternir. */
-  filter: none;
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .pfb-name.pfb-on {
+  :root:not([data-theme="light"]) .pfb-name.pfb-on::before {
     background-image:
       linear-gradient(rgba(12, 10, 18, .22), rgba(12, 10, 18, .22)),
       var(--pfb-img);
+  }
+}
+:root[data-theme="dark"] .pfb-name.pfb-on,
+:root.dark .pfb-name.pfb-on {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pfb-name.pfb-on {
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
-    filter: none;
   }
 }
 
