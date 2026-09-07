@@ -2933,22 +2933,34 @@ button:active:not(:disabled),
    classements ranked / speedruns / hebdo : l'élément porte data-pfb-pid,
    le décorateur lui ajoute .pfb-name + .pfb-on et la variable --pfb-img.
    Même pavage que la plaquette du profil (auto 100% + repeat-x) → pixels
-   ~9-12 px, trame périodique sans raccord. Fondu de bord pour que le
-   pseudo reste lisible au-dessus du motif. Re-rendu clair/sombre géré
-   par l'observateur de thème de banners.js (palettes l/d).
+   ~9-12 px, trame périodique sans raccord.
+   Lisibilité (fix 2026-09-07) : un VOILE semi-transparent est posé SUR la
+   bannière (1er background = linear-gradient plein) + text-shadow — les
+   skins pastel (prisme, gerbe…) restent lisibles sur les bannières claires
+   en mode jour. La bannière reste bien visible, le pseudo domine.
+   Re-rendu clair/sombre géré par l'observateur de thème de banners.js.
    ════════════════════════════════════════════════════════════════ */
 .pfb-name.pfb-on {
-  background-image: var(--pfb-img);
-  background-size: auto 100%;
-  background-position: left center;
-  background-repeat: repeat-x;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, .58), rgba(255, 255, 255, .58)),
+    var(--pfb-img);
+  background-size: auto 100%, auto 100%;
+  background-position: left center, left center;
+  background-repeat: repeat-x, repeat-x;
   image-rendering: pixelated;
   border-radius: 6px;
   padding: 2px 7px;
   margin: -2px -3px;          /* absorbe le padding : pas de décalage de ligne */
   box-shadow: inset 0 0 0 1px rgba(128, 128, 128, .28);
+  text-shadow: 0 1px 2px rgba(255, 255, 255, .85);
 }
-:root.dark .pfb-name.pfb-on { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14); }
+:root.dark .pfb-name.pfb-on {
+  background-image:
+    linear-gradient(rgba(12, 10, 18, .42), rgba(12, 10, 18, .42)),
+    var(--pfb-img);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .85);
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    BANDEROLE « Mises à jour prochainement » (toutes pages, fermable)
