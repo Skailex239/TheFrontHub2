@@ -2,19 +2,27 @@
 //   about.html    → clés about.*
 //   privacy.html  → clés priv.*
 //   legal.html    → clés legal.*
-// Chargé AVANT i18n.min.js ; fusionné par i18n.js via window.__TFH_I18N_PARTIALS__.
-// Convention : une clé par chaîne traduisible ; data-i18n-html pour les chaînes HTML.
-// NB : les clés footer.* (colonne « Informations ») sont dans i18n-dict-widgets.js.
+// + les 9 clés du gabarit absentes de la base i18n.js (theme.*, auth.login,
+//   home.*, footer.made_with_*, footer.not_affiliated) reprises des dicts
+//   support/home. Le reste du chrome (nav.*, auth.dropdown_*, modal.close…)
+// est déjà dans la base i18n.js. La colonne « Informations » du footer
+// (footer.info_*) vient de i18n-dict-widgets.js (chargé partout).
+// Chargé AVANT i18n.min.js ; fusionné via window.__TFH_I18N_PARTIALS__.
 
 window.__TFH_I18N_PARTIALS__ = window.__TFH_I18N_PARTIALS__ || {};
 window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr || {}, {
-
-  /* ═══════════════ Clés utilitaires du gabarit ═══════════════ */
+  "home.logo_aria": "Aller au tableau de bord",
+  "home.made_with_prefix": "Fait avec",
+  "home.made_with_suffix": "par la communauté",
+  "theme.title": "Changer de thème",
+  "theme.aria": "Basculer thème clair/sombre",
+  "auth.login": "Connexion",
+  "footer.not_affiliated": "TheFrontHub. Non affilié à OpenFront.io.",
+  "footer.made_with_pre": "Fait avec",
+  "footer.made_with_suf": "par la communauté",
   "doc.skip_link": "Aller au contenu principal",
   "doc.logo_aria": "Aller au tableau de bord",
   "doc.nav_aria": "Navigation principale",
-
-  /* ═══════════════ À PROPOS (about.html) ═══════════════ */
   "about.topbar_title": "À propos",
   "about.topbar_subtitle": "TheFrontHub — le hub communautaire d'OpenFront.io",
   "about.hero_title": "Le hub ultime pour OpenFront.io",
@@ -42,8 +50,6 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   "about.community_title": "Un projet communautaire",
   "about.community_p1": "TheFrontHub est développé et maintenu par des fans d'OpenFront.io, sur leur temps libre. Il est financé par une publicité discrète qui couvre les coûts d'hébergement — rien d'autre. Les idées de la communauté façonnent les prochaines mises à jour : propose les tiennes sur le Discord ou via le support.",
   "about.disclaimer": "<b>TheFrontHub est un projet de fans, non affilié à OpenFront.io.</b> Tous les noms, marques et contenus liés au jeu appartiennent à leurs propriétaires respectifs. Voir nos <a href=\"legal.html\">mentions légales</a> et notre <a href=\"privacy.html\">politique de confidentialité</a>.",
-
-  /* ═══════════════ CONFIDENTIALITÉ (privacy.html) ═══════════════ */
   "priv.topbar_title": "Politique de confidentialité",
   "priv.topbar_subtitle": "Cookies, Google Analytics, Google AdSense et tes droits",
   "priv.updated": "Dernière mise à jour : 7 septembre 2026",
@@ -102,8 +108,6 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   "priv.changes_t": "Modifications de cette politique",
   "priv.changes_d": "Cette politique peut évoluer (nouvelles fonctionnalités, évolutions légales). La date de mise à jour en haut de page est modifiée à chaque changement notable ; les traceurs restent soumis au consentement quel que soit le cas.",
   "priv.questions": "Une question sur cette page ? Écris-nous à <a href=\"mailto:support@thefronthub.com\">support@thefronthub.com</a> ou ouvre un ticket sur la <a href=\"support.html\">page Support</a>.",
-
-  /* ═══════════════ MENTIONS LÉGALES (legal.html) ═══════════════ */
   "legal.topbar_title": "Mentions légales",
   "legal.topbar_subtitle": "Éditeur, hébergement, contact et propriété intellectuelle",
   "legal.updated": "Dernière mise à jour : 7 septembre 2026",
@@ -127,13 +131,18 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
 });
 
 window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en || {}, {
-
-  /* ═══════════════ Template utility keys ═══════════════ */
+  "home.logo_aria": "Go to the dashboard",
+  "home.made_with_prefix": "Made with",
+  "home.made_with_suffix": "by the community",
+  "theme.title": "Switch theme",
+  "theme.aria": "Toggle light/dark theme",
+  "auth.login": "Sign in",
+  "footer.not_affiliated": "TheFrontHub. Not affiliated with OpenFront.io.",
+  "footer.made_with_pre": "Made with",
+  "footer.made_with_suf": "by the community",
   "doc.skip_link": "Skip to main content",
   "doc.logo_aria": "Go to the dashboard",
   "doc.nav_aria": "Main navigation",
-
-  /* ═══════════════ ABOUT (about.html) ═══════════════ */
   "about.topbar_title": "About",
   "about.topbar_subtitle": "TheFrontHub — the OpenFront.io community hub",
   "about.hero_title": "The ultimate hub for OpenFront.io",
@@ -161,8 +170,6 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
   "about.community_title": "A community project",
   "about.community_p1": "TheFrontHub is developed and maintained by OpenFront.io fans in their spare time. It is funded by discreet advertising that covers hosting costs — nothing else. Community ideas shape upcoming updates: share yours on Discord or through support.",
   "about.disclaimer": "<b>TheFrontHub is a fan project, not affiliated with OpenFront.io.</b> All game-related names, brands and content belong to their respective owners. See our <a href=\"legal.html\">legal notice</a> and <a href=\"privacy.html\">privacy policy</a>.",
-
-  /* ═══════════════ PRIVACY (privacy.html) ═══════════════ */
   "priv.topbar_title": "Privacy Policy",
   "priv.topbar_subtitle": "Cookies, Google Analytics, Google AdSense and your rights",
   "priv.updated": "Last updated: September 7, 2026",
@@ -221,8 +228,6 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
   "priv.changes_t": "Changes to this policy",
   "priv.changes_d": "This policy may evolve (new features, legal changes). The update date at the top of the page changes with every notable amendment; trackers remain subject to consent in all cases.",
   "priv.questions": "A question about this page? Write to us at <a href=\"mailto:support@thefronthub.com\">support@thefronthub.com</a> or open a ticket on the <a href=\"support.html\">Support page</a>.",
-
-  /* ═══════════════ LEGAL NOTICE (legal.html) ═══════════════ */
   "legal.topbar_title": "Legal notice",
   "legal.topbar_subtitle": "Publisher, hosting, contact and intellectual property",
   "legal.updated": "Last updated: September 7, 2026",
