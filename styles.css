@@ -2383,6 +2383,10 @@ button:active:not(:disabled),
 @media (min-width: 901px) {
   .tfh-footer {
     margin-left: 260px;
+    /* width:auto (et non 100%) : 100% + marge 260px débordait le document
+       en horizontal (scrollX parasite au scrollIntoView / drag). En auto, le
+       footer remplit l'espace restant sans élargir la page. */
+    width: auto;
   }
 }
 
