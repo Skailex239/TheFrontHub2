@@ -1,5 +1,5 @@
 /*!
- * cookies.js — Bandeau de consentement cookies TheFrontHub (CNIL / RGPD)
+ * cookies.js v3 — Bandeau de consentement TheFrontHub (CNIL / RGPD) — + lien "Politique de confidentialité"
  * ---------------------------------------------------------------------------
  * Architecture (Consent Mode v2, vie privée d'abord) :
  *   1. consent 'default' TOUT à 'denied' AVANT tout le reste
@@ -37,6 +37,7 @@
       deny: "Tout refuser",
       custom: "Personnaliser",
       close: "Fermer",
+      privacy: "Politique de confidentialité",
       mtitle: "Préférences cookies",
       ana_t: "Mesure d'audience",
       ana_d: "Google Analytics — pages visitées, conservées 13 mois maximum.",
@@ -54,6 +55,7 @@
       deny: "Reject all",
       custom: "Customize",
       close: "Close",
+      privacy: "Privacy policy",
       mtitle: "Cookie preferences",
       ana_t: "Audience measurement",
       ana_d: "Google Analytics — visited pages, kept 13 months max.",
@@ -166,10 +168,12 @@
     ".tfsck-accept:hover{filter:brightness(1.08);box-shadow:0 6px 20px rgba(255,107,0,.45)}" +
     ".tfsck-deny{background:transparent;color:var(--fg-secondary,#3F3F46);border-color:var(--border-strong,#D4D4D8)}" +
     ".tfsck-deny:hover{border-color:var(--fg-muted,#71717A);color:var(--fg,#18181B)}" +
-    ".tfsck-customline{text-align:center;margin-top:10px}" +
+    ".tfsck-customline{text-align:center;margin-top:10px;display:flex;justify-content:center;align-items:center;gap:6px;flex-wrap:wrap}" +
     ".tfsck-custom{background:none;border:none;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;" +
-      "color:var(--fg-muted,#71717A);text-decoration:underline;text-underline-offset:3px;padding:6px 10px;border-radius:8px}" +
+      "color:var(--fg-muted,#71717A);text-decoration:underline;text-underline-offset:3px;padding:6px 10px;border-radius:8px;display:inline-block}" +
     ".tfsck-custom:hover{color:var(--orange,#ff6b00)}" +
+    ".tfsck-plink{font-size:12px;font-weight:600;color:var(--fg-muted,#71717A);text-decoration:underline;text-underline-offset:3px;padding:6px 10px;border-radius:8px;display:inline-block}" +
+    ".tfsck-plink:hover{color:var(--orange,#ff6b00)}" +
     ".tfsck-x{position:absolute;top:10px;right:10px;width:32px;height:32px;border-radius:10px;border:none;background:transparent;" +
       "color:var(--fg-subtle,#A1A1AA);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px;line-height:1}" +
     ".tfsck-x:hover{background:var(--bg-muted,#F4F4F5);color:var(--fg,#18181B)}" +
@@ -280,6 +284,7 @@
           '<label class="tfsck-sw"><input type="checkbox" id="tfsck-ads"><span aria-hidden="true"></span></label>' +
         "</div>" +
         '<p class="tfsck-note">' + t.note + "</p>" +
+        '<p class="tfsck-note"><a class="tfsck-plink" href="privacy.html">' + t.privacy + "</a></p>" +
         '<button type="button" class="tfsck-btn tfsck-accept tfsck-save">' + t.save + "</button>" +
       "</div>";
     document.body.appendChild(overlay);
@@ -330,7 +335,10 @@
         '<button type="button" class="tfsck-btn tfsck-deny">' + t.deny + "</button>" +
         '<button type="button" class="tfsck-btn tfsck-accept">' + t.accept + "</button>" +
       "</div>" +
-      '<div class="tfsck-customline"><button type="button" class="tfsck-custom">' + t.custom + "</button></div>";
+      '<div class="tfsck-customline">' +
+        '<button type="button" class="tfsck-custom">' + t.custom + "</button>" +
+        '<a class="tfsck-plink" href="privacy.html">' + t.privacy + "</a>" +
+      "</div>";
     banner.querySelector(".tfsck-x").addEventListener("click", dismissSession);
     banner.querySelector(".tfsck-accept").addEventListener("click", onAcceptAll);
     banner.querySelector(".tfsck-deny").addEventListener("click", onDenyAll);

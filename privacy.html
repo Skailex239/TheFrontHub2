@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta name="google-adsense-account" content="ca-pub-2991878097014222">
+<title>TheFrontHub — Politique de confidentialité</title>
+<meta name="description" content="How TheFrontHub uses cookies, Google Analytics and Google AdSense: data collected, purposes, retention and your GDPR rights.">
+<meta property="og:title" content="TheFrontHub — Privacy Policy">
+<meta property="og:description" content="Cookies, Google Analytics, Google AdSense — data, purposes, retention and your rights.">
+<meta property="og:image" content="https://thefronthub.com/TheFrontHub%20Logo%20Text.png">
+<meta property="og:url" content="https://thefronthub.com/privacy.html">
+<meta property="og:type" content="website">
+<link rel="icon" type="image/png" href="favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="180x180" href="favicon-180x180.png">
+<link rel="apple-touch-icon" sizes="180x180" href="favicon-180x180.png">
+
+<!-- Performance: preconnect + dns-prefetch -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://pagead2.googlesyndication.com" crossorigin>
+
+<!-- Performance: Preload critical assets -->
+<link rel="preload" href="styles.css?v=82" as="style">
+
+<!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Orbitron:wght@900&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="styles.css?v=82">
+<link rel="stylesheet" href="auth.css?v=20">
+<link rel="stylesheet" href="toast.css">
+<link rel="stylesheet" href="animations.css?v=6">
+<link rel="stylesheet" href="ads.css?v=2">
+<style>.skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}</style>
+<script type="module" src="dist/icons.min.js?v=9"></script>
+
+<!-- i18n : dict de page (synchrone, avant i18n.js) + moteur + sélecteur de langue -->
+<script src="dist/i18n-dict-pages.min.js?v=1"></script>
+<script src="dist/i18n-dict-widgets.min.js?v=3"></script>
+<script src="dist/i18n.min.js?v=4" defer></script>
+<script src="dist/lang-switcher.min.js?v=2" defer></script>
+
+<!-- Cookies / CNIL — Consent Mode v2, gtag chargé par cookies.js après le choix -->
+<link rel="preconnect" href="https://www.googletagmanager.com" crossorigin>
+<script src="cookies.js?v=3"></script>
+
+<style>
+  /* ── Pages documentaires (about / privacy / legal) ── */
+  .doc{max-width:860px}
+  .doc-card{background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px 26px;margin-bottom:16px}
+  .doc-card h2{font-size:19px;font-weight:800;letter-spacing:-.02em;color:var(--fg);margin:0 0 12px;display:flex;align-items:center;gap:10px}
+  .doc-card h2 .icon{color:var(--accent);flex:0 0 auto}
+  .doc-card h3{font-size:15px;font-weight:800;color:var(--fg);margin:14px 0 4px}
+  .doc-card p{font-size:14.5px;line-height:1.7;color:var(--fg-secondary);margin:0 0 10px}
+  .doc-card p:last-child{margin-bottom:0}
+  .doc-card a{color:var(--accent);text-decoration:underline;text-underline-offset:3px}
+  .doc-card code{background:var(--bg-muted);border:1px solid var(--border);border-radius:6px;padding:1px 6px;font-family:"JetBrains Mono",monospace;font-size:12.5px;color:var(--fg-secondary)}
+  .doc-updated{font-size:12.5px;color:var(--fg-muted);margin:0 0 16px}
+  .doc-num{flex:0 0 auto;width:28px;height:28px;border-radius:9px;background:var(--accent-subtle);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;font-size:14px;font-weight:800}
+  .doc-table-wrap{overflow-x:auto}
+  .doc-table{width:100%;border-collapse:collapse;margin:6px 0 4px;font-size:13.5px;min-width:560px}
+  .doc-table th{background:var(--bg-muted);color:var(--fg);text-align:left;font-weight:700;padding:9px 10px;border:1px solid var(--border)}
+  .doc-table td{padding:9px 10px;border:1px solid var(--border);color:var(--fg-secondary);vertical-align:top;line-height:1.55}
+  .doc-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+  .doc-btn{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:10px 18px;border-radius:var(--radius);background:linear-gradient(135deg,#ff6b00,#ff9500);color:#fff;font-weight:800;font-size:14px;border:1px solid transparent;cursor:pointer;text-decoration:none;transition:transform .15s,filter .2s;-webkit-tap-highlight-color:transparent}
+  .doc-btn:hover{filter:brightness(1.07)}
+  .doc-btn:active{transform:scale(.97)}
+  .doc-btn .icon{color:#fff}
+  .doc-btn-ghost{background:transparent;color:var(--fg-secondary);border-color:var(--border-strong)}
+  .doc-btn-ghost:hover{border-color:var(--fg-muted);color:var(--fg)}
+  @media(max-width:640px){.doc-card{padding:18px 16px}.doc-table{font-size:12px;min-width:480px}.doc-table th,.doc-table td{padding:7px 8px}}
+
+  /* ── Hero à propos ── */
+  .about-hero{display:flex;flex-direction:column;align-items:flex-start;gap:14px;background:linear-gradient(135deg,var(--accent-subtle),var(--bg-subtle))}
+  .about-hero-logo{height:44px;width:auto}
+  .about-hero-text{font-size:16px !important;line-height:1.7 !important;color:var(--fg-secondary) !important;max-width:640px}
+
+  /* ── Grille de fonctionnalités ── */
+  .about-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:4px}
+  .about-feat{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+  .about-feat .icon{color:var(--accent)}
+  .about-feat h3{font-size:15px;font-weight:800;margin:10px 0 6px;color:var(--fg)}
+  .about-feat p{font-size:13.5px;line-height:1.6;color:var(--fg-muted);margin:0}
+</style>
+</head>
+<body>
+<a href="#doc-content" class="skip-link" data-i18n="doc.skip_link">Aller au contenu principal</a>
+<div class="loading-bar-track"><div class="loading-bar-fill" id="loading-bar"></div></div>
+
+<div class="page-wrap">
+
+<div class="app">
+
+  <!-- ═══ SIDEBAR ═══ -->
+  <aside class="sidebar">
+
+    <div class="logo" onclick="logoClickAnim(event)" role="link" aria-label="Aller au tableau de bord" data-i18n-aria="doc.logo_aria" tabindex="0">
+      <img src="TheFrontHub Logo Text.png" alt="TheFrontHub" loading="eager">
+    </div>
+
+    <nav aria-label="Navigation principale" data-i18n-aria="doc.nav_aria">
+      <a class="nav-item tab-btn" href="dashboard.html">
+        <i data-icon="home"></i> <span data-i18n="nav.dashboard">Tableau de bord</span>
+      </a>
+      <a class="nav-item tab-btn" href="index.html">
+        <i data-icon="trophy"></i> <span data-i18n="nav.maps">Speedruns</span>
+      </a>
+      <a class="nav-item tab-btn" href="index.html?tab=ranked">
+        <i data-icon="ladder"></i> <span data-i18n="nav.ranked">Classé</span>
+      </a>
+      <a class="nav-item tab-btn" href="lobby.html">
+        <i data-icon="bolt"></i> <span data-i18n="nav.lobby">Lobby</span>
+      </a>
+      <a class="nav-item tab-btn" href="atlas.html">
+        <i data-icon="map"></i> <span data-i18n="nav.atlas">Atlas</span>
+      </a>
+      <a class="nav-item tab-btn" href="tournois.html">
+        <i data-icon="medal"></i> <span data-i18n="nav.tournaments">Tournois</span>
+      </a>
+      <a class="nav-item tab-btn" href="support.html">
+        <i data-icon="lifebuoy"></i> <span data-i18n="nav.support">Support</span>
+      </a>
+    </nav>
+
+    <!-- Theme toggle (sombre / clair "soleil" / auto) -->
+    <button class="theme-toggle" onclick="toggleTheme()" title="Changer de thème" data-i18n-title="theme.title" aria-label="Basculer thème clair/sombre" data-i18n-aria="theme.aria">
+      <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="5"/>
+        <line x1="12" y1="1" x2="12" y2="3"/>
+        <line x1="12" y1="21" x2="12" y2="23"/>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+        <line x1="1" y1="12" x2="3" y2="12"/>
+        <line x1="21" y1="12" x2="23" y2="12"/>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+      </svg>
+      <svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
+
+    <!-- Profile / Auth -->
+    <div class="sidebar-profile">
+      <div class="auth-zone" id="auth-zone">
+        <button class="login-btn login-btn-sidebar" onclick="toggleAuthModal()" id="login-btn-main">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <span data-i18n="auth.login">Connexion</span>
+        </button>
+      </div>
+      <div class="user-container" id="user-container" style="display: none;">
+        <div class="user-badge" id="user-badge-btn" onclick="toggleUserDropdown(event)">
+          <div class="profile-avatar" id="sidebar-avatar">—</div>
+          <div class="profile-info">
+            <h4 id="user-display-name">—</h4>
+            <span data-i18n="auth.dropdown_online">En ligne</span>
+          </div>
+          <svg class="chevron-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left:auto;color:var(--muted);flex-shrink:0"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="user-dropdown-menu" id="user-dropdown-menu">
+          <div class="dropdown-header">
+            <div class="dropdown-avatar" id="dropdown-avatar"></div>
+            <div class="dropdown-user-info">
+              <div class="dropdown-username" id="dropdown-username-display">—</div>
+              <div class="dropdown-publicid" id="dropdown-publicid-display">—</div>
+            </div>
+          </div>
+          <div class="dropdown-divider"></div>
+          <button class="dropdown-item" onclick="goToProfilePage(event)">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span data-i18n="auth.dropdown_my_profile">Mon profil</span>
+          </button>
+          <button class="dropdown-item logout" onclick="handleLogout(event)">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            <span data-i18n="auth.dropdown_logout">Se déconnecter</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ═══ MAIN CONTENT ═══ -->
+  <main class="content" id="doc-content">
+    <header class="topbar">
+      <div>
+        <h1 id="topbar-title" data-i18n="priv.topbar_title">Politique de confidentialité</h1>
+        <p id="topbar-subtitle" data-i18n="priv.topbar_subtitle">Cookies, Google Analytics, Google AdSense et tes droits</p>
+      </div>
+      <div class="topbar-right">
+      </div>
+    </header>
+
+    <div class="doc">
+    <p class="doc-updated" data-i18n="priv.updated">Dernière mise à jour : 7 septembre 2026</p>
+
+    <section class="doc-card">
+      <p data-i18n-html="priv.intro">La protection de ta vie privée est importante pour nous. Cette page explique, en toute transparence, quelles données sont collectées sur TheFrontHub, pourquoi, combien de temps elles sont conservées et comment exercer tes droits. En résumé&nbsp;: <b>rien n'est déposé ni lu avant ton choix</b> dans le bandeau cookies, et tu peux changer d'avis à tout moment.</p>
+    </section>
+
+    <section class="doc-card">
+      <h2><span class="doc-num">1</span><span data-i18n="priv.resp_t">Responsable du traitement</span></h2>
+      <p data-i18n-html="priv.resp_d">TheFrontHub — projet communautaire de fans d'OpenFront.io. Contact du responsable&nbsp;: <a href="mailto:support@thefronthub.com">support@thefronthub.com</a>.</p>
+    </section>
+
+    <section class="doc-card">
+      <h2><span class="doc-num">2</span><span data-i18n="priv.data_t">Données collectées</span></h2>
+      <p data-i18n="priv.data_intro">Selon ton usage du site, trois catégories de données peuvent être traitées&nbsp;:</p>
+      <h3 data-i18n="priv.data_discord_t">Compte Discord (si tu te connectes)</h3>
+      <p data-i18n-html="priv.data_discord_d">La connexion se fait via Discord OAuth&nbsp;: nous recevons ton <b>identifiant Discord</b>, ton <b>pseudo</b> et l'URL de ton <b>avatar</b>. Aucun mot de passe, aucun email&nbsp;: Discord gère l'authentification. Ces données servent uniquement à créer et afficher ton profil TheFrontHub.</p>
+      <h3 data-i18n="priv.data_game_t">Statistiques de jeu publiques</h3>
+      <p data-i18n-html="priv.data_game_d">Le site synchronise les <b>données publiques d'OpenFront.io</b> (pseudos, parties, scores, temps, classements) pour construire les leaderboards et profils joueurs. Ces informations sont déjà publiques dans le jeu.</p>
+      <h3 data-i18n="priv.data_tech_t">Données techniques</h3>
+      <p data-i18n-html="priv.data_tech_d">Comme tout site, l'hébergeur conserve des <b>journaux techniques</b> (adresse IP, navigateur, pages demandées) à des fins de sécurité. Le site utilise aussi le <b>stockage local de ton navigateur</b> (localStorage) pour tes préférences&nbsp;: thème, langue et choix cookies.</p>
+    </section>
+
+    <section class="doc-card">
+      <h2><span class="doc-num">3</span><span data-i18n="priv.cookies_t">Cookies et stockage local</span></h2>
+      <p data-i18n="priv.cookies_d">Voici la liste exhaustive des traceurs utilisés sur TheFrontHub&nbsp;:</p>
+      <div class="doc-table-wrap">
+      <table class="doc-table">
+        <thead>
+          <tr><th data-i18n="priv.th_name">Nom</th><th data-i18n="priv.th_type">Catégorie</th><th data-i18n="priv.th_purpose">Finalité</th><th data-i18n="priv.th_duration">Durée</th></tr>
+        </thead>
+        <tbody>
+          <tr><td data-i18n="priv.c1_name">tfs-consent (localStorage)</td><td data-i18n="priv.c1_type">Préférences — exempté</td><td data-i18n="priv.c1_purpose">Mémorise ton choix cookies (mesure d'audience / publicité).</td><td data-i18n="priv.c1_duration">13 mois max. ou retrait du consentement</td></tr>
+          <tr><td data-i18n="priv.c2_name">tfs-theme, openfront_lang (localStorage)</td><td data-i18n="priv.c2_type">Préférences — exempté</td><td data-i18n="priv.c2_purpose">Thème clair/sombre et langue du site.</td><td data-i18n="priv.c2_duration">Jusqu'à effacement de tes données navigateur</td></tr>
+          <tr><td data-i18n="priv.c3_name">Session PHP (cookie)</td><td data-i18n="priv.c3_type">Strictement nécessaire</td><td data-i18n="priv.c3_purpose">Te maintenir connecté après la connexion Discord.</td><td data-i18n="priv.c3_duration">Le temps de la session</td></tr>
+          <tr><td data-i18n="priv.c4_name">_ga, _ga_* (Google Analytics)</td><td data-i18n="priv.c4_type">Mesure d'audience — sur consentement</td><td data-i18n="priv.c4_purpose">Statistiques de visite (pages vues, parcours) pour améliorer le site.</td><td data-i18n="priv.c4_duration">13 mois maximum</td></tr>
+          <tr><td data-i18n="priv.c5_name">Cookies Google AdSense / DoubleClick</td><td data-i18n="priv.c5_type">Publicité — sur consentement</td><td data-i18n="priv.c5_purpose">Affichage et mesure des annonces, personnalisation si acceptée.</td><td data-i18n="priv.c5_duration">≤ 13 mois (selon Google)</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <section class="doc-card">
+      <h2><span class="doc-num">4</span><span data-i18n="priv.ga_t">Google Analytics</span></h2>
+      <p data-i18n-html="priv.ga_d">Nous utilisons Google Analytics 4 (ID <code>G-GNY8ZYKCZB</code>) pour mesurer l'audience du site de façon anonyme. Grâce au <b>Consent Mode v2</b>, la mesure est <b>désactivée par défaut</b>&nbsp;: aucun cookie analytics n'est déposé et aucun hit n'est envoyé tant que tu n'as pas accepté la «&nbsp;mesure d'audience&nbsp;». Les données sont transmises à Google, qui peut les traiter hors Union européenne (encadrement via les clauses contractuelles types). En savoir plus&nbsp;: <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">Confidentialité Google</a>.</p>
+    </section>
+
+    <section class="doc-card">
+      <h2><span class="doc-num">5</span><span data-i18n="priv.ads_t">Google AdSense (publicité)</span></h2>
+      <p data-i18n-html="priv.ads_d">Le site affiche des annonces via Google AdSense (éditeur <code>ca-pub-2991878097014222</code>) pour financer l'hébergement. <b>Sans ton consentement</b> publicitaire, seules des <b>annonces non personnalisées</b> peuvent être servies, sans profil publicitaire. Si tu acceptes, Google et ses partenaires peuvent déposer des cookies pour personnaliser les annonces selon tes visites. Tu peux revoir tes préférences à tout moment via le bouton 🍪 ou sur <a href="https://adssettings.google.com" target="_blank" rel="noreferrer">adssettings.google.com</a> — voir aussi <a href="https://policies.google.com/technologies/ads" target="_blank" rel="noreferrer">publicités Google</a>.</p>
+    </section>
+
+    <section class="doc-card">
+      <h2><span class="doc-num">6</span><span data-i18n="priv.consent_t">Gérer ton consentement</span></h2>
+      <p data-i18n="priv.consent_d">Tu as accepté, refusé ou personnalisé tes choix&nbsp;? Tu peux les modifier à tout moment&nbsp;: le bouton 🍪 en bas à droite de l'écran rouvre le panneau de préférences, et le bouton ci-dessous aussi.</p>
+      <div class="doc-actions">
+        <button type="button" class="doc-btn" onclick="if(window.openCookiePreferences){window.openCookiePreferences();}" data-i18n="priv.btn_manage">🍪 Gérer mes cookies</button>
+      </div>
+    </section>
+
+    <section class="doc-card">
+      <h2><span class="doc-num">7</span><span data-i18n="priv.duration_t">Durée de conservation</span></h2>
+      <p data-i18n-html="priv.duration_d"><b>Compte Discord&nbsp;:</b> conservé tant que ton profil est actif&nbsp;; supprimé sur simple demande par email. <b>Statistiques de jeu&nbsp;:</b> conservées pour l'historique des classements (durée de vie du site). <b>Traceurs&nbsp;:</b> 13 mois maximum (conformément aux recommandations de la CNIL). <b>Journaux techniques&nbsp;:</b> durée limitée définie par l'hébergeur (o2switch).</p>
+    </section>
+
+    <section class="doc-card">
+      <h2><span class="doc-num">8</span><span data-i18n="priv.rights_t">Tes droits (RGPD)</span></h2>
+      <p data-i18n-html="priv.rights_d">Tu disposes des droits suivants sur tes données personnelles&nbsp;: <b>accès</b>, <b>rectification</b>, <b>effacement</b>, <b>limitation</b>, <b>opposition</b> et <b>portabilité</b>. Pour les exercer, une seule adresse&nbsp;: <a href="mailto:support@thefronthub.com">support@thefronthub.com</a> — nous répondons sous 30 jours. Si tu estimes que tes droits ne sont pas respectés, tu peux introduire une réclamation auprès de la <a href="https://www.cnil.fr" target="_blank" rel="noreferrer">CNIL</a>.</p>
+    </section>
+
+    <section class="doc-card">
+      <h2><span class="doc-num">9</span><span data-i18n="priv.security_t">Sécurité</span></h2>
+      <p data-i18n-html="priv.security_d">Le site est intégralement servi en <b>HTTPS</b>, hébergé en <b>France</b> (o2switch, Toulouse). Les accès d'administration sont restreints et authentifiés. Aucun mot de passe n'est stocké&nbsp;: l'authentification est déléguée à Discord.</p>
+    </section>
+
+    <section class="doc-card">
+      <h2><span class="doc-num">10</span><span data-i18n="priv.minors_t">Mineurs</span></h2>
+      <p data-i18n="priv.minors_d">TheFrontHub s'adresse au grand public. Si tu es mineur, demande l'accord d'un parent avant de créer un compte ou d'accepter les cookies publicitaires.</p>
+    </section>
+
+    <section class="doc-card">
+      <h2><span class="doc-num">11</span><span data-i18n="priv.changes_t">Modifications de cette politique</span></h2>
+      <p data-i18n="priv.changes_d">Cette politique peut évoluer (nouvelles fonctionnalités, évolutions légales). La date de mise à jour en haut de page est modifiée à chaque changement notable&nbsp;; les traceurs restent soumis au consentement quel que soit le cas.</p>
+    </section>
+
+    <section class="doc-card">
+      <p data-i18n-html="priv.questions">Une question sur cette page&nbsp;? Écris-nous à <a href="mailto:support@thefronthub.com">support@thefronthub.com</a> ou ouvre un ticket sur la <a href="support.html">page Support</a>.</p>
+    </section>
+  </div>
+
+  </main>
+
+</div><!-- /.app -->
+
+</div><!-- /.page-wrap -->
+
+<!-- ═══ FOOTER (commun à toutes les pages) ═══ -->
+<footer class="tfh-footer">
+  <div class="tfh-footer-container">
+    <div class="tfh-footer-col tfh-footer-brand">
+      <a href="index.html" class="tfh-footer-logo">
+        <img src="TheFrontHub Logo Text.png" alt="TheFrontHub" loading="lazy">
+      </a>
+      <p class="tfh-footer-tagline" data-i18n="footer.tagline">Le hub ultime pour OpenFront.io — speedruns, classements, tournois et stats joueurs.</p>
+      <a href="https://discord.gg/AZhmqRvbNh" target="_blank" rel="noreferrer" class="tfh-footer-discord">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true" focusable="false"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028 14.09 14.09 0 001.226-1.994.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+        <span data-i18n="footer.join_discord">Rejoindre le Discord</span>
+      </a>
+    </div>
+
+    <div class="tfh-footer-col">
+      <h4 class="tfh-footer-title" data-i18n="footer.nav_title">Navigation</h4>
+      <ul class="tfh-footer-links">
+        <li><a href="dashboard.html" data-i18n="nav.dashboard">Tableau de bord</a></li>
+        <li><a href="index.html" data-i18n="nav.maps">Speedruns</a></li>
+        <li><a href="index.html?tab=ranked" data-i18n="nav.ranked">Classé</a></li>
+        <li><a href="lobby.html" data-i18n="nav.lobby">Lobby</a></li>
+        <li><a href="atlas.html" data-i18n="nav.atlas">Atlas</a></li>
+        <li><a href="tournois.html" data-i18n="nav.tournaments">Tournois</a></li>
+        <li><a href="support.html" data-i18n="nav.support">Support</a></li>
+      </ul>
+    </div>
+
+    <div class="tfh-footer-col">
+      <h4 class="tfh-footer-title" data-i18n="footer.player_title">Joueur</h4>
+      <ul class="tfh-footer-links">
+        <li><a href="profile.html" data-i18n="footer.my_profile">Mon profil</a></li>
+        <li><a href="support.html" data-i18n="footer.contact_team">Contacter l'équipe</a></li>
+        <li><a href="https://openfront.io" target="_blank" rel="noreferrer" data-i18n="footer.play_openfront">Jouer à OpenFront ↗</a></li>
+      </ul>
+    </div>
+
+    <div class="tfh-footer-col">
+      <h4 class="tfh-footer-title" data-i18n="footer.info_title">Informations</h4>
+      <ul class="tfh-footer-links">
+        <li><a href="about.html" data-i18n="footer.about">À propos</a></li>
+        <li><a href="privacy.html" data-i18n="footer.privacy">Confidentialité & cookies</a></li>
+        <li><a href="legal.html" data-i18n="footer.legal">Mentions légales</a></li>
+        <li><a href="#" onclick="if(window.openCookiePreferences){window.openCookiePreferences();return false;}" data-i18n="footer.cookies">Gérer les cookies</a></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="tfh-footer-bottom">
+    <p>© <span id="tfh-current-year">2026</span> <span data-i18n="footer.not_affiliated">TheFrontHub. Non affilié à OpenFront.io.</span></p>
+    <p class="tfh-footer-made"><span data-i18n="home.made_with_prefix">Fait avec</span> <span class="tfh-heart">♥</span> <span data-i18n="home.made_with_suffix">par la communauté</span></p>
+  </div>
+</footer>
+
+<!-- Auth Modal (copié de dashboard.html) -->
+<div class="modal-overlay" id="auth-modal" onclick="toggleAuthModal()">
+  <div class="modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" onclick="event.stopPropagation()">
+    <button class="modal-close" aria-label="Fermer" data-i18n-aria="modal.close" onclick="toggleAuthModal()">&times;</button>
+    <div class="auth-modal-logo">
+      <img src="TheFrontHub Logo No Text.png" alt="TheFrontHub" class="auth-modal-logo-img">
+    </div>
+    <div class="modal-header">
+      <div class="modal-title" id="auth-modal-title" data-i18n="auth.modal_title">Rejoins TheFrontHub</div>
+      <div class="modal-subtitle" data-i18n="auth.modal_subtitle">Connexion ou inscription en 1 clic avec Discord — sans mot de passe, sans email.</div>
+    </div>
+    <div class="auth-options">
+      <button class="auth-btn discord" id="auth-btn-discord" onclick="handleLogin('discord')">
+        <span class="auth-spinner" aria-hidden="true"></span>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-label="Discord" focusable="false"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028 14.09 14.09 0 001.226-1.994.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+        <span class="auth-btn-label" data-i18n="auth.continue_discord">Continuer avec Discord</span>
+      </button>
+    </div>
+    <ul class="auth-perks">
+      <li>
+        <span class="auth-perk-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+        <span data-i18n-html="auth.perk1"><strong>Profil et stats OpenFront</strong> — tes parties suivies automatiquement</span>
+      </li>
+      <li>
+        <span class="auth-perk-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+        <span data-i18n-html="auth.perk2"><strong>Historique et progression</strong> — graphiques, temps de jeu et achievements</span>
+      </li>
+    </ul>
+    <p class="auth-security-note">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <span data-i18n="auth.security_note">Session sécurisée · Hébergé en France · Aucun mot de passe stocké</span>
+    </p>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<script type="module" src="dist/auth-ui.min.js?v=4"></script>
+<script src="dist/toast.min.js?v=2"></script>
+<script src="dist/lenis.min.js?v=7"></script>
+<script src="dist/animations.min.js?v=2"></script>
+<script>
+  // Service Worker — offline + cache stale-while-revalidate
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js?v=25').catch(e => console.warn('[SW] Registration failed:', e));
+    });
+  }
+</script>
+<script>
+  // Update copyright year automatically
+  (function(){
+    var y = new Date().getFullYear();
+    var el = document.getElementById('tfh-current-year');
+    if (el) el.textContent = y;
+  })();
+</script>
+<script src="dist/chat-widget.min.js?v=3" defer></script>
+<script src="dist/ads.min.js?v=2"></script>
+<script src="dist/update-banner.min.js?v=3" defer></script>
+</body>
+</html>

@@ -133,21 +133,22 @@ if (typeof document !== "undefined") {
 
 const THEME_KEY = 'tfs-theme';
 
-// ─── Logo header : version à texte BLANC en mode sombre ───
+// ─── Logo header/footer : version à texte BLANC en mode sombre ───
 // Le « TheFront » du logo standard est noir → illisible sur fond sombre.
-// On swappe donc le src selon le thème VISIBLE (clair ↔ sombre), y compris
-// en mode auto quand le système bascule.
+// Fichier officiel fourni par le propriétaire du site : « TheFrontHub LOGO WHITE TEXT.png »
 const LOGO_SRC_LIGHT = 'TheFrontHub Logo Text.png';
-const LOGO_SRC_DARK = 'TheFrontHub Logo Text White.png';
+const LOGO_SRC_DARK = 'TheFrontHub LOGO WHITE TEXT.png';
 
 function applyLogoTheme() {
   const dark = getEffectiveTheme() === 'dark';
   const want = dark ? LOGO_SRC_DARK : LOGO_SRC_LIGHT;
-  // Header (.logo img) + footer (.tfh-footer-logo img) : le logo texte du
-  // footer (« TheFront » noir) est lui aussi illisible en mode sombre.
-  document.querySelectorAll('.logo img, .tfh-footer-logo img').forEach((img) => {
+  // Header (.logo img) + footer (.tfh-footer-logo img) + hero de about.html :
+  // le logo texte (« TheFront » noir) est illisible en mode sombre.
+  document.querySelectorAll('.logo img, .tfh-footer-logo img, .about-hero-logo').forEach((img) => {
     const src = img.getAttribute('src') || '';
-    const isDark = src.indexOf('White') !== -1;
+    // Détection insensible à la casse (« White » / « WHITE ») pour couvrir
+    // l'ancien et le nouveau nom de fichier.
+    const isDark = src.toLowerCase().indexOf('white') !== -1;
     if ((dark && isDark) || (!dark && !isDark)) return; // déjà correct
     img.src = want;
   });

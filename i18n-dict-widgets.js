@@ -3,6 +3,11 @@
 // Contient : cw.* (chat-widget.js), banner.* (update-banner.js), tut.* (tutorial.js).
 window.__TFH_I18N_PARTIALS__ = window.__TFH_I18N_PARTIALS__ || {};
 window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr || {}, {
+  "footer.info_title": "Informations",
+  "footer.about": "À propos",
+  "footer.privacy": "Confidentialité & cookies",
+  "footer.legal": "Mentions légales",
+  "footer.cookies": "Gérer les cookies",
   "cw.bubble_aria": "Ouvrir le chat avec l'équipe",
   "cw.panel_aria": "Chat avec l'équipe",
   "cw.title": "Chat avec l\u2019équipe",
@@ -58,6 +63,11 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   "tut.toast_welcome": "Bienvenue sur TheFrontHub ! 🎉",
 });
 window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en || {}, {
+  "footer.info_title": "Information",
+  "footer.about": "About",
+  "footer.privacy": "Privacy & cookies",
+  "footer.legal": "Legal notice",
+  "footer.cookies": "Manage cookies",
   "cw.bubble_aria": "Open chat with the team",
   "cw.panel_aria": "Chat with the team",
   "cw.title": "Chat with the team",
