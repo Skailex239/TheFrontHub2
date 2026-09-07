@@ -289,12 +289,16 @@ export async function activateBanner(publicId, bannerId) {
    ════════════════════════════════════════════════════════════════ */
 
 /* Cache dédié (distinct du cache « possédées ») : 1 requête pour peindre
- * TOUS les pseudos de classement (ranked / speedruns / hebdo). */
-let activeBannerMap = new Map();       // publicId → bannerId
+ * TOUS les pseudos de classement (ranked / speedruns / hebdo).
+ * Clés NORMALISÉES en minuscules : les publicIds OpenFront sont sensibles à
+ * la casse côté API mais le matching doit rester tolérant (MySQL est
+ * case-insensitive — un pid « UWetOwlW » tapé « UWEtOWlW » matche en SQL
+ * mais raterait dans un Map JS strict). */
+let activeBannerMap = new Map();       // publicId (lowercase) → bannerId
 let activeBannerMapAt = 0;
 const ACTIVE_MAP_TTL = 60 * 1000;      // 60 s — même fraîcheur que les skins
 
-/** Map publicId → bannerId des bannières ACTIVES (bulk, cache 60 s). */
+/** Map publicId (minuscules) → bannerId des bannières ACTIVES (bulk, 60 s). */
 export async function fetchActiveBannerMap() {
   if (activeBannerMap.size || Date.now() - activeBannerMapAt < ACTIVE_MAP_TTL) {
     return activeBannerMap;
@@ -303,7 +307,7 @@ export async function fetchActiveBannerMap() {
     const data = await apiGet("/api/banners.php?activeMap=1");
     const m = new Map();
     for (const row of (data && data.active) || []) {
-      if (row && row.publicId && row.bannerId) m.set(String(row.publicId), String(row.bannerId));
+      if (row && row.publicId && row.bannerId) m.set(String(row.publicId).toLowerCase(), String(row.bannerId));
     }
     activeBannerMap = m;
     activeBannerMapAt = Date.now();
@@ -332,7 +336,7 @@ export async function decorateLeaderboardBanners(root) {
   els.forEach((el) => {
     if (el.classList.contains("pfb-on")) return; // déjà peint
     const pid = el.getAttribute("data-pfb-pid");
-    const bannerId = pid ? map.get(String(pid)) : null;
+    const bannerId = pid ? map.get(String(pid).toLowerCase()) : null;
     if (bannerId) {
       el.classList.add("pfb-name");
       paintBanner(el, bannerId);
