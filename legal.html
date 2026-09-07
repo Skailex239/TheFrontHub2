@@ -22,12 +22,12 @@
 <link rel="preconnect" href="https://pagead2.googlesyndication.com" crossorigin>
 
 <!-- Performance: Preload critical assets -->
-<link rel="preload" href="styles.css?v=82" as="style">
+<link rel="preload" href="styles.css?v=83" as="style">
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Orbitron:wght@900&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="styles.css?v=82">
+<link rel="stylesheet" href="styles.css?v=83">
 <link rel="stylesheet" href="auth.css?v=21">
 <link rel="stylesheet" href="toast.css">
 <link rel="stylesheet" href="animations.css?v=6">
@@ -346,7 +346,7 @@
   // Service Worker — offline + cache stale-while-revalidate
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=27').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=28').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>

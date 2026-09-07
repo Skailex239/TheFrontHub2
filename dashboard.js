@@ -992,6 +992,11 @@ function renderRanking(topN, opts = {}) {
     // toutes les pages) sur le span du pseudo.
     const skinType = getSkinForPlayer(p.publicId, name);
     const skinClass = skinType ? " " + getSkin(skinType).cssClass : "";
+    // Bannière pixel art active (plaquette) : attributs pour le décorateur
+    // window.TFHBanners (banners.js, module chargé par dashboard.html) qui
+    // peint le pseudo (.pfb-name.pfb-on) après injection des lignes.
+    const pfbClass = p.publicId ? " pfb-name" : "";
+    const pfbAttr = p.publicId ? ` data-pfb-pid="${escapeHtml(String(p.publicId))}"` : "";
 
     // Ligne du joueur connecté : chip « TOI » + fond surligné (.dash-row-me)
     const isMe = !!opts.mePid && p.publicId === opts.mePid;
@@ -1007,7 +1012,7 @@ function renderRanking(topN, opts = {}) {
     const puBadge = opts.weekly && p.rank === 1 && _pointFilter === "all"
       ? weeklyPlutoniumBadge()
       : "";
-    const nameHtml = `<span class="dash-player-name${skinClass}"${hubName && p.username && hubName !== p.username ? ` title="${escapeHtml(T("dash.ingame", "En jeu : {n}").replace("{n}", p.username))}"` : ""}>${escapeHtml(name)}</span>`;
+    const nameHtml = `<span class="dash-player-name${skinClass}${pfbClass}"${pfbAttr}${hubName && p.username && hubName !== p.username ? ` title="${escapeHtml(T("dash.ingame", "En jeu : {n}").replace("{n}", p.username))}"` : ""}>${escapeHtml(name)}</span>`;
     const nameLine = (meChip || puBadge)
       ? `<span class="dash-player-line">${nameHtml}${meChip}${puBadge}</span>`
       : nameHtml;
@@ -1076,12 +1081,14 @@ function rankOrdinalSuffix(n) {
 function mePinnedRowHtml(me) {
   const name = hubNameForPid(me.publicId) || me.username || me.publicId;
   const profileUrl = `profile.html?pid=${encodeURIComponent(me.publicId)}&player=${encodeURIComponent(name)}`;
+  const mePfbClass = " pfb-name";
+  const mePfbAttr = me.publicId ? ` data-pfb-pid="${escapeHtml(String(me.publicId))}"` : "";
   return `
     <a class="dash-row dash-row-me dash-me-pinned" href="${profileUrl}" aria-label="${T("dash.me_pinned_aria", "Votre position : {rank} avec {pts} points").replace("{rank}", me.rank).replace("{pts}", formatPoints(me.points))}">
       <span class="dash-rank-slot"><span class="dash-rank-badge">${me.rank}</span></span>
       <span class="dash-player">
         <span class="dash-player-line">
-          <span class="dash-player-name">${escapeHtml(name)}</span>
+          <span class="dash-player-name${mePfbClass}"${mePfbAttr}>${escapeHtml(name)}</span>
           <span class="dash-me-chip">${T("dash.me_chip", "TOI")}</span>
         </span>
       </span>
@@ -1126,6 +1133,9 @@ function updateLists() {
     const { shown, total } = computeShown(fullView);
     body.innerHTML = panelBodyHtml(fullView, shown, me, weekly);
     if (window.hydrateIcons) window.hydrateIcons(body);
+    if (window.TFHBanners && typeof window.TFHBanners.decorate === "function") {
+      window.TFHBanners.decorate(body); // bannières pixel art des pseudos
+    }
     const sub = document.getElementById(subId);
     if (sub) {
       if (searching) {

@@ -136,6 +136,11 @@ function applySkinsToDom() {
       a.title = TP("runs.ingame_title", { name: raw }, "En jeu : " + raw);
     }
   });
+  // Bannières pixel art : (re)décore les ancres [data-pid] déjà rendues
+  // (la map arrive potentiellement après le premier paint).
+  if (window.TFHBanners && typeof window.TFHBanners.decorate === 'function') {
+    window.TFHBanners.decorate(document);
+  }
 }
 
 function formatTime(durationSeconds) {
@@ -301,7 +306,10 @@ async function loadTopRuns({ limit, windowDays }) {
       var pidForRun = (r.playerId && hubNameByPid[String(r.playerId)]) ? String(r.playerId) : (resolvePidForName(playerName) || '');
       // Skin actif du joueur (si possédé ET activé) → classe .skin-*
       var skinId = (pidForRun && activeSkinsByPid.get(String(pidForRun))) || skinIdForPlayer(playerName) || '';
-      var skinAttr = skinId ? ' class="skin-' + skinId + '"' : '';
+      // Bannière pixel art (plaquette) : data-pfb-pid sur l'ancre → le
+      // décorateur window.TFHBanners (banners.js) peint les joueurs qui ont
+      // une bannière active (.pfb-name.pfb-on, styles.css).
+      var skinAttr = ' class="' + (skinId ? 'skin-' + skinId + ' ' : '') + 'pfb-name"';
       // Pseudo AFFICHÉ : pseudo hub (profil TheFrontHub) sinon pseudo en jeu.
       // data-player garde le pseudo original pour les patchs asynchrones
       // (skins / aliases) et handlePlayerClick utilise le pseudo original.
@@ -331,6 +339,10 @@ async function loadTopRuns({ limit, windowDays }) {
     });
 
     tbody.appendChild(frag);
+    // Bannières pixel art (plaquettes) des pseudos de ce bloc de lignes.
+    if (window.TFHBanners && typeof window.TFHBanners.decorate === 'function') {
+      window.TFHBanners.decorate(tbody);
+    }
 
     const totalInFile = allRunsData.totalCount || rawRuns.length;
     const ms = Date.now() - startedAt;

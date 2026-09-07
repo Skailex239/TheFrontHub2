@@ -2926,6 +2926,30 @@ button:active:not(:disabled),
   }
 }
 
+/* ════════════════════════════════════════════════════════════════
+   Bannières pixel art — pseudos de classement (.pfb-name.pfb-on)
+   ─────────────────────────────────────────────────────────────────
+   Posées par banners.js (pont window.TFHBanners) sur les pseudos des
+   classements ranked / speedruns / hebdo : l'élément porte data-pfb-pid,
+   le décorateur lui ajoute .pfb-name + .pfb-on et la variable --pfb-img.
+   Même pavage que la plaquette du profil (auto 100% + repeat-x) → pixels
+   ~9-12 px, trame périodique sans raccord. Fondu de bord pour que le
+   pseudo reste lisible au-dessus du motif. Re-rendu clair/sombre géré
+   par l'observateur de thème de banners.js (palettes l/d).
+   ════════════════════════════════════════════════════════════════ */
+.pfb-name.pfb-on {
+  background-image: var(--pfb-img);
+  background-size: auto 100%;
+  background-position: left center;
+  background-repeat: repeat-x;
+  image-rendering: pixelated;
+  border-radius: 6px;
+  padding: 2px 7px;
+  margin: -2px -3px;          /* absorbe le padding : pas de décalage de ligne */
+  box-shadow: inset 0 0 0 1px rgba(128, 128, 128, .28);
+}
+:root.dark .pfb-name.pfb-on { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14); }
+
 /* ═══════════════════════════════════════════════════════════════════════════
    BANDEROLE « Mises à jour prochainement » (toutes pages, fermable)
    Injectée par update-banner.js en 1er enfant du body — au-dessus de tout.

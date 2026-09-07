@@ -987,17 +987,23 @@ a.pfsr-replay:hover{background:var(--accent);color:#fff;border-color:var(--accen
 
 /* ════════════════════════════════════════════════════════════
    BANNIÈRES PIXEL ART (plaquette de pseudo)
-   Motif pixel art (data URL 48×12 rendu par banners.js) étiré en
-   `cover` + `image-rendering: pixelated` sur toute la carte identité.
+   Motif pixel art (data URL 48×12 rendu par banners.js) pavé
+   horizontalement (`auto 100%` + `repeat-x`, trame périodique) et
+   étiré en `image-rendering: pixelated` sur toute la carte identité.
+   Fix 2026-09-07 (« trop zoomée ») : `cover` sur une carte très large
+   (~14:1) grossissait la trame 4:1 d'un facteur ~3,5 (pixels de 30px+
+   et gros crop vertical). Désormais la trame fait toujours la hauteur
+   de la carte → pixels ≈ hauteur/12 (~9-11 px), motif répété sans
+   raccord visible (matrices périodiques, voir banners.js).
    La bannière est posée via la variable --pfb-img (classe .pfb-on).
    ════════════════════════════════════════════════════════════ */
 
 .pf2-id.pfb-on {
   position: relative;
   background-image: var(--pfb-img);
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
+  background-size: auto 100%;
+  background-position: left center;
+  background-repeat: repeat-x;
   image-rendering: pixelated;
   border-color: rgba(147, 51, 234, .38); /* liseré violet discret */
 }

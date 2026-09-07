@@ -40,7 +40,12 @@ function hash(x, y) {
   return Math.abs(h % 100);
 }
 
-/** Trame « Vagues » : 3 ondes sinusoïdales superposées style Discord/NVR. */
+/** Trame « Vagues » : 3 ondes sinusoïdales superposées style Discord/NVR.
+ *  Fix 2026-09-07 (bannière « trop zoomée ») : la plaquette est désormais
+ *  pavée horizontalement (background-repeat: repeat-x, hauteur = 100%) →
+ *  la trame doit être PÉRIODIQUE sur [0,COLS] : fréquences en 2π·k entiers
+ *  (w3 : 3π → 4π) et modules compatibles avec COLS=48 (12, 16, 16 au lieu
+ *  de 7, 11, 17) pour un raccord invisible entre tuiles. */
 function vaguesMatrix() {
   const m = [];
   for (let y = 0; y < ROWS; y++) {
@@ -49,15 +54,15 @@ function vaguesMatrix() {
       const t = x / COLS;
       const w1 = Math.round(Math.sin(t * Math.PI * 4) * 1.6 + 8.5);        // vague avant
       const w2 = Math.round(Math.sin(t * Math.PI * 6 + 2.1) * 1.3 + 5.5);  // vague médiane
-      const w3 = Math.round(Math.sin(t * Math.PI * 3 + 4.4) * 1.8 + 10.5); // vague arrière
+      const w3 = Math.round(Math.sin(t * Math.PI * 4 + 4.4) * 1.8 + 10.5); // vague arrière (périodique)
       let ch = ".";
       if (y >= w3) ch = "1";
       if (y >= w2) ch = "2";
       if (y >= w1) ch = "3";
       if (y === w1) ch = "4";                              // crête éclatante
-      if (y === w2 && x % 7 === 3) ch = "5";               // écume magenta
-      if (y === w3 && x % 11 === 6) ch = "5";
-      if (y === 1 && x % 17 === 5) ch = "5";               // poussière d'étoile
+      if (y === w2 && x % 12 === 3) ch = "5";              // écume magenta
+      if (y === w3 && x % 16 === 6) ch = "5";
+      if (y === 1 && x % 16 === 5) ch = "5";               // poussière d'étoile
       row += ch;
     }
     m.push(row);
@@ -280,6 +285,62 @@ export async function activateBanner(publicId, bannerId) {
 }
 
 /* ════════════════════════════════════════════════════════════════
+   Carte publique bulk (classements) — publicId → bannerId
+   ════════════════════════════════════════════════════════════════ */
+
+/* Cache dédié (distinct du cache « possédées ») : 1 requête pour peindre
+ * TOUS les pseudos de classement (ranked / speedruns / hebdo). */
+let activeBannerMap = new Map();       // publicId → bannerId
+let activeBannerMapAt = 0;
+const ACTIVE_MAP_TTL = 60 * 1000;      // 60 s — même fraîcheur que les skins
+
+/** Map publicId → bannerId des bannières ACTIVES (bulk, cache 60 s). */
+export async function fetchActiveBannerMap() {
+  if (activeBannerMap.size || Date.now() - activeBannerMapAt < ACTIVE_MAP_TTL) {
+    return activeBannerMap;
+  }
+  try {
+    const data = await apiGet("/api/banners.php?activeMap=1");
+    const m = new Map();
+    for (const row of (data && data.active) || []) {
+      if (row && row.publicId && row.bannerId) m.set(String(row.publicId), String(row.bannerId));
+    }
+    activeBannerMap = m;
+    activeBannerMapAt = Date.now();
+  } catch (e) {
+    /* non critique — backoff court pour ne pas marteler l'API */
+    if (!activeBannerMapAt) activeBannerMapAt = Date.now() - ACTIVE_MAP_TTL + 10 * 1000;
+    console.warn("[banners] fetchActiveBannerMap failed:", e);
+  }
+  return activeBannerMap;
+}
+
+/**
+ * Décore les pseudos de classement : tout élément portant [data-pfb-pid]
+ * reçoit la bannière ACTIVE du joueur (peinture .pfb-name.pfb-on, styles
+ * définis dans styles.css — chargé sur toutes les pages). Idempotent :
+ * les éléments sans bannière active restent inchangés.
+ * Appelé après chaque rendu de leaderboard (app.js / dashboard.js / runs.js
+ * via le pont window.TFHBanners).
+ */
+export async function decorateLeaderboardBanners(root) {
+  const scope = root && root.querySelectorAll ? root : document;
+  const els = scope.querySelectorAll("[data-pfb-pid]");
+  if (!els.length) return;
+  const map = await fetchActiveBannerMap();
+  if (!map.size) return;
+  els.forEach((el) => {
+    if (el.classList.contains("pfb-on")) return; // déjà peint
+    const pid = el.getAttribute("data-pfb-pid");
+    const bannerId = pid ? map.get(String(pid)) : null;
+    if (bannerId) {
+      el.classList.add("pfb-name");
+      paintBanner(el, bannerId);
+    }
+  });
+}
+
+/* ════════════════════════════════════════════════════════════════
    Peinture sur la plaquette (.pf2-id)
    ════════════════════════════════════════════════════════════════ */
 
@@ -343,3 +404,16 @@ try {
     mq.addEventListener("change", () => repaintAll());
   }
 } catch (e) { /* no-op */ }
+
+/* ── Pont pour les scripts CLASSIQUES (app.js, dashboard.js, runs.js) ──
+ * banners.js n'a AUCUN import → chargeable tel quel en <script type="module">
+ * sur les pages classements ; les renderers appellent window.TFHBanners.decorate
+ * après chaque injection de lignes de classement. */
+try {
+  window.TFHBanners = {
+    decorate: decorateLeaderboardBanners,
+    paintBanner,
+    clearBanner,
+    fetchActiveBannerMap,
+  };
+} catch (e) { /* window indisponible (tests) */ }
