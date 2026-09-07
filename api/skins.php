@@ -217,9 +217,28 @@ try {
             $stmt->execute([$code]);
             $codeRow = $stmt->fetch();
             if ($codeRow === false) {
+                /* Tolérance historique (fix 2026-09-07) : des codes saisis à la
+                 * main en phpMyAdmin ont pu être stockés AVEC tirets/espaces
+                 * alors que l'API normalise la saisie (NVR-VAGUES tapé →
+                 * NVRVAGUES cherché) → « introuvable ». Second essai sur la
+                 * forme normalisée du code stocké. */
+                $stmt = $pdo->prepare(
+                    "SELECT * FROM tfh_reward_codes
+                      WHERE REPLACE(REPLACE(UPPER(code), '-', ''), ' ', '') = ?
+                      FOR UPDATE"
+                );
+                $stmt->execute([$code]);
+                $codeRow = $stmt->fetch();
+            }
+            if ($codeRow === false) {
                 $pdo->rollBack();
                 fail(404, 'code_not_found', 'Code "' . $code . '" introuvable');
             }
+
+            /* Code tel que STOCKÉ en base (peut différer de la saisie
+             * normalisée si un ancien code contient encore des tirets) —
+             * les UPDATE ci-dessous doivent cibler cette forme exacte. */
+            $storedCode = (string) $codeRow['code'];
 
             $skinId = (string) $codeRow['skin_id'];
             if (!valid_skin_id($skinId)) {
@@ -253,7 +272,7 @@ try {
                     json_out(['ok' => true, 'alreadyOwned' => true, 'skinId' => $skinId, 'kind' => 'banner']);
                 }
 
-                $pdo->prepare('UPDATE tfh_reward_codes SET uses = uses + 1 WHERE code = ?')->execute([$code]);
+                $pdo->prepare('UPDATE tfh_reward_codes SET uses = uses + 1 WHERE code = ?')->execute([$storedCode]);
                 $pdo->prepare(
                     'INSERT INTO tfh_user_banners (public_id, banner_id, code_used, active) VALUES (?, ?, ?, 0)'
                 )->execute([$publicId, $skinId, $code]);
@@ -270,7 +289,7 @@ try {
                 json_out(['ok' => true, 'alreadyOwned' => true, 'skinId' => $skinId]);
             }
 
-            $pdo->prepare('UPDATE tfh_reward_codes SET uses = uses + 1 WHERE code = ?')->execute([$code]);
+            $pdo->prepare('UPDATE tfh_reward_codes SET uses = uses + 1 WHERE code = ?')->execute([$storedCode]);
             $pdo->prepare(
                 'INSERT INTO tfh_user_skins (public_id, skin_id, code_used, active) VALUES (?, ?, ?, 0)'
             )->execute([$publicId, $skinId, $code]);
