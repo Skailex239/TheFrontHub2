@@ -753,8 +753,16 @@ function render() {
     /* Aperçu statique pré-généré (scripts/gen-ranked-preview.js) encore en
      * place → on le CONSERVE au lieu d'un « Chargement… » sans contenu
      * (robots d'indexation, échec réseau, API lente). Le premier lot de
-     * données live remplacera le preview normalement. */
-    if (view.querySelector(".dash-static-preview")) return;
+     * données live remplacera le preview normalement. Les lignes statiques
+     * portent data-pfb-pid/data-pfb-row → on les décore aussi (idempotent,
+     * no-op si banners.js n'est pas encore chargé — render() est re-appelé
+     * au fil des fetch). */
+    if (view.querySelector(".dash-static-preview")) {
+      if (window.TFHBanners && typeof window.TFHBanners.decorate === "function") {
+        window.TFHBanners.decorate(view);
+      }
+      return;
+    }
     view.innerHTML = `
       <div class="dash-empty-state">
         <div class="dash-empty-icon"><i data-icon="chart"></i></div>
@@ -992,10 +1000,9 @@ function renderRanking(topN, opts = {}) {
     // toutes les pages) sur le span du pseudo.
     const skinType = getSkinForPlayer(p.publicId, name);
     const skinClass = skinType ? " " + getSkin(skinType).cssClass : "";
-    // Bannière pixel art active (plaquette) : attributs pour le décorateur
-    // window.TFHBanners (banners.js, module chargé par dashboard.html) qui
-    // peint le pseudo (.pfb-name.pfb-on) après injection des lignes.
-    const pfbClass = p.publicId ? " pfb-name" : "";
+    // Bannière pixel art (v2 2026-09-08) : data-pfb-pid sur le pseudo +
+    // data-pfb-row sur le .dash-row → window.TFHBanners (banners.js, module
+    // chargé par dashboard.html) peint la bannière sur TOUTE la ligne.
     const pfbAttr = p.publicId ? ` data-pfb-pid="${escapeHtml(String(p.publicId))}"` : "";
 
     // Ligne du joueur connecté : chip « TOI » + fond surligné (.dash-row-me)
@@ -1012,7 +1019,7 @@ function renderRanking(topN, opts = {}) {
     const puBadge = opts.weekly && p.rank === 1 && _pointFilter === "all"
       ? weeklyPlutoniumBadge()
       : "";
-    const nameHtml = `<span class="dash-player-name${skinClass}${pfbClass}"${pfbAttr}${hubName && p.username && hubName !== p.username ? ` title="${escapeHtml(T("dash.ingame", "En jeu : {n}").replace("{n}", p.username))}"` : ""}>${escapeHtml(name)}</span>`;
+    const nameHtml = `<span class="dash-player-name${skinClass}"${pfbAttr}${hubName && p.username && hubName !== p.username ? ` title="${escapeHtml(T("dash.ingame", "En jeu : {n}").replace("{n}", p.username))}"` : ""}>${escapeHtml(name)}</span>`;
     const nameLine = (meChip || puBadge)
       ? `<span class="dash-player-line">${nameHtml}${meChip}${puBadge}</span>`
       : nameHtml;
@@ -1021,7 +1028,7 @@ function renderRanking(topN, opts = {}) {
     const trend = opts.weekly && opts.prevRanks ? weeklyTrendHtml(p, opts.prevRanks) : "";
 
     return `
-      <a class="dash-row${p.rank <= 3 ? " dash-row-podium" : ""}${p.rank === 1 ? " dash-row-gold" : ""}${isMe ? " dash-row-me" : ""}" href="${profileUrl}">
+      <a class="dash-row${p.rank <= 3 ? " dash-row-podium" : ""}${p.rank === 1 ? " dash-row-gold" : ""}${isMe ? " dash-row-me" : ""}" data-pfb-row href="${profileUrl}">
         <span class="dash-rank-slot">${rankSlot}</span>
         <span class="dash-player">
           ${nameLine}
@@ -1081,14 +1088,13 @@ function rankOrdinalSuffix(n) {
 function mePinnedRowHtml(me) {
   const name = hubNameForPid(me.publicId) || me.username || me.publicId;
   const profileUrl = `profile.html?pid=${encodeURIComponent(me.publicId)}&player=${encodeURIComponent(name)}`;
-  const mePfbClass = " pfb-name";
   const mePfbAttr = me.publicId ? ` data-pfb-pid="${escapeHtml(String(me.publicId))}"` : "";
   return `
-    <a class="dash-row dash-row-me dash-me-pinned" href="${profileUrl}" aria-label="${T("dash.me_pinned_aria", "Votre position : {rank} avec {pts} points").replace("{rank}", me.rank).replace("{pts}", formatPoints(me.points))}">
+    <a class="dash-row dash-row-me dash-me-pinned" data-pfb-row href="${profileUrl}" aria-label="${T("dash.me_pinned_aria", "Votre position : {rank} avec {pts} points").replace("{rank}", me.rank).replace("{pts}", formatPoints(me.points))}">
       <span class="dash-rank-slot"><span class="dash-rank-badge">${me.rank}</span></span>
       <span class="dash-player">
         <span class="dash-player-line">
-          <span class="dash-player-name${mePfbClass}"${mePfbAttr}>${escapeHtml(name)}</span>
+          <span class="dash-player-name"${mePfbAttr}>${escapeHtml(name)}</span>
           <span class="dash-me-chip">${T("dash.me_chip", "TOI")}</span>
         </span>
       </span>

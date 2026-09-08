@@ -2927,116 +2927,52 @@ button:active:not(:disabled),
 }
 
 /* ════════════════════════════════════════════════════════════════
-   Bannières pixel art — pseudos de classement (.pfb-name.pfb-on)
+   Bannières pixel art — fond des LIGNES de classement ([data-pfb-row])
    ─────────────────────────────────────────────────────────────────
-   Posées par banners.js (pont window.TFHBanners) sur les pseudos des
-   classements ranked / speedruns / hebdo : l'élément porte data-pfb-pid,
-   le décorateur lui ajoute .pfb-name + .pfb-on et la variable --pfb-img.
-   Même pavage que la plaquette du profil (auto 100% + repeat-x) → pixels
-   fins, trame périodique sans raccord.
-
-   ⚠️ ARCHITECTURE (fix 2026-09-07) — les skins de pseudo peignent leur
-   gradient en background clippé au glyphe (background-clip:text + text-
-   fill transparent) :
-     • le pseudo ne doit JAMAIS être recouvert (ni par ::before/::after,
-       ni par un voile posé par-dessus) ;
-     • le background-image de l'élément ne doit JAMAIS ÉCRASER le gradient
-       du skin (glyphe transparent sinon).
-   → Solution : le gradient du skin reste la 1ʳᵉ couche (au-dessus, clippée
-   au texte), le VOILE et la BANNIÈRE sont les couches du dessous (fond du
-   chip), via les règles .pfb-name.skin-*.pfb-on ci-dessous qui dupliquent
-   le gradient de chaque skin. Les joueurs sans skin gradient ont la règle
-   de base (voile + bannière seules). --pfb-veil = opacité de lisibilité.
+   v2 (2026-09-08, retour utilisateur : « faut que sa prenne tous les
+   rectangles ») : la bannière n'est PLUS un chip autour du pseudo —
+   elle remplit TOUTE la ligne (le « rectangle »), comme la plaquette
+   du profil. L'ancien chip multi-couches (.pfb-name.pfb-on avec
+   background-clip:text) est supprimé : sur certains navigateurs le
+   gradient du skin peignait le chip en plein et rendait le pseudo
+   illisible (text-fill transparent). Désormais :
+     • banners.js peint le CONTENEUR de ligne ([data-pfb-row] le plus
+       proche d'un [data-pfb-pid]) : classe .pfb-on + variable --pfb-img ;
+     • le pseudo garde UNIQUEMENT son skin (.skin-*, gradient clippé au
+       glyphe) — aucun fond posé sur le pseudo lui-même ;
+     • pavage identique au profil : hauteur = 100% de la ligne, repeat-x
+       (trames périodiques), image-rendering: pixelated ;
+     • voile uniforme + scrim dégradé à gauche pour la lisibilité des
+       colonnes (Elo / winrate / points) sur la trame.
+   !important volontaire : la bannière doit survivre aux shorthand
+   `background:` des hovers / zébrures / .is-me / .dash-row-gold, posés
+   ici mais AUSSI dans dashboard.css (chargée APRÈS styles.css).
    ════════════════════════════════════════════════════════════════ */
-:root { --pfb-veil: rgba(255, 255, 255, .48); }
-:root[data-theme="dark"], :root.dark { --pfb-veil: rgba(12, 10, 18, .22); }
+:root {
+  --pfb-veil: rgba(255, 255, 255, .45);   /* voile uniforme (mode jour) */
+  --pfb-scrim: rgba(255, 255, 255, .88);  /* renfort gauche (pseudo) */
+}
+:root[data-theme="dark"], :root.dark {
+  --pfb-veil: rgba(12, 10, 18, .30);
+  --pfb-scrim: rgba(12, 10, 18, .82);
+}
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]):not(.dark) { --pfb-veil: rgba(12, 10, 18, .22); }
+  :root:not([data-theme="light"]):not(.dark) {
+    --pfb-veil: rgba(12, 10, 18, .30);
+    --pfb-scrim: rgba(12, 10, 18, .82);
+  }
 }
 
-.pfb-name.pfb-on {
-  border-radius: 6px;
-  padding: 2px 7px;
-  margin: -2px -3px;          /* absorbe le padding : pas de décalage de ligne */
-  box-shadow: inset 0 0 0 1px rgba(128, 128, 128, .28);
-  /* Voile + bannière (joueurs sans skin gradient) */
+[data-pfb-row].pfb-on {
+  /* 3 couches : scrim gauche → voile uniforme → trame pixel art */
   background-image:
+    linear-gradient(90deg, var(--pfb-scrim) 0%, transparent 55%),
     linear-gradient(var(--pfb-veil), var(--pfb-veil)),
-    var(--pfb-img);
-  background-size: auto 100%, auto 100%;
-  background-position: left center, left center;
-  background-repeat: repeat-x, repeat-x;
-  background-clip: padding-box, padding-box;
-  -webkit-background-clip: padding-box, padding-box;
-  animation: none;            /* aucune animation : voile/bannière fixes */
-}
-/* Skins à gradient : le gradient reste la couche du HAUT clippée au glyphe ;
-   voile + bannière glissent dessous en fond du chip. Duplication volontaire
-   des gradients (voir .skin-* ci-dessus) — ajouter un skin = 1 règle ici. */
-.pfb-name.skin-lagon.pfb-on {
-  background-image:
-    linear-gradient(100deg, #22d3ee 0%, #38bdf8 28%, #3b82f6 52%, #6366f1 78%, #22d3ee 100%),
-    linear-gradient(var(--pfb-veil), var(--pfb-veil)),
-    var(--pfb-img);
-  background-size: 220% auto, auto 100%, auto 100%;
-  background-clip: text, padding-box, padding-box;
-  -webkit-background-clip: text, padding-box, padding-box;
-}
-.pfb-name.skin-aurora.pfb-on {
-  background-image:
-    linear-gradient(100deg, #22d3ee 0%, #34d399 24%, #a78bfa 50%, #34d399 76%, #22d3ee 100%),
-    linear-gradient(var(--pfb-veil), var(--pfb-veil)),
-    var(--pfb-img);
-  background-size: 250% auto, auto 100%, auto 100%;
-  background-clip: text, padding-box, padding-box;
-  -webkit-background-clip: text, padding-box, padding-box;
-}
-.pfb-name.skin-braise.pfb-on {
-  background-image:
-    linear-gradient(100deg, #fde047 0%, #fb923c 30%, #ef4444 55%, #fb923c 80%, #fde047 100%),
-    linear-gradient(var(--pfb-veil), var(--pfb-veil)),
-    var(--pfb-img);
-  background-size: 240% auto, auto 100%, auto 100%;
-  background-clip: text, padding-box, padding-box;
-  -webkit-background-clip: text, padding-box, padding-box;
-}
-.pfb-name.skin-dusk.pfb-on {
-  background-image:
-    linear-gradient(100deg, #fde047 0%, #fb923c 24%, #f43f5e 50%, #a855f7 76%, #fde047 100%),
-    linear-gradient(var(--pfb-veil), var(--pfb-veil)),
-    var(--pfb-img);
-  background-size: 300% auto, auto 100%, auto 100%;
-  background-clip: text, padding-box, padding-box;
-  -webkit-background-clip: text, padding-box, padding-box;
-}
-.pfb-name.skin-prisme.pfb-on {
-  background-image:
-    linear-gradient(100deg, #f43f5e 0%, #fb923c 16%, #facc15 33%, #34d399 50%,
-      #38bdf8 67%, #a78bfa 84%, #f43f5e 100%),
-    linear-gradient(var(--pfb-veil), var(--pfb-veil)),
-    var(--pfb-img);
-  background-size: 350% auto, auto 100%, auto 100%;
-  background-clip: text, padding-box, padding-box;
-  -webkit-background-clip: text, padding-box, padding-box;
-}
-.pfb-name.skin-gerbe.pfb-on {
-  background-image:
-    linear-gradient(100deg, #a3d45e 0%, #6ea83c 26%, #97a29a 52%, #7c8a74 76%, #a3d45e 100%),
-    linear-gradient(var(--pfb-veil), var(--pfb-veil)),
-    var(--pfb-img);
-  background-size: 240% auto, auto 100%, auto 100%;
-  background-clip: text, padding-box, padding-box;
-  -webkit-background-clip: text, padding-box, padding-box;
-}
-/* Liseré du chip en mode sombre */
-:root[data-theme="dark"] .pfb-name.pfb-on,
-:root.dark .pfb-name.pfb-on {
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .pfb-name.pfb-on {
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
-  }
+    var(--pfb-img) !important;
+  background-size: auto, auto, auto 100% !important;
+  background-position: left center, left center, left center !important;
+  background-repeat: no-repeat, no-repeat, repeat-x !important;
+  image-rendering: pixelated;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

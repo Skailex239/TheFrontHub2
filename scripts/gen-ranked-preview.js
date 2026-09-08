@@ -82,9 +82,9 @@ function rowHtml(e, rank) {
   const rankSlot = rankIcon
     ? `<span class="dash-rank-trophy dash-rank-${rank}" aria-hidden="true"><i data-icon="${rankIcon}"></i></span>`
     : `<span class="dash-rank-badge">${rank}</span>`;
-  return `        <a class="dash-row${rank <= 3 ? " dash-row-podium" : ""}${rank === 1 ? " dash-row-gold" : ""}" href="${profileUrl}">
+  return `        <a data-pfb-row class="dash-row${rank <= 3 ? " dash-row-podium" : ""}${rank === 1 ? " dash-row-gold" : ""}" href="${profileUrl}">
           <span class="dash-rank-slot">${rankSlot}</span>
-          <span class="dash-player"><span class="dash-player-name">${esc(e.name)}</span></span>
+          <span class="dash-player"><span class="dash-player-name"${e.publicId ? ` data-pfb-pid="${esc(e.publicId)}"` : ""}>${esc(e.name)}</span></span>
           <span class="dash-score"><span class="dash-score-val">${e.points.toLocaleString("fr-FR")}</span><span class="dash-score-suffix">pts</span></span>
           <span class="dash-row-arrow" aria-hidden="true">›</span>
         </a>`;

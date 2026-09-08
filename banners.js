@@ -320,10 +320,17 @@ export async function fetchActiveBannerMap() {
 }
 
 /**
- * Décore les pseudos de classement : tout élément portant [data-pfb-pid]
- * reçoit la bannière ACTIVE du joueur (peinture .pfb-name.pfb-on, styles
- * définis dans styles.css — chargé sur toutes les pages). Idempotent :
- * les éléments sans bannière active restent inchangés.
+ * Décore les listes de classement : tout élément portant [data-pfb-pid]
+ * (le span du pseudo) est résolu, puis la bannière ACTIVE du joueur est
+ * peinte sur le CONTENEUR de la ligne — l'ancêtre le plus proche portant
+ * [data-pfb-row] (tr, .run-row, .feed-item, .hof-card, .dash-row…).
+ * v2 (2026-09-08, demande utilisateur « que sa prenne tous les
+ * rectangles ») : plus AUCUN chip sur le pseudo (l'ancien fond multi-
+ * couches background-clip:text rendait un dégradé plein qui cachait le
+ * pseudo sur certains navigateurs) — la bannière remplit toute la ligne,
+ * même pavage que la plaquette du profil (styles.css, [data-pfb-row].pfb-on).
+ * Idempotent + tolérant : les éléments sans bannière active ou sans
+ * conteneur [data-pfb-row] restent inchangés.
  * Appelé après chaque rendu de leaderboard (app.js / dashboard.js / runs.js
  * via le pont window.TFHBanners).
  */
@@ -334,13 +341,15 @@ export async function decorateLeaderboardBanners(root) {
   const map = await fetchActiveBannerMap();
   if (!map.size) return;
   els.forEach((el) => {
-    if (el.classList.contains("pfb-on")) return; // déjà peint
     const pid = el.getAttribute("data-pfb-pid");
     const bannerId = pid ? map.get(String(pid).toLowerCase()) : null;
-    if (bannerId) {
-      el.classList.add("pfb-name");
-      paintBanner(el, bannerId);
-    }
+    if (!bannerId) return; // pas de bannière active → ligne standard
+    // Le pseudo peut être retiré du DOM entre-temps (re-render rapide)
+    if (!el.isConnected) return;
+    const row = el.closest ? el.closest("[data-pfb-row]") : null;
+    if (!row) return; // pas de conteneur de ligne déclaré → ne rien peindre
+    if (row.classList.contains("pfb-on")) return; // déjà peint (ou 1er du duo)
+    paintBanner(row, bannerId);
   });
 }
 

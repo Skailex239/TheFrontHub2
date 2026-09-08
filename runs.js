@@ -288,6 +288,7 @@ async function loadTopRuns({ limit, windowDays }) {
       const rank = idx + 1;
 
       const tr = document.createElement('tr');
+      tr.setAttribute('data-pfb-row', ''); // bannière pleine ligne (banners.js)
 
       const tdRank = document.createElement('td');
       tdRank.className = 'global-rank-wrap';
@@ -306,16 +307,16 @@ async function loadTopRuns({ limit, windowDays }) {
       var pidForRun = (r.playerId && hubNameByPid[String(r.playerId)]) ? String(r.playerId) : (resolvePidForName(playerName) || '');
       // Skin actif du joueur (si possédé ET activé) → classe .skin-*
       var skinId = (pidForRun && activeSkinsByPid.get(String(pidForRun))) || skinIdForPlayer(playerName) || '';
-      // Bannière pixel art (plaquette) : data-pfb-pid sur l'ancre → le
-      // décorateur window.TFHBanners (banners.js) peint les joueurs qui ont
-      // une bannière active (.pfb-name.pfb-on, styles.css).
-      var skinAttr = ' class="' + (skinId ? 'skin-' + skinId + ' ' : '') + 'pfb-name"';
+      // Bannière pixel art (v2 2026-09-08) : data-pfb-pid sur l'ancre +
+      // data-pfb-row sur le <tr> → le décorateur window.TFHBanners
+      // (banners.js) peint la bannière sur TOUTE la ligne du tableau.
+      var skinAttr = ' class="' + (skinId ? 'skin-' + skinId : '') + '"';
       // Pseudo AFFICHÉ : pseudo hub (profil TheFrontHub) sinon pseudo en jeu.
       // data-player garde le pseudo original pour les patchs asynchrones
       // (skins / aliases) et handlePlayerClick utilise le pseudo original.
       var shownName = (pidForRun && hubNameByPid[String(pidForRun)]) || displayNameFor(playerName);
       var titleAttr = shownName !== playerName ? ' title="' + escapeHtml(TP("runs.ingame_title", { name: playerName }, "En jeu : " + playerName)) + '"' : '';
-      var pidAttr = pidForRun ? ' data-pid="' + escapeHtml(String(pidForRun)) + '"' : '';
+      var pidAttr = pidForRun ? ' data-pid="' + escapeHtml(String(pidForRun)) + '" data-pfb-pid="' + escapeHtml(String(pidForRun)) + '"' : '';
       var clickJs = "handlePlayerClick('" + escapeHtml(playerName).replace(/'/g, "\\'") + "'," + (pidForRun ? "'" + String(pidForRun).replace(/[^A-Za-z0-9_-]/g, '') + "'" : "null") + ");return false";
       tdPlayer.innerHTML = '<a' + skinAttr + pidAttr + ' data-player="' + escapeHtml(playerName) + '" href="#" onclick="' + clickJs + '"' + titleAttr + ' style="cursor:pointer;text-decoration:none">' + escapeHtml(shownName) + '</a>';
 

@@ -103,6 +103,7 @@ let vipPlayers = new Map(); // username → reward type (pour le style VIP sur l
 let vipPlayersByPid = new Map(); // publicId → reward type (matching par PUBLIC ID, plus robuste que l'alias)
 let vipRewardsRaw = []; // snapshot brut des docs public-rewards (pour rebuild quand les bridges changent)
 let usernameToPid = new Map(); // bridge: username/accountUsername → publicId (depuis ranked.json + public-aliases)
+let usernameToPidNorm = new Map(); // bridge NORMALISÉ (sans tag de clan / discriminateur) → publicId — bannières speedruns
 let uidToPid = new Map(); // bridge: uid → publicId (depuis public-aliases si publicId présent)
 let pidToHubName = new Map(); // publicId → pseudo choisi sur TheFrontHub (affiché PARTOUT à la place du pseudo en jeu)
 let connectedUsernames = new Set(); // usernames having a registered TheFrontHub account
@@ -337,17 +338,22 @@ function skinClassFor(username, publicId, accountUsername) {
   return " " + getSkin(skinId).cssClass;
 }
 
-/* ── Bannières pixel art sur les pseudos de classement (2026-09-07) ──
+/* ── Bannières pixel art sur les LIGNES de classement (v2 2026-09-08) ──
  * Chaque pseudo résolvable vers un publicId porte data-pfb-pid ; le
  * décorateur window.TFHBanners.decorate (banners.js, chargé en module
- * sur la page) peint la bannière ACTIVE du joueur (.pfb-name.pfb-on).
+ * sur la page) remonte au CONTENEUR de ligne [data-pfb-row] le plus
+ * proche et peint la bannière ACTIVE du joueur sur TOUTE la ligne
+ * (.pfb-on, styles.css) — le pseudo lui-même garde uniquement son skin.
  * Résolution pid : bridge username → publicId (public-aliases + ranked). */
 function pfbPidFor(username) {
   if (!username) return "";
-  return usernameToPid.get(username) || usernameToPid.get(displayNameFor(username)) || "";
-}
-function pfbClassFor(username) {
-  return pfbPidFor(username) ? " pfb-name" : "";
+  return usernameToPid.get(username)
+    || usernameToPid.get(displayNameFor(username))
+    /* fallback NORMALISÉ : les pseudos de runs portent souvent un tag de
+       clan (« [LBU] Skailex ») et/ou un discriminateur (« VarXard.9236 ») —
+       même stratégie de matching que les skins (byNorm). */
+    || usernameToPidNorm.get(normPlayerName(username))
+    || "";
 }
 function pfbAttrFor(username) {
   const pid = pfbPidFor(username);
@@ -414,6 +420,11 @@ function loadPublicAliases() {
           for (const n of namesToBridge) {
             if (!usernameToPid.has(n) || usernameToPid.get(n) !== pidVal) {
               usernameToPid.set(n, pidVal);
+              pidBridgeChanged = true;
+            }
+            const nk = normPlayerName(n);
+            if (nk && (!usernameToPidNorm.has(nk) || usernameToPidNorm.get(nk) !== pidVal)) {
+              usernameToPidNorm.set(nk, pidVal);
               pidBridgeChanged = true;
             }
           }
@@ -1732,7 +1743,7 @@ function renderLeaderboard(d){
     // Affichage : pseudo hub (profil TheFrontHub) sinon pseudo en jeu.
     const parts=String(r.player||'').split(' + ').map(s=>s.trim()).filter(Boolean);
     const nameHtml=parts.map(n=>
-      '<span class="run-player-name'+skinClassFor(n)+pfbClassFor(n)+'"'+pfbAttrFor(n)+' onclick="event.stopPropagation();openPlayerProfile('+jsq(n)+')" title="'+esc(runTitleFor(r,n))+'">'+esc(displayNameFor(n))+'</span>'
+      '<span class="run-player-name'+skinClassFor(n)+'"'+pfbAttrFor(n)+' onclick="event.stopPropagation();openPlayerProfile('+jsq(n)+')" title="'+esc(runTitleFor(r,n))+'">'+esc(displayNameFor(n))+'</span>'
     ).join('<span class="run-team-sep">+</span>');
 
     // GG Button Logic
@@ -1749,7 +1760,7 @@ function renderLeaderboard(d){
       <span id="gg-count-${esc(r.id)}">${ggCount > 0 ? ggCount : ''}</span>
     </button>`;
 
-    return '<div class="run-row '+isMeClass+'" style="cursor:pointer" onclick="showPlayer('+jsq(r.player)+')"><div class="run-rank '+rc+'">'+(i+1)+'</div><div class="run-player">'+nameHtml+diff+isNew+'</div><a class="run-replay" href="'+getRunUrl(r)+'" target="_blank" title="'+T("home.watch_replay","Voir le replay")+'">&#9654;</a><div class="run-time">'+formatTime(r.duration_s)+'</div><div class="run-gap">'+gap+'</div>'+ggBtn+'</div>';
+    return '<div class="run-row '+isMeClass+'" data-pfb-row style="cursor:pointer" onclick="showPlayer('+jsq(r.player)+')"><div class="run-rank '+rc+'">'+(i+1)+'</div><div class="run-player">'+nameHtml+diff+isNew+'</div><a class="run-replay" href="'+getRunUrl(r)+'" target="_blank" title="'+T("home.watch_replay","Voir le replay")+'">&#9654;</a><div class="run-time">'+formatTime(r.duration_s)+'</div><div class="run-gap">'+gap+'</div>'+ggBtn+'</div>';
   }).join("");
   if(d.runs.length>show)html+='<button class="see-more-btn" onclick="seeMore(\''+esc(d.map)+'\')">'+TP("home.see_more", { n: (d.runs.length-show) }, 'Voir plus ('+(d.runs.length-show)+' restants)')+'</button>';
   const lbEl=document.getElementById("leaderboard");
@@ -1855,9 +1866,9 @@ function renderFeed(){
     // affichage du pseudo hub (profil TheFrontHub) sinon pseudo en jeu
     const parts=String(r.player||'').split(' + ').map(s=>s.trim()).filter(Boolean);
     const nameHtml=parts.map(n=>
-      '<span class="run-player-name'+skinClassFor(n)+pfbClassFor(n)+'"'+pfbAttrFor(n)+' onclick="event.stopPropagation();openPlayerProfile('+jsq(n)+')" title="'+esc(runTitleFor(r,n))+'">'+esc(displayNameFor(n))+'</span>'
+      '<span class="run-player-name'+skinClassFor(n)+'"'+pfbAttrFor(n)+' onclick="event.stopPropagation();openPlayerProfile('+jsq(n)+')" title="'+esc(runTitleFor(r,n))+'">'+esc(displayNameFor(n))+'</span>'
     ).join('<span class="run-team-sep">+</span>');
-    return '<div class="feed-item" style="cursor:pointer" onclick="showPlayer('+jsq(r.player)+')"><div class="feed-rank">'+(i+1)+'</div><div class="feed-info"><div class="feed-player">'+nameHtml+isNew+rankBadge+'</div><div class="feed-map">'+getMapDisplayName(r.map)+' · '+timeAgo(r.timestamp)+'</div></div><div class="feed-time">'+formatTime(r.duration_s)+'</div><a class="feed-replay" href="'+getRunUrl(r)+'" target="_blank" title="'+T("home.watch_replay","Voir le replay")+'">&#9654;</a></div>';
+    return '<div class="feed-item" data-pfb-row style="cursor:pointer" onclick="showPlayer('+jsq(r.player)+')"><div class="feed-rank">'+(i+1)+'</div><div class="feed-info"><div class="feed-player">'+nameHtml+isNew+rankBadge+'</div><div class="feed-map">'+getMapDisplayName(r.map)+' · '+timeAgo(r.timestamp)+'</div></div><div class="feed-time">'+formatTime(r.duration_s)+'</div><a class="feed-replay" href="'+getRunUrl(r)+'" target="_blank" title="'+T("home.watch_replay","Voir le replay")+'">&#9654;</a></div>';
   }).join("");
   decorateBanners(c);
 }
@@ -1886,9 +1897,9 @@ function renderGlobal(){
       // Solo : ligne entière → profil.
       const parts=String(p.player||'').split(' + ').map(s=>s.trim()).filter(Boolean);
       const playerInner=parts.map(n=>
-        '<span class="global-player'+skinClassFor(n)+pfbClassFor(n)+'"'+pfbAttrFor(n)+' onclick="event.stopPropagation();showPlayer('+jsq(n)+')" title="'+esc(n)+'">'+esc(displayNameFor(n))+'</span>'
+        '<span class="global-player'+skinClassFor(n)+'"'+pfbAttrFor(n)+' onclick="event.stopPropagation();showPlayer('+jsq(n)+')" title="'+esc(n)+'">'+esc(displayNameFor(n))+'</span>'
       ).join('<span class="run-team-sep">+</span>');
-      return '<tr class="'+isMeClass+'" style="cursor:pointer" onclick="showPlayer('+jsq(p.player)+')"><td class="global-rank '+rc+'">'+(i+1)+'</td><td class="global-player-cell">'+playerInner+'</td><td class="global-points">'+p.points+'</td><td class="global-wins">'+p.wins+'</td></tr>';
+      return '<tr class="'+isMeClass+'" data-pfb-row style="cursor:pointer" onclick="showPlayer('+jsq(p.player)+')"><td class="global-rank '+rc+'">'+(i+1)+'</td><td class="global-player-cell">'+playerInner+'</td><td class="global-points">'+p.points+'</td><td class="global-wins">'+p.wins+'</td></tr>';
     }).join("")+'</tbody></table>';
   decorateBanners(c);
 }
@@ -1901,9 +1912,9 @@ function renderHof(){
     // clic sur la carte → pancarte (modal stats, gérée par showPlayer).
     const parts=String(p.player||'').split(' + ').map(s=>s.trim()).filter(Boolean);
     const nameHtml=parts.map(n=>
-      '<span class="hof-player-name'+skinClassFor(n)+pfbClassFor(n)+'"'+pfbAttrFor(n)+' onclick="event.stopPropagation();showPlayer('+jsq(n)+')" title="'+esc(n)+'">'+esc(displayNameFor(n))+'</span>'
+      '<span class="hof-player-name'+skinClassFor(n)+'"'+pfbAttrFor(n)+' onclick="event.stopPropagation();showPlayer('+jsq(n)+')" title="'+esc(n)+'">'+esc(displayNameFor(n))+'</span>'
     ).join('<span class="run-team-sep">+</span>');
-    return '<div class="hof-card hof-'+(i+1)+'"><div class="hof-name'+skinClassFor(p.player)+'" onclick="showPlayer('+jsq(p.player)+')">'+nameHtml+'</div><div class="hof-rank" style="color:'+rank.color+'">'+rank.name+'</div><div class="hof-pts">'+p.points+' pts</div><div class="hof-detail">'+p.golds+' '+T("compare.gold","1er")+' · '+p.silvers+' '+T("compare.silver","2e")+' · '+p.bronzes+' '+T("compare.bronze","3e")+'</div></div>';
+    return '<div class="hof-card hof-'+(i+1)+'" data-pfb-row><div class="hof-name'+skinClassFor(p.player)+'" onclick="showPlayer('+jsq(p.player)+')">'+nameHtml+'</div><div class="hof-rank" style="color:'+rank.color+'">'+rank.name+'</div><div class="hof-pts">'+p.points+' pts</div><div class="hof-detail">'+p.golds+' '+T("compare.gold","1er")+' · '+p.silvers+' '+T("compare.silver","2e")+' · '+p.bronzes+' '+T("compare.bronze","3e")+'</div></div>';
   }).join("");
   decorateBanners(c);
 }
@@ -2238,6 +2249,13 @@ redirectToProfileIfRequested();
 loadData().then(()=>{
   loadVipPlayers(); // Charger les joueurs VIP en parallèle
   loadPublicAliases(); // Charger les aliases publics pour fusion visible par tous
+  // Bridge publicId pour les bannières pleine ligne : ranked.json ne sera
+  // chargé sur l'onglet Classé que si l'utilisateur l'ouvre — hors Classé,
+  // on pré-charge le bridge en tâche de fond (garde _rankedLoaded, rendu
+  // invisible) pour que les lignes speedruns/feed portent data-pfb-pid.
+  if (tabParam !== 'ranked') {
+    loadRankedLeaderboard(false).catch(() => {});
+  }
   if(mapParam)selectMap(mapParam);
   if (tabParam === 'profile') {
     window.location.replace('profile.html');
@@ -2339,11 +2357,25 @@ async function loadRankedLeaderboard(force = false) {
             usernameToPid.set(n, p.public_id);
             rankedBridgeChanged = true;
           }
+          const nk = normPlayerName(n);
+          if (nk && !usernameToPidNorm.has(nk)) {
+            usernameToPidNorm.set(nk, p.public_id);
+            rankedBridgeChanged = true;
+          }
         }
       }
     }
     if (rankedBridgeChanged) {
       rebuildVipByPid();
+      // Le bridge pid vient d'arriver (peut être APRÈS le rendu des runs) :
+      // re-rend la liste speedruns affichée pour poser les data-pfb-pid
+      // manquants (bannières pleine ligne). No-op si aucun map affichée.
+      try {
+        if (typeof activeMap !== "undefined" && activeMap && typeof allMaps !== "undefined" && allMaps.length) {
+          const d = allMaps.find(m => m.map === activeMap);
+          if (d && document.getElementById("leaderboard")) renderLeaderboard(d);
+        }
+      } catch (e) { /* non critique */ }
     }
     
     let players = [];
@@ -2473,8 +2505,8 @@ function renderRankedTable(players) {
 
     // Skin actif — matching par PUBLIC ID (prioritaire), fallback username
     const cosmeticNameClass = skinClassFor(p.username, p.public_id, p.accountUsername);
-    // Bannière pixel art active (plaquette) — posée par TFHBanners.decorate
-    const pfbClass = p.public_id ? " pfb-name" : "";
+    // Bannière pixel art (v2) : data-pfb-pid sur le pseudo + data-pfb-row
+    // sur le <tr> → TFHBanners.decorate peint la bannière sur TOUTE la ligne.
     const pfbAttr = p.public_id ? ` data-pfb-pid="${esc(p.public_id)}"` : "";
 
     // Pseudo AFFICHÉ : pseudo choisi sur TheFrontHub (même pseudo partout)
@@ -2484,16 +2516,18 @@ function renderRankedTable(players) {
     // ── Liaison classé (2026-09-03) ──
     // Clic sur le PSEUDO → profil complet (viewRankedProfile) ;
     // clic AILLEURS sur la ligne → « pancarte » (modal historique ranked).
+    // Hover : backgroundColor (PAS le shorthand background, qui écraserait
+    // la bannière posée en background-image sur les lignes .pfb-on).
     html += `
-      <tr data-pid="${esc(p.public_id)}" style="border-bottom: 1px solid var(--border); transition: background 0.2s; cursor:pointer;"
-          onmouseover="this.style.background='var(--bg2)'"
-          onmouseout="this.style.background='transparent'"
+      <tr data-pid="${esc(p.public_id)}" data-pfb-row style="border-bottom: 1px solid var(--border); transition: background 0.2s; cursor:pointer;"
+          onmouseover="this.style.backgroundColor='var(--bg2)'"
+          onmouseout="this.style.backgroundColor='transparent'"
           onclick="showRankedPlayerModal(${jsq(p.public_id)}, ${jsq(p.username)})">
         <td style="padding: 12px 8px; font-weight: bold; color: ${p.rank <= 3 ? 'var(--accent)' : 'var(--text)'};">#${p.rank}</td>
         <td style="padding: 12px 8px;">
           <div style="display:flex;align-items:center;gap:6px">
             ${favBtn}
-            <span class="${cosmeticNameClass} ranked-player-name${pfbClass}"${pfbAttr} onclick="event.stopPropagation();viewRankedProfile(${jsq(p.public_id)}, ${jsq(p.username)})" title="${esc(p.username)}" style="color: var(--text); text-decoration: none; font-weight: 500; position: relative; display: inline-block; cursor: pointer;">
+            <span class="${cosmeticNameClass} ranked-player-name"${pfbAttr} onclick="event.stopPropagation();viewRankedProfile(${jsq(p.public_id)}, ${jsq(p.username)})" title="${esc(p.username)}" style="color: var(--text); text-decoration: none; font-weight: 500; position: relative; display: inline-block; cursor: pointer;">
               ${p.clanTag ? `<span style="color:var(--text3);font-size:0.9em;margin-right:4px;">[${esc(p.clanTag)}]</span>` : ''}${esc(shownName)}
             </span>
           </div>
