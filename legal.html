@@ -36,14 +36,14 @@
 <script type="module" src="dist/icons.min.js?v=9"></script>
 
 <!-- i18n : dict de page (synchrone, avant i18n.js) + moteur + sélecteur de langue -->
-<script src="dist/i18n-dict-pages.min.js?v=5"></script>
+<script src="dist/i18n-dict-pages.min.js?v=6"></script>
 <script src="dist/i18n-dict-widgets.min.js?v=3"></script>
 <script src="dist/i18n.min.js?v=6" defer></script>
 <script src="dist/lang-switcher.min.js?v=2" defer></script>
 
-<!-- Cookies / CNIL — Consent Mode v2, gtag chargé par cookies.js après le choix -->
+<!-- cookies.js v4 : charge gtag.js (GA4) — consentement EEE/RU/CH géré par la CMP Google -->
 <link rel="preconnect" href="https://www.googletagmanager.com" crossorigin>
-<script src="cookies.js?v=3"></script>
+<script src="cookies.js?v=4"></script>
 
 <style>
   /* ── Pages documentaires (about / privacy / legal) ── */
@@ -223,7 +223,7 @@
 
     <section class="doc-card">
       <h2><span class="doc-num">6</span><span data-i18n="legal.data_t">Données personnelles &amp; cookies</span></h2>
-      <p data-i18n-html="legal.data_d">Le site utilise des cookies de mesure d'audience (Google Analytics) et de publicité (Google AdSense), déposés uniquement après ton consentement. Consulte notre <a href="privacy.html">politique de confidentialité</a> pour le détail, ou gère tes choix&nbsp;:</p>
+      <p data-i18n-html="legal.data_d">Le site utilise des cookies de mesure d'audience (Google Analytics) et de publicité (Google AdSense). Dans l'EEE, au Royaume-Uni et en Suisse, ton consentement est recueilli par une plateforme de gestion du consentement (CMP) certifiée par Google&nbsp;: rien n'est déposé avant ton choix. Consulte notre <a href="privacy.html">politique de confidentialité</a> pour le détail, ou gère tes choix&nbsp;:</p>
       <div class="doc-actions">
         <button type="button" class="doc-btn" onclick="if(window.openCookiePreferences){window.openCookiePreferences();}" data-i18n="legal.btn_manage">🍪 Gérer mes cookies</button>
       </div>
@@ -346,7 +346,7 @@
   // Service Worker — offline + cache stale-while-revalidate
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=29').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=30').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>

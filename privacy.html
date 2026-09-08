@@ -36,14 +36,14 @@
 <script type="module" src="dist/icons.min.js?v=9"></script>
 
 <!-- i18n : dict de page (synchrone, avant i18n.js) + moteur + sélecteur de langue -->
-<script src="dist/i18n-dict-pages.min.js?v=5"></script>
+<script src="dist/i18n-dict-pages.min.js?v=6"></script>
 <script src="dist/i18n-dict-widgets.min.js?v=3"></script>
 <script src="dist/i18n.min.js?v=6" defer></script>
 <script src="dist/lang-switcher.min.js?v=2" defer></script>
 
-<!-- Cookies / CNIL — Consent Mode v2, gtag chargé par cookies.js après le choix -->
+<!-- cookies.js v4 : charge gtag.js (GA4) — consentement EEE/RU/CH géré par la CMP Google -->
 <link rel="preconnect" href="https://www.googletagmanager.com" crossorigin>
-<script src="cookies.js?v=3"></script>
+<script src="cookies.js?v=4"></script>
 
 <style>
   /* ── Pages documentaires (about / privacy / legal) ── */
@@ -196,7 +196,7 @@
     <p class="doc-updated" data-i18n="priv.updated">Dernière mise à jour : 7 septembre 2026</p>
 
     <section class="doc-card">
-      <p data-i18n-html="priv.intro">La protection de ta vie privée est importante pour nous. Cette page explique, en toute transparence, quelles données sont collectées sur TheFrontHub, pourquoi, combien de temps elles sont conservées et comment exercer tes droits. En résumé&nbsp;: <b>rien n'est déposé ni lu avant ton choix</b> dans le bandeau cookies, et tu peux changer d'avis à tout moment.</p>
+      <p data-i18n-html="priv.intro">La protection de ta vie privée est importante pour nous. Cette page explique, en toute transparence, quelles données sont collectées sur TheFrontHub, pourquoi, combien de temps elles sont conservées et comment exercer tes droits. En résumé&nbsp;: dans l'EEE, au Royaume-Uni et en Suisse, <b>rien n'est déposé ni lu avant ton choix</b> dans le bandeau de consentement (CMP certifiée Google), et tu peux changer d'avis à tout moment.</p>
     </section>
 
     <section class="doc-card">
@@ -213,7 +213,7 @@
       <h3 data-i18n="priv.data_game_t">Statistiques de jeu publiques</h3>
       <p data-i18n-html="priv.data_game_d">Le site synchronise les <b>données publiques d'OpenFront.io</b> (pseudos, parties, scores, temps, classements) pour construire les leaderboards et profils joueurs. Ces informations sont déjà publiques dans le jeu.</p>
       <h3 data-i18n="priv.data_tech_t">Données techniques</h3>
-      <p data-i18n-html="priv.data_tech_d">Comme tout site, l'hébergeur conserve des <b>journaux techniques</b> (adresse IP, navigateur, pages demandées) à des fins de sécurité. Le site utilise aussi le <b>stockage local de ton navigateur</b> (localStorage) pour tes préférences&nbsp;: thème, langue et choix cookies.</p>
+      <p data-i18n-html="priv.data_tech_d">Comme tout site, l'hébergeur conserve des <b>journaux techniques</b> (adresse IP, navigateur, pages demandées) à des fins de sécurité. Le site utilise aussi le <b>stockage local de ton navigateur</b> (localStorage) pour tes préférences&nbsp;: thème et langue.</p>
     </section>
 
     <section class="doc-card">
@@ -234,7 +234,7 @@
           <tr><th data-i18n="priv.th_name">Nom</th><th data-i18n="priv.th_type">Catégorie</th><th data-i18n="priv.th_purpose">Finalité</th><th data-i18n="priv.th_duration">Durée</th></tr>
         </thead>
         <tbody>
-          <tr><td data-i18n="priv.c1_name">tfs-consent (localStorage)</td><td data-i18n="priv.c1_type">Préférences — exempté</td><td data-i18n="priv.c1_purpose">Mémorise ton choix cookies (mesure d'audience / publicité).</td><td data-i18n="priv.c1_duration">13 mois max. ou retrait du consentement</td></tr>
+          <tr><td data-i18n="priv.c1_name">FCCDCF — consentement (CMP Google)</td><td data-i18n="priv.c1_type">Consentement — exempté</td><td data-i18n="priv.c1_purpose">Mémorise ton choix (accepter / refuser / personnaliser) pour la publicité et la mesure d'audience.</td><td data-i18n="priv.c1_duration">13 mois max. ou retrait du consentement</td></tr>
           <tr><td data-i18n="priv.c2_name">tfs-theme, openfront_lang (localStorage)</td><td data-i18n="priv.c2_type">Préférences — exempté</td><td data-i18n="priv.c2_purpose">Thème clair/sombre et langue du site.</td><td data-i18n="priv.c2_duration">Jusqu'à effacement de tes données navigateur</td></tr>
           <tr><td data-i18n="priv.c3_name">Session PHP (cookie)</td><td data-i18n="priv.c3_type">Strictement nécessaire</td><td data-i18n="priv.c3_purpose">Te maintenir connecté après la connexion Discord.</td><td data-i18n="priv.c3_duration">Le temps de la session</td></tr>
           <tr><td data-i18n="priv.c4_name">_ga, _ga_* (Google Analytics)</td><td data-i18n="priv.c4_type">Mesure d'audience — sur consentement</td><td data-i18n="priv.c4_purpose">Statistiques de visite (pages vues, parcours) pour améliorer le site.</td><td data-i18n="priv.c4_duration">13 mois maximum</td></tr>
@@ -246,17 +246,17 @@
 
     <section class="doc-card">
       <h2><span class="doc-num">5</span><span data-i18n="priv.ga_t">Google Analytics</span></h2>
-      <p data-i18n-html="priv.ga_d">Nous utilisons Google Analytics 4 (ID <code>G-GNY8ZYKCZB</code>) pour mesurer l'audience du site de façon anonyme. Grâce au <b>Consent Mode v2</b>, la mesure est <b>désactivée par défaut</b>&nbsp;: aucun cookie analytics n'est déposé et aucun hit n'est envoyé tant que tu n'as pas accepté la «&nbsp;mesure d'audience&nbsp;». Les données sont transmises à Google, qui peut les traiter hors Union européenne (encadrement via les clauses contractuelles types). En savoir plus&nbsp;: <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">Confidentialité Google</a>.</p>
+      <p data-i18n-html="priv.ga_d">Nous utilisons Google Analytics 4 (ID <code>G-GNY8ZYKCZB</code>) pour mesurer l'audience du site de façon anonyme. Dans l'EEE, au Royaume-Uni et en Suisse, la mesure est soumise au <b>Consent Mode v2</b>&nbsp;: aucun cookie analytics n'est déposé tant que tu n'as pas accepté la «&nbsp;mesure d'audience&nbsp;» dans le bandeau de consentement. Les données sont transmises à Google, qui peut les traiter hors Union européenne (encadrement via les clauses contractuelles types). En savoir plus&nbsp;: <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">Confidentialité Google</a>.</p>
     </section>
 
     <section class="doc-card">
       <h2><span class="doc-num">6</span><span data-i18n="priv.ads_t">Google AdSense (publicité)</span></h2>
-      <p data-i18n-html="priv.ads_d">TheFrontHub est un site gratuit dont le financement repose en partie sur la publicité&nbsp;: les annonces Google AdSense (éditeur <code>ca-pub-2991878097014222</code>) génèrent de modestes revenus qui couvrent l'hébergement et soutiennent le développement du site. <b>Sans ton consentement</b> publicitaire, seules des <b>annonces non personnalisées</b> peuvent être servies, sans profil publicitaire. Si tu acceptes, Google et ses partenaires peuvent déposer des cookies pour personnaliser les annonces selon tes visites. Tu peux revoir tes préférences à tout moment via le bouton 🍪 ou sur <a href="https://adssettings.google.com" target="_blank" rel="noreferrer">adssettings.google.com</a> — voir aussi <a href="https://policies.google.com/technologies/ads" target="_blank" rel="noreferrer">publicités Google</a>.</p>
+      <p data-i18n-html="priv.ads_d">TheFrontHub est un site gratuit dont le financement repose en partie sur la publicité&nbsp;: les annonces Google AdSense (éditeur <code>ca-pub-2991878097014222</code>) génèrent de modestes revenus qui couvrent l'hébergement et soutiennent le développement du site. <b>Sans ton consentement</b> publicitaire, seules des <b>annonces non personnalisées</b> peuvent être servies, sans profil publicitaire. Si tu acceptes, Google et ses partenaires peuvent déposer des cookies pour personnaliser les annonces selon tes visites. Tu peux revoir tes préférences à tout moment via le lien «&nbsp;Gérer les cookies&nbsp;» en pied de page (ou l'icône «&nbsp;Options de confidentialité&nbsp;» de Google), ou sur <a href="https://adssettings.google.com" target="_blank" rel="noreferrer">adssettings.google.com</a> — voir aussi <a href="https://policies.google.com/technologies/ads" target="_blank" rel="noreferrer">publicités Google</a>.</p>
     </section>
 
     <section class="doc-card">
       <h2><span class="doc-num">7</span><span data-i18n="priv.consent_t">Gérer ton consentement</span></h2>
-      <p data-i18n="priv.consent_d">Tu as accepté, refusé ou personnalisé tes choix&nbsp;? Tu peux les modifier à tout moment&nbsp;: le bouton 🍪 en bas à droite de l'écran rouvre le panneau de préférences, et le bouton ci-dessous aussi.</p>
+      <p data-i18n="priv.consent_d">Tu as accepté, refusé ou personnalisé tes choix&nbsp;? Tu peux les modifier à tout moment&nbsp;: via le lien «&nbsp;Gérer les cookies&nbsp;» en pied de page, l'icône «&nbsp;Options de confidentialité&nbsp;» de Google, ou le bouton ci-dessous.</p>
       <div class="doc-actions">
         <button type="button" class="doc-btn" onclick="if(window.openCookiePreferences){window.openCookiePreferences();}" data-i18n="priv.btn_manage">🍪 Gérer mes cookies</button>
       </div>
@@ -398,7 +398,7 @@
   // Service Worker — offline + cache stale-while-revalidate
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=29').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=30').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>

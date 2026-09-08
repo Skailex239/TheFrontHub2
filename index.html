@@ -88,9 +88,9 @@
 <script src="dist/i18n.min.js?v=6" defer></script>
 <script src="dist/lang-switcher.min.js?v=2" defer></script>
 
-<!-- Cookies / CNIL — Consent Mode v2, gtag chargé par cookies.js après le choix -->
+<!-- cookies.js v4 : charge gtag.js (GA4) — consentement EEE/RU/CH géré par la CMP Google -->
 <link rel="preconnect" href="https://www.googletagmanager.com" crossorigin>
-<script src="cookies.js?v=3"></script>
+<script src="cookies.js?v=4"></script>
 </head>
 <body>
 <a href="#tab-maps" class="skip-link" data-i18n="home.skip_link">Aller au contenu principal</a>
@@ -604,7 +604,7 @@
   // Register Service Worker for offline support + Stale-While-Revalidate caching
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=29').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=30').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>
