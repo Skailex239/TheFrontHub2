@@ -127,7 +127,19 @@ function applySkinsToDom() {
     if (!raw) return;
     // Fix 2026-09-06 : le publicId du run (data-pid) est prioritaire —
     // résout pseudo hub + skin même pour les anciens pseudos du joueur.
-    const pid = a.getAttribute('data-pid') || resolvePidForName(raw) || '';
+    // v2 2026-09-08 : si le pid n'est résolu qu'APRÈS le rendu (Firebase
+    // aliases / skins.php arrivent en retard — cf. bootstrapRunsPage qui ne
+    // les attend pas), on REPOSA data-pid + data-pfb-pid sur l'ancre :
+    // sans ça, TFHBanners.decorate ci-dessous ne trouve aucun [data-pfb-pid]
+    // et la bannière pleine ligne n'est jamais peinte sur runs.html.
+    var pid = a.getAttribute('data-pid');
+    if (!pid) {
+      pid = resolvePidForName(raw) || '';
+      if (pid) {
+        a.setAttribute('data-pid', pid);
+        a.setAttribute('data-pfb-pid', pid);
+      }
+    }
     const skinId = (pid && activeSkinsByPid.get(String(pid))) || skinIdForPlayer(raw);
     if (skinId) a.classList.add('skin-' + skinId);
     const shown = (pid && hubNameByPid[String(pid)]) || displayNameFor(raw);
