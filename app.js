@@ -2518,9 +2518,12 @@ function renderRankedTable(players) {
     // clic AILLEURS sur la ligne → « pancarte » (modal historique ranked).
     // Hover : backgroundColor (PAS le shorthand background, qui écraserait
     // la bannière posée en background-image sur les lignes .pfb-on).
+    // v3 2026-09-08 : les lignes .pfb-on (bannière pleine ligne) sautent
+    // aussi la teinte backgroundColor — un voile coloré sous la trame
+    // semi-transparente casse le rendu de la bannière au survol.
     html += `
       <tr data-pid="${esc(p.public_id)}" data-pfb-row style="border-bottom: 1px solid var(--border); transition: background 0.2s; cursor:pointer;"
-          onmouseover="this.style.backgroundColor='var(--bg2)'"
+          onmouseover="if(!this.classList.contains('pfb-on'))this.style.backgroundColor='var(--bg2)'"
           onmouseout="this.style.backgroundColor='transparent'"
           onclick="showRankedPlayerModal(${jsq(p.public_id)}, ${jsq(p.username)})">
         <td style="padding: 12px 8px; font-weight: bold; color: ${p.rank <= 3 ? 'var(--accent)' : 'var(--text)'};">#${p.rank}</td>

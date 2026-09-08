@@ -704,8 +704,8 @@ body{
 
 /* ── COSMETIC SKINS — keep rainbow animations as decorative text effects ── */
 /* Ranked list — zebra striping + hover + responsive */
-#ranked-list tr:nth-child(even){background:var(--bg-subtle)!important}
-#ranked-list tr:hover{background:var(--accent-subtle)!important}
+#ranked-list tr:nth-child(even):not(.pfb-on){background-color:var(--bg-subtle)!important}
+#ranked-list tr:hover:not(.pfb-on){background-color:var(--accent-subtle)!important}
 #ranked-list tr td{font-variant-numeric:tabular-nums}
 /* Hide secondary columns on mobile to prevent horizontal scroll.
    ⚠️ FIX 2026-09-05 : les <th> sont dans <thead>, HORS de #ranked-list (= <tbody>) —
