@@ -55,9 +55,9 @@
 <script src="dist/i18n.min.js?v=6" defer></script>
 <script src="dist/lang-switcher.min.js?v=2" defer></script>
 
-<!-- cookies.js v4 : charge gtag.js (GA4) — consentement EEE/RU/CH géré par la CMP Google -->
+<!-- cookies.js v5 : GA4 + tag AdSense (sert le bandeau CMP Google) + réouverture consentement -->
 <link rel="preconnect" href="https://www.googletagmanager.com" crossorigin>
-<script src="cookies.js?v=4"></script>
+<script src="cookies.js?v=5"></script>
 </head>
 <body>
 <a href="#profile-loading" class="skip-link" data-i18n="pf.skip_content">Aller au contenu principal</a>
@@ -413,7 +413,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=30').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=31').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>
