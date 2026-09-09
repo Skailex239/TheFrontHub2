@@ -554,6 +554,26 @@ async function main() {
   if (hasExemption()) console.log("[teams] 🔑 Exemption Skailex active");
   else console.log("[teams] ⚠️ Pas d'exemption — rate limits peuvent s'appliquer");
 
+  // ── Garde-fou anti-perte d'état (même incident que sync.js, 2026-09-08) ──
+  // Si teams_runs.json est quasi vide alors que le checkpoint prouve une
+  // sync récente (pull en échec → état reparti de zéro), on abandonne SANS
+  // écrire : le push du workflow saute teams_runs.json et la release garde
+  // le dernier bon état. Bootstrap légitime : last_sync_time = "0" → passe.
+  {
+    const guardRuns = loadRuns();
+    const guardTotal = MODE_KEYS.reduce((s, k) => s + (guardRuns[k]?.length || 0), 0);
+    const guardCp = loadCheckpoint();
+    const guardLast = parseInt(guardCp.last_sync_time || "0", 10) || 0;
+    if (guardTotal < 100 && guardLast > 0) {
+      console.error(
+        `[teams] 🛑 ÉTAT SUSPECT : ${guardTotal} runs (< 100) alors que la dernière sync datait de ` +
+        `${new Date(guardLast).toISOString()}.\n` +
+        `[teams] 🛑 Publication refusée pour ne PAS écraser l'historique. Arrêt sans écriture.`
+      );
+      process.exit(1);
+    }
+  }
+
   // 0. Migration : purger les runs mal classifiés (playerTeams numériques)
   {
     const preRuns = loadRuns();

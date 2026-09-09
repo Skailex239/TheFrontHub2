@@ -741,6 +741,31 @@ async function main() {
   const runs = loadRuns();
   console.log(`[sync] ${runs.length.toLocaleString()} runs existants (${syncMode})`);
 
+  // ── Garde-fou anti-perte d'état (incident du 2026-09-08) ────────────────
+  // Ce jour-là, le pull de runs.json.gz a échoué (curl 35, micro-coupure) et
+  // le workflow a publié un état reparti de zéro PAR-DESSUS la release saine
+  // → ~380 000 runs perdus (récupérés en partie depuis le dataset compact).
+  // Ici : si l'état chargé est quasi vide ALORS QUE le checkpoint prouve
+  // qu'une sync récente existait (donc qu'il y avait de la donnée au cycle
+  // précédent), on abandonne SANS écrire un seul fichier → le push du
+  // workflow saute runs*.json.gz (introuvable dans le workspace) et la
+  // release conserve le dernier bon état ; le cycle suivant retélécharge.
+  // Un bootstrap légitime a last_sync_time = "0" (ou reset flag) → passe.
+  const cpGuard = loadCheckpoints();
+  const lastSyncMsGuard = parseInt(cpGuard.last_sync_time || "0", 10) || 0;
+  const MIN_RUNS_GUARD = 1000;
+  if (!Array.isArray(runs) || (runs.length < MIN_RUNS_GUARD && lastSyncMsGuard > 0 && cpGuard.reset !== true)) {
+    console.error(
+      `[sync] 🛑 ÉTAT SUSPECT : ${Array.isArray(runs) ? runs.length : " état illisible "} runs ` +
+      `(< ${MIN_RUNS_GUARD}) alors que la dernière sync datait de ` +
+      `${lastSyncMsGuard ? new Date(lastSyncMsGuard).toISOString() : "?"}.\n` +
+      `[sync] 🛑 Publication refusée pour ne PAS écraser l'historique de la release. ` +
+      `Arrêt sans écriture — le prochain cycle retéléchargera l'état. ` +
+      `(Repartir de zéro volontairement : do-reset.ps1 ou action "reset-history".)`
+    );
+    process.exit(1);
+  }
+
   if (mode === "full" || mode === "recent") {
     await syncRecent();
   }
