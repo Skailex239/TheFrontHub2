@@ -604,7 +604,7 @@
   // Register Service Worker for offline support + Stale-While-Revalidate caching
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=31').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=32').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>
@@ -669,7 +669,7 @@
     if (el) el.textContent = y;
   })();
 </script>
-<script type="module" src="dist/tutorial.min.js?v=4"></script>
+<script type="module" src="dist/tutorial.min.js?v=5"></script>
 
 
 

@@ -231,6 +231,10 @@ function showStep(idx) {
   if (!_overlay) {
     createTutorialElements();
   }
+  // ⚠️ Garde-fou (fix Uncaught TypeError « _overlay is null ») : le tuto peut
+  // être nettoyé entre-temps (clic « Passer », overlay cliqué, fin) pendant
+  // qu'un showStep différé s'exécute encore → _overlay/_tooltip à null.
+  if (!_overlay || !_tooltip) return;
 
   // Positionner le spotlight
   positionSpotlight(target);
@@ -287,6 +291,8 @@ function showStep(idx) {
  * Crée les éléments DOM du tutoriel (overlay, spotlight, tooltip).
  */
 function createTutorialElements() {
+  // ⚠️ Garde-fou : script exécuté avant l'existence de <body> → rien à créer
+  if (!document.body) return;
   // Overlay (fond sombre)
   _overlay = document.createElement('div');
   _overlay.className = 'tfh-tutorial-overlay';
