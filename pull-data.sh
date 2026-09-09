@@ -31,7 +31,6 @@ WEB_ROOT="${TFS_WEB_ROOT:-/home2/mask6607/public_html/thefronthub.com}"
 REPO="Skailex239/TheFrontHub2"
 TAG="data-latest"
 BASE="https://github.com/${REPO}/releases/download/${TAG}"
-ARCHIVE_MAX_AGE=$((24 * 3600))   # runs.json.gz : 1 téléchargement / 24 h max
 
 # ══ Anti-chevauchement ═══════════════════════════════════════════════════════
 exec 9>"/tmp/tfs-pull-data.lock"
@@ -106,16 +105,32 @@ else
   echo "  ⚠️  player-files.tar.gz : échec — fichiers précédents conservés"
 fi
 
-# ══ 3. Fallback lourd : runs.json.gz (max 1×/24 h) ══════════════════════════
-# C'est la grosse archive (16 Mo) utilisée seulement si runs_public.json.gz
-# est absent. La re-télécharger à chaque cycle serait inutile.
+# ══ 3. Store principal : runs.json.gz (téléchargé si l'asset a changé) ══════
+# ANCIEN fonctionnement : re-téléchargement max 1×/24 h — runs.json.gz était
+# considéré comme un simple fallback quasi statique.
+# ⚠️ INCIDENT du 2026-09-09 : suite à une perte d'état côté sync (voir
+# sync.js), runs.json.gz est devenu le STORE principal des speedruns — la
+# page /runs.html le charge directement. Avec la porte 24 h, la récupération
+# des données mettait jusqu'à 24 h à atteindre le site.
+# NOUVEAU fonctionnement : un HEAD à chaque cycle (coût négligeable) compare
+# le Last-Modified distant au dernier installé ; téléchargement UNIQUEMENT
+# si l'asset a changé (~1×/cycle de sync, soit ~12 Mo toutes les 7-15 min).
 RUNS="${WEB_ROOT}/runs.json.gz"
-now=$(date +%s)
-age=$(( now - $(stat -c %Y "$RUNS" 2>/dev/null || echo 0) ))
-if [[ $age -ge $ARCHIVE_MAX_AGE ]]; then
+RUNS_LM="${TFS_LM_STATE:-/home2/mask6607/.runs_gz_last_modified}"
+REMOTE_LM=$(curl -fsSIL --retry 2 --connect-timeout 20 --max-time 30 "${BASE}/runs.json.gz" 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="last-modified:"{sub(/^last-modified:[ ]*/,"");print;exit}')
+if [[ -z "$REMOTE_LM" ]]; then
+  echo "  ⚠️  runs.json.gz : HEAD impossible — tentative de téléchargement direct"
   fetch_asset "runs.json.gz"
 else
-  echo "  ℹ️  runs.json.gz à jour (${age}s < 24 h) — ignoré"
+  LOCAL_LM=""
+  [[ -f "$RUNS_LM" ]] && LOCAL_LM=$(cat "$RUNS_LM" 2>/dev/null)
+  if [[ "$REMOTE_LM" != "$LOCAL_LM" ]]; then
+    if fetch_asset "runs.json.gz"; then
+      printf '%s' "$REMOTE_LM" > "$RUNS_LM"
+    fi
+  else
+    echo "  ℹ️  runs.json.gz inchangé côté release — ignoré"
+  fi
 fi
 
 echo "$(date '+%F %T') [pull-data] Fin"
