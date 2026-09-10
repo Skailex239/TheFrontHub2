@@ -1356,6 +1356,30 @@ document.addEventListener("click", (e) => {
 
 /* ── Ownership verification (pour le #profile-modal copié de index.html) ── */
 
+/* ── Public ID : accepte le lien OpenFront complet ou le message copié ──
+ * Le bouton « Copier » d'OpenFront fournit soit un lien
+ * (https://openfront.io/#modal=profile&publicID=UWetOwlW), soit un message
+ * (« Mon Public ID : UWetOwlW »). On extrait l'ID (8 caractères
+ * alphanumériques) de n'importe quel texte collé ; un ID tapé à la main
+ * passe tel quel. Le seuil de 8 caractères évite de découper une saisie
+ * manuelle du lien en cours de frappe. */
+function extractPublicId(raw) {
+  const v = String(raw || "").trim();
+  if (!v) return "";
+  const m = v.match(/public\s*ID\s*[:=]\s*["']?([A-Za-z0-9]{8,32})["']?/i);
+  return m ? m[1] : v;
+}
+
+// Extraction automatique dès le collage : le champ affiche directement l'ID.
+(function wirePublicIdAutoExtract() {
+  const el = document.getElementById("profile-public-id");
+  if (!el) return;
+  el.addEventListener("input", () => {
+    const extracted = extractPublicId(el.value);
+    if (extracted && extracted !== el.value) el.value = extracted;
+  });
+})();
+
 window.startOwnershipVerification = async function () {
   if (!currentUser) {
     showToast(T("dash.toast_login_first", "Veuillez vous connecter d'abord."), "warning");
@@ -1364,7 +1388,8 @@ window.startOwnershipVerification = async function () {
   const usernameInput = document.getElementById("profile-username");
   const publicIdInput = document.getElementById("profile-public-id");
   const username = (usernameInput?.value || "").trim();
-  const publicId = (publicIdInput?.value || "").trim();
+  // Lien OpenFront collé ou message « Mon Public ID : … » → extraction de l'ID
+  const publicId = extractPublicId(publicIdInput?.value || "");
 
   if (!username || !publicId) {
     showToast(T("dash.toast_fill_all", "Veuillez remplir tous les champs."), "warning");
@@ -1375,7 +1400,7 @@ window.startOwnershipVerification = async function () {
     return;
   }
   if (!/^[A-Za-z0-9]{8}$/.test(publicId)) {
-    showToast(T("dash.toast_pid_len", "Le Public ID doit faire exactement 8 caractères alphanumériques (ex: HabCsQYR)."), "warning");
+    showToast(T("dash.toast_pid_len", "Public ID invalide — 8 caractères alphanumériques (ex: HabCsQYR), ou collez directement le lien OpenFront."), "warning");
     return;
   }
   if (/[^a-zA-Z0-9_\- ]/.test(username)) {

@@ -24,7 +24,7 @@
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=92" as="style">
 <link rel="preload" href="profile.css?v=42" as="style">
-<link rel="preload" href="dist/profile.min.js?v=26" as="script" crossorigin>
+<link rel="preload" href="dist/profile.min.js?v=27" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=9" as="script" crossorigin>
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
@@ -50,7 +50,7 @@
   <script type="module" src="dist/icons.min.js?v=9"></script>
 
 <!-- i18n : dict de page (synchrone, avant i18n.js) + moteur + sélecteur de langue -->
-<script src="dist/i18n-dict-profile.min.js?v=3"></script>
+<script src="dist/i18n-dict-profile.min.js?v=4"></script>
 <script src="dist/i18n-dict-widgets.min.js?v=3"></script>
 <script src="dist/i18n.min.js?v=6" defer></script>
 <script src="dist/lang-switcher.min.js?v=2" defer></script>
@@ -225,9 +225,9 @@
             <span class="pf-form-hint" data-i18n="pf.setup_username_hint">C'est le pseudo affiché dans les classements.</span>
           </div>
           <div class="pf-form-group">
-            <label for="setup-public-id" data-i18n="pf.setup_pid_label">Public ID OpenFront (8 caractères)</label>
-            <input type="text" id="setup-public-id" placeholder="Ex: HabCsQYR" data-i18n-placeholder="pf.setup_pid_ph" maxlength="8" autocomplete="off">
-            <span class="pf-form-hint" data-i18n="pf.setup_pid_hint">Sur OpenFront : Paramètres → Public ID. Il sera vérifié et lié définitivement.</span>
+            <label for="setup-public-id" data-i18n="pf.setup_pid_label">Public ID OpenFront — lien ou ID (8 caractères)</label>
+            <input type="text" id="setup-public-id" placeholder="Ex: HabCsQYR" data-i18n-placeholder="pf.setup_pid_ph" autocomplete="off">
+            <span class="pf-form-hint" data-i18n="pf.setup_pid_hint">Sur OpenFront : Paramètres → Public ID → copiez le lien ou le message « Mon Public ID : … » et collez-le ici (l'ID est extrait automatiquement), ou tapez l'ID seul. Il sera vérifié et lié définitivement.</span>
           </div>
           <button class="pf-primary-btn" onclick="startOwnershipVerification()" data-i18n="pf.setup_link_btn">
             Lier mon compte
@@ -407,13 +407,13 @@
 <script src="dist/toast.min.js?v=2" defer></script>
 <script src="dist/lenis.min.js?v=7"></script>
 <script src="dist/animations.min.js?v=2" defer></script>
-<script src="dist/profile.min.js?v=26" type="module"></script>
+<script src="dist/profile.min.js?v=27" type="module"></script>
 
 <script type="module" src="dist/tutorial.min.js?v=5"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=32').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=33').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>

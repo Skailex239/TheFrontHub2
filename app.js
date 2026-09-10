@@ -537,10 +537,35 @@ let _ownershipCode = null;
 let _ownershipPublicId = null;
 let _ownershipUsername = null;
 
+/* ── Public ID : accepte le lien OpenFront complet ou le message copié ──
+ * Le bouton « Copier » d'OpenFront fournit soit un lien
+ * (https://openfront.io/#modal=profile&publicID=UWetOwlW), soit un message
+ * (« Mon Public ID : UWetOwlW »). On extrait l'ID (8 caractères
+ * alphanumériques) de n'importe quel texte collé ; un ID tapé à la main
+ * passe tel quel. Le seuil de 8 caractères évite de découper une saisie
+ * manuelle du lien en cours de frappe. */
+function extractPublicId(raw) {
+  const v = String(raw || "").trim();
+  if (!v) return "";
+  const m = v.match(/public\s*ID\s*[:=]\s*["']?([A-Za-z0-9]{8,32})["']?/i);
+  return m ? m[1] : v;
+}
+
+// Extraction automatique dès le collage : le champ affiche directement l'ID.
+(function wirePublicIdAutoExtract() {
+  const el = document.getElementById("profile-public-id");
+  if (!el) return;
+  el.addEventListener("input", () => {
+    const extracted = extractPublicId(el.value);
+    if (extracted && extracted !== el.value) el.value = extracted;
+  });
+})();
+
 // L7+L8: Step 1 — validate format, check API existence, generate challenge code
 window.startOwnershipVerification = async () => {
   const username = document.getElementById('profile-username').value.trim();
-  const publicId = document.getElementById('profile-public-id').value.trim();
+  // Lien OpenFront collé ou message « Mon Public ID : … » → extraction de l'ID
+  const publicId = extractPublicId(document.getElementById('profile-public-id')?.value);
 
   // L8: Form validation
   if (!username || !publicId) {
@@ -553,7 +578,7 @@ window.startOwnershipVerification = async () => {
   }
   // L8: OpenFront publicId is exactly 8 alphanumeric chars
   if (!/^[A-Za-z0-9]{8}$/.test(publicId)) {
-    window.showToast(T("home.publicid_format", "Le Public ID doit faire exactement 8 caractères alphanumériques (ex: HabCsQYR)."), "warning");
+    window.showToast(T("home.publicid_format", "Public ID invalide — 8 caractères alphanumériques (ex: HabCsQYR), ou collez directement le lien OpenFront."), "warning");
     return;
   }
   if (/[^a-zA-Z0-9_\- ]/.test(username)) {

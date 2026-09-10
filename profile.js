@@ -1214,6 +1214,30 @@ function clearOwnershipChallenge() {
   try { localStorage.removeItem(key); } catch (e) { /* ignore */ }
 }
 
+/* ── Public ID : accepte le lien OpenFront complet ou le message copié ──
+ * Le bouton « Copier » d'OpenFront fournit soit un lien
+ * (https://openfront.io/#modal=profile&publicID=UWetOwlW), soit un message
+ * (« Mon Public ID : UWetOwlW »). On extrait l'ID (8 caractères
+ * alphanumériques) de n'importe quel texte collé ; un ID tapé à la main
+ * passe tel quel. Le seuil de 8 caractères évite de découper une saisie
+ * manuelle du lien en cours de frappe. */
+function extractPublicId(raw) {
+  const v = String(raw || "").trim();
+  if (!v) return "";
+  const m = v.match(/public\s*ID\s*[:=]\s*["']?([A-Za-z0-9]{8,32})["']?/i);
+  return m ? m[1] : v;
+}
+
+// Extraction automatique dès le collage : le champ affiche directement l'ID.
+(function wirePublicIdAutoExtract() {
+  const el = document.getElementById("setup-public-id");
+  if (!el) return;
+  el.addEventListener("input", () => {
+    const extracted = extractPublicId(el.value);
+    if (extracted && extracted !== el.value) el.value = extracted;
+  });
+})();
+
 /** Affiche l'étape 2 (défi en jeu) avec le code, et pré-remplit l'étape 1. */
 function showOwnershipStep2(challenge) {
   _ownershipCode = challenge.code;
@@ -1249,7 +1273,8 @@ window.startOwnershipVerification = async () => {
   const usernameInput = document.getElementById("setup-username");
   const publicIdInput = document.getElementById("setup-public-id");
   const username = (usernameInput?.value || "").trim();
-  const publicId = (publicIdInput?.value || "").trim();
+  // Lien OpenFront collé ou message « Mon Public ID : … » → extraction de l'ID
+  const publicId = extractPublicId(publicIdInput?.value || "");
 
   if (!username || !publicId) {
     showToast(T("profile.fill_all", "Veuillez remplir tous les champs."), "warning");
@@ -1260,7 +1285,7 @@ window.startOwnershipVerification = async () => {
     return;
   }
   if (!/^[A-Za-z0-9]{8}$/.test(publicId)) {
-    showToast(T("pf.pid_length", "Le Public ID doit faire exactement 8 caractères alphanumériques (ex: HabCsQYR)."), "warning");
+    showToast(T("pf.pid_length", "Public ID invalide — 8 caractères alphanumériques (ex: HabCsQYR), ou collez directement le lien OpenFront."), "warning");
     return;
   }
   if (/[^a-zA-Z0-9_\- ]/.test(username)) {
@@ -3057,8 +3082,8 @@ function renderPrecomputedStats(stats, mount) {
             return `
               <div class="pf2-achv${a.unlocked ? "" : " is-locked"}">
                 <span class="pf2-achv-icon">${icon}</span>
-                <p class="pf2-achv-name">${esc(a.name)}</p>
-                <p class="pf2-achv-desc">${esc(a.desc)}</p>
+                <p class="pf2-achv-name">${esc(T("pf.achv_" + a.id + "_name", a.name))}</p>
+                <p class="pf2-achv-desc">${esc(T("pf.achv_" + a.id + "_desc", a.desc))}</p>
                 ${prog}
               </div>
             `;

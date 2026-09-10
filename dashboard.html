@@ -25,7 +25,7 @@
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=92" as="style">
 <link rel="preload" href="dashboard.css?v=22" as="style">
-<link rel="preload" href="dist/dashboard.min.js?v=18" as="script" crossorigin>
+<link rel="preload" href="dist/dashboard.min.js?v=19" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=9" as="script" crossorigin>
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
@@ -44,7 +44,7 @@
 <link rel="stylesheet" href="ads.css?v=2">
 
 <!-- i18n : dict de page (synchrone, avant i18n.js) + moteur + sélecteur de langue -->
-<script src="dist/i18n-dict-dashboard.min.js?v=2"></script>
+<script src="dist/i18n-dict-dashboard.min.js?v=3"></script>
 <script src="dist/i18n-dict-widgets.min.js?v=3"></script>
 <script src="dist/i18n.min.js?v=6" defer></script>
 <script src="dist/lang-switcher.min.js?v=2" defer></script>
@@ -860,8 +860,9 @@
           <input type="text" id="profile-username" placeholder="Ex: Skailex" data-i18n-placeholder="dash.setup_username_ph">
         </div>
         <div class="form-group">
-          <label for="profile-public-id" data-i18n="dash.setup_pid_label">Public ID OpenFront (8 caractères)</label>
-          <input type="text" id="profile-public-id" placeholder="Ex: HabCsQYR" maxlength="8" data-i18n-placeholder="dash.setup_pid_ph">
+          <label for="profile-public-id" data-i18n="dash.setup_pid_label">Public ID OpenFront — lien ou ID (8 caractères)</label>
+          <input type="text" id="profile-public-id" placeholder="Ex: HabCsQYR" data-i18n-placeholder="dash.setup_pid_ph">
+          <span style="display:block;margin-top:6px;font-size:11.5px;color:var(--fg-subtle);line-height:1.45" data-i18n="dash.setup_pid_hint">Sur OpenFront : Paramètres → Public ID → copiez le lien ou le message « Mon Public ID : … » et collez-le ici — l'ID est extrait automatiquement.</span>
         </div>
         <button class="auth-btn" onclick="startOwnershipVerification()" style="width:100%;justify-content:center;background:var(--orange);color:#fff;border-color:var(--orange)" data-i18n="dash.setup_verify_btn">Vérifier mon compte</button>
       </div>
@@ -890,7 +891,7 @@
 <div id="toast-container"></div>
 
 <script type="module" src="banners.js?v=4"></script>
-<script type="module" src="dist/dashboard.min.js?v=18"></script>
+<script type="module" src="dist/dashboard.min.js?v=19"></script>
 <script src="dist/toast.min.js?v=2"></script>
 <script src="dist/lenis.min.js?v=7"></script>
 <script src="dist/animations.min.js?v=2"></script>
@@ -898,7 +899,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=32').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=33').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>
