@@ -916,9 +916,9 @@ async function loadStats(publicId) {
     // Alimenté par sync-dashboard.js : un snapshot figé par semaine écoulée,
     // la semaine en cours est rafraîchie toutes les 5 min. Chaque lundi,
     // une nouvelle colonne S1, S2, S3… s'ajoute au graphique du profil.
-    // weekly_history_seed.json = semaines reconstituées a posteriori (ex.
-    // semaine du 24/08 reconstruite depuis prev_weekly_*) fusionnées dans
-    // l'historique pour que la courbe démarre à la vraie semaine 1.
+    // ⛔ FUSION SEED ANNULÉE (demande utilisateur) : les semaines reconstituées
+    // a posteriori (weekly_history_seed.json) ne sont PLUS fusionnées dans la
+    // courbe — seules les semaines réellement enregistrées s'affichent.
     fetch("weekly_history.json.gz", { cache: "no-cache" })
       .then(async (res) => {
         if (res.ok) {
@@ -929,7 +929,6 @@ async function loadStats(publicId) {
           if (fb.ok) window._profileWeekHistory = await fb.json();
         }
         if (window._profileWeekHistory) {
-          await mergeWeeklySeed();
           renderWeeklyChart();
         }
       })
@@ -1579,28 +1578,9 @@ document.addEventListener("click", (e) => {
    Lignes colorées par mode : FFA=rouge, Team=bleu, Classé=violet, Total=noir.
    Points avec cercle contenant le rang (#X) sur la série Total. */
 
-/* Fusionne les semaines « seed » (weekly_history_seed.json) manquantes dans
-   l'historique hebdo. Comble les semaines antérieures au démarrage réel de
-   weekly_history.json sans JAMAIS écraser une semaine réellement enregistrée
-   par le sync (les clés existantes gagnent toujours). */
-async function mergeWeeklySeed() {
-  try {
-    const res = await fetch("data/weekly_history_seed.json", { cache: "no-cache" });
-    if (!res.ok) return;
-    const seed = await res.json();
-    const hist = window._profileWeekHistory;
-    if (!seed || !seed.weeks || !hist) return;
-    if (!hist.weeks) hist.weeks = {};
-    let added = 0;
-    for (const [key, wk] of Object.entries(seed.weeks)) {
-      if (!hist.weeks[key] && wk && wk.players) {
-        hist.weeks[key] = wk;
-        added++;
-      }
-    }
-    if (added) console.log(`[profile] Historique hebdo : ${added} semaine(s) seed fusionnée(s)`);
-  } catch { /* seed indisponible — non bloquant */ }
-}
+/* ⛔ mergeWeeklySeed() supprimée (annulation de la fusion des semaines seed,
+   demande utilisateur) : la courbe n'affiche plus que les semaines réellement
+   enregistrées par sync-dashboard.js dans weekly_history.json(.gz). */
 
 /* Construit la liste chronologique des semaines :
    historique figé (weekly_history.json) + point live (semaine en cours,
