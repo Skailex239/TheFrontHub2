@@ -48,9 +48,10 @@ const __dirname = path.dirname(__filename);
 const STATE_FILE = path.join(__dirname, "lobby_state.json");
 
 const LEGACY_WS_URL = "wss://openfront.io/w0/lobbies";
-// ⚠️ Choix Skailex : USE_CLUSTER_JSON = false → hôte openfront.io FORCÉ,
-// jamais blue./green.openfront.io. À ne passer à true QUE le jour où
-// OpenFront coupe /w{n}/lobbies sur openfront.io.
+// ⚠️ Choix Skailex : FORCED_WS_URL = green.openfront.io — serveur ACTIF de la
+// prod OpenFront (cluster.json 2026-09-14 : green state=open a33efb78, blue
+// draining). USE_CLUSTER_JSON = false → toujours green, jamais blue/openfront.
+const FORCED_WS_URL = "wss://green.openfront.io/w0/lobbies";
 const USE_CLUSTER_JSON = false;
 const CLUSTER_JSON_URL = "https://api.openfront.io/cluster.json?site=openfront.io";
 const API_BASE = "https://api.openfront.io";
@@ -102,9 +103,9 @@ function apiHeaders() {
 // draining/fenced). Sinon (404 "Unknown site", réseau, etc.) : URL legacy.
 async function resolveLobbyWsUrl() {
   if (!USE_CLUSTER_JSON) {
-    // Choix Skailex : openfront.io forcé — aucune résolution dynamique.
-    log("Hôte lobby forcé : openfront.io (cluster.json désactivé)");
-    return LEGACY_WS_URL;
+    // Choix Skailex : green.openfront.io forcé — aucune résolution dynamique.
+    log(`Hôte lobby forcé : green.openfront.io (cluster.json désactivé)`);
+    return FORCED_WS_URL;
   }
   try {
     const ctrl = new AbortController();

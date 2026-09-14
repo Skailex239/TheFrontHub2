@@ -80,11 +80,12 @@ function corsHeadersFor(origin) {
 const LOBBY_WORKERS = Array.from({ length: 20 }, (_, i) => `w${i}`);
 
 // ── Hôte de lobby — choix Skailex ──────────────────────────────────────
-// false (défaut) : TOUJOURS wss://openfront.io/w{0-19}/lobbies — pas de
-//                  résolution cluster.json, jamais blue./green.openfront.io.
-// true  : résolution dynamique Server list v2 (cluster.json, cache 30 s).
-//         À NE réactiver QUE le jour où OpenFront coupe /w{n}/lobbies sur
-//         openfront.io (sinon la connexion devrait passer par blue/green).
+// FORCED_HOST = green.openfront.io : serveur ACTIF de la prod OpenFront
+// (cluster.json 2026-09-14 : d/green state=open version a33efb78,
+// c/blue state=draining). Le site se connecte donc toujours à green.
+// USE_CLUSTER_JSON = true repasserait en résolution dynamique cluster.json
+// (Server list v2, cache 30 s) — à n'utiliser que si green devient instable.
+const FORCED_HOST = "green.openfront.io";
 const USE_CLUSTER_JSON = false;
 
 // ── Server list v2 : résolution de l'hôte de jeu (cache mémoire 30 s) ──
@@ -147,17 +148,16 @@ export default {
     // ───────────────────────────────────────────────────────────
     // WebSocket proxy: /lobby-ws
     //   Client connects: wss://openfront-proxy.diofortnite3.workers.dev/lobby-ws
-    //   Worker resolves: Server list v2 (cluster.json, cache 30 s) puis
-    //                    fallback legacy wss://openfront.io/w{0-19}/lobbies
+    //   Worker connects: wss://green.openfront.io/w{0-19}/lobbies (hôte forcé)
     //   Worker bridges   both sides (binary frames passthrough).
     // ───────────────────────────────────────────────────────────
     if (url.pathname === "/lobby-ws") {
       return proxyWebSocket(request, async () => {
-        // Choix Skailex : hôte openfront.io forcé (USE_CLUSTER_JSON = false).
+        // Choix Skailex : hôte green.openfront.io forcé (USE_CLUSTER_JSON = false).
         const hosts = USE_CLUSTER_JSON ? await resolveLobbyHosts() : null;
         const host = hosts
           ? hosts[Math.floor(Math.random() * hosts.length)]
-          : "openfront.io";
+          : FORCED_HOST;
         const w = LOBBY_WORKERS[Math.floor(Math.random() * LOBBY_WORKERS.length)];
         return `wss://${host}/${w}/lobbies`;
       });

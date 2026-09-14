@@ -72,9 +72,11 @@ const FALLBACK_JSON = "lobby_state.json";
 // ── Server list v2 (v34) — résolution dynamique des hôtes WS ──────────
 // À partir de la v34, le client peut lire GET api.<domain>/cluster.json?site=<host>
 // pour découvrir les hôtes de jeu (blue/green.openfront.io…).
-// ⚠️ Choix Skailex : USE_CLUSTER_JSON = false → hôte openfront.io FORCÉ,
-// jamais blue./green. — cluster.json n'est même pas interrogé. À ne passer
-// à true QUE le jour où OpenFront coupe /w{n}/lobbies sur openfront.io.
+// ⚠️ Choix Skailex : FORCED_HOST = green.openfront.io — serveur ACTIF de la
+// prod OpenFront (cluster.json 2026-09-14 : green state=open a33efb78, blue
+// draining). Jamais blue., jamais openfront.io tant que green est ouvert.
+// USE_CLUSTER_JSON = true réactiverait la résolution dynamique cluster.json.
+const FORCED_HOST = "green.openfront.io";
 const USE_CLUSTER_JSON = false;
 const API_PROXY_META = document.querySelector('meta[name="openfront-api-proxy"]');
 const API_PROXY_BASE = (API_PROXY_META && API_PROXY_META.content || "").replace(/\/$/, "");
@@ -86,7 +88,7 @@ let hostsRefreshInFlight = null;
 
 function legacyLobbyWsUrl() {
   const w = DIRECT_WORKERS[Math.floor(Math.random() * DIRECT_WORKERS.length)];
-  return `wss://openfront.io/${w}/lobbies`;
+  return `wss://${FORCED_HOST}/${w}/lobbies`;
 }
 
 /** Récupère cluster.json v2 via le proxy CF → proxy Next → API directe. */
@@ -113,8 +115,8 @@ async function fetchClusterJson() {
 /** Rafraîchit la liste des hôtes (Server list v2) ; fallback legacy sinon. */
 function refreshLobbyHosts() {
   if (!USE_CLUSTER_JSON) {
-    // Choix Skailex : openfront.io forcé — aucune résolution dynamique.
-    if (dynamicHosts) console.log("[lobby] Hôte lobby forcé : openfront.io (cluster.json désactivé)");
+    // Choix Skailex : green.openfront.io forcé — aucune résolution dynamique.
+    if (dynamicHosts) console.log(`[lobby] Hôte lobby forcé : ${FORCED_HOST} (cluster.json désactivé)`);
     dynamicHosts = null;
     dynamicHostsAt = Date.now();
     return Promise.resolve();
@@ -152,7 +154,7 @@ function pickLobbyWsUrl() {
   const w = DIRECT_WORKERS[Math.floor(Math.random() * DIRECT_WORKERS.length)];
   const host = dynamicHosts
     ? dynamicHosts[Math.floor(Math.random() * dynamicHosts.length)]
-    : "openfront.io";
+    : FORCED_HOST;
   return `wss://${host}/${w}/lobbies`;
 }
 
