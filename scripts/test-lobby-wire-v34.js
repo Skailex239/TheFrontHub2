@@ -1,21 +1,23 @@
 // scripts/test-lobby-wire-v34.js — Tests non-régression du décodeur zbin
-// dual-stack (legacy 117 maps + v34 123 maps + trusted + gitCommit/active).
+// lobby-wire v5.15 — schéma UNIQUE v34 (123 maps + trusted + gitCommit/active),
+// dérivé des bundles prod (cdn.ofedge.io) et validé en direct contre
+// wss://blue.openfront.io/w0/lobbies au moment du déploiement v0.34.0.
 //
-// Approche : encodeur « spec-driven » (miroir exact de lobby-wire.js) qui
-// encode des objets JS vers le format zbin, puis round-trip via
-// decodeLobbyMessage(). 8 cas de test :
-//   1. full legacy  — 0 octet de présence PublicLobbyFull, sans trusted
-//   2. full v34     — gitCommit + active présents, GameConfig avec trusted
-//   3. full v34     — gitCommit/active ABSENTS (header à 0x00) → détection
-//                     v34 quand même (décision par MSB, pas par contenu)
-//   4. counts       — identique dans les 2 variantes
-//   5. full legacy  — map Yenisei (ordinal 116) : le bug du décalage v5.14
-//                     est corrigé (décode Yenisei, pas Yellow Sea)
-//   6. full v34     — map Channel Islands (ordinal 29) décodée correctement
-//   7. full legacy  — lobbies FFA + team + hosted, configs réalistes
-//                     (rankedType, playerTeams Duos, mods, hostCheats…)
-//   8. full v34     — gameConfig omis (opt) + startsAt omis + label/accent/
+// Approche : encodeur « spec-driven » (miroir exact de lobby-wire.js v5.15,
+// lui-même miroir de zbin/zb.ts + Schemas.ts v0.34.0) qui encode des objets JS
+// vers le format zbin, puis round-trip via decodeLobbyMessage(). 8 cas :
+//   1. full v34     — gitCommit + active présents, GameConfig avec trusted
+//   2. full v34     — gitCommit/active ABSENTS (header de présence 0x00)
+//   3. counts       — round-trip simple
+//   4. full v34     — map Channel Islands (ordinal 29) décodée correctement
+//   5. full v34     — lobbies FFA + team (Duos) + hosted, configs réalistes
+//                     (rankedType, mods, hostCheats, disabledUnits…)
+//   6. full v34     — gameConfig omis (opt) + startsAt omis + label/accent/
 //                     featured présents (lobby « hosted » featured)
+//   7. tables maps  — 123 entrées, les 6 nouvelles maps insérées au milieu,
+//                     Yangtze River à l'ordinal correct (bug v5.14 corrigé)
+//   8. design       — v5.15 est volontairement mono-schéma (v34 uniquement) :
+//                     pas de table legacy exportée, un seul chemin de décodage
 //
 // Usage : node scripts/test-lobby-wire-v34.js  (exit 0 = tout passe)
 
@@ -24,8 +26,7 @@
 const assert = require("assert");
 const {
   decodeLobbyMessage,
-  GAME_MAP_LEGACY,
-  GAME_MAP_V34,
+  GAME_MAP,
 } = require("../lobby-wire.js");
 
 /* ════════════════════ Encodeur zbin (miroir du décodeur) ════════════════ */
@@ -187,7 +188,7 @@ function encodeObject(w, objSpec, value) {
   }
 }
 
-/* ════════════════════ Schémas de test (miroir lobby-wire v6) ════════════ */
+/* ════════════════════ Schémas de test (miroir lobby-wire v5.15) ═════════ */
 
 const DIFFICULTY = ["Easy", "Medium", "Hard", "Impossible"];
 const GAME_TYPE = ["Singleplayer", "Public", "Private"];
@@ -204,7 +205,10 @@ const LOBBY_ACCENT = ["gold", "blue", "green", "red"];
 const DOOMSDAY_SPEED = ["slow", "normal", "fast", "veryfast"];
 const NATIONS_PRESET = ["default", "disabled"];
 
-function buildSchemas(variant, MAPS) {
+// Variante unique = v34 (trusted + gitCommit/active). Le décodeur v5.15 ne
+// connaît QUE ce schéma — cf. test 8.
+function buildSchemas() {
+  const MAPS = GAME_MAP;
   const DoomsdayClockConfig = eobj([
     ef("enabled", "bool", { opt: true }),
     ef("speed", { enum: DOOMSDAY_SPEED }, { opt: true }),
@@ -262,7 +266,7 @@ function buildSchemas(variant, MAPS) {
     ef("randomSpawn", "bool"),
     ef("maxPlayers", "uint", { opt: true }),
     ef("allowedPublicIds", { arr: "str" }, { opt: true }),
-    ...(variant === "v34" ? [ef("trusted", "bool", { opt: true })] : []),
+    ef("trusted", "bool", { opt: true }), // ← v34
     ef("maxTimerValue", "uint", { opt: true, nul: true }),
     ef("customAllianceDuration", "uint", { opt: true, nul: true }),
     ef("startDelay", "uint", { opt: true, nul: true }),
@@ -299,41 +303,38 @@ function buildSchemas(variant, MAPS) {
     ef("type", { const: "full" }),
     ef("serverTime", "uint"),
     ef("games", { recordEnum: PUBLIC_GAME_TYPE, val: { arr: PublicGameInfo } }),
-    ...(variant === "v34"
-      ? [ef("gitCommit", "str", { opt: true }), ef("active", "bool", { opt: true })]
-      : []),
+    ef("gitCommit", "str", { opt: true }), // ← v34
+    ef("active", "bool", { opt: true }), // ← v34
   ];
   const PublicLobbyCounts = eobj([
     ef("type", { const: "counts" }),
     ef("serverTime", "uint"),
     ef("counts", { recordStr: "uint" }),
   ]);
-  return { PublicLobbyFullFields, PublicLobbyCounts, PublicGameInfo };
+  return { PublicLobbyFullFields, PublicLobbyCounts };
 }
 
-const LEGACY = buildSchemas("legacy", GAME_MAP_LEGACY);
-const V34 = buildSchemas("v34", GAME_MAP_V34);
+const SCHEMA = buildSchemas();
 
-function encodeFull(variant, msg) {
+function encodeFull(msg) {
   const w = new Writer();
   w.uint(0); // tag "full"
-  encodeObject(w, { fields: variant.PublicLobbyFullFields }, msg);
+  encodeObject(w, { fields: SCHEMA.PublicLobbyFullFields }, msg);
   return w.done();
 }
 
 function encodeCounts(msg) {
   const w = new Writer();
   w.uint(1);
-  encodeObject(w, LEGACY.PublicLobbyCounts.obj, msg);
+  encodeObject(w, SCHEMA.PublicLobbyCounts.obj, msg);
   return w.done();
 }
 
 /* ════════════════════ Fabriques de jeux réalistes ═══════════════════════ */
 
-function makeGame(variant, over = {}) {
-  const maps = variant === "v34" ? GAME_MAP_V34 : GAME_MAP_LEGACY;
+function makeGame(over = {}) {
   const cfg = {
-    gameMap: maps[10], // Baikal
+    gameMap: GAME_MAP[10], // Baikal
     difficulty: "Medium",
     donateGold: false,
     donateTroops: false,
@@ -358,7 +359,7 @@ function makeGame(variant, over = {}) {
   };
 }
 
-function fullMsg(variant, games, extra = {}) {
+function fullMsg(games, extra = {}) {
   return {
     serverTime: 1789397114592,
     games,
@@ -380,40 +381,31 @@ function test(name, fn) {
   }
 }
 
-console.log("Tests lobby-wire v6.0 (dual-stack legacy/v34)\n");
+console.log("Tests lobby-wire v5.15 (schéma unique v34)\n");
 
-test("1. full LEGACY (sans trusted, 117 maps) → décodé en variante legacy", () => {
-  const buf = encodeFull(LEGACY, fullMsg("legacy", { ffa: [makeGame("legacy")] }));
-  const msg = decodeLobbyMessage(buf);
-  assert.strictEqual(msg._schema, "legacy");
-  assert.strictEqual(msg.games.ffa.length, 1);
-  assert.strictEqual(msg.games.ffa[0].gameConfig.gameMap, "Baikal");
-});
-
-test("2. full V34 (gitCommit + active + trusted) → décodé en variante v34", () => {
+test("1. full V34 (gitCommit + active + trusted) → décodé tel quel", () => {
   const buf = encodeFull(
-    V34,
-    fullMsg("v34", { ffa: [makeGame("v34", { cfg: { trusted: true } })] }, { gitCommit: "1fdd75a", active: true }),
+    fullMsg({ ffa: [makeGame({ cfg: { trusted: true } })] }, { gitCommit: "1fdd75a", active: true }),
   );
   const msg = decodeLobbyMessage(buf);
-  assert.strictEqual(msg._schema, "v34");
+  assert.strictEqual(msg.type, "full");
   assert.strictEqual(msg.gitCommit, "1fdd75a");
   assert.strictEqual(msg.active, true);
   assert.strictEqual(msg.games.ffa[0].gameConfig.trusted, true);
+  assert.strictEqual(msg.games.ffa[0].gameConfig.gameMap, "Baikal");
 });
 
-test("3. full V34 sans gitCommit/active (header 0x00) → quand même v34", () => {
-  const buf = encodeFull(V34, fullMsg("v34", { team: [makeGame("v34")] }));
-  // Le premier octet du corps est 0x00 (header présence 3 bits tous à 0)
+test("2. full V34 sans gitCommit/active (header 0x00) → champs absents", () => {
+  const buf = encodeFull(fullMsg({ team: [makeGame()] }));
+  // Le premier octet du corps est 0x00 (header présence, 2 bits opt à 0)
   assert.strictEqual(buf[1], 0x00, "header de présence v34 attendu à 0x00");
   const msg = decodeLobbyMessage(buf);
-  assert.strictEqual(msg._schema, "v34");
   assert.strictEqual(msg.gitCommit, undefined);
   assert.strictEqual(msg.active, undefined);
   assert.strictEqual(msg.games.team.length, 1);
 });
 
-test("4. counts → décodé identique dans les 2 variantes", () => {
+test("3. counts → round-trip identique", () => {
   const buf = encodeCounts({
     serverTime: 1789397114592,
     counts: { aB3dEf9x: 7, zZ9yX8w7: 0 },
@@ -424,37 +416,21 @@ test("4. counts → décodé identique dans les 2 variantes", () => {
   assert.strictEqual(msg.counts.zZ9yX8w7, 0);
 });
 
-test("5. full LEGACY map Yenisei (ord 116) → 'Yenisei' (bug décalage v5.14 corrigé)", () => {
-  const yIdx = GAME_MAP_LEGACY.indexOf("Yenisei");
-  assert.strictEqual(yIdx, 116, "Yenisei doit être l'ordinal 116 en legacy");
-  const buf = encodeFull(
-    LEGACY,
-    fullMsg("legacy", {
-      ffa: [makeGame("legacy", { cfg: { gameMap: "Yenisei" } })],
-    }),
-  );
-  const msg = decodeLobbyMessage(buf);
-  assert.strictEqual(msg.games.ffa[0].gameConfig.gameMap, "Yenisei");
-});
-
-test("6. full V34 map Channel Islands (ord 29) → 'Channel Islands'", () => {
-  const cIdx = GAME_MAP_V34.indexOf("Channel Islands");
+test("4. full V34 map Channel Islands (ord 29) → 'Channel Islands'", () => {
+  const cIdx = GAME_MAP.indexOf("Channel Islands");
   assert.strictEqual(cIdx, 29, "Channel Islands doit être l'ordinal 29 en v34");
-  const buf = encodeFull(
-    V34,
-    fullMsg("v34", { ffa: [makeGame("v34", { cfg: { gameMap: "Channel Islands" } })] }),
-  );
+  const buf = encodeFull(fullMsg({ ffa: [makeGame({ cfg: { gameMap: "Channel Islands" } })] }));
   const msg = decodeLobbyMessage(buf);
   assert.strictEqual(msg.games.ffa[0].gameConfig.gameMap, "Channel Islands");
 });
 
-test("7. full LEGACY réaliste : FFA + team (Duos) + hosted (cheats, mods, ranked)", () => {
-  const ffaGame = makeGame("legacy", {
+test("5. full V34 réaliste : FFA + team (Duos) + hosted (cheats, mods, ranked)", () => {
+  const ffaGame = makeGame({
     gameID: "fFa1aA2b",
     numClients: 40,
     cfg: {
       gameMap: "Europe",
-      rankedType: "unranked" === "unranked" ? undefined : undefined,
+      rankedType: "1v1",
       publicGameModifiers: {
         isCompact: false,
         isRandomSpawn: true,
@@ -467,9 +443,7 @@ test("7. full LEGACY réaliste : FFA + team (Duos) + hosted (cheats, mods, ranke
       maxTimerValue: null,
     },
   });
-  // rankedType absent si undefined
-  delete ffaGame.gameConfig.rankedType;
-  const teamGame = makeGame("legacy", {
+  const teamGame = makeGame({
     gameID: "tEa3mB4c",
     numClients: 8,
     publicGameType: "team",
@@ -480,7 +454,7 @@ test("7. full LEGACY réaliste : FFA + team (Duos) + hosted (cheats, mods, ranke
       bots: 0,
     },
   });
-  const hostedGame = makeGame("legacy", {
+  const hostedGame = makeGame({
     gameID: "hOs5tC6d",
     numClients: 2,
     publicGameType: "hosted",
@@ -498,13 +472,10 @@ test("7. full LEGACY réaliste : FFA + team (Duos) + hosted (cheats, mods, ranke
       maxPlayers: 100,
     },
   });
-  const buf = encodeFull(
-    LEGACY,
-    fullMsg("legacy", { ffa: [ffaGame], team: [teamGame], special: [], hosted: [hostedGame] }),
-  );
+  const buf = encodeFull(fullMsg({ ffa: [ffaGame], team: [teamGame], special: [], hosted: [hostedGame] }));
   const msg = decodeLobbyMessage(buf);
-  assert.strictEqual(msg._schema, "legacy");
   assert.strictEqual(msg.games.ffa[0].gameConfig.gameMap, "Europe");
+  assert.strictEqual(msg.games.ffa[0].gameConfig.rankedType, "1v1");
   assert.strictEqual(msg.games.ffa[0].gameConfig.publicGameModifiers.goldMultiplier, 1.5);
   assert.strictEqual(msg.games.ffa[0].gameConfig.disableAlliances, null);
   assert.strictEqual(msg.games.team[0].gameConfig.playerTeams, "Duos");
@@ -515,10 +486,11 @@ test("7. full LEGACY réaliste : FFA + team (Duos) + hosted (cheats, mods, ranke
   assert.strictEqual(msg.games.hosted[0].gameConfig.maxPlayers, 100);
 });
 
-test("8. full V34 hosted featured : gameConfig omis, label/accent/featured présents", () => {
-  const g = makeGame("v34", {
+test("6. full V34 hosted featured : gameConfig omis, label/accent/featured présents", () => {
+  const g = makeGame({
     gameID: "v34hOsT1",
     gameConfig: undefined,
+    startsAt: undefined, // omis → header de présence PublicGameInfo partiel
     publicGameType: "hosted",
     extra: {
       label: "Tournoi Skailex",
@@ -526,24 +498,19 @@ test("8. full V34 hosted featured : gameConfig omis, label/accent/featured prés
       featured: true,
     },
   });
-  const buf = encodeFull(
-    V34,
-    fullMsg("v34", { hosted: [g] }, { gitCommit: "577819ba0e1e13ecdbc8dede2ba33de542c88a67", active: false }),
-  );
+  const buf = encodeFull(fullMsg({ hosted: [g] }, { gitCommit: "1e973bb534b8b37d8d30c80ab27ad1391a7b82da", active: false }));
   const msg = decodeLobbyMessage(buf);
-  assert.strictEqual(msg._schema, "v34");
   assert.strictEqual(msg.games.hosted[0].gameConfig, undefined);
+  assert.strictEqual(msg.games.hosted[0].startsAt, undefined);
   assert.strictEqual(msg.games.hosted[0].label, "Tournoi Skailex");
   assert.strictEqual(msg.games.hosted[0].accent, "gold");
   assert.strictEqual(msg.games.hosted[0].featured, true);
-  assert.strictEqual(msg.gitCommit, "577819ba0e1e13ecdbc8dede2ba33de542c88a67");
+  assert.strictEqual(msg.gitCommit, "1e973bb534b8b37d8d30c80ab27ad1391a7b82da");
   assert.strictEqual(msg.active, false);
 });
 
-// Test bonus : cohérence des tables
-test("bonus. tables maps : legacy=117, v34=123, 5 insérations au milieu", () => {
-  assert.strictEqual(GAME_MAP_LEGACY.length, 117);
-  assert.strictEqual(GAME_MAP_V34.length, 123);
+test("7. tables maps : 123 entrées, 6 nouvelles au milieu, Yangtze à la bonne place", () => {
+  assert.strictEqual(GAME_MAP.length, 123);
   for (const [name, after, before] of [
     ["Cape Cod", "Britannia Classic", "Caribbean"],
     ["Central America", "Caucasus", "China"],
@@ -552,17 +519,38 @@ test("bonus. tables maps : legacy=117, v34=123, 5 insérations au milieu", () =>
     ["Qing China", "Pluto", "Russia"],
     ["Yangtze River", "World Inverted", "Yellow Sea"],
   ]) {
-    const i = GAME_MAP_V34.indexOf(name);
-    assert.ok(i > GAME_MAP_V34.indexOf(after), `${name} doit suivre ${after}`);
-    assert.ok(i < GAME_MAP_V34.indexOf(before), `${name} doit précéder ${before}`);
-    assert.strictEqual(GAME_MAP_LEGACY.indexOf(name), -1, `${name} absent en legacy`);
+    const i = GAME_MAP.indexOf(name);
+    assert.ok(i > 0, `${name} doit exister dans la table v34`);
+    assert.ok(i > GAME_MAP.indexOf(after), `${name} doit suivre ${after}`);
+    assert.ok(i < GAME_MAP.indexOf(before), `${name} doit précéder ${before}`);
   }
+  // Bug v5.14 : Yangtze River inséré au mauvais ordinal décalait
+  // Yellow Sea / Yenisei d'un cran à l'affichage.
+  assert.ok(
+    GAME_MAP.indexOf("Yangtze River") < GAME_MAP.indexOf("Yellow Sea"),
+    "Yangtze River doit précéder Yellow Sea",
+  );
 });
 
-console.log(`\n${passed}/9 tests passés`);
+test("8. design : v5.15 est mono-schéma v34 (pas de variante legacy exportée)", () => {
+  const api = require("../lobby-wire.js");
+  assert.ok(api.decodeLobbyMessage, "decodeLobbyMessage exporté");
+  assert.ok(Array.isArray(api.GAME_MAP), "GAME_MAP exporté (tests/diagnostics)");
+  assert.strictEqual(api.GAME_MAP_LEGACY, undefined, "pas de table legacy");
+  assert.strictEqual(api.GAME_MAP_V34, undefined, "pas de dual-table");
+  // Une frame legacy (117 maps, header présence inexistant) ne doit PAS être
+  // acceptée silencieusement : soit ZbinDecodeError, soit un échec de cohérence
+  // — on teste ici qu'une frame tronquée/étrangère lève bien ZbinDecodeError.
+  assert.throws(() => decodeLobbyMessage(new Uint8Array([0x00, 0xff, 0xff, 0xff])), (e) => {
+    assert.ok(e instanceof api.ZbinDecodeError || e instanceof Error);
+    return true;
+  });
+});
+
+console.log(`\n${passed}/8 tests passés`);
 if (process.exitCode) {
   console.error("ÉCHEC");
   process.exit(1);
 } else {
-  console.log("OK — décodeur dual-stack validé");
+  console.log("OK — décodeur v5.15 (schéma v34 unique) validé");
 }

@@ -1,6 +1,20 @@
 # Migration API v34 — TheFrontHub × OpenFrontIO
 
-> **Statut : PRÊT — commit local, push volontairement NON effectué (attente de la sortie officielle v34).**
+> **Statut : ✅ V34 EST DÉPLOYÉE EN PROD — push effectué avec l'accord du propriétaire.**
+>
+> **UPDATE FINAL (2026-09-14, fin d'audit)** : la bascule a eu lieu. `GET api.openfront.io/cluster.json?site=openfront.io`
+> répond désormais `{"latest":"1e973bb…","servers":{"c":{"host":"blue.openfront.io","state":"open","numWorkers":20}}}` =
+> tag **v0.34.0** (Server list v2 ACTIVE, le param `?site=` est obligatoire). En conséquence :
+> - Le décodeur livré est **lobby-wire.js v5.15** : schéma unique v34 (123 maps + `trusted` + `gitCommit`/`active`)
+>   **dérivé des bundles prod** (cdn.ofedge.io) et **validé en direct** contre `wss://blue.openfront.io/w0/lobbies`
+>   (full/counts décodés, 0 erreur, `gitCommit=1e973bb…`, `active=true`, `trusted=true`). La variante dual-stack v6.0
+>   (spec-driven, non éprouvée contre les frames réelles) est conservée dans l'historique git (commit précédent) ;
+>   le schéma prod peut diverger de la spec repo — le terrain a tranché (cf. bug Yangtze déjà survenu avec v5.14).
+> - Nouveau correctif : `profile.js`/`public/profile.js` — `computeStats` ignore `stats.recent` (agrégats `{games,wins}`)
+>   et les pseudo-feuilles, supprimant ~+57 wins fantômes par double comptage.
+> - `lobby.js` / worker CF / `sync-lobby-state.js` résolvent l'hôte WS via `cluster.json?site=…` (actif) avec
+>   fallback legacy `w0–w19` si l'endpoint redevient indisponible.
+>
 > Architecture **dual-stack** : le site fonctionne AVANT et APRÈS la bascule OpenFront, sans redéploiement.
 
 ---

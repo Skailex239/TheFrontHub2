@@ -537,6 +537,9 @@ function computeStats(games, statsTree) {
   let total = 0;
   if (statsTree && typeof statsTree === "object") {
     for (const catKey of Object.keys(statsTree)) {
+      // ⚠️ v0.34 : stats.recent (agrégats {games, wins}) — ne pas sommer ici
+      // (wins déjà inclus dans les feuilles carrière → sinon double comptage).
+      if (catKey === "recent") continue;
       const cat = statsTree[catKey];
       if (!cat || typeof cat !== "object") continue;
       for (const modeKey of Object.keys(cat)) {
@@ -544,7 +547,9 @@ function computeStats(games, statsTree) {
         if (!mode || typeof mode !== "object") continue;
         for (const diffKey of Object.keys(mode)) {
           const diff = mode[diffKey];
+          // Feuille réelle = porte total OU losses (pas un agrégat recent).
           if (!diff || typeof diff !== "object") continue;
+          if (diff.total == null && diff.losses == null) continue;
           if (diff.wins != null) wins += parseInt(diff.wins, 10) || 0;
           if (diff.total != null) total += parseInt(diff.total, 10) || 0;
           else if (diff.wins != null && diff.losses != null) {
