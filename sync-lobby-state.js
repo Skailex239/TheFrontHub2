@@ -4,10 +4,18 @@
 // `lobby_state.json`. Conçu pour tourner toutes les 5 min en GitHub Action.
 //
 // Sources de données :
-//   1. WebSocket  : wss://openfront.io/w0/lobbies  → snapshot temps réel
-//      du lobby (games en attente + numClients).
+//   1. WebSocket  : hôte résolu dynamiquement (Server list v2 puis legacy)
+//      → snapshot temps réel du lobby (games en attente + numClients).
 //   2. API HTTP   : https://api.openfront.io/public/games → games terminées
 //      (stats ranked 1v1/2v2 dernière heure, recentHistory, heatmap 24h).
+//
+// Résolution WS « Server list v2 » (déploiement v34 imminent) :
+//   GET https://api.openfront.io/cluster.json?site=openfront.io
+//   → 200 { latest, servers: { lettre: { host, numWorkers, version, state } } }
+//     → wss://<host>/w0/lobbies
+//   → 404 "Unknown site" (endpoint dormant, avant le switch)
+//     → fallback legacy wss://openfront.io/w0/lobbies
+// Le site fonctionne donc AVANT et APRÈS la bascule sans redéploiement.
 //
 // Sortie : `lobby_state.json` (pretty-printé, 2 espaces) à la racine du repo.
 //
@@ -39,7 +47,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const STATE_FILE = path.join(__dirname, "lobby_state.json");
 
-const WS_URL = "wss://openfront.io/w0/lobbies";
+const LEGACY_WS_URL = "wss://openfront.io/w0/lobbies";
+const CLUSTER_JSON_URL = "https://api.openfront.io/cluster.json?site=openfront.io";
 const API_BASE = "https://api.openfront.io";
 const SKAILEX_TOKEN =
   process.env.OPENFRONT_SKAILEX_ACCESS || "";
@@ -83,6 +92,41 @@ function apiHeaders() {
   };
 }
 
+// ── Résolution de l'URL WebSocket du lobby (Server list v2) ─────────────
+// Essaie GET /cluster.json?site=openfront.io (nouveau système v34, timeout
+// court). En cas de succès : wss://<host>/w0/lobbies (premier serveur non
+// draining/fenced). Sinon (404 "Unknown site", réseau, etc.) : URL legacy.
+async function resolveLobbyWsUrl() {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 4000);
+    const res = await fetch(CLUSTER_JSON_URL, {
+      headers: { ...apiHeaders(), Accept: "application/json" },
+      signal: ctrl.signal,
+    });
+    clearTimeout(t);
+    if (!res.ok) {
+      log(`cluster.json: HTTP ${res.status} → fallback legacy (endpoint v2 dormant ?)`);
+      return LEGACY_WS_URL;
+    }
+    const data = await res.json();
+    const servers = data && data.servers ? Object.values(data.servers) : [];
+    const pick =
+      servers.find((s) => s && s.host && s.state === "open") ||
+      servers.find((s) => s && s.host && !s.state);
+    if (!pick || !pick.host) {
+      warn(`cluster.json sans serveur utilisable → fallback legacy`);
+      return LEGACY_WS_URL;
+    }
+    const url = `wss://${pick.host}/w0/lobbies`;
+    log(`cluster.json v2: hôte résolu ${pick.host} (version=${pick.version || "?"}, state=${pick.state || "?"})`);
+    return url;
+  } catch (e) {
+    warn(`cluster.json indisponible (${e.message}) → fallback legacy`);
+    return LEGACY_WS_URL;
+  }
+}
+
 function loadPreviousState() {
   try {
     return JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
@@ -95,7 +139,7 @@ function loadPreviousState() {
 // Renvoie { lobbyPlayers, lobbyGames, serverTime, games }.
 // games = { ffa: [...], team: [...], special: [...] } détaillé (pour polling HTTP)
 // En cas d'échec/timeout, renvoie des zéros (on garde quand même le reste).
-function fetchLobbySnapshot() {
+function fetchLobbySnapshot(wsUrl) {
   return new Promise((resolve) => {
     let done = false;
     let ws = null;
@@ -118,7 +162,7 @@ function fetchLobbySnapshot() {
     };
 
     try {
-      ws = new WebSocket(WS_URL, {
+      ws = new WebSocket(wsUrl, {
         headers: {
           // Cloudflare devant openfront.io rejette les upgrades WS sans
           // allure navigateur (403 "Unexpected server response" depuis les
@@ -143,7 +187,7 @@ function fetchLobbySnapshot() {
     );
 
     ws.on("open", () =>
-      log("WS connecté à wss://openfront.io/w0/lobbies")
+      log(`WS connecté à ${wsUrl}`)
     );
 
     ws.on("message", (raw) => {
@@ -409,9 +453,10 @@ async function main() {
     log("Aucun état précédent — départ de zéro");
   }
 
-  // WS (le plus lent, ~8s max) + HTTP fetches en parallèle.
+  // WS (le plus lent, ~8s max + résolution) + HTTP fetches en parallèle.
+  // La résolution cluster.json (4 s max) précède la connexion WS.
   const [lobby, ranked, recent] = await Promise.all([
-    fetchLobbySnapshot(),
+    resolveLobbyWsUrl().then(fetchLobbySnapshot),
     fetchRankedStats(),
     fetchRecentGames(previousGameEnds),
   ]);

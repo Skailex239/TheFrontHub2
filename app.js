@@ -2935,54 +2935,50 @@ async function showRankedPlayerModal(publicId, username) {
   if (modal) modal.classList.add('active');
   
   try {
-    // Try to fetch via openfront-client if available, otherwise direct
-    let pData;
-    try {
+    // ── Migration API v34 ──────────────────────────────────────────────
+    // L'ancien champ `games` de /public/player/{id} n'existe plus : l'historique
+    // vient désormais de /public/player/{id}/games?filter=ranked (curseur, 10
+    // résultats/page, triés du plus récent au plus ancien — docs/API.md).
+    async function fetchRankedGamesPages(pid, maxPages) {
       const { fetchOpenFront } = await import('./openfront-client.js');
-      pData = await fetchOpenFront(`/public/player/${encodeURIComponent(publicId)}`);
-    } catch (e) {
-      // Fallback direct fetch (will likely fail on GH Pages due to CORS)
-      const res = await fetch(`https://api.openfront.io/public/player/${encodeURIComponent(publicId)}`);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      pData = await res.json();
+      const out = [];
+      let cursor = null;
+      for (let page = 0; page < maxPages; page++) {
+        const path = `/public/player/${encodeURIComponent(pid)}/games?filter=ranked` +
+          (cursor ? `&cursor=${encodeURIComponent(cursor)}` : '');
+        const data = await fetchOpenFront(path);
+        const results = (data && (data.results || data.games)) || [];
+        out.push(...results);
+        cursor = data && (data.nextCursor || data.cursor);
+        if (!cursor || results.length === 0) break;
+      }
+      return out;
     }
-    
-    if (!pData || !pData.games) {
-      if (statsEl) statsEl.textContent = T("ranked.modal_no_data", "Aucune donnée disponible");
-      if (gamesEl) gamesEl.innerHTML = '<div class="empty-state" style="padding:20px"><p>'+T("ranked.modal_no_history","Aucun historique trouvé")+'</p></div>';
-      return;
-    }
-    
+
+    const allRanked = await fetchRankedGamesPages(publicId, 6);
     const mode = window._rankedMode || '1v1';
-    const rankedGamesFilter = g => {
-      if (mode === '2v2') return g.rankedType === '2v2' || g.mode === '2v2';
-      return g.rankedType === '1v1' || g.mode === '1v1' || g.type === 'Ranked';
-    };
+    // `result` ∈ victory | defeat | incomplete (docs/API.md)
+    const modeGames = allRanked.filter(g => g.rankedType === mode);
+    // Les 10 plus récentes : l'API renvoie déjà du plus récent au plus ancien.
+    const rankedGames = modeGames.slice(0, 10);
 
-    const rankedGames = (pData.games || [])
-      .filter(rankedGamesFilter)
-      .reverse()
-      .slice(0, 10);
-
-    // Compute streak from all ranked games (not just last 10)
-    const allRankedGames = (pData.games || [])
-      .filter(rankedGamesFilter)
-      .sort((a, b) => new Date(b.start || b.end || 0) - new Date(a.start || a.end || 0));
+    // Série (streak) calculée du plus récent au plus ancien sur TOUT l'historique
+    // paginé (victoires consécutives > 0, défaites consécutives < 0).
     let streak = 0;
-    for (const g of allRankedGames) {
-      if (g.hasWon === true) {
+    for (const g of modeGames) {
+      if (g.result === 'victory') {
         if (streak >= 0) streak++;
         else break;
-      } else if (g.hasWon === false) {
+      } else if (g.result === 'defeat') {
         if (streak <= 0) streak--;
         else break;
-      } else break;
+      } else break; // incomplete / inconnu → stop
     }
     const streakText = streak > 0 ? `${icon('fire',{size:14})} ${TP("ranked.streak_wins", { n: streak }, `Série: ${streak} victoires`)}` : streak < 0 ? `${icon('snowflake',{size:14})} ${TP("ranked.streak_losses", { n: Math.abs(streak) }, `Série: ${Math.abs(streak)} défaites`)}` : '';
     
     if (statsEl) {
-      const wins = rankedGames.filter(g => g.hasWon).length;
-      const losses = rankedGames.filter(g => g.hasWon === false).length;
+      const wins = rankedGames.filter(g => g.result === 'victory').length;
+      const losses = rankedGames.filter(g => g.result === 'defeat').length;
       statsEl.textContent = TP("ranked.modal_stats", { n: rankedGames.length, mode: mode, wins: wins, losses: losses, streak: streakText ? ' · ' + streakText : '' }, `${rankedGames.length} parties ${mode} · ${wins}V - ${losses}D${streakText ? ' · ' + streakText : ''}`);
     }
     
@@ -2994,28 +2990,28 @@ async function showRankedPlayerModal(publicId, username) {
     let html = '';
     for (const g of rankedGames) {
       try {
-        let gInfo;
+        // W/L vient directement de `result` (plus besoin de winner[]/clientId,
+        // champs indisponibles dans le nouvel endpoint paginé).
+        const won = g.result === 'victory';
+        // Adversaire : via le détail de la partie — on identifie le joueur
+        // dont le pseudo diffère de l'identité utilisée dans CETTE partie
+        // (`username` de l'endpoint = identité du joueur interrogé, docs/API.md).
+        let opponentName = null;
         try {
           const { fetchOpenFront } = await import('./openfront-client.js');
           const gRaw = await fetchOpenFront(`/public/game/${g.gameId}?turns=false`);
-          gInfo = gRaw.info || gRaw;
-        } catch (e) {
-          const res = await fetch(`https://api.openfront.io/public/game/${g.gameId}?turns=false`);
-          if (!res.ok) continue;
-          const gRaw = await res.json();
-          gInfo = gRaw.info || gRaw;
-        }
-        
-        const players = gInfo.players || [];
-        const me = players.find(pl => pl.clientID === g.clientId);
-        const opponent = players.find(pl => pl.clientID !== g.clientId);
-        const won = gInfo.winner && Array.isArray(gInfo.winner) && gInfo.winner[1] === g.clientId;
+          const gInfo = gRaw.info || gRaw;
+          const players = gInfo.players || [];
+          const opp = players.find(pl => pl.username && g.username && pl.username !== g.username)
+            || players.find(pl => pl.username !== g.username);
+          opponentName = opp && (opp.username || opp.displayName) || null;
+        } catch (e) { /* détail indisponible → Inconnu */ }
         
         html += `
           <div style="display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid var(--border-light);transition:background 0.2s" onmouseover="this.style.background='var(--card-hover)'" onmouseout="this.style.background='transparent'">
             <div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;color:#fff;background:${won ? '#10b981' : '#ef4444'}">${won ? 'W' : 'L'}</div>
             <div style="flex:1;min-width:0">
-              <div style="font-weight:600;font-size:14px;color:var(--text)">vs ${esc(opponent?.username || opponent?.displayName || T("modal.unknown", "Inconnu"))}</div>
+              <div style="font-weight:600;font-size:14px;color:var(--text)">vs ${esc(opponentName || T("modal.unknown", "Inconnu"))}</div>
               <div style="font-size:12px;color:var(--muted)">${esc(g.map || '—')} · ${g.start ? new Date(g.start).toLocaleDateString(LOCALE()) : '—'}</div>
             </div>
             <a href="https://openfront.io/game/${encodeURIComponent(g.gameId)}" target="_blank" rel="noopener" style="width:28px;height:28px;border-radius:8px;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--muted);text-decoration:none;font-size:10px;transition:all 0.25s" onmouseover="this.style.background='var(--orange)';this.style.color='#fff'" onmouseout="this.style.background='var(--bg)';this.style.color='var(--muted)'">▶</a>

@@ -69,6 +69,84 @@ const DIRECT_WORKERS = Array.from({ length: 20 }, (_, i) => `w${i}`);
 const PROXY_WS_URL = "wss://openfront-proxy.diofortnite3.workers.dev/lobby-ws";
 const FALLBACK_JSON = "lobby_state.json";
 
+// ── Server list v2 (v34) — résolution dynamique des hôtes WS ──────────
+// À partir de la v34, le client lit GET api.<domain>/cluster.json?site=<host>
+// pour découvrir les hôtes de jeu (blue/green.openfront.io…). Tant que
+// l'endpoint renvoie 404 « Unknown site » (dormant), on reste sur legacy
+// (openfront.io). Le site fonctionne donc AVANT et APRÈS la bascule.
+const API_PROXY_META = document.querySelector('meta[name="openfront-api-proxy"]');
+const API_PROXY_BASE = (API_PROXY_META && API_PROXY_META.content || "").replace(/\/$/, "");
+const CLUSTER_SITE = "openfront.io";
+const HOSTS_TTL = 5 * 60_000;       // re-résolution toutes les 5 min
+let dynamicHosts = null;            // null = legacy (openfront.io)
+let dynamicHostsAt = 0;
+let hostsRefreshInFlight = null;
+
+function legacyLobbyWsUrl() {
+  const w = DIRECT_WORKERS[Math.floor(Math.random() * DIRECT_WORKERS.length)];
+  return `wss://openfront.io/${w}/lobbies`;
+}
+
+/** Récupère cluster.json v2 via le proxy CF → proxy Next → API directe. */
+async function fetchClusterJson() {
+  const q = `cluster.json?site=${encodeURIComponent(CLUSTER_SITE)}&t=${Date.now()}`;
+  const candidates = [];
+  if (API_PROXY_BASE) candidates.push(`${API_PROXY_BASE}/${q}`);
+  candidates.push(`/api/openfront/${q}`); // proxy Next (dev/Vercel)
+  candidates.push(`https://api.openfront.io/${q}`); // direct (CORS selon l'origine)
+  for (const url of candidates) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 5000);
+      const res = await fetch(url, { cache: "no-store", signal: ctrl.signal });
+      clearTimeout(timer);
+      if (!res.ok) continue; // 404 « Unknown site » = endpoint dormant
+      const data = await res.json();
+      if (data && data.servers && typeof data.servers === "object") return data;
+    } catch (e) { /* candidat suivant */ }
+  }
+  return null;
+}
+
+/** Rafraîchit la liste des hôtes (Server list v2) ; fallback legacy sinon. */
+function refreshLobbyHosts() {
+  if (hostsRefreshInFlight) return hostsRefreshInFlight;
+  if (dynamicHosts && Date.now() - dynamicHostsAt < HOSTS_TTL) {
+    return Promise.resolve();
+  }
+  hostsRefreshInFlight = (async () => {
+    try {
+      const data = await fetchClusterJson();
+      const hosts = data
+        ? Object.values(data.servers || {})
+            .filter((s) => s && s.host && s.state !== "draining" && s.state !== "fenced")
+            .map((s) => s.host)
+        : [];
+      if (hosts.length) {
+        if (JSON.stringify(hosts) !== JSON.stringify(dynamicHosts)) {
+          console.log(`[lobby] Server list v2 : ${hosts.length} hôte(s) → ${hosts.join(", ")}`);
+        }
+        dynamicHosts = hosts;
+      } else {
+        if (dynamicHosts) console.log("[lobby] Server list v2 vide/absente → retour legacy (openfront.io)");
+        dynamicHosts = null; // endpoint dormant ou vide → legacy
+      }
+      dynamicHostsAt = Date.now();
+    } finally {
+      hostsRefreshInFlight = null;
+    }
+  })();
+  return hostsRefreshInFlight;
+}
+
+function pickLobbyWsUrl() {
+  const w = DIRECT_WORKERS[Math.floor(Math.random() * DIRECT_WORKERS.length)];
+  const host = dynamicHosts
+    ? dynamicHosts[Math.floor(Math.random() * dynamicHosts.length)]
+    : "openfront.io";
+  return `wss://${host}/${w}/lobbies`;
+}
+
 const WS_OPEN_TIMEOUT = 12_000;      // délai max avant de passer au niveau suivant
 const WS_RECONNECT_BASE = 1_000;     // backoff exponentiel
 const WS_RECONNECT_MAX = 15_000;
@@ -385,12 +463,10 @@ function startWebSocket() {
   const gen = ++wsGeneration;
 
   const useProxy = wsFailCount.direct >= 2;
-  const url = useProxy
-    ? PROXY_WS_URL
-    : `wss://openfront.io/${DIRECT_WORKERS[Math.floor(Math.random() * DIRECT_WORKERS.length)]}/lobbies`;
+  const url = useProxy ? PROXY_WS_URL : pickLobbyWsUrl();
   const level = useProxy ? "proxy" : "direct";
 
-  console.log(`[lobby] Connexion ${level} → ${url}`);
+  console.log(`[lobby] Connexion ${level} → ${url}${dynamicHosts ? " [v2]" : ""}`);
 
   let sock;
   try {
@@ -436,8 +512,13 @@ function startWebSocket() {
         ? new Uint8Array(event.data)
         : new Uint8Array(event.data);
       const msg = decoder.decodeLobbyMessage(bytes);
-      if (msg && msg.type === "full") ingestFull(msg);
-      else if (msg && msg.type === "counts") ingestCounts(msg);
+      if (msg && msg.type === "full") {
+        if (msg.gitCommit) {
+          // v34 : le serveur annonce son commit de build (info de bascule)
+          console.log(`[lobby] serveur build=${String(msg.gitCommit).slice(0, 7)} active=${msg.active !== false}`);
+        }
+        ingestFull(msg);
+      } else if (msg && msg.type === "counts") ingestCounts(msg);
     } catch (e) {
       // Une frame illisible ne doit pas tuer la connexion : on ignore.
       console.warn("[lobby] frame zbin ignorée:", e.message);
@@ -1275,6 +1356,11 @@ function boot() {
     startHttpFallback();
     return;
   }
+  // Résolution Server list v2 (non bloquante) : la 1re connexion part en
+  // legacy ; dès que cluster.json répond, les reconnexions utilisent les
+  // hôtes résolus. Re-résolution périodique toutes les 5 min.
+  refreshLobbyHosts();
+  setInterval(refreshLobbyHosts, HOSTS_TTL);
   startWebSocket();
 }
 

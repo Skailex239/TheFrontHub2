@@ -3,8 +3,9 @@
  *
  * Routes :
  *   GET /<path>           → proxy HTTP vers https://api.openfront.io/<path>
- *   GET /lobby-ws         → proxy WebSocket vers wss://openfront.io/w{0-4}/lobbies
- *   GET /matchmaking-ws   → proxy WebSocket vers wss://openfront.io/matchmaking/join?...
+ *   GET /lobby-ws         → proxy WebSocket vers wss://<hôte jeu>/w{0-19}/lobbies
+ *                           (hôte résolu via Server list v2 : cluster.json)
+ *   GET /matchmaking-ws   → proxy WebSocket vers wss://api.openfront.io/matchmaking/join?...
  *
  * Le proxy WS side-steps le blocage Cloudflare cross-origin en se connectant
  * côté serveur (depuis le Worker, qui est same-origin pour OpenFront).
@@ -14,6 +15,16 @@
  * origines (Access-Control-Allow-Origin: *) — n'importe quel site pouvait
  * l'utiliser comme passerelle anonyme vers l'API OpenFront avec ton exemption.
  * Il est désormais restreint aux origines officielles (liste ALLOWED_ORIGINS).
+ *
+ * ── Server list v2 (v34) ─────────────────────────────────────────────
+ * L'hôte upstream de /lobby-ws est résolu dynamiquement :
+ *   GET https://api.openfront.io/cluster.json?site=<CLUSTER_SITE>
+ *   → 200 { latest, servers: { lettre: { host, numWorkers, version, state } } }
+ *     → on choisit un serveur dont state != draining/fenced
+ *   → 404 « Unknown site » (endpoint dormant, avant la bascule v34)
+ *     → fallback legacy wss://openfront.io/w{0-19}/lobbies
+ * Cache mémoire 30 s pour ne pas marteler l'API. Le site fonctionne donc
+ * AVANT et APRÈS la bascule sans redéploiement du Worker.
  *
  * Configuration (Dashboard Cloudflare → Worker → Settings → Variables) :
  *   SKAILEX_ACCESS_TOKEN   — token d'accès (déjà en place, secret)
@@ -64,8 +75,47 @@ function corsHeadersFor(origin) {
   };
 }
 
-// On pick un worker aléatoire parmi w0..w4 (load balancing côté OpenFront)
-const LOBBY_WORKERS = ["w0", "w1", "w2", "w3", "w4"];
+// Pool legacy complet : OpenFront sert numWorkers=20 depuis le déploiement
+// du 2026-09-04 (les 20 workers exposent la même liste de lobbies).
+const LOBBY_WORKERS = Array.from({ length: 20 }, (_, i) => `w${i}`);
+
+// ── Server list v2 : résolution de l'hôte de jeu (cache mémoire 30 s) ──
+const CLUSTER_SITE = "openfront.io";
+const CLUSTER_TTL_MS = 30_000;
+let clusterCache = { hosts: null, at: 0 }; // hosts = null → legacy
+
+async function resolveLobbyHosts() {
+  const now = Date.now();
+  if (now - clusterCache.at < CLUSTER_TTL_MS) return clusterCache.hosts;
+  let hosts = null; // fallback legacy par défaut
+  try {
+    const res = await fetch(
+      `${API_BASE}/cluster.json?site=${encodeURIComponent(CLUSTER_SITE)}`,
+      {
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "skailex",
+          "x-skailex-access": SKAILEX_ACCESS_TOKEN,
+        },
+        cf: { cacheTtl: 0 },
+      },
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const list = data && data.servers
+        ? Object.values(data.servers)
+            .filter((s) => s && s.host && s.state !== "draining" && s.state !== "fenced")
+            .map((s) => s.host)
+        : [];
+      if (list.length) hosts = list;
+    }
+    // 404 « Unknown site » ou réponse invalide → hosts reste null (legacy)
+  } catch (e) {
+    // réseau/erreur → legacy
+  }
+  clusterCache = { hosts, at: now };
+  return hosts;
+}
 
 /** Réponse 403 générique (sans détails internes). */
 function forbidden(origin) {
@@ -89,21 +139,33 @@ export default {
     // ───────────────────────────────────────────────────────────
     // WebSocket proxy: /lobby-ws
     //   Client connects: wss://openfront-proxy.diofortnite3.workers.dev/lobby-ws
-    //   Worker opens:     wss://openfront.io/w{0-4}/lobbies (random worker)
-    //   Worker bridges    both sides (binary frames passthrough).
+    //   Worker resolves: Server list v2 (cluster.json, cache 30 s) puis
+    //                    fallback legacy wss://openfront.io/w{0-19}/lobbies
+    //   Worker bridges   both sides (binary frames passthrough).
     // ───────────────────────────────────────────────────────────
     if (url.pathname === "/lobby-ws") {
-      return proxyWebSocket(request, () => {
+      // ?site= permet de cibler un autre site enregistré (défaut : openfront.io)
+      const site = url.searchParams.get("site") || CLUSTER_SITE;
+      return proxyWebSocket(request, async () => {
+        const hosts = site === CLUSTER_SITE
+          ? await resolveLobbyHosts()
+          : null;
+        const host = hosts
+          ? hosts[Math.floor(Math.random() * hosts.length)]
+          : "openfront.io";
         const w = LOBBY_WORKERS[Math.floor(Math.random() * LOBBY_WORKERS.length)];
-        return `wss://openfront.io/${w}/lobbies`;
+        return `wss://${host}/${w}/lobbies`;
       });
     }
 
-    // /matchmaking-ws?mode=1v1  → wss://openfront.io/matchmaking/join?instance_id=tfh-monitor&mode=1v1
+    // /matchmaking-ws?mode=1v1  → wss://api.openfront.io/matchmaking/join?instance_id=tfh-monitor&mode=1v1
+    // ⚠️ FIX v34 : le matchmaking est servi par l'API (api.<domain>), PAS par le
+    // master de jeu — l'ancien upstream wss://openfront.io/matchmaking/join
+    // ne correspond à aucun endpoint du jeu.
     if (url.pathname === "/matchmaking-ws") {
       return proxyWebSocket(request, () => {
         const mode = url.searchParams.get("mode") || "1v1";
-        return `wss://openfront.io/matchmaking/join?instance_id=tfh-monitor&mode=${encodeURIComponent(mode)}`;
+        return `wss://api.openfront.io/matchmaking/join?instance_id=tfh-monitor&mode=${encodeURIComponent(mode)}`;
       });
     }
 
@@ -159,8 +221,9 @@ export default {
 
 /**
  * Proxifie une connexion WebSocket entrante vers une URL upstream.
- * L'URL upstream peut être déterminée dynamiquement (par exemple pour pick un
- * worker aléatoire) grâce à la fonction `resolveUpstream`.
+ * L'URL upstream peut être déterminée dynamiquement (résolution Server list
+ * v2, pick d'un worker aléatoire) grâce à la fonction `resolveUpstream`
+ * (synchrone ou async).
  */
 async function proxyWebSocket(request, resolveUpstream) {
   const upgrade = request.headers.get("Upgrade");
@@ -168,7 +231,7 @@ async function proxyWebSocket(request, resolveUpstream) {
     return new Response("Expected WebSocket", { status: 426 });
   }
 
-  const upstreamUrl = resolveUpstream();
+  const upstreamUrl = await resolveUpstream();
 
   try {
     // ⚠️ API Cloudflare Workers pour les WebSockets :

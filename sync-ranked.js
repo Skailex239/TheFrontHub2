@@ -96,40 +96,52 @@ async function fetchAllRanked() {
 }
 
 async function enrichStreaks(players, mode) {
-  // Calcule la série de victoires/défaites consécutives pour le top 20
+  // Calcule la série de victoires/défaites consécutives pour le top 20.
+  // ── Migration API v34 ──────────────────────────────────────────────────
+  // L'ancien champ `games` de /public/player/{id} n'existe plus : l'historique
+  // vient de /public/player/{id}/games?filter=ranked (curseur opaque, 10
+  // résultats/page, triés du plus récent au plus ancien — docs/API.md).
+  // `result` ∈ victory | defeat | incomplete (remplace hasWon).
+  const MAX_GAME_PAGES = 4; // 4 × 10 = 40 dernières parties ranked
   const topN = 20;
   const enriched = [...players];
   for (let i = 0; i < Math.min(topN, enriched.length); i++) {
     const p = enriched[i];
     if (!p.public_id) continue;
     try {
-      const res = await openFrontFetch(`${API_BASE}/public/player/${encodeURIComponent(p.public_id)}`);
-      if (!res.ok) {
-        console.warn(`[ranked-sync] Streak fetch ${p.username}: HTTP ${res.status}`);
-        continue;
-      }
-      const data = await res.json();
-      let games;
-      if (mode === "2v2") {
-        games = (data.games || [])
-          .filter(g => g.rankedType === '2v2' || g.mode === '2v2')
-          .sort((a, b) => new Date(b.start || b.end || 0) - new Date(a.start || a.end || 0));
-      } else {
-        games = (data.games || [])
-          .filter(g => g.rankedType === '1v1' || g.mode === '1v1' || g.type === 'Ranked')
-          .sort((a, b) => new Date(b.start || b.end || 0) - new Date(a.start || a.end || 0));
+      const games = [];
+      let cursor = null;
+      for (let page = 0; page < MAX_GAME_PAGES; page++) {
+        const url =
+          `${API_BASE}/public/player/${encodeURIComponent(p.public_id)}/games` +
+          `?filter=ranked${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+        const res = await openFrontFetch(url);
+        if (!res.ok) {
+          console.warn(`[ranked-sync] Games fetch ${p.username}: HTTP ${res.status}`);
+          break;
+        }
+        const data = await res.json();
+        const results = (data && (data.results || data.games)) || [];
+        games.push(...results);
+        cursor = data && (data.nextCursor || data.cursor);
+        if (!cursor || results.length === 0) break;
       }
 
+      // Filtre par mode (1v1 / 2v2) — rankedType ∈ {1v1, 2v2}.
+      const modeGames = games.filter(g => g.rankedType === mode);
+
+      // L'API renvoie du plus récent au plus ancien : la série se compte
+      // directement dans l'ordre reçu.
       let streak = 0;
-      for (const g of games) {
-        if (g.hasWon === true) {
+      for (const g of modeGames) {
+        if (g.result === "victory") {
           if (streak >= 0) streak++;
           else break;
-        } else if (g.hasWon === false) {
+        } else if (g.result === "defeat") {
           if (streak <= 0) streak--;
           else break;
         } else {
-          break; // unknown result
+          break; // incomplete / inconnu → stop
         }
       }
       enriched[i] = { ...p, streak };
