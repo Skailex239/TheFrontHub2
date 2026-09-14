@@ -79,6 +79,14 @@ function corsHeadersFor(origin) {
 // du 2026-09-04 (les 20 workers exposent la même liste de lobbies).
 const LOBBY_WORKERS = Array.from({ length: 20 }, (_, i) => `w${i}`);
 
+// ── Hôte de lobby — choix Skailex ──────────────────────────────────────
+// false (défaut) : TOUJOURS wss://openfront.io/w{0-19}/lobbies — pas de
+//                  résolution cluster.json, jamais blue./green.openfront.io.
+// true  : résolution dynamique Server list v2 (cluster.json, cache 30 s).
+//         À NE réactiver QUE le jour où OpenFront coupe /w{n}/lobbies sur
+//         openfront.io (sinon la connexion devrait passer par blue/green).
+const USE_CLUSTER_JSON = false;
+
 // ── Server list v2 : résolution de l'hôte de jeu (cache mémoire 30 s) ──
 const CLUSTER_SITE = "openfront.io";
 const CLUSTER_TTL_MS = 30_000;
@@ -144,12 +152,9 @@ export default {
     //   Worker bridges   both sides (binary frames passthrough).
     // ───────────────────────────────────────────────────────────
     if (url.pathname === "/lobby-ws") {
-      // ?site= permet de cibler un autre site enregistré (défaut : openfront.io)
-      const site = url.searchParams.get("site") || CLUSTER_SITE;
       return proxyWebSocket(request, async () => {
-        const hosts = site === CLUSTER_SITE
-          ? await resolveLobbyHosts()
-          : null;
+        // Choix Skailex : hôte openfront.io forcé (USE_CLUSTER_JSON = false).
+        const hosts = USE_CLUSTER_JSON ? await resolveLobbyHosts() : null;
         const host = hosts
           ? hosts[Math.floor(Math.random() * hosts.length)]
           : "openfront.io";

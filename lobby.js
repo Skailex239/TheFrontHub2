@@ -70,10 +70,12 @@ const PROXY_WS_URL = "wss://openfront-proxy.diofortnite3.workers.dev/lobby-ws";
 const FALLBACK_JSON = "lobby_state.json";
 
 // ── Server list v2 (v34) — résolution dynamique des hôtes WS ──────────
-// À partir de la v34, le client lit GET api.<domain>/cluster.json?site=<host>
-// pour découvrir les hôtes de jeu (blue/green.openfront.io…). Tant que
-// l'endpoint renvoie 404 « Unknown site » (dormant), on reste sur legacy
-// (openfront.io). Le site fonctionne donc AVANT et APRÈS la bascule.
+// À partir de la v34, le client peut lire GET api.<domain>/cluster.json?site=<host>
+// pour découvrir les hôtes de jeu (blue/green.openfront.io…).
+// ⚠️ Choix Skailex : USE_CLUSTER_JSON = false → hôte openfront.io FORCÉ,
+// jamais blue./green. — cluster.json n'est même pas interrogé. À ne passer
+// à true QUE le jour où OpenFront coupe /w{n}/lobbies sur openfront.io.
+const USE_CLUSTER_JSON = false;
 const API_PROXY_META = document.querySelector('meta[name="openfront-api-proxy"]');
 const API_PROXY_BASE = (API_PROXY_META && API_PROXY_META.content || "").replace(/\/$/, "");
 const CLUSTER_SITE = "openfront.io";
@@ -110,6 +112,13 @@ async function fetchClusterJson() {
 
 /** Rafraîchit la liste des hôtes (Server list v2) ; fallback legacy sinon. */
 function refreshLobbyHosts() {
+  if (!USE_CLUSTER_JSON) {
+    // Choix Skailex : openfront.io forcé — aucune résolution dynamique.
+    if (dynamicHosts) console.log("[lobby] Hôte lobby forcé : openfront.io (cluster.json désactivé)");
+    dynamicHosts = null;
+    dynamicHostsAt = Date.now();
+    return Promise.resolve();
+  }
   if (hostsRefreshInFlight) return hostsRefreshInFlight;
   if (dynamicHosts && Date.now() - dynamicHostsAt < HOSTS_TTL) {
     return Promise.resolve();
