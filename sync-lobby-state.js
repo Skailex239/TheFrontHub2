@@ -68,9 +68,9 @@ const SKAILEX_TOKEN =
   process.env.OPENFRONT_SKAILEX_ACCESS || "";
 
 const SCRIPT_TIMEOUT_MS = 60_000; // large marge (job GitHub timeout-minutes: 5)
-const WS_TIMEOUT_MS = 6_000;      // transport ws-lib par candidat
-const OPENSSL_TIMEOUT_MS = 9_000; // transport openssl par candidat
-const MAX_CANDIDATES = 3;
+const WS_TIMEOUT_MS = 4_000;      // transport ws-lib par candidat
+const OPENSSL_TIMEOUT_MS = 7_000; // transports tls/openssl par candidat
+const MAX_CANDIDATES = 4;
 const RECENT_HISTORY_LIMIT = 25;
 
 // ── Hard timeout guard (ne bloque jamais l'Action) ────────────────────
@@ -166,8 +166,11 @@ async function resolveLobbyCandidates() {
     }
   }
 
-  for (const host of STATIC_COLOR_HOSTS) push(`wss://${host}/w0/lobbies`);
+  // Le worker proxy tourne DANS l'edge Cloudflare : jamais challenge bot.
+  // Placé tôt : son échec (502 si pas redéployé) coûte ~1 s seulement.
   push(PROXY_WS_URL);
+
+  for (const host of STATIC_COLOR_HOSTS) push(`wss://${host}/w0/lobbies`);
   push(LEGACY_WS_URL);
 
   const list = urls.slice(0, MAX_CANDIDATES);
@@ -607,6 +610,12 @@ async function fetchLobbySnapshotBest(candidates) {
     if (viaTls && viaTls.gotFull) {
       warn(`feed décodé mais vide sur ${url} → candidat suivant`);
       last = viaTls;
+      continue;
+    }
+    if (viaTls) {
+      // 101 sans frames = IP flaggée par CF (données retenues) : inutile
+      // d'essayer les autres transports sur ce candidat.
+      warn(`upgrade sans données sur ${url} (IP flaggée CF ?) → candidat suivant`);
       continue;
     }
 
