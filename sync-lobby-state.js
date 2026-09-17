@@ -36,6 +36,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
 import crypto from "crypto";
+import tls from "tls";
 import { spawn } from "child_process";
 import fetch from "node-fetch";
 import WebSocket from "ws";
@@ -311,6 +312,140 @@ function fetchLobbySnapshot(wsUrl, timeoutMs = WS_TIMEOUT_MS, origin = "https://
  * l'upgrade WS en HTTP/1.1 manuellement, lit les frames binaires et
  * décode le premier snapshot "full" zbin. Retourne null si échec.
  */
+/**
+ * Transport Node pur avec empreinte TLS « navigateur/curl » :
+ * Cloudflare bot-management rejette la JA3 par défaut de Node (403 sur les
+ * handshakes WS), mais accepte une empreinte suites/curves/signatures façon
+ * curl-OpenSSL (prouvé le 17/09 : 101 + frames là où le Node nu prenait 403).
+ * Upgrade HTTP/1.1 manuel, lecture des frames binaires WS, décodage zbin du
+ * premier snapshot 'full'. Retourne null si échec.
+ */
+function tlsLobbySnapshot(wsUrl, timeoutMs = 7000, origin = 'https://openfront.io') {
+  return new Promise((resolve) => {
+    const m = /^wss:\/\/([^\/#?]+)(\/[^#?]*)/.exec(wsUrl);
+    if (!m) return resolve(null);
+    const host = m[1];
+    const reqPath = m[2] || '/w0/lobbies';
+    const key = crypto.randomBytes(16).toString('base64');
+
+    let sock;
+    try {
+      sock = tls.connect({
+        host,
+        port: 443,
+        servername: host,
+        ALPNProtocols: ['http/1.1'],
+        ciphers: [
+          'TLS_AES_256_GCM_SHA384', 'TLS_CHACHA20_POLY1305_SHA256', 'TLS_AES_128_GCM_SHA256',
+          'ECDHE-ECDSA-AES256-GCM-SHA384', 'ECDHE-RSA-AES256-GCM-SHA384',
+          'ECDHE-ECDSA-CHACHA20-POLY1305', 'ECDHE-RSA-CHACHA20-POLY1305',
+          'ECDHE-ECDSA-AES128-GCM-SHA256', 'ECDHE-RSA-AES128-GCM-SHA256',
+          'ECDHE-ECDSA-AES256-SHA', 'ECDHE-RSA-AES256-SHA',
+          'ECDHE-ECDSA-AES128-SHA', 'ECDHE-RSA-AES128-SHA',
+        ].join(':'),
+        ecdhCurve: 'X25519:prime256v1:secp384r1',
+        sigalgs:
+          'ecdsa_secp256r1_sha256:rsa_pss_rsae_sha256:rsa_pkcs1_sha256:rsa_pkcs1_sha384:rsa_pkcs1_sha512',
+        minVersion: 'TLSv1.2',
+        maxVersion: 'TLSv1.3',
+        rejectUnauthorized: true,
+      });
+    } catch (e) {
+      return resolve(null);
+    }
+
+    let done = false;
+    let opened = false;
+    let buf = Buffer.alloc(0);
+
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { sock.destroy(); } catch (_) {}
+      resolve(val);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+
+    sock.on('error', () => finish(null));
+
+    sock.on('secureConnect', () => {
+      sock.write(
+        `GET ${reqPath} HTTP/1.1\r\nHost: ${host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n` +
+        `Sec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\nOrigin: ${origin}\r\n` +
+        `User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ` +
+        `(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\r\n` +
+        `Accept-Language: fr-FR,fr;q=0.9,en;q=0.8\r\n\r\n`
+      );
+    });
+
+    sock.on('data', (d) => {
+      if (done) return;
+      buf = Buffer.concat([buf, d]);
+      if (!opened) {
+        const idx = buf.indexOf('\r\n\r\n');
+        if (idx === -1) return;
+        const head = buf.subarray(0, idx).toString();
+        opened = true;
+        buf = buf.subarray(idx + 4);
+        if (!/^HTTP\/1\.1 101/i.test(head)) {
+          log(`tls: pas d'upgrade (${head.split('\r\n')[0]}) sur ${wsUrl}`);
+          return finish(null);
+        }
+        log(`tls: upgrade OK → ${wsUrl}`);
+      }
+      for (;;) {
+        if (buf.length < 2) break;
+        const opcode = buf[0] & 0x0f;
+        let len = buf[1] & 0x7f;
+        let off = 2;
+        if (len === 126) {
+          if (buf.length < 4) break;
+          len = buf.readUInt16BE(2);
+          off = 4;
+        } else if (len === 127) {
+          if (buf.length < 10) break;
+          const big = buf.readBigUInt64BE(2);
+          if (big > 67108864n) { finish(null); return; }
+          len = Number(big);
+          off = 10;
+        }
+        if (buf.length < off + len) break;
+        const payload = Buffer.from(buf.subarray(off, off + len));
+        buf = buf.subarray(off + len);
+        if (opcode === 0x2) {
+          try {
+            const msg = decodeLobbyMessage(new Uint8Array(payload));
+            if (msg && msg.games && typeof msg.games === 'object') {
+              const all = [
+                ...(Array.isArray(msg.games.ffa) ? msg.games.ffa : []),
+                ...(Array.isArray(msg.games.team) ? msg.games.team : []),
+                ...(Array.isArray(msg.games.special) ? msg.games.special : []),
+              ];
+              const players = all.reduce((s, g) => s + (Number(g && g.numClients) || 0), 0);
+              const serverTime = typeof msg.serverTime === 'number' ? msg.serverTime : Date.now();
+              log(`tls full snapshot: ${all.length} games, ${players} joueurs (${wsUrl})`);
+              return finish({
+                lobbyPlayers: players,
+                lobbyGames: all.length,
+                serverTime,
+                gotFull: true,
+                games: {
+                  ffa: Array.isArray(msg.games.ffa) ? msg.games.ffa : [],
+                  team: Array.isArray(msg.games.team) ? msg.games.team : [],
+                  special: Array.isArray(msg.games.special) ? msg.games.special : [],
+                },
+              });
+            }
+          } catch (_) { /* frame non décodable : on attend la suivante */ }
+        } else if (opcode === 0x8) {
+          return finish(null);
+        }
+      }
+    });
+  });
+}
+
 function opensslLobbySnapshot(wsUrl, timeoutMs = 6000, origin = "https://openfront.io") {
   return new Promise((resolve) => {
     const m = /^wss:\/\/([^/#?]+)(\/[^#?]*)/.exec(wsUrl);
@@ -437,12 +572,12 @@ function opensslLobbySnapshot(wsUrl, timeoutMs = 6000, origin = "https://openfro
 
 /**
  * Sondage des candidats : le PREMIER dont le feed full contient au moins
- * une partie gagne. Par candidat : transport openssl d'abord (passe le
- * bot-management Cloudflare), puis lib `ws` en secours. Un feed décodé
- * mais VIDE (serveur draining après un rollover blue/green) fait passer
- * au candidat suivant. Sans candidat utile, on rend le dernier résultat
- * (zéros) — le front bascule alors sur les stats HTTP (ranked/heatmap)
- * qui restent valides. Budget global borné (hardKill 28 s).
+ * une partie gagne. Par candidat : transport Node-JA3 d'abord (passe le
+ * bot-management Cloudflare), openssl ensuite, lib `ws` enfin. Un feed
+ * décodé mais VIDE (serveur draining après un rollover blue/green) fait
+ * passer au candidat suivant. Sans candidat utile, on rend le dernier
+ * résultat (zéros) — le front bascule alors sur les stats HTTP
+ * (ranked/heatmap) qui restent valides. Budget global borné.
  */
 async function fetchLobbySnapshotBest(candidates) {
   const empty = () => ({
@@ -462,11 +597,20 @@ async function fetchLobbySnapshotBest(candidates) {
       break;
     }
     const t = Math.min(OPENSSL_TIMEOUT_MS, remaining);
-
-    // 1) Transport openssl (empreinte TLS compatible Cloudflare)
     const oOrigin = url.includes("workers.dev")
       ? "https://thefronthub.com" // allowlist du worker proxy
       : "https://openfront.io";
+
+    // 1) Transport Node pur (empreinte TLS façon curl — passe CF)
+    const viaTls = await tlsLobbySnapshot(url, t, oOrigin);
+    if (viaTls && viaTls.gotFull && viaTls.lobbyGames > 0) return viaTls;
+    if (viaTls && viaTls.gotFull) {
+      warn(`feed décodé mais vide sur ${url} → candidat suivant`);
+      last = viaTls;
+      continue;
+    }
+
+    // 2) Transport openssl (empreinte TLS OpenSSL — passe CF)
     const viaOpenssl = await opensslLobbySnapshot(url, t, oOrigin);
     if (viaOpenssl && viaOpenssl.gotFull && viaOpenssl.lobbyGames > 0) return viaOpenssl;
     if (viaOpenssl && viaOpenssl.gotFull) {
@@ -475,11 +619,8 @@ async function fetchLobbySnapshotBest(candidates) {
       continue;
     }
 
-    // 2) Secours : lib `ws` (peut marcher selon la réputation de l'IP)
-    const origin = url.includes("workers.dev")
-      ? "https://thefronthub.com" // allowlist du worker proxy
-      : "https://openfront.io";
-    const viaWs = await fetchLobbySnapshot(url, Math.min(5_000, deadline - Date.now()), origin);
+    // 3) Secours : lib `ws` (peut marcher selon la réputation de l'IP)
+    const viaWs = await fetchLobbySnapshot(url, Math.min(5_000, deadline - Date.now()), oOrigin);
     last = viaWs;
     if (viaWs.gotFull && viaWs.lobbyGames > 0) return viaWs;
     if (viaWs.gotFull) warn(`feed décodé mais vide sur ${url} → candidat suivant`);
