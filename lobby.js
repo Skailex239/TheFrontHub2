@@ -70,20 +70,14 @@ const PROXY_WS_URL = "wss://openfront-proxy.diofortnite3.workers.dev/lobby-ws";
 const FALLBACK_JSON = "lobby_state.json";
 
 // ── Server list v2 (v34) — résolution dynamique des hôtes WS ──────────
-// À partir de la v34, le client lit GET api.<domain>/cluster.json?site=<host>
-// pour découvrir les hôtes de jeu (format v2 : { latest, servers: { lettre:
-//   { host, numWorkers, version, state: "open"|"draining"|"fenced" } } }).
-// ⚠️ 17/09/2026 : le HÔTE FORCÉ est abandonné — OpenFront a basculé blue/green
-// (green forcé → state=draining → feed full de 58 o = liste VIDE) et l'infra
-// est passée aux hôtes machine-scoped annoncés par la registry (#5474,#5478,
-// #5479,#5486). Stratégie robuste aux rollovers :
-//   1. registry cluster.json → serveurs state=open (puis draining),
-//   2. candidats statiques bleu/vert (slots de couleur stables par convention),
-//   3. FORCED_HOST (dernier recours historique),
-//   + ROTATION automatique si le feed décodé est VIDE (rollover non annoncé).
-const FORCED_HOST = "green.openfront.io"; // dernier recours uniquement
-const STATIC_COLOR_HOSTS = ["blue.openfront.io", "green.openfront.io"];
-const USE_CLUSTER_JSON = true;
+// À partir de la v34, le client peut lire GET api.<domain>/cluster.json?site=<host>
+// pour découvrir les hôtes de jeu (blue/green.openfront.io…).
+// ⚠️ Choix Skailex : FORCED_HOST = green.openfront.io — serveur ACTIF de la
+// prod OpenFront (cluster.json 2026-09-14 : green state=open a33efb78, blue
+// draining). Jamais blue., jamais openfront.io tant que green est ouvert.
+// USE_CLUSTER_JSON = true réactiverait la résolution dynamique cluster.json.
+const FORCED_HOST = "green.openfront.io";
+const USE_CLUSTER_JSON = false;
 const API_PROXY_META = document.querySelector('meta[name="openfront-api-proxy"]');
 const API_PROXY_BASE = (API_PROXY_META && API_PROXY_META.content || "").replace(/\/$/, "");
 const CLUSTER_SITE = "openfront.io";
@@ -95,31 +89,6 @@ let hostsRefreshInFlight = null;
 function legacyLobbyWsUrl() {
   const w = DIRECT_WORKERS[Math.floor(Math.random() * DIRECT_WORKERS.length)];
   return `wss://${FORCED_HOST}/${w}/lobbies`;
-}
-
-/* ── Rotation des candidats (registry → statiques → forcé) ───────────── */
-let candidateCursor = 0;          // avance sur échec/feed vide, reset après full non vide
-let emptyRotationsTotal = 0;      // garde-fou anti-boucle (sur toute la session)
-const EMPTY_ROTATIONS_MAX = 6;    // nb max de rotations pour feed vide
-
-function workerPathFor(numWorkers) {
-  const n = Math.max(1, Math.min(Number(numWorkers) || DIRECT_WORKERS.length, 64));
-  return `w${Math.floor(Math.random() * n)}`;
-}
-
-/** Liste ordonnée des URLs candidates (registry d'abord). */
-function candidateUrls() {
-  const urls = [];
-  if (dynamicHosts && dynamicHosts.length) {
-    for (const h of dynamicHosts) {
-      urls.push(`wss://${h.host}/${workerPathFor(h.numWorkers)}/lobbies`);
-    }
-  }
-  for (const h of STATIC_COLOR_HOSTS) {
-    urls.push(`wss://${h}/${workerPathFor()}/lobbies`);
-  }
-  urls.push(`wss://${FORCED_HOST}/${workerPathFor()}/lobbies`);
-  return urls;
 }
 
 /** Récupère cluster.json v2 via le proxy CF → proxy Next → API directe. */
@@ -159,27 +128,19 @@ function refreshLobbyHosts() {
   hostsRefreshInFlight = (async () => {
     try {
       const data = await fetchClusterJson();
-      // On garde open ET draining (un serveur draining sert encore son feed),
-      // on exclut fenced, et on met les open en premier.
-      const entries = data
+      const hosts = data
         ? Object.values(data.servers || {})
-            .filter((s) => s && s.host && s.state !== "fenced")
-            .map((s) => ({
-              host: s.host,
-              numWorkers: Number(s.numWorkers) || DIRECT_WORKERS.length,
-              state: s.state || "open",
-            }))
+            .filter((s) => s && s.host && s.state !== "draining" && s.state !== "fenced")
+            .map((s) => s.host)
         : [];
-      entries.sort((a, b) =>
-        (a.state === "open" ? 0 : 1) - (b.state === "open" ? 0 : 1));
-      if (entries.length) {
-        if (JSON.stringify(entries) !== JSON.stringify(dynamicHosts)) {
-          console.log(`[lobby] Server list v2 : ${entries.map((e) => `${e.host}(${e.state})`).join(", ")}`);
+      if (hosts.length) {
+        if (JSON.stringify(hosts) !== JSON.stringify(dynamicHosts)) {
+          console.log(`[lobby] Server list v2 : ${hosts.length} hôte(s) → ${hosts.join(", ")}`);
         }
-        dynamicHosts = entries;
+        dynamicHosts = hosts;
       } else {
-        if (dynamicHosts) console.log("[lobby] Server list v2 vide/absente → candidats statiques");
-        dynamicHosts = null; // endpoint dormant ou vide → candidats statiques
+        if (dynamicHosts) console.log("[lobby] Server list v2 vide/absente → retour legacy (openfront.io)");
+        dynamicHosts = null; // endpoint dormant ou vide → legacy
       }
       dynamicHostsAt = Date.now();
     } finally {
@@ -190,9 +151,11 @@ function refreshLobbyHosts() {
 }
 
 function pickLobbyWsUrl() {
-  const urls = candidateUrls();
-  const url = urls[candidateCursor % urls.length];
-  return url;
+  const w = DIRECT_WORKERS[Math.floor(Math.random() * DIRECT_WORKERS.length)];
+  const host = dynamicHosts
+    ? dynamicHosts[Math.floor(Math.random() * dynamicHosts.length)]
+    : FORCED_HOST;
+  return `wss://${host}/${w}/lobbies`;
 }
 
 const WS_OPEN_TIMEOUT = 12_000;      // délai max avant de passer au niveau suivant
@@ -513,8 +476,6 @@ function startWebSocket() {
   const useProxy = wsFailCount.direct >= 2;
   const url = useProxy ? PROXY_WS_URL : pickLobbyWsUrl();
   const level = useProxy ? "proxy" : "direct";
-  let sawUsefulFull = false; // full avec ≥ 1 partie sur CETTE connexion
-  let selfClosed = false;    // close initié par la rotation anti-feed-vide
 
   console.log(`[lobby] Connexion ${level} → ${url}${dynamicHosts ? " [v2]" : ""}`);
 
@@ -567,29 +528,6 @@ function startWebSocket() {
           // v34 : le serveur annonce son commit de build (info de bascule)
           console.log(`[lobby] serveur build=${String(msg.gitCommit).slice(0, 7)} active=${msg.active !== false}`);
         }
-        // ── Rotation anti-feed-vide (rollovers blue/green non annoncés) ──
-        // Un serveur draining décode parfaitement mais liste 0 partie.
-        // Si le PREMIER full de cette connexion est vide et qu'on n'a pas
-        // déjà épuisé la rotation, on passe au candidat suivant.
-        const total = Object.values(msg.games || {})
-          .reduce((n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0);
-        if (total > 0) {
-          sawUsefulFull = true;
-          candidateCursor = 0; // ce candidat marche : on repart du début
-        } else if (!sawUsefulFull && useProxy === false) {
-          const urls = candidateUrls();
-          if (
-            urls.length > 1 &&
-            emptyRotationsTotal < EMPTY_ROTATIONS_MAX
-          ) {
-            emptyRotationsTotal++;
-            candidateCursor++;
-            console.warn(`[lobby] feed vide sur ce serveur → candidat suivant (${candidateCursor % urls.length + 1}/${urls.length})`);
-            selfClosed = true;
-            try { sock.close(); } catch { /* ignore */ }
-            return;
-          }
-        }
         ingestFull(msg);
       } else if (msg && msg.type === "counts") ingestCounts(msg);
     } catch (e) {
@@ -598,16 +536,7 @@ function startWebSocket() {
     }
   };
 
-  sock.onclose = () => {
-    if (gen !== wsGeneration) return;
-    if (selfClosed) {
-      // Rotation anti-feed-vide : reconnexion immédiate au candidat suivant,
-      // SANS compter un échec (la connexion, elle, avait réussi).
-      setTimeout(() => { if (gen === wsGeneration) startWebSocket(); }, 300);
-      return;
-    }
-    wsFailed(gen, level);
-  };
+  sock.onclose = () => { if (gen === wsGeneration) wsFailed(gen, level); };
   sock.onerror = () => {
     if (gen === wsGeneration) {
       try { sock.close(); } catch { /* ignore */ }
@@ -620,7 +549,6 @@ function wsFailed(gen, level) {
   clearTimeout(wsOpenTimer);
   state.connected = false;
   wsFailCount[level]++;
-  if (level === "direct") candidateCursor++; // échec direct → candidat suivant
 
   // Trop d'échecs cumulés → on bascule sur le fallback HTTP (N3)
   if (wsFailCount.direct >= 2 && wsFailCount.proxy >= 2) {

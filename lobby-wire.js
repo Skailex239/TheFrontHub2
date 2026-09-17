@@ -26,19 +26,7 @@
 // Unknown enum ordinals (e.g. a newly added map) decode to "unknown#<n>"
 // instead of throwing, so a map addition alone doesn't kill the dashboard.
 //
-// ── Historique de synchro schéma ────────────────────────────────────
-//   2026-09-17 : v5.15.1 — DIAGNOSTIC PANNE lobby preview (schéma NON
-//   changé). Vérifié par capture WS réelle : frames du build ece79bfd
-//   décodées sans erreur par ce décodeur (full + counts, cats
-//   ffa/team/special/hosted). La panne venait de la RÉSOLUTION D'HÔTE :
-//   green.openfront.io forcé → passé state=draining lors du rollover du
-//   17/09 → feed full de 58 o = liste vide (blue=lettre c state=open
-//   diffuse le vrai feed, 899 o, ~16 lobbies). Correctifs : résolution
-//   registry cluster.json v2 (open d'abord) + rotation anti-feed-vide
-//   dans lobby.js / sync-lobby-state.js / openfront-proxy.js.
-//   NB infra amont : ClientJoinMessageSchema gagne platform.optional()
-//   (#5488) — message client→serveur, sans effet sur ce flux ; Maps.gen
-//   nettoyé puis reverté (#5458/#5462) = inchangé (123 maps).
+// ── Historique de synchro schéma ────────────────────────────────────────────
 //   2026-09-14 : v5.15 — Mise à jour pour la release v0.34.0 (commit 1e973bb,
 //   déployé en prod — cf. api.openfront.io/cluster.json). TROIS changements :
 //   1. PublicLobbyFull gagne `gitCommit: string.optional()` (1 bit de
