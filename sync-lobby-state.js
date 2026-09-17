@@ -35,6 +35,8 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
+import crypto from "crypto";
+import { spawn } from "child_process";
 import fetch from "node-fetch";
 import WebSocket from "ws";
 
@@ -180,10 +182,10 @@ function loadPreviousState() {
 }
 
 // ── 1) Snapshot du lobby via WebSocket ─────────────────────────────────
-// Renvoie { lobbyPlayers, lobbyGames, serverTime, games }.
+// Renvoie { lobbyPlayers, lobbyGames, serverTime, games, gotFull }.
 // games = { ffa: [...], team: [...], special: [...] } détaillé (pour polling HTTP)
 // En cas d'échec/timeout, renvoie des zéros (on garde quand même le reste).
-function fetchLobbySnapshot(wsUrl, timeoutMs = WS_TIMEOUT_MS) {
+function fetchLobbySnapshot(wsUrl, timeoutMs = WS_TIMEOUT_MS, origin = "https://openfront.io") {
   return new Promise((resolve) => {
     let done = false;
     let ws = null;
@@ -211,10 +213,9 @@ function fetchLobbySnapshot(wsUrl, timeoutMs = WS_TIMEOUT_MS) {
           // Cloudflare devant openfront.io rejette les upgrades WS sans
           // allure navigateur (403 "Unexpected server response" depuis les
           // runners GitHub Actions — IP datacenter + TLS non-navigateur).
-          // Ces headers ne suffisent pas toujours, mais ils maximisent les
-          // chances et ne coûtent rien. Le fallback garde le site fonctionnel
-          // (games vides, ranked/heatmap OK via l'API HTTP).
-          Origin: "https://openfront.io",
+          // Ces headers ne suffisent pas toujours — d'où le transport
+          // openssl s_client (opensslLobbySnapshot) essayé en premier.
+          Origin: origin,
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -303,11 +304,133 @@ function fetchLobbySnapshot(wsUrl, timeoutMs = WS_TIMEOUT_MS) {
 }
 
 /**
+ * Transport alternatif via `openssl s_client` : l'empreinte TLS d'OpenSSL
+ * passe le bot-management Cloudflare qui rejette la stack TLS de Node
+ * (403 sur les runners GitHub comme sur toute IP datacenter). Fait
+ * l'upgrade WS en HTTP/1.1 manuellement, lit les frames binaires et
+ * décode le premier snapshot "full" zbin. Retourne null si échec.
+ */
+function opensslLobbySnapshot(wsUrl, timeoutMs = 6000, origin = "https://openfront.io") {
+  return new Promise((resolve) => {
+    const m = /^wss:\/\/([^/#?]+)(\/[^#?]*)/.exec(wsUrl);
+    if (!m) return resolve(null);
+    const host = m[1];
+    const reqPath = m[2] || "/w0/lobbies";
+
+    let ssl;
+    try {
+      ssl = spawn(
+        "openssl",
+        ["s_client", "-connect", `${host}:443`, "-servername", host, "-alpn", "http/1.1", "-quiet", "-ign_eof"],
+        { stdio: ["pipe", "pipe", "ignore"] }
+      );
+    } catch (e) {
+      return resolve(null);
+    }
+    // binaire openssl indisponible → l'event 'error' intervient ; on résout null
+
+    let done = false;
+    let opened = false;
+    let buf = Buffer.alloc(0);
+    const key = crypto.randomBytes(16).toString("base64");
+
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { ssl.kill(); } catch (_) {}
+      resolve(val);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+
+    ssl.on("error", () => finish(null));
+
+    /* Requête d'upgrade WS — envoyée immédiatement après le spawn. */
+    ssl.stdin.write(
+      `GET ${reqPath} HTTP/1.1\r\nHost: ${host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n` +
+      `Sec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\nOrigin: ${origin}\r\n` +
+      `User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ` +
+      `(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\r\n` +
+      `Accept-Language: fr-FR,fr;q=0.9,en;q=0.8\r\n\r\n`
+    );
+
+    ssl.stdout.on("data", (d) => {
+      if (done) return;
+      buf = Buffer.concat([buf, d]);
+      if (!opened) {
+        const idx = buf.indexOf("\r\n\r\n");
+        if (idx === -1) return;
+        const head = buf.subarray(0, idx).toString();
+        opened = true;
+        buf = buf.subarray(idx + 4);
+        if (!/^HTTP\/1\.1 101/i.test(head)) {
+          log(`openssl: pas d'upgrade (${head.split("\r\n")[0]}) sur ${wsUrl}`);
+          return finish(null);
+        }
+        log(`openssl: upgrade OK → ${wsUrl}`);
+      }
+      // Parsing des frames WS serveur (non masquées)
+      for (;;) {
+        if (buf.length < 2) break;
+        const opcode = buf[0] & 0x0f;
+        let len = buf[1] & 0x7f;
+        let off = 2;
+        if (len === 126) {
+          if (buf.length < 4) break;
+          len = buf.readUInt16BE(2);
+          off = 4;
+        } else if (len === 127) {
+          if (buf.length < 10) break;
+          const big = buf.readBigUInt64BE(2);
+          if (big > 67108864n) { finish(null); return; }
+          len = Number(big);
+          off = 10;
+        }
+        if (buf.length < off + len) break;
+        const payload = Buffer.from(buf.subarray(off, off + len));
+        buf = buf.subarray(off + len);
+        if (opcode === 0x2) {
+          try {
+            const msg = decodeLobbyMessage(new Uint8Array(payload));
+            if (msg && msg.games && typeof msg.games === "object") {
+              const all = [
+                ...(Array.isArray(msg.games.ffa) ? msg.games.ffa : []),
+                ...(Array.isArray(msg.games.team) ? msg.games.team : []),
+                ...(Array.isArray(msg.games.special) ? msg.games.special : []),
+              ];
+              const serverTime = typeof msg.serverTime === "number" ? msg.serverTime : Date.now();
+              log(
+                `openssl full snapshot: ${all.length} games, ${all.reduce((s, g) => s + (Number(g && g.numClients) || 0), 0)} joueurs (${wsUrl})`
+              );
+              return finish({
+                lobbyPlayers: all.reduce((s, g) => s + (Number(g && g.numClients) || 0), 0),
+                lobbyGames: all.length,
+                serverTime,
+                gotFull: true,
+                games: {
+                  ffa: Array.isArray(msg.games.ffa) ? msg.games.ffa : [],
+                  team: Array.isArray(msg.games.team) ? msg.games.team : [],
+                  special: Array.isArray(msg.games.special) ? msg.games.special : [],
+                },
+              });
+            }
+          } catch (_) { /* frame non décodable : on attend la suivante */ }
+        } else if (opcode === 0x8) {
+          return finish(null);
+        }
+      }
+    });
+  });
+}
+
+/**
  * Sondage des candidats : le PREMIER dont le feed full contient au moins
- * une partie gagne. Un feed décodé mais VIDE (serveur draining après un
- * rollover blue/green) fait passer au candidat suivant. Sans candidat
- * utile, on rend le dernier résultat (zéros) — le front bascule alors sur
- * les stats HTTP (ranked/heatmap) qui restent valides.
+ * une partie gagne. Par candidat : transport openssl d'abord (passe le
+ * bot-management Cloudflare), puis lib `ws` en secours. Un feed décodé
+ * mais VIDE (serveur draining après un rollover blue/green) fait passer
+ * au candidat suivant. Sans candidat utile, on rend le dernier résultat
+ * (zéros) — le front bascule alors sur les stats HTTP (ranked/heatmap)
+ * qui restent valides. Budget global borné (hardKill 28 s).
  */
 async function fetchLobbySnapshotBest(candidates) {
   const empty = () => ({
@@ -317,12 +440,37 @@ async function fetchLobbySnapshotBest(candidates) {
     games: { ffa: [], team: [], special: [] },
     gotFull: false,
   });
+  const deadline = Date.now() + 22_000; // marge avant le hardKill (28 s)
   let last = empty();
+
   for (const url of (candidates || []).slice(0, MAX_CANDIDATES)) {
-    const res = await fetchLobbySnapshot(url);
-    last = res;
-    if (res.gotFull && res.lobbyGames > 0) return res;
-    if (res.gotFull) warn(`feed décodé mais vide sur ${url} → candidat suivant`);
+    const remaining = deadline - Date.now();
+    if (remaining < 4_000) {
+      warn(`budget épuisé avant ${url} — arrêt du sondage`);
+      break;
+    }
+    const t = Math.min(6_000, remaining);
+
+    // 1) Transport openssl (empreinte TLS compatible Cloudflare)
+    const oOrigin = url.includes("workers.dev")
+      ? "https://thefronthub.com" // allowlist du worker proxy
+      : "https://openfront.io";
+    const viaOpenssl = await opensslLobbySnapshot(url, t, oOrigin);
+    if (viaOpenssl && viaOpenssl.gotFull && viaOpenssl.lobbyGames > 0) return viaOpenssl;
+    if (viaOpenssl && viaOpenssl.gotFull) {
+      warn(`feed décodé mais vide sur ${url} → candidat suivant`);
+      last = viaOpenssl;
+      continue;
+    }
+
+    // 2) Secours : lib `ws` (peut marcher selon la réputation de l'IP)
+    const origin = url.includes("workers.dev")
+      ? "https://thefronthub.com" // allowlist du worker proxy
+      : "https://openfront.io";
+    const viaWs = await fetchLobbySnapshot(url, Math.min(5_000, deadline - Date.now()), origin);
+    last = viaWs;
+    if (viaWs.gotFull && viaWs.lobbyGames > 0) return viaWs;
+    if (viaWs.gotFull) warn(`feed décodé mais vide sur ${url} → candidat suivant`);
   }
   return last;
 }
