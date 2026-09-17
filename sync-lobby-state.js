@@ -66,8 +66,9 @@ const API_BASE = "https://api.openfront.io";
 const SKAILEX_TOKEN =
   process.env.OPENFRONT_SKAILEX_ACCESS || "";
 
-const SCRIPT_TIMEOUT_MS = 28_000; // garde < 30s (limite GitHub Action)
-const WS_TIMEOUT_MS = 6_000;      // par candidat (3 candidats max → ~18s)
+const SCRIPT_TIMEOUT_MS = 60_000; // large marge (job GitHub timeout-minutes: 5)
+const WS_TIMEOUT_MS = 6_000;      // transport ws-lib par candidat
+const OPENSSL_TIMEOUT_MS = 9_000; // transport openssl par candidat
 const MAX_CANDIDATES = 3;
 const RECENT_HISTORY_LIMIT = 25;
 
@@ -319,13 +320,24 @@ function opensslLobbySnapshot(wsUrl, timeoutMs = 6000, origin = "https://openfro
 
     let ssl;
     try {
+      // stdbuf -o0 : force la sortie NON bufferisée d'openssl — indispensable
+      // sur les runners Ubuntu où s_client bloque ses frames dans le buffer
+      // du pipe (4-8 Ko) et les n'envoie qu'à la fermeture du process.
       ssl = spawn(
-        "openssl",
-        ["s_client", "-connect", `${host}:443`, "-servername", host, "-alpn", "http/1.1", "-quiet", "-ign_eof"],
+        "stdbuf",
+        ["-o0", "openssl", "s_client", "-connect", `${host}:443`, "-servername", host, "-alpn", "http/1.1", "-quiet", "-ign_eof"],
         { stdio: ["pipe", "pipe", "ignore"] }
       );
     } catch (e) {
-      return resolve(null);
+      try {
+        ssl = spawn(
+          "openssl",
+          ["s_client", "-connect", `${host}:443`, "-servername", host, "-alpn", "http/1.1", "-quiet", "-ign_eof"],
+          { stdio: ["pipe", "pipe", "ignore"] }
+        );
+      } catch (e2) {
+        return resolve(null);
+      }
     }
     // binaire openssl indisponible → l'event 'error' intervient ; on résout null
 
@@ -440,7 +452,7 @@ async function fetchLobbySnapshotBest(candidates) {
     games: { ffa: [], team: [], special: [] },
     gotFull: false,
   });
-  const deadline = Date.now() + 22_000; // marge avant le hardKill (28 s)
+  const deadline = Date.now() + 45_000; // marge large (job = 5 min)
   let last = empty();
 
   for (const url of (candidates || []).slice(0, MAX_CANDIDATES)) {
@@ -449,7 +461,7 @@ async function fetchLobbySnapshotBest(candidates) {
       warn(`budget épuisé avant ${url} — arrêt du sondage`);
       break;
     }
-    const t = Math.min(6_000, remaining);
+    const t = Math.min(OPENSSL_TIMEOUT_MS, remaining);
 
     // 1) Transport openssl (empreinte TLS compatible Cloudflare)
     const oOrigin = url.includes("workers.dev")
