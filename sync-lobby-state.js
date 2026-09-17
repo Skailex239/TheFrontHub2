@@ -48,18 +48,25 @@ const __dirname = path.dirname(__filename);
 const STATE_FILE = path.join(__dirname, "lobby_state.json");
 
 const LEGACY_WS_URL = "wss://openfront.io/w0/lobbies";
-// ⚠️ Choix Skailex : FORCED_WS_URL = green.openfront.io — serveur ACTIF de la
-// prod OpenFront (cluster.json 2026-09-14 : green state=open a33efb78, blue
-// draining). USE_CLUSTER_JSON = false → toujours green, jamais blue/openfront.
-const FORCED_WS_URL = "wss://green.openfront.io/w0/lobbies";
-const USE_CLUSTER_JSON = false;
+// ⚠️ 17/09/2026 : fin du HÔTE FORCÉ — OpenFront a basculé blue/green (green
+// forcé → state=draining → feed full vide) et l'infra passe aux hôtes
+// machine-scoped annoncés par la registry (#5474,#5478,#5479,#5486).
+// Nouvelle stratégie robuste aux rollovers (voir resolveLobbyCandidates) :
+//   1. registry cluster.json v2 → serveurs state=open (puis draining),
+//   2. candidats statiques blue/green (slots de couleur stables),
+//   3. proxy Cloudflare Worker (tourne DANS Cloudflare → pas de blocage bot),
+//   4. legacy openfront.io — puis sondage : premier full avec ≥ 1 partie gagne.
+const STATIC_COLOR_HOSTS = ["blue.openfront.io", "green.openfront.io"];
+const PROXY_WS_URL = "wss://openfront-proxy.diofortnite3.workers.dev/lobby-ws";
+const USE_CLUSTER_JSON = true;
 const CLUSTER_JSON_URL = "https://api.openfront.io/cluster.json?site=openfront.io";
 const API_BASE = "https://api.openfront.io";
 const SKAILEX_TOKEN =
   process.env.OPENFRONT_SKAILEX_ACCESS || "";
 
 const SCRIPT_TIMEOUT_MS = 28_000; // garde < 30s (limite GitHub Action)
-const WS_TIMEOUT_MS = 8_000;
+const WS_TIMEOUT_MS = 6_000;      // par candidat (3 candidats max → ~18s)
+const MAX_CANDIDATES = 3;
 const RECENT_HISTORY_LIMIT = 25;
 
 // ── Hard timeout guard (ne bloque jamais l'Action) ────────────────────
@@ -97,44 +104,71 @@ function apiHeaders() {
   };
 }
 
-// ── Résolution de l'URL WebSocket du lobby (Server list v2) ─────────────
-// Essaie GET /cluster.json?site=openfront.io (nouveau système v34, timeout
-// court). En cas de succès : wss://<host>/w0/lobbies (premier serveur non
-// draining/fenced). Sinon (404 "Unknown site", réseau, etc.) : URL legacy.
-async function resolveLobbyWsUrl() {
-  if (!USE_CLUSTER_JSON) {
-    // Choix Skailex : green.openfront.io forcé — aucune résolution dynamique.
-    log(`Hôte lobby forcé : green.openfront.io (cluster.json désactivé)`);
-    return FORCED_WS_URL;
-  }
-  try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 4000);
-    const res = await fetch(CLUSTER_JSON_URL, {
-      headers: { ...apiHeaders(), Accept: "application/json" },
-      signal: ctrl.signal,
-    });
-    clearTimeout(t);
-    if (!res.ok) {
-      log(`cluster.json: HTTP ${res.status} → fallback legacy (endpoint v2 dormant ?)`);
-      return LEGACY_WS_URL;
+// ── Résolution des URLs WebSocket candidates (Server list v2) ───────────
+// 1. cluster.json (format v2 : { latest, servers: { lettre: { host,
+//    numWorkers, version, state } } }) → open d'abord, draining ensuite
+//    (un draining sert encore son feed, un fenced plus du tout).
+// 2. Slots de couleur statiques blue/green (stables par convention amont).
+// 3. Proxy Cloudflare Worker (résout lui-même la registry depuis l'edge).
+// 4. Legacy openfront.io. La liste est dédupliquée, plafonnée, et le
+//    premier candidat dont le feed full contient au moins une partie gagne
+//    (fetchLobbySnapshotBest) — résilient aux rollovers non annoncés.
+async function resolveLobbyCandidates() {
+  const urls = [];
+  const push = (u) => { if (u && !urls.includes(u)) urls.push(u); };
+
+  if (USE_CLUSTER_JSON) {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 4000);
+      // Headers navigateur : Cloudflare devant api.openfront.io rejette les
+      // requêtes sans allure navigateur (403 challenge) depuis les runners.
+      const res = await fetch(CLUSTER_JSON_URL, {
+        headers: {
+          Accept: "application/json",
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          Origin: "https://openfront.io",
+          "x-skailex-access":
+            process.env.OPENFRONT_SKAILEX_ACCESS || SKAILEX_TOKEN,
+        },
+        signal: ctrl.signal,
+      });
+      clearTimeout(t);
+      if (res.ok) {
+        const data = await res.json();
+        const entries = data && data.servers
+          ? Object.values(data.servers)
+              .filter((s) => s && s.host && s.state !== "fenced")
+              .map((s) => ({
+                host: s.host,
+                numWorkers: Number(s.numWorkers) || 1,
+                state: s.state || "open",
+              }))
+          : [];
+        entries.sort((a, b) =>
+          (a.state === "open" ? 0 : 1) - (b.state === "open" ? 0 : 1));
+        for (const e of entries) {
+          const w = Math.floor(Math.random() * Math.max(1, e.numWorkers));
+          push(`wss://${e.host}/w${w}/lobbies`);
+        }
+        log(`cluster.json v2 : ${entries.map((e) => `${e.host}(${e.state})`).join(", ")}`);
+      } else {
+        warn(`cluster.json: HTTP ${res.status} → candidats statiques`);
+      }
+    } catch (e) {
+      warn(`cluster.json indisponible (${e.message}) → candidats statiques`);
     }
-    const data = await res.json();
-    const servers = data && data.servers ? Object.values(data.servers) : [];
-    const pick =
-      servers.find((s) => s && s.host && s.state === "open") ||
-      servers.find((s) => s && s.host && !s.state);
-    if (!pick || !pick.host) {
-      warn(`cluster.json sans serveur utilisable → fallback legacy`);
-      return LEGACY_WS_URL;
-    }
-    const url = `wss://${pick.host}/w0/lobbies`;
-    log(`cluster.json v2: hôte résolu ${pick.host} (version=${pick.version || "?"}, state=${pick.state || "?"})`);
-    return url;
-  } catch (e) {
-    warn(`cluster.json indisponible (${e.message}) → fallback legacy`);
-    return LEGACY_WS_URL;
   }
+
+  for (const host of STATIC_COLOR_HOSTS) push(`wss://${host}/w0/lobbies`);
+  push(PROXY_WS_URL);
+  push(LEGACY_WS_URL);
+
+  const list = urls.slice(0, MAX_CANDIDATES);
+  log(`candidats lobby (${list.length}) : ${list.join(" , ")}`);
+  return list.length ? list : [STATIC_COLOR_HOSTS[0] ? `wss://${STATIC_COLOR_HOSTS[0]}/w0/lobbies` : LEGACY_WS_URL];
 }
 
 function loadPreviousState() {
@@ -149,7 +183,7 @@ function loadPreviousState() {
 // Renvoie { lobbyPlayers, lobbyGames, serverTime, games }.
 // games = { ffa: [...], team: [...], special: [...] } détaillé (pour polling HTTP)
 // En cas d'échec/timeout, renvoie des zéros (on garde quand même le reste).
-function fetchLobbySnapshot(wsUrl) {
+function fetchLobbySnapshot(wsUrl, timeoutMs = WS_TIMEOUT_MS) {
   return new Promise((resolve) => {
     let done = false;
     let ws = null;
@@ -167,8 +201,8 @@ function fetchLobbySnapshot(wsUrl) {
     };
 
     const fallback = (reason) => {
-      warn(`WS pas de snapshot — ${reason}`);
-      finish({ lobbyPlayers: 0, lobbyGames: 0, serverTime: Date.now(), games: { ffa: [], team: [], special: [] } });
+      warn(`WS pas de snapshot (${wsUrl}) — ${reason}`);
+      finish({ lobbyPlayers: 0, lobbyGames: 0, serverTime: Date.now(), games: { ffa: [], team: [], special: [] }, gotFull: false });
     };
 
     try {
@@ -192,8 +226,8 @@ function fetchLobbySnapshot(wsUrl) {
     }
 
     const timer = setTimeout(
-      () => fallback(`timeout ${WS_TIMEOUT_MS}ms`),
-      WS_TIMEOUT_MS
+      () => fallback(`timeout ${timeoutMs}ms`),
+      timeoutMs
     );
 
     ws.on("open", () =>
@@ -249,6 +283,7 @@ function fetchLobbySnapshot(wsUrl) {
           lobbyPlayers,
           lobbyGames,
           serverTime,
+          gotFull: true,
           games: {
             ffa: Array.isArray(games.ffa) ? games.ffa : [],
             team: Array.isArray(games.team) ? games.team : [],
@@ -265,6 +300,31 @@ function fetchLobbySnapshot(wsUrl) {
       if (!done) fallback("socket fermé avant snapshot");
     });
   });
+}
+
+/**
+ * Sondage des candidats : le PREMIER dont le feed full contient au moins
+ * une partie gagne. Un feed décodé mais VIDE (serveur draining après un
+ * rollover blue/green) fait passer au candidat suivant. Sans candidat
+ * utile, on rend le dernier résultat (zéros) — le front bascule alors sur
+ * les stats HTTP (ranked/heatmap) qui restent valides.
+ */
+async function fetchLobbySnapshotBest(candidates) {
+  const empty = () => ({
+    lobbyPlayers: 0,
+    lobbyGames: 0,
+    serverTime: Date.now(),
+    games: { ffa: [], team: [], special: [] },
+    gotFull: false,
+  });
+  let last = empty();
+  for (const url of (candidates || []).slice(0, MAX_CANDIDATES)) {
+    const res = await fetchLobbySnapshot(url);
+    last = res;
+    if (res.gotFull && res.lobbyGames > 0) return res;
+    if (res.gotFull) warn(`feed décodé mais vide sur ${url} → candidat suivant`);
+  }
+  return last;
 }
 
 // ── 2) Stats ranked (1v1 / 2v2) sur la dernière heure ─────────────────
@@ -463,10 +523,10 @@ async function main() {
     log("Aucun état précédent — départ de zéro");
   }
 
-  // WS (le plus lent, ~8s max + résolution) + HTTP fetches en parallèle.
-  // La résolution cluster.json (4 s max) précède la connexion WS.
+  // WS (le plus lent, ~6 s max par candidat, 3 candidats) + HTTP en parallèle.
+  // La résolution registry (4 s max) précède le sondage des candidats.
   const [lobby, ranked, recent] = await Promise.all([
-    resolveLobbyWsUrl().then(fetchLobbySnapshot),
+    resolveLobbyCandidates().then(fetchLobbySnapshotBest),
     fetchRankedStats(),
     fetchRecentGames(previousGameEnds),
   ]);

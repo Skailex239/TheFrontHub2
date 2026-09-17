@@ -79,14 +79,14 @@ function corsHeadersFor(origin) {
 // du 2026-09-04 (les 20 workers exposent la même liste de lobbies).
 const LOBBY_WORKERS = Array.from({ length: 20 }, (_, i) => `w${i}`);
 
-// ── Hôte de lobby — choix Skailex ──────────────────────────────────────
-// FORCED_HOST = green.openfront.io : serveur ACTIF de la prod OpenFront
-// (cluster.json 2026-09-14 : d/green state=open version a33efb78,
-// c/blue state=draining). Le site se connecte donc toujours à green.
-// USE_CLUSTER_JSON = true repasserait en résolution dynamique cluster.json
-// (Server list v2, cache 30 s) — à n'utiliser que si green devient instable.
-const FORCED_HOST = "green.openfront.io";
-const USE_CLUSTER_JSON = false;
+// ── Hôte de lobby — 17/09/2026 : fin du forçage ──────────────────────────
+// Le FORCED_HOST (green) est devenu state=draining après un rollover
+// blue/green → feed full VIDE (58 o). On repasse en résolution dynamique
+// (Server list v2) : registry → open d'abord, draining en secours, jamais
+// fenced. Le worker fetch la registry DEPUIS l'edge Cloudflare : aucun
+// blocage bot possible.
+const FORCED_HOST = "green.openfront.io"; // dernier recours uniquement
+const USE_CLUSTER_JSON = true;
 
 // ── Server list v2 : résolution de l'hôte de jeu (cache mémoire 30 s) ──
 const CLUSTER_SITE = "openfront.io";
@@ -111,11 +111,19 @@ async function resolveLobbyHosts() {
     );
     if (res.ok) {
       const data = await res.json();
+      // On garde open ET draining (un draining sert encore son feed), on
+      // exclut fenced, et les open passent en premier.
       const list = data && data.servers
         ? Object.values(data.servers)
-            .filter((s) => s && s.host && s.state !== "draining" && s.state !== "fenced")
-            .map((s) => s.host)
+            .filter((s) => s && s.host && s.state !== "fenced")
+            .map((s) => ({
+              host: s.host,
+              numWorkers: Number(s.numWorkers) || LOBBY_WORKERS.length,
+              state: s.state || "open",
+            }))
         : [];
+      list.sort((a, b) =>
+        (a.state === "open" ? 0 : 1) - (b.state === "open" ? 0 : 1));
       if (list.length) hosts = list;
     }
     // 404 « Unknown site » ou réponse invalide → hosts reste null (legacy)
@@ -148,18 +156,22 @@ export default {
     // ───────────────────────────────────────────────────────────
     // WebSocket proxy: /lobby-ws
     //   Client connects: wss://openfront-proxy.diofortnite3.workers.dev/lobby-ws
-    //   Worker connects: wss://green.openfront.io/w{0-19}/lobbies (hôte forcé)
+    //   Worker connects: wss://<hôte open de la registry>/w{n}/lobbies
     //   Worker bridges   both sides (binary frames passthrough).
     // ───────────────────────────────────────────────────────────
     if (url.pathname === "/lobby-ws") {
       return proxyWebSocket(request, async () => {
-        // Choix Skailex : hôte green.openfront.io forcé (USE_CLUSTER_JSON = false).
+        // Résolution dynamique (registry v2) → secours FORCED_HOST.
         const hosts = USE_CLUSTER_JSON ? await resolveLobbyHosts() : null;
-        const host = hosts
-          ? hosts[Math.floor(Math.random() * hosts.length)]
-          : FORCED_HOST;
-        const w = LOBBY_WORKERS[Math.floor(Math.random() * LOBBY_WORKERS.length)];
-        return `wss://${host}/${w}/lobbies`;
+        let host = FORCED_HOST;
+        let numWorkers = LOBBY_WORKERS.length;
+        if (hosts && hosts.length) {
+          const pick = hosts[0]; // les open sont déjà en tête de liste
+          host = pick.host;
+          numWorkers = pick.numWorkers || LOBBY_WORKERS.length;
+        }
+        const w = Math.floor(Math.random() * Math.max(1, Math.min(numWorkers, 64)));
+        return `wss://${host}/w${w}/lobbies`;
       });
     }
 
