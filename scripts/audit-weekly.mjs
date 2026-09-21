@@ -61,7 +61,8 @@ async function auditPlayer(publicId, weekStartMs, prevWeekStartMs) {
   let totalGames = 0, gamesThisWeek = 0, pages = 0, cursor = null, hitPrev = false;
 
   for (let page = 0; page < MAX_PAGES; page++) {
-    const data = await api(`/public/player/${publicId}/games?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+    // Migration API 2026-09-21 : `limit` non documenté sur /games — cursor uniquement.
+    const data = await api(`/public/player/${publicId}/games${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`);
     if (!data) break;
     const games = data.results || data.games || [];
     if (!games.length) break;

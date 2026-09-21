@@ -60,7 +60,8 @@ if (profile) {
 // 2. Structure des games page par page
 let cursor = null;
 for (let page = 0; page < PAGES; page++) {
-  const data = await api(`/public/player/${PID}/games?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+  // Migration API 2026-09-21 : `limit` non documenté sur /games — cursor uniquement.
+  const data = await api(`/public/player/${PID}/games${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`);
   if (!data) { console.log(`page ${page}: ERREUR`); break; }
   const games = data.results || [];
   if (!games.length) { console.log(`page ${page}: vide`); break; }

@@ -54,6 +54,15 @@ async function fetchLeaderboardPage(page) {
   return data;
 }
 
+// 🔁 MIGRATION API 2026-09-21 : l'entrée du classement ranked expose désormais
+// `accountUsername` (nom du compte, nullable — cf. RankedLeaderboardEntrySchema
+// dans OpenFrontIO/src/core/ApiSchemas.ts) et n'a plus de champ `username`.
+// On normalise à la source pour que les logs, la liste newcomers/dropouts et
+// le front continuent de lire `username` sans changement.
+function normalizeRankedEntry(e) {
+  return { ...e, username: e.username ?? e.accountUsername ?? null };
+}
+
 async function fetchAllRanked() {
   const all1v1 = [];
   const all2v2 = [];
@@ -80,8 +89,9 @@ async function fetchAllRanked() {
         console.log(`[ranked-sync] Plus de joueurs à la page ${page}`);
         break;
       }
-      if (p1v1 && Array.isArray(p1v1)) all1v1.push(...p1v1);
-      if (p2v2 && Array.isArray(p2v2)) all2v2.push(...p2v2);
+      // Normalisation accountUsername → username (migration API 2026-09-21)
+      if (p1v1 && Array.isArray(p1v1)) all1v1.push(...p1v1.map(normalizeRankedEntry));
+      if (p2v2 && Array.isArray(p2v2)) all2v2.push(...p2v2.map(normalizeRankedEntry));
       console.log(
         `[ranked-sync] Page ${page}: 1v1=${p1v1?.length || 0}, 2v2=${p2v2?.length || 0} (total: 1v1=${all1v1.length}, 2v2=${all2v2.length})`
       );

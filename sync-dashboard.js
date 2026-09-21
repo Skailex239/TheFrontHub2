@@ -187,11 +187,17 @@ function calculatePoints(apiResponse) {
 // les joueurs actifs.
 // SEMAINE FIXE : quand une nouvelle semaine démarre (lundi 00h00 Paris),
 // les frontières avancent automatiquement → reset sans intervention.
-// ⚠️ PLAFOND (fix 2026-09-03) : l'API renvoie 10 games/page QUEL QUE SOIT le
-// paramètre limit → l'ancien plafond de 10 pages ne scannait que 100 games.
-// Un joueur actif fait 200-400 games en 2 semaines → sous-comptage possible.
-// 40 pages = 400 games ; l'arrêt anticipé (game < lundi précédent) protège
-// les joueurs normaux qui s'arrêtent bien avant.
+// ⚠️ PLAFOND (fix 2026-09-03, maj migration API 2026-09-21) : l'ancienne API
+// renvoyait 10 games/page quel que soit le paramètre limit → l'ancien plafond
+// de 10 pages ne scannait que 100 games. Un joueur actif fait 200-400 games
+// en 2 semaines → sous-comptage possible. 40 pages = 400 games ; l'arrêt
+// anticipé (game < lundi précédent) protège les joueurs normaux qui
+// s'arrêtent bien avant.
+// 🔁 MIGRATION API 2026-09-21 : `limit` n'est plus un paramètre documenté de
+// /public/player/{id}/games (nouvelle API : filter/type/cursor uniquement,
+// pagination keyset — cf. OpenFrontIO docs/API.md). On ne l'envoie plus :
+// la taille de page est décidée par le serveur et on suit `nextCursor` tel
+// quel. Le plafond de 40 pages et l'arrêt anticipé restent inchangés.
 async function fetchWeeklyWins(publicId) {
   try {
     const weekStartMs = getWeekStartMs(Date.now());
@@ -201,10 +207,12 @@ async function fetchWeeklyWins(publicId) {
     let cursor = null;
     let ffaCasual = 0, ffaRanked = 0, teamCasual = 0, teamRanked = 0;
     let pFfaCasual = 0, pFfaRanked = 0, pTeamCasual = 0, pTeamRanked = 0;
-    
+
     for (let page = 0; page < 40; page++) {
-      let url = `${API_BASE}/public/player/${encodeURIComponent(publicId)}/games?limit=50`;
-      if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
+      // Migration API 2026-09-21 : plus de `limit=50` (param non documenté
+      // dans la nouvelle API) — pagination par `cursor` uniquement.
+      let url = `${API_BASE}/public/player/${encodeURIComponent(publicId)}/games`;
+      if (cursor) url += `?cursor=${encodeURIComponent(cursor)}`;
       
       const res = await openFrontFetch(url);
       if (!res || !res.ok) break;

@@ -27,6 +27,16 @@
 // instead of throwing, so a map addition alone doesn't kill the dashboard.
 //
 // ── Historique de synchro schéma ────────────────────────────────────────────
+//   2026-09-21 : v5.16 — Migration API (veille de la bascule du système d'API
+//   openfront). AUCUN changement de layout zbin depuis v0.34.0 (vérifié :
+//   diff 1e973bb..HEAD de Schemas.ts ne touche que le WS de jeu — join
+//   message — pas PublicLobbyFull/GameInfo/GameConfig). QUATRE nouvelles
+//   maps en insertion ordre-préservée d'après Maps.gen.ts (127 entrées,
+//   vérifié position par position) : Canary Islands (#24), Rio de Janeiro
+//   (#53), New Zealand (#85), Pulicat Lake (#94). Sans ce patch, les maps
+//   après l'ordinal 24 se décodent avec un nom DÉCALÉ (l'insertion ne saute
+//   aucun ordinal) — noms faux mais layout intact : un ordinal d'enum est un
+//   simple varint, aucun décalage binaire des champs suivants.
 //   2026-09-14 : v5.15 — Mise à jour pour la release v0.34.0 (commit 1e973bb,
 //   déployé en prod — cf. api.openfront.io/cluster.json). TROIS changements :
 //   1. PublicLobbyFull gagne `gitCommit: string.optional()` (1 bit de
@@ -68,32 +78,37 @@
   // --- Enum tables (declaration order = wire ordinal) -----------------------
 
   // src/core/game/Maps.gen.ts — GameMapType
-  // Maps.gen.ts v0.34.0 — 123 entrées, ordre de déclaration = ordinal wire
+  // Maps.gen.ts (HEAD 2026-09-21, post-v0.34.0) — 127 entrées,
+  // ordre de déclaration = ordinal wire
   const GAME_MAP = [
     "Achiran", "Aegean", "Africa", "Alps", "Amazon River", "Antarctica",
     "ArchipelagoSea", "Arctic", "Asia", "Australia", "Baikal",
     "Baikal Nuke Wars", "Baja California", "Balkans", "Balkhash", "Baltics",
     "Bering Sea", "Bering Strait", "Between Two Seas", "Black Sea",
     "Bosphorus Straits", "Branching Paths", "Britannia", "Britannia Classic",
-    "Cape Cod", "Caribbean", "Caspian Sea", "Caucasus", "Central America",
-    "Channel Islands", "China", "Chopping Block", "Clearwater Lakes",
-    "Conakry", "Crimea", "Danish Straits", "Deglaciated Antarctica",
-    "Didier", "Didier France", "Dyslexdria", "East Asia", "Europe",
-    "Europe Classic", "Falkland Islands", "Faroe Islands", "Finger Lakes",
-    "Four Islands", "France", "Gateway to the Atlantic", "Germany",
-    "Giant World Map", "Great Lakes", "Gulf Of Guinea", "Gulf Of Mexico",
+    "Canary Islands", "Cape Cod", "Caribbean", "Caspian Sea",
+    "Caucasus", "Central America", "Channel Islands", "China",
+    "Chopping Block", "Clearwater Lakes", "Conakry", "Crimea",
+    "Danish Straits", "Deglaciated Antarctica", "Didier", "Didier France",
+    "Dyslexdria", "East Asia", "Europe", "Europe Classic",
+    "Falkland Islands", "Faroe Islands", "Finger Lakes", "Four Islands",
+    "France", "Gateway to the Atlantic", "Germany", "Giant World Map",
+    "Great Lakes", "Rio de Janeiro", "Gulf Of Guinea", "Gulf Of Mexico",
     "Gulf of St. Lawrence", "Halkidiki", "Hawaii", "Hecate Strait",
-    "Hong Kong", "Iceland", "Indian Subcontinent", "Irish Sea", "Italia",
-    "Japan", "Juan De Fuca Strait", "Korea", "Labyrinth", "Las Vegas Strip",
-    "Lemnos", "Levant", "Lisbon", "Los Angeles", "Luna", "Manicouagan",
-    "Mare Nostrum", "Mars", "Mena", "Middle East", "MilkyWay",
-    "Mississippi River", "Montreal", "More Than Luck", "New York City",
-    "Nile Delta", "North America", "Northwest Passage", "Oceania", "Onion",
-    "Pangaea", "Passage", "Pluto", "Qing China", "Russia", "San Francisco",
-    "Scandinavia", "Sierpinski", "Sol", "South America", "SoutheastAsia",
-    "Strait of Gibraltar", "Strait of Hormuz", "Strait Of Malacca",
-    "Surrounded", "Svalmel", "Taiwan Strait", "The Box", "Tierra Del Fuego",
-    "Titan", "Tourney 2 Teams", "Tourney 3 Teams", "Tourney 4 Teams",
+    "Hong Kong", "Iceland", "Indian Subcontinent", "Irish Sea",
+    "Italia", "Japan", "Juan De Fuca Strait", "Korea",
+    "Labyrinth", "Las Vegas Strip", "Lemnos", "Levant",
+    "Lisbon", "Los Angeles", "Luna", "Manicouagan",
+    "Mare Nostrum", "Mars", "Mena", "Middle East",
+    "MilkyWay", "Mississippi River", "Montreal", "More Than Luck",
+    "New York City", "New Zealand", "Nile Delta", "North America",
+    "Northwest Passage", "Oceania", "Onion", "Pangaea",
+    "Passage", "Pluto", "Pulicat Lake", "Qing China",
+    "Russia", "San Francisco", "Scandinavia", "Sierpinski",
+    "Sol", "South America", "SoutheastAsia", "Strait of Gibraltar",
+    "Strait of Hormuz", "Strait Of Malacca", "Surrounded", "Svalmel",
+    "Taiwan Strait", "The Box", "Tierra Del Fuego", "Titan",
+    "Tourney 2 Teams", "Tourney 3 Teams", "Tourney 4 Teams",
     "Tourney 8 Teams", "Traders Dream", "Two Lakes", "United States",
     "Venice", "Vietnam", "Warship Warship", "World", "World Inverted",
     "Yangtze River", "Yellow Sea", "Yenisei",
