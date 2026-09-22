@@ -236,10 +236,8 @@ async function loadConnectedUsernames() {
 
 function handlePlayerClick(name, pid) {
   // Liaison PARTOUT : tout clic sur un pseudo ouvre son profil.
-  //  - publicId résolu (compte lié) → profil COMPLET ;
+  //  - publicId résolu (run DB ou compte lié) → profil COMPLET ;
   //  - sinon → profil public « speedrun » (records du joueur).
-  // Fix 2026-09-06 : le publicId peut venir directement du run
-  // (r.playerId) — fiable même pour les anciens pseudos du joueur.
   var resolved = pid || resolvePidForName(name);
   var url = 'profile.html?player=' + encodeURIComponent(name);
   if (resolved) url += '&publicId=' + encodeURIComponent(resolved);
@@ -247,7 +245,109 @@ function handlePlayerClick(name, pid) {
 }
 window.handlePlayerClick = handlePlayerClick;
 
-async function loadTopRuns({ limit, windowDays }) {
+/* ═══════════════════════════════════════════════════════════════════════
+   Source de données — v3 « pré-profils » (2026-09-22)
+
+   1) PRIORITAIRE : API DB (/api/games-api.php?route=speedruns) remplie par
+      api/games-sync.php (cron o2switch). Toutes les parties publiques depuis
+      l'ère publicID (2025-09-10), roster complet par publicId, speedruns
+      pré-calculés (mêmes règles que l'ancienne sync, offset 32s inclus).
+      → classement par TEMPS (les meilleurs temps « montent ») ou par DATE,
+        filtres carte + catégorie (Normal/Compact), chargement < 100 ms.
+   2) FALLBACK : ancien runs.json.gz statique (si l'API n'est pas encore
+      déployée / indisponible) — tri par date uniquement.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+const GAMES_API = '/api/games-api.php';
+let apiMapsAvailable = false;
+
+function readControls() {
+  const limit = Number($('limit') && $('limit').value ? $('limit').value : 20);
+  const windowDays = Number($('windowDays') && $('windowDays').value ? $('windowDays').value : 30);
+  const category = $('category') ? $('category').value : 'normal';
+  const map = $('mapFilter') ? $('mapFilter').value : 'all';
+  const sort = $('sortMode') ? $('sortMode').value : 'duration';
+  return {
+    limit: Number.isFinite(limit) ? Math.max(1, Math.min(100, limit)) : 20,
+    windowDays: Number.isFinite(windowDays) ? Math.max(1, Math.min(370, windowDays)) : 30,
+    category: category === 'compact' ? 'compact' : 'normal',
+    map: map || 'all',
+    sort: sort === 'date' ? 'date' : 'duration',
+  };
+}
+
+// Remplit le <select> des cartes depuis l'API (route=maps, cache serveur 10 min).
+async function loadMapOptions(category, selected) {
+  const sel = $('mapFilter');
+  if (!sel) return;
+  try {
+    const res = await fetch(GAMES_API + '?route=maps&category=' + encodeURIComponent(category), { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.ok || !Array.isArray(data.maps) || !data.maps.length) return;
+    apiMapsAvailable = true;
+    const current = selected || sel.value || 'all';
+    sel.innerHTML = '';
+    const optAll = document.createElement('option');
+    optAll.value = 'all';
+    optAll.textContent = T("runs.map_all", "Toutes les cartes");
+    sel.appendChild(optAll);
+    data.maps.forEach(function(m) {
+      const o = document.createElement('option');
+      o.value = m.map;
+      o.textContent = mapDisplayName(m.map) + ' (' + m.runs + ')';
+      sel.appendChild(o);
+    });
+    sel.value = [...sel.options].some(function(o) { return o.value === current; }) ? current : 'all';
+  } catch (e) { /* API absente : pas de filtre carte */ }
+}
+
+function renderRunRow(idx, run) {
+  // run normalisé : {id, name, pid, map, durationS, difficulty, players, ts}
+  const rank = idx + 1;
+  const tr = document.createElement('tr');
+  tr.setAttribute('data-pfb-row', ''); // bannière pleine ligne (banners.js)
+
+  const tdRank = document.createElement('td');
+  tdRank.className = 'global-rank-wrap';
+  tdRank.innerHTML = makeRankBadge(rank);
+
+  const tdPlayer = document.createElement('td');
+  tdPlayer.className = 'global-player';
+  var rawName = run.name || '\u2014';
+  var playerName = String(rawName).replace(/[\x00-\x1F\x7F-\x9F]/g, '').trim() || '\u2014';
+  if (playerName.length > 28) playerName = playerName.slice(0, 25) + '...';
+  // publicId FIABLE : direct depuis la DB (ou fallback heuristique de nom
+  // pour l'ancienne source statique).
+  var pidForRun = run.pid || (resolvePidForName(playerName) || '');
+  var skinId = (pidForRun && activeSkinsByPid.get(String(pidForRun))) || skinIdForPlayer(playerName) || '';
+  var skinAttr = ' class="' + (skinId ? 'skin-' + skinId : '') + '"';
+  var shownName = (pidForRun && hubNameByPid[String(pidForRun)]) || displayNameFor(playerName);
+  var titleAttr = shownName !== playerName ? ' title="' + escapeHtml(TP("runs.ingame_title", { name: playerName }, "En jeu : " + playerName)) + '"' : '';
+  var pidAttr = pidForRun ? ' data-pid="' + escapeHtml(String(pidForRun)) + '" data-pfb-pid="' + escapeHtml(String(pidForRun)) + '"' : '';
+  var clickJs = "handlePlayerClick('" + escapeHtml(playerName).replace(/'/g, "\\'") + "'," + (pidForRun ? "'" + String(pidForRun).replace(/[^A-Za-z0-9_-]/g, '') + "'" : "null") + ");return false";
+  tdPlayer.innerHTML = '<a' + skinAttr + pidAttr + ' data-player="' + escapeHtml(playerName) + '" href="#" onclick="' + clickJs + '"' + titleAttr + ' style="cursor:pointer;text-decoration:none">' + escapeHtml(shownName) + '</a>';
+
+  const tdMap = document.createElement('td');
+  tdMap.innerHTML = escapeHtml(mapDisplayName(run.map));
+
+  const tdTime = document.createElement('td');
+  tdTime.innerHTML = '<span class="run-runtime">' + escapeHtml(formatTime(run.durationS)) + '</span>';
+
+  const tdDiff = document.createElement('td');
+  tdDiff.textContent = safeText(run.difficulty) || '\u2014';
+
+  const tdPlayers = document.createElement('td');
+  tdPlayers.textContent = String(run.players != null ? run.players : '');
+
+  const tdDate = document.createElement('td');
+  tdDate.textContent = run.ts ? new Date(run.ts).toLocaleString(localeTag()) : '';
+
+  tr.append(tdRank, tdPlayer, tdMap, tdTime, tdDiff, tdPlayers, tdDate);
+  return tr;
+}
+
+async function loadTopRuns() {
   const meta = $('meta');
   const status = $('status');
   const errorBox = $('errorBox');
@@ -256,140 +356,117 @@ async function loadTopRuns({ limit, windowDays }) {
 
   tbody.innerHTML = '';
   errorBox.hidden = true;
-
-  status.textContent = T("runs.loading", "Chargement\u2026");
-  meta.textContent = TP("runs.meta_window", { days: windowDays, limit: limit }, "Fen\u00eatre: " + windowDays + " jours \u2022 limite: " + limit);
+  status.textContent = T("runs.loading", "Chargement…");
 
   const startedAt = Date.now();
+  const c = readControls();
 
   try {
-    // Fetch runs.json.gz directly (same as app.js) instead of /api/top-runs
-    let allRunsData;
+    let runs = [];
+    let source = 'db';
+    let totalAll = null;
+    let filteredCount = null;
+
+    // ── 1) API DB (pré-profils) ──
     try {
-      const ds = new DecompressionStream('gzip');
-      const gzRes = await fetch('runs.json.gz', { cache: 'no-store', credentials: 'omit' });
-      if (!gzRes.ok) throw new Error('HTTP ' + gzRes.status);
-      const decompressed = gzRes.body.pipeThrough(ds);
-      allRunsData = await new Response(decompressed).json();
-    } catch (gzErr) {
-      // Fallback to uncompressed file
-      const plainRes = await fetch('runs.json', { cache: 'no-store' });
-      if (!plainRes.ok) throw new Error(T("runs.err_file", "Impossible de charger runs.json"));
-      allRunsData = await plainRes.json();
+      const url = GAMES_API + '?route=speedruns'
+        + '&category=' + encodeURIComponent(c.category)
+        + '&map=' + encodeURIComponent(c.map)
+        + '&sort=' + encodeURIComponent(c.sort)
+        + '&window=' + c.windowDays + 'd'
+        + '&limit=' + c.limit;
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      if (!data.ok || !Array.isArray(data.runs)) throw new Error('bad api payload');
+      if (data.runs.length === 0) throw new Error('db-empty'); // DB pas encore remplie → fallback fichier
+      source = 'db';
+      runs = data.runs.map(function(r) {
+        return {
+          id: r.id,
+          name: (r.player && r.player.username) || '\u2014',
+          pid: (r.player && r.player.publicId) || '',
+          map: r.map,
+          durationS: r.durationS,
+          difficulty: r.difficulty,
+          players: r.numPlayers,
+          ts: r.startedAt,
+        };
+      });
+      filteredCount = runs.length;
+    } catch (apiErr) {
+      // ── 2) Fallback : ancien fichier statique (tri date uniquement) ──
+      source = 'file';
+      let allRunsData;
+      try {
+        const ds = new DecompressionStream('gzip');
+        const gzRes = await fetch('runs.json.gz', { cache: 'no-store', credentials: 'omit' });
+        if (!gzRes.ok) throw new Error('HTTP ' + gzRes.status);
+        const decompressed = gzRes.body.pipeThrough(ds);
+        allRunsData = await new Response(decompressed).json();
+      } catch (gzErr) {
+        const plainRes = await fetch('runs.json', { cache: 'no-store' });
+        if (!plainRes.ok) throw new Error(T("runs.err_file", "Impossible de charger runs.json"));
+        allRunsData = await plainRes.json();
+      }
+      const rawRuns = Array.isArray(allRunsData) ? allRunsData : (allRunsData.runs || []);
+      totalAll = allRunsData.totalCount || rawRuns.length;
+      const now = Date.now();
+      const windowMs = c.windowDays * 24 * 60 * 60 * 1000;
+      const filtered = rawRuns.filter(function(r) {
+        if (!r.timestamp) return false;
+        return (now - new Date(r.timestamp).getTime()) <= windowMs;
+      });
+      filtered.sort(function(a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
+      runs = filtered.slice(0, c.limit).map(function(r) {
+        return {
+          id: r.id,
+          name: r.player,
+          pid: (r.playerId && hubNameByPid[String(r.playerId)]) ? String(r.playerId) : '',
+          map: r.map,
+          durationS: r.duration_s,
+          difficulty: r.difficulty,
+          players: r.players,
+          ts: r.timestamp,
+        };
+      });
+      filteredCount = filtered.length;
     }
 
-    // Support both formats: {runs:[], totalCount} and plain array
-    const rawRuns = Array.isArray(allRunsData) ? allRunsData : (allRunsData.runs || []);
-
-    // Filter by windowDays
-    const now = Date.now();
-    const windowMs = windowDays * 24 * 60 * 60 * 1000;
-    const filtered = rawRuns.filter(function(r) {
-      if (!r.timestamp) return false;
-      return (now - new Date(r.timestamp).getTime()) <= windowMs;
-    });
-
-    // Sort by date descending, take top 'limit'
-    filtered.sort(function(a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
-    const runs = filtered.slice(0, limit);
-
-    status.textContent = runs.length ? "" : TP("runs.none_found", { days: windowDays }, "Aucun run trouv\u00e9 dans les " + windowDays + " derniers jours.");
+    status.textContent = runs.length ? '' : TP("runs.none_found", { days: c.windowDays }, "Aucun run trouvé dans les " + c.windowDays + " derniers jours.");
 
     const frag = document.createDocumentFragment();
-    runs.forEach(function(r, idx) {
-      const rank = idx + 1;
-
-      const tr = document.createElement('tr');
-      tr.setAttribute('data-pfb-row', ''); // bannière pleine ligne (banners.js)
-
-      const tdRank = document.createElement('td');
-      tdRank.className = 'global-rank-wrap';
-      tdRank.innerHTML = makeRankBadge(rank);
-
-      const tdPlayer = document.createElement('td');
-      tdPlayer.className = 'global-player';
-      // Sanitize player name: strip control chars and limit length
-      var rawName = r.player || '\u2014';
-      var playerName = String(rawName).replace(/[\x00-\x1F\x7F-\x9F]/g, '').trim() || '\u2014';
-      if (playerName.length > 28) playerName = playerName.slice(0, 25) + '...';
-      // Fix 2026-09-06 : le playerId des runs est un ID de SESSION OpenFront
-      // (change à chaque partie) — il ne vaut un publicId QUE s'il résout
-      // réellement dans hubNameByPid. Sinon fusion par NOM (tags de clan,
-      // discriminateurs et renommages gérés dans resolvePidForName).
-      var pidForRun = (r.playerId && hubNameByPid[String(r.playerId)]) ? String(r.playerId) : (resolvePidForName(playerName) || '');
-      // Skin actif du joueur (si possédé ET activé) → classe .skin-*
-      var skinId = (pidForRun && activeSkinsByPid.get(String(pidForRun))) || skinIdForPlayer(playerName) || '';
-      // Bannière pixel art (v2 2026-09-08) : data-pfb-pid sur l'ancre +
-      // data-pfb-row sur le <tr> → le décorateur window.TFHBanners
-      // (banners.js) peint la bannière sur TOUTE la ligne du tableau.
-      var skinAttr = ' class="' + (skinId ? 'skin-' + skinId : '') + '"';
-      // Pseudo AFFICHÉ : pseudo hub (profil TheFrontHub) sinon pseudo en jeu.
-      // data-player garde le pseudo original pour les patchs asynchrones
-      // (skins / aliases) et handlePlayerClick utilise le pseudo original.
-      var shownName = (pidForRun && hubNameByPid[String(pidForRun)]) || displayNameFor(playerName);
-      var titleAttr = shownName !== playerName ? ' title="' + escapeHtml(TP("runs.ingame_title", { name: playerName }, "En jeu : " + playerName)) + '"' : '';
-      var pidAttr = pidForRun ? ' data-pid="' + escapeHtml(String(pidForRun)) + '" data-pfb-pid="' + escapeHtml(String(pidForRun)) + '"' : '';
-      var clickJs = "handlePlayerClick('" + escapeHtml(playerName).replace(/'/g, "\\'") + "'," + (pidForRun ? "'" + String(pidForRun).replace(/[^A-Za-z0-9_-]/g, '') + "'" : "null") + ");return false";
-      tdPlayer.innerHTML = '<a' + skinAttr + pidAttr + ' data-player="' + escapeHtml(playerName) + '" href="#" onclick="' + clickJs + '"' + titleAttr + ' style="cursor:pointer;text-decoration:none">' + escapeHtml(shownName) + '</a>';
-
-      const tdMap = document.createElement('td');
-      tdMap.innerHTML = escapeHtml(mapDisplayName(r.map));
-
-      const tdTime = document.createElement('td');
-      tdTime.innerHTML = '<span class="run-runtime">' + escapeHtml(formatTime(r.duration_s)) + '</span>';
-
-      const tdDiff = document.createElement('td');
-      tdDiff.textContent = safeText(r.difficulty) || '\u2014';
-
-      const tdPlayers = document.createElement('td');
-      tdPlayers.textContent = String(r.players != null ? r.players : '');
-
-      const tdDate = document.createElement('td');
-      tdDate.textContent = r.timestamp ? new Date(r.timestamp).toLocaleString(localeTag()) : '';
-
-      tr.append(tdRank, tdPlayer, tdMap, tdTime, tdDiff, tdPlayers, tdDate);
-      frag.appendChild(tr);
-    });
-
+    runs.forEach(function(r, idx) { frag.appendChild(renderRunRow(idx, r)); });
     tbody.appendChild(frag);
-    // Bannières pixel art (plaquettes) des pseudos de ce bloc de lignes.
     if (window.TFHBanners && typeof window.TFHBanners.decorate === 'function') {
       window.TFHBanners.decorate(tbody);
     }
 
-    const totalInFile = allRunsData.totalCount || rawRuns.length;
     const ms = Date.now() - startedAt;
-
-    meta.textContent = "";
-    generatedMeta.textContent = TP("runs.gen_meta", {
+    const srcLabel = source === 'db'
+      ? 'DB pré-profils'
+      : T("runs.src_file", "fichier statique (API non déployée)");
+    const sortLabel = c.sort === 'date'
+      ? T("runs.sort_date", "récentes d'abord")
+      : T("runs.sort_duration", "meilleurs temps d'abord");
+    generatedMeta.textContent = TP("runs.gen_meta_v2", {
       top: runs.length,
-      total: filtered.length,
-      days: windowDays,
-      all: totalInFile.toLocaleString(localeTag()),
+      total: filteredCount != null ? filteredCount : 0,
+      days: c.windowDays,
       ms: ms,
-    }, "Top " + runs.length + " sur " + filtered.length + " runs (" + windowDays + "j) \u2022 Total: " + totalInFile.toLocaleString("fr-FR") + " \u2022 " + ms + "ms");
+    }, "Top " + runs.length + " sur " + (filteredCount != null ? filteredCount : '?') + " (" + c.windowDays + "j) • " + ms + "ms")
+      + ' • ' + srcLabel + ' • ' + sortLabel
+      + (totalAll ? ' • ' + TP("runs.total", { n: totalAll.toLocaleString(localeTag()) }, "Total: " + totalAll.toLocaleString(localeTag())) : '');
   } catch (e) {
     status.textContent = '';
     const message = e && e.message ? e.message : String(e);
-
     errorBox.hidden = false;
     errorBox.innerHTML =
       '<div class="runs-error-title">' + escapeHtml(T("runs.error_title", "Erreur")) + '</div>' +
       '<div class="runs-error-msg">' + escapeHtml(message) + '</div>';
-
     meta.textContent = '';
     generatedMeta.textContent = '';
   }
-}
-
-function readControls() {
-  const limit = Number($('limit') && $('limit').value ? $('limit').value : 20);
-  const windowDays = Number($('windowDays') && $('windowDays').value ? $('windowDays').value : 30);
-
-  return {
-    limit: Number.isFinite(limit) ? Math.max(1, Math.min(100, limit)) : 20,
-    windowDays: Number.isFinite(windowDays) ? Math.max(1, Math.min(370, windowDays)) : 30,
-  };
 }
 
 async function bootstrapRunsPage() {
@@ -397,19 +474,30 @@ async function bootstrapRunsPage() {
   loadConnectedUsernames();
   loadActiveSkins();
 
-  const { limit, windowDays } = readControls();
-  await loadTopRuns({ limit, windowDays });
+  // Paramètres d'URL (?category=compact&map=Italy&sort=date) pour deep-links
+  const qp = new URLSearchParams(window.location.search);
+  if (qp.get('category') && $('category')) $('category').value = qp.get('category');
+  if (qp.get('sort') && $('sortMode')) $('sortMode').value = qp.get('sort');
+
+  const c = readControls();
+  await loadMapOptions(c.category, qp.get('map') || undefined);
+  if (qp.get('map') && $('mapFilter')) $('mapFilter').value = qp.get('map');
+
+  await loadTopRuns();
 
   $('refreshBtn') && $('refreshBtn').addEventListener('click', async function() {
-    const v = readControls();
-    await loadTopRuns(v);
+    await loadTopRuns();
   });
 
-  ['limit', 'windowDays'].forEach(function(id) {
+  ['limit', 'windowDays', 'category', 'mapFilter', 'sortMode'].forEach(function(id) {
+    $(id) && $(id).addEventListener('change', async function() {
+      // La liste des cartes dépend de la catégorie
+      if (id === 'category') await loadMapOptions($('category').value);
+      await loadTopRuns();
+    });
     $(id) && $(id).addEventListener('keydown', async function(ev) {
       if (ev.key === 'Enter') {
-        const v = readControls();
-        await loadTopRuns(v);
+        await loadTopRuns();
       }
     });
   });

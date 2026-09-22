@@ -166,7 +166,27 @@
       </div>
     </header>
 
-    <div class="runs-controls" style="margin-bottom:20px">
+    <div class="runs-controls" style="margin-bottom:20px;flex-wrap:wrap;gap:14px">
+      <div class="runs-ctrl">
+        <span class="runs-ctrl-label" data-i18n="runs.category_label">Catégorie</span>
+        <select id="category">
+          <option value="normal" data-i18n="runs.cat_normal">Normal (400 bots)</option>
+          <option value="compact" data-i18n="runs.cat_compact">Compact (100 bots)</option>
+        </select>
+      </div>
+      <div class="runs-ctrl">
+        <span class="runs-ctrl-label" data-i18n="runs.map_label">Carte</span>
+        <select id="mapFilter">
+          <option value="all" data-i18n="runs.map_all">Toutes les cartes</option>
+        </select>
+      </div>
+      <div class="runs-ctrl">
+        <span class="runs-ctrl-label" data-i18n="runs.sort_label">Classement</span>
+        <select id="sortMode">
+          <option value="duration" data-i18n="runs.sort_duration">Meilleurs temps</option>
+          <option value="date" data-i18n="runs.sort_date">Récentes d'abord</option>
+        </select>
+      </div>
       <div class="runs-ctrl">
         <span class="runs-ctrl-label" data-i18n="runs.window_label">Fenêtre (jours)</span>
         <input id="windowDays" type="number" min="1" max="370" step="1" value="30" />
@@ -250,7 +270,7 @@
 <script src="dist/animations.min.js?v=2" defer></script>
     <script src="dist/toast.min.js?v=2"></script>
 <script type="module" src="banners.js?v=4"></script>
-<script type="module" src="dist/runs.min.js?v=15"></script>
+<script type="module" src="dist/runs.min.js?v=16"></script>
 <script type="module" src="dist/tutorial.min.js?v=5"></script>
 <script type="module" src="dist/auth-ui.min.js?v=4"></script>
 <script>

@@ -59,6 +59,10 @@ const targets = [
   { entry: "chat-widget.js", out: "chat-widget.min.js", bundled: false },
   { entry: "tournois.js",    out: "tournois.min.js",     bundled: true },
   { entry: "runs.js",        out: "runs.min.js",         bundled: false },
+  // Bloc « Historique TheFrontHub » (pré-profils par publicId) — autonome
+  { entry: "preprofile.js",  out: "preprofile.min.js",   bundled: false },
+  // Bloc « Toutes les dernières parties » (index) — autonome
+  { entry: "recent-games.js", out: "recent-games.min.js", bundled: false },
   // Standalone scripts (just minified)
   { entry: "i18n.js",        out: "i18n.min.js",         bundled: false },
   { entry: "toast.js",       out: "toast.min.js",        bundled: false },

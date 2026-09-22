@@ -334,6 +334,14 @@
         </div>
       </div>
 
+      <div class="feed-card" style="margin-bottom:20px" id="recent-games-card">
+        <div class="feed-header"><i data-icon="globe"></i> <span>Toutes les dernières parties</span></div>
+        <div style="padding:10px 20px">
+          <div id="recent-games-list"><div class="loading">Chargement...</div></div>
+          <div id="recent-games-footer" style="display:none"></div>
+        </div>
+      </div>
+
       <div class="feed-card">
         <div class="feed-header"><i data-icon="swords"></i> <span data-i18n="compare.header">Comparer deux joueurs</span></div>
         <div style="padding:16px 20px">
@@ -600,6 +608,7 @@
 <script src="dist/animations.min.js?v=2" defer></script>
 <script type="module" src="banners.js?v=4"></script>
 <script src="dist/app.min.js?v=33" type="module"></script>
+<script type="module" src="dist/recent-games.min.js?v=1"></script>
 
 <script>
   // Register Service Worker for offline support + Stale-While-Revalidate caching
