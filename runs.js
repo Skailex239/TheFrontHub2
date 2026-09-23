@@ -254,8 +254,11 @@ window.handlePlayerClick = handlePlayerClick;
       pré-calculés (mêmes règles que l'ancienne sync, offset 32s inclus).
       → classement par TEMPS (les meilleurs temps « montent ») ou par DATE,
         filtres carte + catégorie (Normal/Compact), chargement < 100 ms.
-   2) FALLBACK : ancien runs.json.gz statique (si l'API n'est pas encore
-      déployée / indisponible) — tri par date uniquement.
+   2) FALLBACK : ancien runs.json.gz statique — UNIQUEMENT si l'API DB est
+      indisponible (réseau / HTTP / payload invalide). « Nouveau départ »
+      (2026-09-23) : une DB connectée mais encore vide (backfill en cours)
+      affiche l'état « nouvelle ère » — les records fichier pré-publicID ne
+      reviennent PAS dans le classement.
    ═══════════════════════════════════════════════════════════════════════ */
 
 const GAMES_API = '/api/games-api.php';
@@ -364,6 +367,7 @@ async function loadTopRuns() {
   try {
     let runs = [];
     let source = 'db';
+    let dbFresh = false; // DB connectée mais encore vide (backfill en cours)
     let totalAll = null;
     let filteredCount = null;
 
@@ -379,8 +383,11 @@ async function loadTopRuns() {
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
       if (!data.ok || !Array.isArray(data.runs)) throw new Error('bad api payload');
-      if (data.runs.length === 0) throw new Error('db-empty'); // DB pas encore remplie → fallback fichier
       source = 'db';
+      // Nouveau départ : la DB est LA source officielle. Une DB connectée mais
+      // encore vide (backfill en cours) n'est PAS une raison de retomber sur
+      // les anciens records fichier — état « nouvelle ère » affiché à la place.
+      dbFresh = data.runs.length === 0 && !(Number(data.games_total) > 0);
       runs = data.runs.map(function(r) {
         return {
           id: r.id,
@@ -395,7 +402,8 @@ async function loadTopRuns() {
       });
       filteredCount = runs.length;
     } catch (apiErr) {
-      // ── 2) Fallback : ancien fichier statique (tri date uniquement) ──
+      // ── 2) Fallback : ancien fichier statique — UNIQUEMENT si l'API DB est
+      //    indisponible (réseau / HTTP / payload invalide) ──
       source = 'file';
       let allRunsData;
       try {
@@ -433,7 +441,11 @@ async function loadTopRuns() {
       filteredCount = filtered.length;
     }
 
-    status.textContent = runs.length ? '' : TP("runs.none_found", { days: c.windowDays }, "Aucun run trouvé dans les " + c.windowDays + " derniers jours.");
+    if (source === 'db' && dbFresh) {
+      status.textContent = T("runs.era_backfill", "Nouveau départ des speedruns : la base est connectée, le backfill historique est en cours — les records vont apparaître ici au fur et à mesure.");
+    } else {
+      status.textContent = runs.length ? '' : TP("runs.none_found", { days: c.windowDays }, "Aucun run trouvé dans les " + c.windowDays + " derniers jours.");
+    }
 
     const frag = document.createDocumentFragment();
     runs.forEach(function(r, idx) { frag.appendChild(renderRunRow(idx, r)); });
@@ -444,8 +456,10 @@ async function loadTopRuns() {
 
     const ms = Date.now() - startedAt;
     const srcLabel = source === 'db'
-      ? 'DB pré-profils'
-      : T("runs.src_file", "fichier statique (API non déployée)");
+      ? (dbFresh
+        ? T("runs.src_era_backfill", "Nouvelle ère — DB connectée, backfill en cours")
+        : T("runs.src_era", "Nouvelle ère — DB pré-profils, records depuis le 10 sept 2025"))
+      : T("runs.src_file", "fichier statique (API indisponible)");
     const sortLabel = c.sort === 'date'
       ? T("runs.sort_date", "récentes d'abord")
       : T("runs.sort_duration", "meilleurs temps d'abord");

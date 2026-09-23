@@ -19,6 +19,41 @@ import {
   onAuthStateChanged,
 } from "./auth.js";
 import { fetchOpenFront } from "./openfront-client.js?v=24";
+import {
+  getSkin, getUnlockableSkins, DEFAULT_SKIN_ID, RARITY_META, normalizeCode,
+} from "./skins.js?v=2";
+import {
+  fetchOwnedSkins, redeemCode, activateSkin, applySkinToElement,
+  invalidateActiveSkinCache, fetchActiveSkinMap, normPlayerName,
+} from "./reward-codes.js?v=2";
+import {
+  BANNERS, getBanner, DEFAULT_BANNER_ID, renderBannerUrl, currentTheme,
+  applyBannerToCard, paintBanner, fetchOwnedBanners, activateBanner,
+} from "./banners.js?v=1";
+import {
+  computePlaytimeStats, extractCareerWins, totalWins, pointsFor,
+  formatDurationCompact, formatPct, formatFrenchDate,
+  formatPoints, classifyGame,
+} from "./playtime-stats.js?v=1";
+
+/* ── i18n (FR/EN) — moteur commun i18n.js (window.t, dictionnaire de page
+   i18n-dict-profile.js). T(clé, fallback FR, params) ; LOCALE() localise
+   les dates/nombres (fr-FR / en-GB). ── */
+const T = (k, fb, params) => (typeof window.t === "function" ? window.t(k, params || {}) : fb);
+const LOCALE = () => (window.currentLanguage === "en" ? "en-GB" : "fr-FR");
+
+/* ── Vignettes de cartes : nom affiché → slug (atlas-data/maps_data.json,
+   précalculé en dictionnaire compact pour un lookup instantané) ── */
+const MAP_SLUGS={achiran:"achiran",aegean:"aegean",africa:"africa",alps:"alps",amazonriver:"amazonriver",antarctica:"antarctica",archipelagosea:"archipelagosea",arctic:"arctic",asia:"asia",australia:"australia",baikal:"baikal",baikalnukewars:"baikalnukewars",bajacalifornia:"bajacalifornia",balkans:"balkans",beringsea:"beringsea",beringstrait:"beringstrait",betweentwoseas:"betweentwoseas",blacksea:"blacksea",bosphorusstraits:"bosphorusstraits",branchingpaths:"branchingpaths",britannia:"britannia",britanniaclassic:"britanniaclassic",caribbean:"caribbean",caspiansea:"caspiansea",caucasus:"caucasus",centralasia:"centralasia",china:"china",colombia:"colombia", continua:"continua",danelaw:"danelaw",danishstraits:"danishstraits",degehabur:"degehabur",degahbour:"degahbour",dfz:"dfz",easterisland:"easterisland",europe:"europe",europeclassic:"europeclassic",falklandislands:"falklandislands",fars:"fars",france:"france",gatewaytotheatlantic:"gatewaytotheatlantic",germany:"germany",ghangisgolf:"ghangisgolf",ghana:"ghana",gobi:"gobi",greatlakes:"greatlakes",greece:"greece",greenland:"greenland",halfearth:"halfearth",hawaii:"hawaii",himalaya:"himalaya",iceland:"iceland",india:"india",indonesia:"indonesia",iowa:"iowa",iran:"iran",italia:"italia",italy:"italy",japan:"japan",japanneureich:"japanneureich",kalahari:"kalahari",kamtchatka:"kamtchatka",korea:"korea",lisboa:"lisboa",luna:"luna",maharaja:"maharaja",mallorca:"mallorca",manchuria:"manchuria",mapuche:"mapuche",mars:"mars",medina:"medina",mediterranean:"mediterranean",menam:"menam",montreal:"montreal",namibia:"namibia",naussicaa:"naussicaa",netherlands:"netherlands",newcaledonia:"newcaledonia",newengland:"newengland",newyork:"newyork",northamerica:"northamerica",norway:"norway",oceania:"oceania",pangaea:"pangaea",paris:"paris",patagonia:"patagonia",persepolis:"persepolis",poland:"poland",quebec:"quebec",richelieu:"richelieu",rome:"rome",sahara:"sahara",sardaigne:"sardaigne",sardinia:"sardinia",scandinavia:"scandinavia",southamerica:"southamerica",straitofgibraltar:"straitofgibraltar",suezcanal:"suezcanal",switzerland:"switzerland",taiwan:"taiwan",turkey:"turkey",uk:"uk",ukraine:"ukraine",vostok:"vostok",warsaw:"warsaw",westus:"westus",world:"world",yenisei:"yenisei",yemen:"yemen",znation:"znation"};
+
+/** Thumbnail URL for a map display name (null si le nom est inconnu). */
+function mapThumbUrl(name) {
+  if (!name) return null;
+  const slug = MAP_SLUGS[String(name).replace(/[^a-z0-9]/gi, "").toLowerCase()];
+  return slug
+    ? `https://raw.githubusercontent.com/openfrontio/OpenFrontIO/main/resources/maps/${slug}/thumbnail.webp`
+    : null;
+}
 
 /* ── State ── */
 let currentUser = null;
@@ -27,6 +62,11 @@ let _ownershipCode = null;
 let _ownershipPublicId = null;
 let _ownershipUsername = null;
 let _rankedCache = null;
+let _allGamesCache = null; // toutes les games paginées (pour playtime + map stats)
+let _allGamesLoading = false;
+let _mapStatsSortBy = "count";
+let _mapStatsShowAll = false;
+let _rewardCardState = { publicId: null, ownedSkins: [], activeSkinId: null, ownedBanners: [], activeBannerId: null };
 
 // VIP skin: publicId → rewardType (matching par PUBLIC ID, pas par alias)
 let vipPlayersByPid = new Map();
@@ -112,22 +152,15 @@ function showView(view) {
 function formatDateShort(iso) {
   if (!iso) return "—";
   try {
-    return new Date(iso).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
+    return new Date(iso).toLocaleDateString(LOCALE(), { day: "2-digit", month: "short", year: "numeric" });
   } catch { return iso; }
 }
 
 function formatDateTime(iso) {
   if (!iso) return "—";
   try {
-    return new Date(iso).toLocaleString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+    return new Date(iso).toLocaleString(LOCALE(), { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
   } catch { return iso; }
-}
-
-function setStat(id, value, muted = false) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.textContent = value == null ? "—" : String(value);
-  el.classList.toggle("muted", muted);
 }
 
 /* ── Auth state ── */
@@ -135,6 +168,74 @@ function setStat(id, value, muted = false) {
 // Public profile view state (set when URL contains ?publicId=XXX)
 let viewingPublicId = null;
 let viewingUsername = null;
+
+/* ── Sécurité éditeur (2026-09-03) ─────────────────────────────────
+ * UN SEUL état décide si l'édition (pseudo / codes cosmétiques) est
+ * possible : editingAllowed. Il passe à true UNIQUEMENT quand le héros
+ * affiché est celui du compte connecté (renderHero), et à false dès
+ * qu'on rend un profil public/étranger (renderPublicProfile). Tous les
+ * points d'entrée d'édition (crayon, éditeur, save, codes) consultent
+ * ce drapeau — aucune séquence de rendu ne peut le contourner. */
+let editingAllowed = false;
+
+function setEditingAllowed(allowed) {
+  editingAllowed = !!allowed;
+  const editBtn = document.getElementById("pseudo-edit-btn");
+  if (editBtn) editBtn.hidden = !editingAllowed;
+  if (!editingAllowed) {
+    // Referme l'éditeur s'il était ouvert (défense bfcache / re-rendus)
+    const ed = document.getElementById("pseudo-editor");
+    if (ed) ed.hidden = true;
+    // Purge toute carte « codes cosmétiques » résiduelle d'un contexte précédent
+    const rw = document.getElementById("reward-code-section");
+    if (rw) rw.innerHTML = "";
+  }
+}
+
+// Restauration depuis le cache navigateur (bfcache) : le DOM affiché peut
+// être celui d'un ancien contexte (ex. son propre profil puis profil d'un
+// autre). On force un rechargement complet pour réévaluer l'auth state.
+window.addEventListener("pageshow", (e) => {
+  if (e.persisted) {
+    console.info("[profile] Page restaurée depuis le bfcache — rechargement");
+    window.location.reload();
+  }
+});
+
+/* ── Pseudos « hub » (2026-09-03) ─────────────────────────────────────
+ * Map publicId → pseudo choisi dans le profil TheFrontHub. Utilisée pour
+ * afficher LE MÊME pseudo partout (héros du profil, « Autour de toi »),
+ * même quand le pseudo en jeu diffère. */
+const _hubNamesByPid = new Map();   // publicId → pseudo hub
+const _hubNamesByNorm = new Map();  // pseudo hub normalisé → publicId
+let _hubNamesPromise = null;
+function loadHubNames() {
+  if (_hubNamesPromise) return _hubNamesPromise;
+  _hubNamesPromise = fetch("/api/public-aliases.php", { cache: "no-store" })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      for (const a of (data && data.aliases) || []) {
+        if (a.publicId && a.username) {
+          _hubNamesByPid.set(String(a.publicId), String(a.username));
+          _hubNamesByNorm.set(normPlayerName(String(a.username)), String(a.publicId));
+        }
+        // aliases[] inclut le pseudo EN JEU (OpenFront) : on le bridge aussi
+        // pour matcher les runs/leaderboards clés par pseudo en jeu.
+        if (a.publicId && Array.isArray(a.aliases)) {
+          for (const n of a.aliases) {
+            if (n) _hubNamesByNorm.set(normPlayerName(String(n)), String(a.publicId));
+          }
+        }
+      }
+    })
+    .catch(() => { /* non bloquant — pseudos en jeu affichés tels quels */ });
+  return _hubNamesPromise;
+}
+/** Pseudo hub d'un publicId (ou null). La map est chargée en tâche de fond. */
+function hubNameForPid(publicId) {
+  return publicId ? (_hubNamesByPid.get(String(publicId)) || null) : null;
+}
+loadHubNames();
 
 /**
  * Détecte si l'URL demande de visualiser le profil PUBLIC d'un autre joueur.
@@ -149,6 +250,11 @@ function getPublicProfileRequest() {
   if (pid && /^[A-Za-z0-9]{8}$/.test(pid)) {
     return { publicId: pid, username: name || pid };
   }
+  // (2026-09-03) ?player=NOM sans publicId → profil public « speedrun » :
+  // tout joueur cliqué depuis les speedruns obtient une page profil, lié ou pas.
+  if (name) {
+    return { publicId: null, username: name };
+  }
   return null;
 }
 
@@ -158,6 +264,21 @@ onAuthStateChanged(auth, async (user) => {
   // même si l'utilisateur n'est pas connecté.
   const pubReq = getPublicProfileRequest();
   if (pubReq) {
+    // ── Cas 1-bis : joueur NON lié (?player=NOM sans publicId) → profil
+    // public « speedrun » (records issus des données du site). Fonctionne
+    // pour tout le monde, visiteur connecté ou non.
+    if (!pubReq.publicId) {
+      currentUser = user;
+      currentProfile = null;
+      // Vue d'un profil étranger (speedrun) : l'édition est verrouillée et le
+      // contexte « profil consulté » est déclaré pour les listeners (VIP…).
+      viewingUsername = pubReq.username;
+      updateSidebarUI(user, null);
+      showView("profile-main");
+      await renderSpeedrunPublicProfile(pubReq.username);
+      return;
+    }
+
     // Lecture du propre profil de l'utilisateur courant (s'il est connecté)
     // pour détecter s'il visualise son PROPRE profil → flux normal.
     let ownProfile = null;
@@ -180,6 +301,7 @@ onAuthStateChanged(auth, async (user) => {
       renderHero(user, ownProfile);
       loadVipForProfile();
       await loadStats(ownProfile.publicId);
+      loadProfileSpeedruns(ownProfile.publicId, true, [ownProfile.username]);
       return;
     }
 
@@ -193,6 +315,7 @@ onAuthStateChanged(auth, async (user) => {
     renderPublicProfile(pubReq.username, pubReq.publicId);
     loadVipForProfile();
     await loadStats(pubReq.publicId);
+    loadProfileSpeedruns(pubReq.publicId, false, [pubReq.username]);
     return;
   }
 
@@ -214,15 +337,18 @@ onAuthStateChanged(auth, async (user) => {
     if (snap.exists()) profile = snap.data();
   } catch (e) {
     console.error("[profile] Firestore read error:", e);
-    showToast("Erreur de lecture du profil (Firestore).", "error");
+    showToast(T("pf.firestore_error", "Erreur de lecture du profil (Firestore)."), "error");
   }
 
   currentProfile = profile;
   updateSidebarUI(user, profile);
 
   if (!profile || !profile.publicId) {
-    // New user → setup form
+    // New user → setup form (+ restaure un éventuel défi de propriété en
+    // cours : LE MÊME code qu'avant de quitter la page — voir
+    // restorePendingOwnershipChallenge).
     showView("profile-setup");
+    restorePendingOwnershipChallenge();
     return;
   }
 
@@ -232,6 +358,7 @@ onAuthStateChanged(auth, async (user) => {
   // Lance l'écoute VIP (skin par publicId) — re-applique le skin dès que les rewards arrivent
   loadVipForProfile();
   await loadStats(profile.publicId);
+  loadProfileSpeedruns(profile.publicId, true, [profile.username]);
 });
 
 /**
@@ -241,10 +368,50 @@ onAuthStateChanged(auth, async (user) => {
  */
 function renderPublicProfile(username, publicId) {
   const nameEl = document.getElementById("profile-title-name");
-  if (nameEl) nameEl.textContent = username;
+  // Pseudo AFFICHÉ : pseudo choisi sur TheFrontHub (même pseudo partout)
+  // sinon pseudo en jeu. Le pseudo en jeu reste visible en info-bulle.
+  const applyHeroName = (shownName, inGameName) => {
+    if (!nameEl) return;
+    nameEl.innerHTML = "";
+    const skinSpan = document.createElement("span");
+    skinSpan.textContent = shownName;
+    if (inGameName && inGameName !== shownName) {
+      skinSpan.title = T("pf.ingame", "En jeu : {name}", { name: inGameName });
+    }
+    nameEl.appendChild(skinSpan);
+    applySkinToElement(skinSpan, publicId, true);
+  };
+  const hubName = hubNameForPid(publicId);
+  applyHeroName(hubName || username, username);
+  if (!hubName && publicId) {
+    // La map des pseudos hub arrive peut-être après le premier rendu :
+    // on met à jour le héros quand elle est chargée.
+    loadHubNames().then(() => {
+      const h = hubNameForPid(publicId);
+      if (h) applyHeroName(h, username);
+    });
+  }
 
-  const badgeEl = document.getElementById("profile-public-badge");
-  if (badgeEl) badgeEl.textContent = "Public ID : " + publicId;
+  const badgeEl = document.getElementById("profile-public-badge-text");
+  if (badgeEl) badgeEl.textContent = publicId || "—";
+  const pidBtn = document.getElementById("profile-public-badge");
+  if (pidBtn) {
+    pidBtn.dataset.pid = publicId || "";
+    pidBtn.style.display = publicId ? "" : "none";
+  }
+
+  // Badge « vérifié » : masqué par défaut sur un profil public (donnée non chargée)
+  const verifiedEl = document.getElementById("profile-verified");
+  if (verifiedEl) verifiedEl.hidden = true;
+
+  // Éditeur de pseudo + carte cosmétiques : réservés au PROPRE profil.
+  // setEditingAllowed(false) masque le crayon, referme l'éditeur et purge
+  // la carte codes — aucune action d'édition possible sur un profil public.
+  setEditingAllowed(false);
+
+  // Date d'arrivée : masquée sur un profil public (donnée non chargée)
+  const joinedEl = document.getElementById("profile-joined-text");
+  if (joinedEl) joinedEl.parentElement.style.display = "none";
 
   // Affiche la bannière "Profil public" + bouton retour
   const banner = document.getElementById("public-profile-banner");
@@ -254,16 +421,188 @@ function renderPublicProfile(username, publicId) {
   const logoutBtn = document.querySelector(".pf-logout-btn");
   if (logoutBtn) logoutBtn.style.display = "none";
 
-  // Avatar : fallback PDP.png (on n'a pas l'avatar du joueur distant)
+  // Avatar dégradé + initiale (cohérent avec le flux normal)
   const avatarEl = document.getElementById("profile-avatar-large");
   if (avatarEl) {
-    avatarEl.innerHTML = `<img src="PDP.png" alt="${esc(username)}" style="width:100%;height:100%;object-fit:cover">`;
+    avatarEl.innerHTML = "";
+    avatarEl.textContent = (username || "J").charAt(0).toUpperCase();
   }
+
+  // Réinitialise les chips meta (remplies par renderPrecomputedStats)
+  const metaEl = document.getElementById("cockpit-status-meta");
+  if (metaEl) metaEl.innerHTML = "";
 
   // Construit un pseudo-profil pour que applyProfileSkin résolve le skin VIP
   // via le publicId du joueur visualisé (et non celui de l'utilisateur courant).
   const virtualProfile = { username, publicId };
   applyProfileSkin(virtualProfile, null);
+
+  // Bannière pixel art du joueur visité (null → plaquette standard).
+  applyBannerToCard(document.querySelector(".pf2-id"), publicId);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   PROFIL PUBLIC « SPEEDRUN » (2026-09-03)
+   Pour un joueur NON lié (?player=NOM sans publicId) : affiche ses records
+   de speedrun issus des données du site. Chaque joueur cliqué depuis les
+   speedruns obtient ainsi une page profil, visiteur connecté ou non.
+   ───────────────────────────────────────────────────────────────────────── */
+
+const SPEEDRUN_PROFILE_SESSION_KEY = "tfh_speedrun_profile";
+const SPEEDRUN_PROFILE_SESSION_TTL = 15 * 60 * 1000; // 15 min
+
+/**
+ * Charge les runs d'un pseudo :
+ *  1. sessionStorage (passés par la page speedrun au clic — instantané) ;
+ *  2. fallback : payloads publics runs_public.json (FFA) + teams_public.json
+ *     (duos/trios/quads/hvn, recherche par appartenance à la composition).
+ */
+async function loadSpeedrunPublicData(name) {
+  try {
+    const raw = sessionStorage.getItem(SPEEDRUN_PROFILE_SESSION_KEY);
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (p && p.name === name && p.stats && Array.isArray(p.stats.runs)
+          && Date.now() - (p.ts || 0) < SPEEDRUN_PROFILE_SESSION_TTL) {
+        return { source: "session", runs: p.stats.runs };
+      }
+    }
+  } catch (e) { /* sessionStorage indisponible */ }
+
+  const runs = [];
+  // FFA (format compact k/r)
+  try {
+    const res = await fetch("runs_public.json", { cache: "no-store" });
+    if (res.ok) {
+      const d = await res.json();
+      if (d.k && Array.isArray(d.r)) {
+        for (const row of d.r) {
+          const o = {}; d.k.forEach((k, i) => o[k] = row[i]);
+          if (String(o.player || "").trim() === name) {
+            runs.push({ map: o.map, duration_s: o.duration_s, difficulty: o.difficulty,
+                        timestamp: o.timestamp, mode: "solo",
+                        url: o.id ? "https://openfront.io/game/" + o.id : null });
+          }
+        }
+      }
+    }
+  } catch (e) { /* payload indisponible */ }
+  // Équipes (composition "A + B")
+  try {
+    const res = await fetch("teams_public.json", { cache: "no-store" });
+    if (res.ok) {
+      const d = await res.json();
+      for (const cat of ["duos", "trios", "quads", "hvn"]) {
+        const sub = d[cat] || {};
+        for (const map of Object.keys(sub)) {
+          for (const r of sub[map]) {
+            const parts = String(r.t || "").split(" + ").map(s => s.trim());
+            if (parts.includes(name)) {
+              runs.push({ map, duration_s: r.d, difficulty: r.f, timestamp: r.ts,
+                          mode: "team",
+                          url: r.g ? "https://openfront.io/game/" + r.g : null });
+            }
+          }
+        }
+      }
+    }
+  } catch (e) { /* payload indisponible */ }
+
+  // Dédoublonnage par URL de replay, tri par temps croissant
+  const seen = new Set(); const out = [];
+  for (const r of runs.sort((a, b) => a.duration_s - b.duration_s)) {
+    const k = r.url || (r.map + "|" + r.duration_s);
+    if (!seen.has(k)) { seen.add(k); out.push(r); }
+  }
+  return { source: "payload", runs: out };
+}
+
+function formatSpeedrunTime(s) {
+  if (s == null || isNaN(s)) return "—";
+  const m = Math.floor(s / 60);
+  const sec = Math.round(s % 60);
+  return m + ":" + String(sec).padStart(2, "0");
+}
+
+/**
+ * Rendu du profil public speedrun dans la vue profile-main :
+ * hero (renderPublicProfile sans publicId) + carte « Records Speedrun »
+ * montée dans #pf2-weekly-top. Les blocs du profil complet qui resteraient
+ * vides (cartes stats, colonnes) sont masqués.
+ */
+async function renderSpeedrunPublicProfile(username) {
+  // Résolution d'un éventuel compte lié : si ce pseudo en jeu correspond
+  // (normalisé) à un compte avec skin actif, on affine le héros (pseudo hub
+  // + badge Public ID) tout en gardant la carte Records Speedrun.
+  let resolvedPid = null;
+  try {
+    const { byNormPid } = await fetchActiveSkinMap();
+    resolvedPid = (byNormPid && byNormPid.get(normPlayerName(username))) || null;
+  } catch (e) { /* skins indisponibles — non bloquant */ }
+  // Déclare le profil consulté comme ÉTRANGER : viewingPublicId non null
+  // verrouille editingAllowed (reward card, éditeur) même si le joueur est lié.
+  viewingPublicId = resolvedPid || "__speedrun__";
+  viewingUsername = username;
+  renderPublicProfile(username, resolvedPid);
+  if (resolvedPid) {
+    const badgeText = document.getElementById("profile-public-badge-text");
+    const badgeBtn = document.getElementById("profile-public-badge");
+    if (badgeText) badgeText.textContent = resolvedPid;
+    if (badgeBtn) { badgeBtn.dataset.pid = resolvedPid; badgeBtn.style.display = ""; }
+  }
+
+  // Masque les sections réservées au profil complet (données API absentes ici)
+  document.querySelectorAll("#profile-main .pf2-stats, #profile-main .pf2-columns")
+    .forEach(el => { el.style.display = "none"; });
+
+  // Skin cosmétique par PSEUDO (joueurs VIP non liés) — map publique des skins actifs
+  try {
+    const { byNorm } = await fetchActiveSkinMap();
+    const skinId = byNorm && byNorm.get(normPlayerName(username));
+    if (skinId) {
+      const span = document.querySelector("#profile-title-name span");
+      if (span) span.classList.add(getSkin(skinId).cssClass);
+    }
+  } catch (e) { /* skins indisponibles — non bloquant */ }
+
+  const mount = document.getElementById("pf2-weekly-top");
+  if (!mount) return;
+  mount.innerHTML = '<div class="pfsr-loading">' + T("pf.speedrun_loading", "Chargement des records speedrun…") + '</div>';
+
+  const { runs } = await loadSpeedrunPublicData(username);
+  const mapsCount = new Set(runs.map(r => r.map)).size;
+  const best = runs.length ? runs[0].duration_s : null;
+
+  const MODE_LABEL = { solo: "Solo", team: T("pf.mode_team", "Équipe") };
+  const rowsHtml = runs.length
+    ? runs.slice(0, 40).map(r => {
+        const thumb = mapThumbUrl(r.map);
+        const date = r.timestamp
+          ? new Date(r.timestamp).toLocaleDateString(LOCALE(), { day: "numeric", month: "short", year: "numeric" })
+          : "";
+        return '<div class="pfsr-row">'
+          + '<div class="pfsr-map">' + (thumb ? '<img class="pfsr-thumb" src="' + thumb + '" alt="" loading="lazy">' : '')
+          + '<span>' + esc(r.map) + '</span></div>'
+          + '<span class="pfsr-mode">' + (MODE_LABEL[r.mode] || "") + '</span>'
+          + (r.difficulty ? '<span class="pfsr-diff">' + esc(r.difficulty) + '</span>' : '')
+          + '<span class="pfsr-time">' + formatSpeedrunTime(r.duration_s) + '</span>'
+          + '<span class="pfsr-date">' + esc(date) + '</span>'
+          + (r.url ? '<a class="pfsr-replay" href="' + esc(r.url) + '" target="_blank" rel="noopener" title="' + T("pf.view_replay", "Voir le replay") + '">▶</a>' : '<span class="pfsr-replay"></span>')
+          + '</div>';
+      }).join("")
+    : '<div class="pfsr-empty">' + T("pf.speedrun_empty", "Aucun record trouvé dans les données publiées pour ce pseudo.") + '</div>';
+
+  mount.innerHTML = ''
+    + '<section class="pf2-panel pfsr-card" aria-label="Records speedrun">'
+    +   '<header class="pf2-panel-head"><h3>' + T("pf.speedrun_title", "Records Speedrun") + '</h3><i class="pf2-panel-rule"></i></header>'
+    +   '<div class="pfsr-chips">'
+    +     '<span class="pfsr-chip"><b>' + runs.length + '</b> ' + (runs.length > 1 ? T("pf.wins", "victoires") : T("pf.win", "victoire")) + '</span>'
+    +     '<span class="pfsr-chip"><b>' + mapsCount + '</b> ' + (mapsCount > 1 ? T("pf.maps_many", "cartes") : T("pf.map_one", "carte")) + '</span>'
+    +     '<span class="pfsr-chip"><b>' + formatSpeedrunTime(best) + '</b> ' + T("pf.best_time_chip", "meilleur temps") + '</span>'
+    +   '</div>'
+    +   '<div class="pfsr-runs">' + rowsHtml + '</div>'
+    +   '<p class="pfsr-note">' + T("pf.speedrun_note_html", "Profil public limité aux speedruns — ce joueur n'a pas encore lié son compte TheFrontHub. <a href=\"index.html\">Me connecter avec Discord</a> pour un profil complet (Elo, niveau, historique).") + '</p>'
+    + '</section>';
 }
 
 /* ── Sidebar / dropdown UI ── */
@@ -279,12 +618,12 @@ function updateSidebarUI(user, profile) {
   if (loginBtn) loginBtn.style.display = "none";
   if (userContainer) userContainer.style.display = "block";
 
-  const name = profile?.username || user.displayName || user.email || "Joueur";
-  const publicId = profile?.publicId || "Non lié";
+  const name = profile?.username || user.displayName || user.email || T("pf.player_default", "Joueur");
+  const publicId = profile?.publicId || T("auth.not_linked", "Non lié");
 
   const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
   setText("user-display-name", name);
-  setText("user-public-id-side", publicId !== "Non lié" ? publicId : "En ligne");
+  setText("user-public-id-side", profile?.publicId || T("auth.dropdown_online", "En ligne"));
   setText("dropdown-username-display", name);
   setText("dropdown-publicid-display", publicId);
 
@@ -303,10 +642,39 @@ function updateSidebarUI(user, profile) {
 
 function renderHero(user, profile) {
   const nameEl = document.getElementById("profile-title-name");
-  if (nameEl) nameEl.textContent = profile.username || user.displayName || "Joueur";
+  if (nameEl) {
+    nameEl.innerHTML = "";
+    const skinSpan = document.createElement("span");
+    skinSpan.textContent = profile.username || user.displayName || T("pf.player_default", "Joueur");
+    nameEl.appendChild(skinSpan);
+    applySkinToElement(skinSpan, profile.publicId, true);
+  }
 
-  const badgeEl = document.getElementById("profile-public-badge");
-  if (badgeEl) badgeEl.textContent = "Public ID: " + (profile.publicId || "—");
+  // Chip Public ID copiable (bouton pf2-id-pid)
+  const badgeEl = document.getElementById("profile-public-badge-text");
+  if (badgeEl) badgeEl.textContent = profile.publicId || "—";
+  const pidBtn = document.getElementById("profile-public-badge");
+  if (pidBtn) {
+    pidBtn.dataset.pid = profile.publicId || "";
+    pidBtn.style.display = profile.publicId ? "" : "none";
+  }
+
+  // Badge « vérifié » (donnée Firestore : profile.verified)
+  const verifiedEl = document.getElementById("profile-verified");
+  if (verifiedEl) verifiedEl.hidden = !profile.verified;
+
+  // Éditeur de pseudo : SEULEMENT si le profil affiché est celui du compte
+  // connecté (connecté + publicId lié). Tout autre cas reste verrouillé.
+  setEditingAllowed(!!currentUser && !!profile.publicId);
+
+  // Date d'arrivée (profile.createdAt)
+  const joinedEl = document.getElementById("profile-joined-text");
+  if (joinedEl) {
+    joinedEl.textContent = profile.createdAt
+      ? T("pf.member_since", "Membre depuis le {date}", { date: formatDateShort(profile.createdAt) })
+      : T("pf.member", "Membre");
+    joinedEl.parentElement.style.display = profile.createdAt ? "" : "none";
+  }
 
   // Masque la bannière "Profil public" (flux normal = propre profil)
   const banner = document.getElementById("public-profile-banner");
@@ -318,25 +686,124 @@ function renderHero(user, profile) {
 
   const avatarEl = document.getElementById("profile-avatar-large");
   if (avatarEl) {
-    // Use PDP.png as the avatar image (instead of default letter)
-    avatarEl.innerHTML = `<img src="PDP.png" alt="${esc(profile.username || 'avatar')}" style="width:100%;height:100%;object-fit:cover">`;
+    // Avatar dégradé + initiale (design system — cohérent avec la sidebar)
+    avatarEl.innerHTML = "";
+    avatarEl.textContent = (profile.username || user.displayName || "J").charAt(0).toUpperCase();
   }
+
+  // Cockpit: ensure #cockpit-status-meta exists inside the header card.
+  // Populated later by renderPrecomputedStats with level/playtime/streak chips.
+  const metaEl = document.getElementById("cockpit-status-meta");
+  if (metaEl) metaEl.innerHTML = "";
 
   // Applique le skin VIP résolu par publicId (le listener VIP re-appliquera quand
   // les rewards arriveront). Fallback username = null ici car pas encore chargé.
   applyProfileSkin(profile, null);
+
+  // Bannière pixel art de la plaquette (slot indépendant des skins —
+  // bannière active du profil affiché, clair/sombre re-rendus par banners.js).
+  applyBannerToCard(document.querySelector(".pf2-id"), profile.publicId);
 }
+
+/** Copie le Public ID dans le presse-papiers (chip de la carte identité). */
+window.copyPublicId = function (btn) {
+  const pid = btn?.dataset?.pid || (currentProfile && currentProfile.publicId) || "";
+  if (!pid) return;
+  const done = () => showToast(T("pf.pid_copied", "Public ID copié : {id}", { id: pid }), "success");
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(pid).then(done).catch(() => {
+      showToast(T("pf.pid_show", "Public ID : {id}", { id: pid }), "info");
+    });
+  } else {
+    showToast(T("pf.pid_show", "Public ID : {id}", { id: pid }), "info");
+  }
+};
+
+/* ── Éditeur de pseudo (2026-09-03) ───────────────────────────────
+ * Le pseudo choisi ici devient LE pseudo du joueur PARTOUT sur le site
+ * (profil, classements hebdo/all-time, classé, speedruns, feed) via la
+ * table publique tfh_public_aliases (pseudo hub ↔ publicId). */
+window.togglePseudoEditor = function (show) {
+  if (show && !editingAllowed) {
+    // Verrou : l'édition n'est possible que sur SON propre profil, connecté.
+    showToast(T("pf.pseudo_lock", "Tu ne peux modifier que ton propre pseudo — connecte-toi et va sur ton profil."), "warning");
+    return;
+  }
+  const ed = document.getElementById("pseudo-editor");
+  if (!ed) return;
+  ed.hidden = !show;
+  if (show) {
+    const input = document.getElementById("edit-pseudo-input");
+    if (input) {
+      input.value = (currentProfile && currentProfile.username) || "";
+      setTimeout(() => input.focus(), 30);
+    }
+  }
+};
+
+window.savePseudoChange = async function () {
+  if (!editingAllowed) {
+    showToast(T("pf.pseudo_lock", "Tu ne peux modifier que ton propre pseudo — connecte-toi et va sur ton profil."), "warning");
+    return;
+  }
+  if (!currentUser) { showToast(T("pf.login_first", "Connecte-toi d'abord."), "warning"); return; }
+  const input = document.getElementById("edit-pseudo-input");
+  const newPseudo = (input?.value || "").trim();
+  const current = (currentProfile && currentProfile.username) || "";
+  if (!newPseudo) { showToast(T("pf.pseudo_required", "Entre un pseudo."), "warning"); return; }
+  if (newPseudo === current) { togglePseudoEditor(false); return; }
+  if (!/^[A-Za-z0-9_.\- ]{3,32}$/.test(newPseudo)) {
+    showToast(T("pf.pseudo_invalid", "Pseudo : 3 à 32 caractères (lettres, chiffres, . _ - espace)."), "warning");
+    return;
+  }
+  const pid = currentProfile && currentProfile.publicId;
+  if (!pid) {
+    showToast(T("pf.link_pid_first", "Lie d'abord ton Public ID OpenFront avant de choisir un pseudo."), "warning");
+    return;
+  }
+  const saveBtn = document.querySelector("#pseudo-editor .pf2-pseudo-save");
+  const original = saveBtn?.textContent || T("profile.save", "Enregistrer");
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = T("pf.saving", "Enregistrement…"); }
+  try {
+    // → POST /api/profile.php (via le pont auth.js) : met à jour tfh_users
+    // + tfh_public_aliases (pseudo public) + tfh_public_rewards.
+    await setDoc(doc(db, "users", currentUser.uid), {
+      username: newPseudo,
+      publicId: pid,
+    }, { merge: true });
+    currentProfile = { ...(currentProfile || {}), username: newPseudo, publicId: pid };
+    // Rafraîchit la map locale des pseudos hub (affichage immédiat)
+    _hubNamesByPid.set(String(pid), newPseudo);
+    _hubNamesByNorm.set(normPlayerName(newPseudo), String(pid));
+    showToast(T("pf.pseudo_updated", "Pseudo mis à jour : {name} — il s'affiche maintenant partout !", { name: newPseudo }), "success", 5000);
+    togglePseudoEditor(false);
+    updateSidebarUI(currentUser, currentProfile);
+    renderHero(currentUser, currentProfile);
+  } catch (e) {
+    console.error("[profile] Changement de pseudo échoué:", e);
+    if (e?.code === "already_taken") {
+      showToast(T("pf.pseudo_taken", "Ce pseudo est déjà utilisé par un autre compte."), "error");
+    } else if (e?.code === "invalid_username") {
+      showToast(T("pf.pseudo_invalid2", "Pseudo invalide : 3 à 32 caractères (lettres, chiffres, . _ - espace)."), "error");
+    } else {
+      showToast(T("pf.pseudo_fail", "Impossible de modifier le pseudo. Réessaie."), "error");
+    }
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = original; }
+  }
+};
 
 /* ── Main view: load stats ── */
 
 async function loadStats(publicId) {
-  // Reset stats list to loading
-  setText("stat-week-rank", "This week rank: …");
-  setText("stat-week-score", "This week score: …");
-  setText("stat-alltime", "All-time score: …");
-  const recentEl = document.getElementById("profile-recent-games");
-  if (recentEl) recentEl.innerHTML = `<div class="pf-empty">Chargement…</div>`;
+  // Reset stat cards + panneau Elo pendant le chargement
+  setText("stat-alltime-value", "…");
+  setText("stat-alltime-sub", "");
   hideError();
+  const eloPanel = document.getElementById("pf2-elo-panel");
+  if (eloPanel) eloPanel.hidden = true;
+  const peersPanel = document.getElementById("pf2-peers-panel");
+  if (peersPanel) peersPanel.hidden = true;
 
   // Kick off ELO lookup (ranked.json) in parallel
   const eloPromise = getRankedEntry(publicId);
@@ -356,22 +823,18 @@ async function loadStats(publicId) {
     console.error("[profile] OpenFront API error:", e);
     if (e?.isNotFound || e?.status === 404) {
       showError(
-        `Joueur introuvable sur l'API OpenFront (publicId : ${publicId}). ` +
-        `Vérifie que ton identifiant OpenFront est correct dans tes paramètres de profil.`
+        T("pf.player_not_found", "Joueur introuvable sur l'API OpenFront (publicId : {id}). Vérifie que ton identifiant OpenFront est correct dans tes paramètres de profil.", { id: publicId })
       );
     } else {
-      showError(`Impossible de charger les statistiques depuis l'API OpenFront.`);
+      showError(T("pf.stats_load_fail", "Impossible de charger les statistiques depuis l'API OpenFront."));
     }
-    setText("stat-week-rank", "This week rank: —");
-    setText("stat-week-score", "This week score: —");
-    setText("stat-alltime", "All-time score: —");
-    const c = document.getElementById("profile-recent-games");
-    if (c) c.innerHTML = `<div class="pf-empty">Aucune partie récente.</div>`;
+    setText("stat-alltime-value", "—");
+    setText("stat-alltime-sub", "");
     return;
   }
 
   if (!playerData) {
-    showError("Réponse vide de l'API OpenFront.");
+    showError(T("pf.api_empty_response", "Réponse vide de l'API OpenFront."));
     return;
   }
 
@@ -380,104 +843,192 @@ async function loadStats(publicId) {
   const games = [];
   const stats = computeStats(games, playerData.stats || {});
 
-  // ── Week stats from dashboard_scores.json (official data) ──
-  let weekScore = 0, weekRank = "—", weekFFA = 0, weekTeam = 0, weekTotalPoints = 0;
-  try {
-    const scoresRes = await fetch("dashboard_scores.json.gz", { cache: "force-cache" });
-    let scoresData = null;
-    if (scoresRes.ok) {
-      const ds = new DecompressionStream("gzip");
-      scoresData = await new Response(scoresRes.body.pipeThrough(ds)).json();
-    } else {
-      const fallback = await fetch("dashboard_scores.json");
-      if (fallback.ok) scoresData = await fallback.json();
-    }
-    if (scoresData && scoresData.players) {
-      const entry = scoresData.players.find(p => p.publicId === publicId);
-      if (entry) {
-        weekFFA = (entry.weekly_ffa_casual || 0) + (entry.weekly_ffa_ranked || 0);
-        weekTeam = (entry.weekly_team_casual || 0) + (entry.weekly_team_ranked || 0);
-        weekScore = entry.weekly_points || 0;
-        weekTotalPoints = entry.points || 0;
-        // Compute rank: position in the sorted weekly leaderboard
-        const weeklySorted = [...scoresData.players].sort((a, b) => (b.weekly_points || 0) - (a.weekly_points || 0));
-        const rankIdx = weeklySorted.findIndex(p => p.publicId === publicId);
-        weekRank = rankIdx >= 0 ? rankIdx + 1 : "—";
+  // ── Render reward card + career stats + start games loading IMMEDIATELY ──
+  // Don't wait for dashboard_scores, ELO, or recent games — those are secondary.
+  // Only show reward code card on OWN profile (not when viewing someone else's public profile).
+  // editingAllowed est posé par renderHero/renderPublicProfile AVANT loadStats :
+  // il garantit que la carte n'apparaît que sur le profil du compte connecté.
+  const isOwnProfile = editingAllowed && !viewingPublicId
+    && currentProfile && currentProfile.publicId === publicId;
+  if (isOwnProfile) {
+    renderRewardCodeCard(publicId);
+  }
+  renderCareerStats(playerData.stats || {}, publicId);
+  loadAllGamesForStats(publicId);
 
-        // Store for the chart
-        window._profileWeekData = {
-          ffa: weekFFA,
-          team: weekTeam,
-          total: weekScore,
-          rank: weekRank,
-          weekStart: scoresData.weekStart,
-          // Detailed breakdown for tooltip
-          ffaCasual: entry.weekly_ffa_casual || 0,
-          ffaRanked: entry.weekly_ffa_ranked || 0,
-          teamCasual: entry.weekly_team_casual || 0,
-          teamRanked: entry.weekly_team_ranked || 0,
-          allTimePoints: entry.points || 0,
-          allTimeFfa: entry.ffa_casual || 0,
-          allTimeTeam: entry.team_casual || 0,
-        };
+  // ── Week stats from dashboard_scores.json (official data) — non-blocking ──
+  (async () => {
+    let weekScore = 0, weekRank = "—", weekFFA = 0, weekTeam = 0, weekTotalPoints = 0;
+    try {
+      // ⚠️ cache "no-cache" (revalidation 304) et PAS "force-cache" : avec
+      // force-cache le navigateur peut resservir une réponse PÉRIMÉE (ex.
+      // dashboard_scores de la semaine précédente après le reset du lundi).
+      // Résultat : weekStart périmé → le point « live » du graphique hebdo
+      // était ajouté à droite avec les données de la semaine précédente
+      // (inversion S1/S2 sur la courbe du profil). no-cache = toujours frais.
+      const scoresRes = await fetch("dashboard_scores.json.gz", { cache: "no-cache" });
+      let scoresData = null;
+      if (scoresRes.ok) {
+        const ds = new DecompressionStream("gzip");
+        scoresData = await new Response(scoresRes.body.pipeThrough(ds)).json();
+      } else {
+        const fallback = await fetch("dashboard_scores.json", { cache: "no-cache" });
+        if (fallback.ok) scoresData = await fallback.json();
+      }
+      if (scoresData && scoresData.players) {
+        const entry = scoresData.players.find(p => p.publicId === publicId);
+        if (entry) {
+          weekFFA = (entry.weekly_ffa_casual || 0) + (entry.weekly_ffa_ranked || 0);
+          weekTeam = (entry.weekly_team_casual || 0) + (entry.weekly_team_ranked || 0);
+          weekScore = entry.weekly_points || 0;
+          weekTotalPoints = entry.points || 0;
+          // Compute rank: position in the sorted weekly leaderboard
+          const weeklySorted = [...scoresData.players].sort((a, b) => (b.weekly_points || 0) - (a.weekly_points || 0));
+          const rankIdx = weeklySorted.findIndex(p => p.publicId === publicId);
+          weekRank = rankIdx >= 0 ? rankIdx + 1 : "—";
+
+          // Store for the chart
+          window._profileWeekData = {
+            publicId: publicId,
+            ffa: weekFFA,
+            team: weekTeam,
+            total: weekScore,
+            rank: weekRank,
+            weekStart: scoresData.weekStart,
+            // Detailed breakdown for tooltip
+            ffaCasual: entry.weekly_ffa_casual || 0,
+            ffaRanked: entry.weekly_ffa_ranked || 0,
+            teamCasual: entry.weekly_team_casual || 0,
+            teamRanked: entry.weekly_team_ranked || 0,
+            allTimePoints: entry.points || 0,
+            allTimeFfa: entry.ffa_casual || 0,
+            allTimeTeam: entry.team_casual || 0,
+            // Sorted players (voisins de classement pour « Autour de toi »)
+            weeklySorted: weeklySorted,
+          };
+        }
+      }
+    } catch (e) {
+      console.warn("[profile] Week stats load failed:", e.message);
+    }
+
+    // ── Historique hebdo (weekly_history.json.gz) — non-blocking ──
+    // Alimenté par sync-dashboard.js : un snapshot figé par semaine écoulée,
+    // la semaine en cours est rafraîchie toutes les 5 min. Chaque lundi,
+    // une nouvelle colonne S1, S2, S3… s'ajoute au graphique du profil.
+    // ⛔ FUSION SEED ANNULÉE (demande utilisateur) : les semaines reconstituées
+    // a posteriori (weekly_history_seed.json) ne sont PLUS fusionnées dans la
+    // courbe — seules les semaines réellement enregistrées s'affichent.
+    fetch("weekly_history.json.gz", { cache: "no-cache" })
+      .then(async (res) => {
+        if (res.ok) {
+          const ds = new DecompressionStream("gzip");
+          window._profileWeekHistory = await new Response(res.body.pipeThrough(ds)).json();
+        } else {
+          const fb = await fetch("weekly_history.json", { cache: "no-cache" });
+          if (fb.ok) window._profileWeekHistory = await fb.json();
+        }
+        if (window._profileWeekHistory) {
+          await mergeWeeklySeed();
+          renderWeeklyChart();
+        }
+      })
+      .catch(() => { /* pas encore d'historique (1re semaine) → courbe à 1 point */ });
+
+    // All-time score
+    const allTimeScore = stats.wins * 4 + (stats.total - stats.wins);
+
+    setText("stat-alltime-value", new Intl.NumberFormat(LOCALE()).format(weekTotalPoints || allTimeScore));
+    setText("stat-alltime-sub", weekRank !== "—" ? T("pf.week_sub", "Semaine : {pts} pts · #{rank}", { pts: new Intl.NumberFormat(LOCALE()).format(weekScore), rank: weekRank }) : "");
+
+    // Chip hebdo (Niv/temps/série sont posés par renderPrecomputedStats)
+    const metaEl = document.getElementById("cockpit-status-meta");
+    if (metaEl && weekRank !== "—") {
+      let chip = document.getElementById("pf2-chip-week");
+      if (!chip) {
+        chip = document.createElement("span");
+        chip.id = "pf2-chip-week";
+        chip.className = "pf2-chip";
+        metaEl.appendChild(chip);
+      }
+      chip.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg> ` + T("pf.chip_week", "Hebdo #{rank} · {pts} pts", { rank: weekRank, pts: new Intl.NumberFormat(LOCALE()).format(weekScore) });
+    }
+
+    // ── Panneau « Autour de toi » : voisins du classement hebdo ──
+    const weekData = window._profileWeekData;
+    const peersPanel = document.getElementById("pf2-peers-panel");
+    const peersList = document.getElementById("pf2-peers-list");
+    if (peersPanel && peersList && weekData?.weeklySorted && currentProfile?.publicId === publicId) {
+      const sorted = weekData.weeklySorted;
+      const idx = sorted.findIndex(p => p.publicId === publicId);
+      if (idx >= 0) {
+        const from = Math.max(0, idx - 2);
+        const rows = sorted.slice(from, Math.min(sorted.length, from + 5));
+        peersList.innerHTML = rows.map((p, i) => {
+          const rank = from + i + 1;
+          const isMe = p.publicId === publicId;
+          // Pseudo hub (même pseudo partout) + ligne cliquable → profil
+          const shownName = hubNameForPid(p.publicId) || p.username || p.publicId || T("pf.player_default", "Joueur");
+          const peerUrl = p.publicId
+            ? `profile.html?pid=${encodeURIComponent(p.publicId)}&player=${encodeURIComponent(shownName)}`
+            : `profile.html?player=${encodeURIComponent(shownName)}`;
+          return `<a class="pf2-peer${isMe ? " is-me" : ""}" href="${peerUrl}" style="text-decoration:none;color:inherit;cursor:pointer">
+            <span class="pf2-peer-rank">${rank}</span>
+            <span class="pf2-peer-name">${esc(shownName)}</span>
+            <span class="pf2-peer-score">${new Intl.NumberFormat(LOCALE()).format(p.weekly_points || 0)}</span>
+          </a>`;
+        }).join("");
+        peersPanel.hidden = false;
       }
     }
-  } catch (e) {
-    console.warn("[profile] Week stats load failed:", e.message);
-  }
 
-  // All-time score
-  const allTimeScore = stats.wins * 4 + (stats.total - stats.wins);
+    // ── Panneau « Elo Classé » (ranked.json) ──
+    const ranked1v1 = await eloPromise;
+    const ranked2v2 = await getRankedEntry(publicId, "2v2");
+    if (eloPanel && (ranked1v1?.elo != null || ranked2v2?.elo != null)) {
+      const v11 = document.getElementById("elo-1v1");
+      const s11 = document.getElementById("elo-1v1-sub");
+      const v22 = document.getElementById("elo-2v2");
+      const s22 = document.getElementById("elo-2v2-sub");
+      if (ranked1v1?.elo != null) {
+        setText("elo-1v1", new Intl.NumberFormat(LOCALE()).format(ranked1v1.elo));
+        if (s11) s11.textContent = `Peak ${ranked1v1.peakElo ?? "—"}${ranked1v1.rank ? ` · #${ranked1v1.rank}` : ""}`;
+      } else if (v11) {
+        v11.textContent = "—";
+        if (s11) s11.textContent = T("profile.no_rank", "Non classé");
+      }
+      if (ranked2v2?.elo != null) {
+        setText("elo-2v2", new Intl.NumberFormat(LOCALE()).format(ranked2v2.elo));
+        if (s22) s22.textContent = `Peak ${ranked2v2.peakElo ?? "—"}${ranked2v2.rank ? ` · #${ranked2v2.rank}` : ""}`;
+      } else if (v22) {
+        v22.textContent = "—";
+        if (s22) s22.textContent = T("profile.no_rank", "Non classé");
+      }
+      eloPanel.hidden = false;
 
-  // Breakdown by mode
-  const breakdown = computeModeBreakdown(playerData.stats || {});
-  const detail = [];
-  if (breakdown.FFA) detail.push("FFA: " + breakdown.FFA);
-  if (breakdown.Team) detail.push("Team: " + breakdown.Team);
-  if (breakdown.Duos) detail.push("Duos: " + breakdown.Duos);
-  if (breakdown.Trios) detail.push("Trios: " + breakdown.Trios);
-  if (breakdown.Quads) detail.push("Quads: " + breakdown.Quads);
-  const detailStr = detail.length ? " (" + detail.join(", ") + ")" : "";
-
-  setText("stat-week-rank", `This week rank: #${weekRank}`);
-  setText("stat-week-score", `This week score: ${weekScore} pts (FFA: ${weekFFA} · Team: ${weekTeam})`);
-  setText("stat-alltime", `All-time score: ${weekTotalPoints || allTimeScore} (${stats.wins} wins${detailStr})`);
-
-  // ELO from ranked.json (1v1)
-  const ranked1v1 = await eloPromise;
-  const eloLine = document.getElementById("stat-elo-line");
-  if (eloLine) {
-    if (ranked1v1 && ranked1v1.elo != null) {
-      eloLine.textContent = `ELO 1v1: ${ranked1v1.elo} (Peak: ${ranked1v1.peakElo ?? '—'}) — Rank #${ranked1v1.rank}`;
-      eloLine.style.display = "list-item";
-    } else {
-      eloLine.style.display = "none";
+      // Chip Elo dans les chips meta
+      if (metaEl && ranked1v1?.elo != null) {
+        let chip = document.getElementById("pf2-chip-elo");
+        if (!chip) {
+          chip = document.createElement("span");
+          chip.id = "pf2-chip-elo";
+          chip.className = "pf2-chip";
+          metaEl.appendChild(chip);
+        }
+        chip.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 10 6-5 6 5"/><path d="m6 15 6-5 6 5"/><path d="m6 20 6-5 6 5"/></svg> ` + T("pf.chip_elo", "Elo {v}", { v: new Intl.NumberFormat(LOCALE()).format(ranked1v1.elo) });
+      }
     }
-  }
-  
-  // ELO 2v2 from ranked.json
-  const ranked2v2 = await getRankedEntry(publicId, "2v2");
-  const elo2v2Line = document.getElementById("stat-elo-2v2-line");
-  if (elo2v2Line) {
-    if (ranked2v2 && ranked2v2.elo != null) {
-      elo2v2Line.textContent = `ELO 2v2: ${ranked2v2.elo} (Peak: ${ranked2v2.peakElo ?? '—'}) — Rank #${ranked2v2.rank}`;
-      elo2v2Line.style.display = "list-item";
-    } else {
-      elo2v2Line.style.display = "none";
-    }
-  }
 
-  // Recent games — fetched from /public/player/{id}/games (separate endpoint).
-  // The result field (victory/defeat) is already included, no per-game fetch needed.
-  try {
-    const recentGames = await recentGamesPromise;
-    renderRecentGames(recentGames, publicId);
-    renderWeeklyChart();
-  } catch (e) {
-    console.error("[profile] recent games fetch failed:", e);
-    const c = document.getElementById("profile-recent-games");
-    if (c) c.innerHTML = `<div class="pf-empty">Impossible de charger les parties récentes.</div>`;
-  }
+    // Recent games — fetched from /public/player/{id}/games (separate endpoint).
+    // Used only for the weekly chart now — the full recent games list
+    // is rendered by renderPrecomputedStats via loadAllGamesForStats().
+    try {
+      await recentGamesPromise;
+      renderWeeklyChart();
+    } catch (e) {
+      console.error("[profile] recent games fetch failed:", e);
+    }
+  })();
 }
 
 /**
@@ -505,40 +1056,16 @@ function setText(id, text) {
   if (el) el.textContent = text;
 }
 
-function computeModeBreakdown(statsTree) {
-  const out = { FFA: 0, Team: 0, Duos: 0, Trios: 0, Quads: 0 };
-  if (!statsTree || typeof statsTree !== "object") return out;
-  for (const catKey of Object.keys(statsTree)) {
-    const cat = statsTree[catKey];
-    if (!cat || typeof cat !== "object") continue;
-    for (const modeKey of Object.keys(cat)) {
-      const mode = cat[modeKey];
-      if (!mode || typeof mode !== "object") continue;
-      let wins = 0;
-      for (const diffKey of Object.keys(mode)) {
-        const diff = mode[diffKey];
-        if (diff && typeof diff === "object" && diff.wins != null) {
-          wins += parseInt(diff.wins, 10) || 0;
-        }
-      }
-      if (modeKey === "Free For All") out.FFA += wins;
-      else if (modeKey === "Team") {
-        // Try to break down by playerTeams if available
-        out.Team += wins;
-      }
-    }
-  }
-  return out;
-}
-
 function computeStats(games, statsTree) {
   // Wins: sum all "wins" fields across the stats tree (Private/Public/Ranked → mode → difficulty)
   let wins = 0;
   let total = 0;
   if (statsTree && typeof statsTree === "object") {
     for (const catKey of Object.keys(statsTree)) {
-      // ⚠️ v0.34 : stats.recent (agrégats {games, wins}) — ne pas sommer ici
-      // (wins déjà inclus dans les feuilles carrière → sinon double comptage).
+      // ⚠️ v0.34 : stats.recent (agrégats {games, wins} sur fenêtre courte)
+      // ne doit JAMAIS être sommé ici — ses wins sont déjà inclus dans les
+      // feuilles carrière. Sans ce skip, les wins/total du profil étaient
+      // comptés en double (voire ×3 avec les sous-difficultés de recent).
       if (catKey === "recent") continue;
       const cat = statsTree[catKey];
       if (!cat || typeof cat !== "object") continue;
@@ -547,7 +1074,8 @@ function computeStats(games, statsTree) {
         if (!mode || typeof mode !== "object") continue;
         for (const diffKey of Object.keys(mode)) {
           const diff = mode[diffKey];
-          // Feuille réelle = porte total OU losses (pas un agrégat recent).
+          // Feuille réelle = porte total OU losses (les agrégats récents ne
+          // portent que {games, wins} — jamais comptés comme feuille).
           if (!diff || typeof diff !== "object") continue;
           if (diff.total == null && diff.losses == null) continue;
           if (diff.wins != null) wins += parseInt(diff.wins, 10) || 0;
@@ -612,57 +1140,6 @@ function hideError() {
 
 /* ── Recent games ── */
 
-/**
- * Render recent games from /public/player/{id}/games endpoint.
- * Each game already includes a `result` field ("victory" | "defeat" | other)
- * so no per-game fetch is needed.
- *
- * Game object structure:
- *   { gameId, start, durationSeconds, map, mode, type, playerTeams,
- *     rankedType, result, totalPlayers, username, clanTag }
- */
-function renderRecentGames(games, publicId) {
-  const container = document.getElementById("profile-recent-games");
-  if (!container) return;
-
-  // Sort by start date desc, take last 10 (API returns 10 per page)
-  const sorted = games
-    .slice()
-    .sort((a, b) => new Date(b.start || 0).getTime() - new Date(a.start || 0).getTime())
-    .slice(0, 10);
-
-  if (sorted.length === 0) {
-    container.innerHTML = `<div class="pf-empty">Aucune partie récente.</div>`;
-    return;
-  }
-
-  container.innerHTML = sorted.map((g) => {
-    const isWin = g.result === "victory";
-    const resultClass = isWin ? "win" : "loss";
-    const resultLabel = isWin ? "VICTOIRE" : (g.result === "defeat" ? "DÉFAITE" : (g.result || "—"));
-    const duration = g.durationSeconds ? formatDuration(g.durationSeconds) : "—";
-    const modeLabel = formatGameMode(g);
-    const mapName = g.map || "Carte inconnue";
-    const rankedBadge = g.rankedType && g.rankedType !== "unranked"
-      ? `<span class="pf-game-ranked">${esc(g.rankedType)}</span>` : "";
-    const totalPlayers = g.totalPlayers != null ? `${g.totalPlayers} joueurs` : "";
-
-    return `
-      <div class="pf-game-card ${resultClass}">
-        <div class="pf-game-result">${resultLabel}</div>
-        <div class="pf-game-info">
-          <div class="pf-game-map">${esc(mapName)} ${rankedBadge}</div>
-          <div class="pf-game-meta">${esc(modeLabel)}${totalPlayers ? ' · ' + esc(totalPlayers) : ''} · ${duration}</div>
-          <div class="pf-game-meta">${formatDateTime(g.start)}</div>
-        </div>
-        <a class="pf-game-replay" href="https://openfront.io/game/${encodeURIComponent(g.gameId)}" target="_blank" rel="noopener" title="Voir le replay">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        </a>
-      </div>
-    `;
-  }).join("");
-}
-
 /** Format duration in seconds as M:SS or H:MM:SS */
 function formatDuration(seconds) {
   const s = Math.floor(Number(seconds) || 0);
@@ -701,109 +1178,266 @@ async function checkGameWin(gameId, clientId) {
 
 /* ── Setup: ownership verification ── */
 
+/* ── Persistance du défi de propriété (fix régression 2026-09) ────────────
+ * La partie OpenFront qui prouve la propriété peut durer de quelques
+ * minutes à 3 h et l'utilisateur navigue sur le site entre-temps. Le code
+ * doit donc survivre aux changements de page / reloads / redémarrages du
+ * navigateur : il est stocké en localStorage par uid Discord/Firebase et
+ * réutilisé TEL QUEL au retour sur la page (étape 2 réaffichée d'office).
+ * Il n'est supprimé qu'après une liaison RÉUSSIE — jamais sur navigation.
+ * (Avant : simple variable JS `_ownershipCode` → un nouveau code était
+ * généré à chaque clic, rendant le défi en cours impossible à valider.) */
+const OWNERSHIP_KEY = "tfh-ownership-challenge-";
+
+function ownershipStorageKey() {
+  return currentUser?.uid ? OWNERSHIP_KEY + currentUser.uid : null;
+}
+
+function loadOwnershipChallenge() {
+  const key = ownershipStorageKey();
+  if (!key) return null;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || typeof data.code !== "string" || !/^TFH[A-Z0-9]{4}$/.test(data.code)) return null;
+    if (typeof data.publicId !== "string" || !/^[A-Za-z0-9]{8}$/.test(data.publicId)) return null;
+    if (typeof data.username !== "string" || data.username.length < 2 || data.username.length > 30) return null;
+    return { code: data.code, publicId: data.publicId, username: data.username, ts: Number(data.ts) || 0 };
+  } catch (e) {
+    return null; // JSON invalide / localStorage indisponible → on régénérera un défi neuf
+  }
+}
+
+function saveOwnershipChallenge(challenge) {
+  const key = ownershipStorageKey();
+  if (!key) return;
+  try { localStorage.setItem(key, JSON.stringify(challenge)); } catch (e) { /* navigation privée : dégradation = ancien comportement */ }
+}
+
+/** Supprime le défi stocké — uniquement après une liaison réussie. */
+function clearOwnershipChallenge() {
+  const key = ownershipStorageKey();
+  if (!key) return;
+  try { localStorage.removeItem(key); } catch (e) { /* ignore */ }
+}
+
+/* ── Public ID : accepte le lien OpenFront complet ou le message copié ──
+ * Le bouton « Copier » d'OpenFront fournit soit un lien
+ * (https://openfront.io/#modal=profile&publicID=UWetOwlW), soit un message
+ * (« Mon Public ID : UWetOwlW »). On extrait l'ID (8 caractères
+ * alphanumériques) de n'importe quel texte collé ; un ID tapé à la main
+ * passe tel quel. Le seuil de 8 caractères évite de découper une saisie
+ * manuelle du lien en cours de frappe. */
+function extractPublicId(raw) {
+  const v = String(raw || "").trim();
+  if (!v) return "";
+  const m = v.match(/public\s*ID\s*[:=]\s*["']?([A-Za-z0-9]{8,32})["']?/i);
+  return m ? m[1] : v;
+}
+
+// Extraction automatique dès le collage : le champ affiche directement l'ID.
+(function wirePublicIdAutoExtract() {
+  const el = document.getElementById("setup-public-id");
+  if (!el) return;
+  el.addEventListener("input", () => {
+    const extracted = extractPublicId(el.value);
+    if (extracted && extracted !== el.value) el.value = extracted;
+  });
+})();
+
+/** Affiche l'étape 2 (défi en jeu) avec le code, et pré-remplit l'étape 1. */
+function showOwnershipStep2(challenge) {
+  _ownershipCode = challenge.code;
+  _ownershipPublicId = challenge.publicId;
+  _ownershipUsername = challenge.username;
+  const usernameInput = document.getElementById("setup-username");
+  const publicIdInput = document.getElementById("setup-public-id");
+  if (usernameInput) usernameInput.value = challenge.username;
+  if (publicIdInput) publicIdInput.value = challenge.publicId;
+  const codeEl = document.getElementById("ownership-code-display");
+  if (codeEl) codeEl.textContent = challenge.code;
+  const s1 = document.getElementById("profile-setup-step1");
+  const s2 = document.getElementById("profile-setup-step2");
+  if (s1) s1.style.display = "none";
+  if (s2) s2.style.display = "block";
+}
+
+/** Au chargement de la page (utilisateur sans profil lié) : si un défi est
+ *  en cours, on réaffiche DIRECTEMENT l'étape 2 avec LE MÊME code — l'usager
+ *  peut vérifier s'il a fait sa partie sans rien regénérer. */
+function restorePendingOwnershipChallenge() {
+  try {
+    const pending = loadOwnershipChallenge();
+    if (pending) showOwnershipStep2(pending);
+  } catch (e) { /* non-bloquant */ }
+}
+
 window.startOwnershipVerification = async () => {
   if (!currentUser) {
-    showToast("Veuillez vous connecter d'abord.", "warning");
+    showToast(T("pf.setup_login_first", "Veuillez vous connecter d'abord."), "warning");
     return;
   }
   const usernameInput = document.getElementById("setup-username");
   const publicIdInput = document.getElementById("setup-public-id");
   const username = (usernameInput?.value || "").trim();
-  const publicId = (publicIdInput?.value || "").trim();
+  // Lien OpenFront collé ou message « Mon Public ID : … » → extraction de l'ID
+  const publicId = extractPublicId(publicIdInput?.value || "");
 
   if (!username || !publicId) {
-    showToast("Veuillez remplir tous les champs.", "warning");
+    showToast(T("profile.fill_all", "Veuillez remplir tous les champs."), "warning");
     return;
   }
   if (username.length < 2 || username.length > 30) {
-    showToast("Le pseudo doit faire entre 2 et 30 caractères.", "warning");
+    showToast(T("pf.pseudo_length", "Le pseudo doit faire entre 2 et 30 caractères."), "warning");
     return;
   }
   if (!/^[A-Za-z0-9]{8}$/.test(publicId)) {
-    showToast("Le Public ID doit faire exactement 8 caractères alphanumériques (ex: HabCsQYR).", "warning");
+    showToast(T("pf.pid_length", "Public ID invalide — 8 caractères alphanumériques (ex: HabCsQYR), ou collez directement le lien OpenFront."), "warning");
     return;
   }
   if (/[^a-zA-Z0-9_\- ]/.test(username)) {
-    showToast("Le pseudo ne peut contenir que des lettres, chiffres, espaces, _ et -.", "warning");
+    showToast(T("pf.pseudo_chars", "Le pseudo ne peut contenir que des lettres, chiffres, espaces, _ et -."), "warning");
+    return;
+  }
+
+  // Défi déjà en cours pour ce compte ? → réutilise LE MÊME code, sans reset.
+  // (l'utilisateur revient après avoir mis le code dans son pseudo, ou après
+  //  un simple passage sur une autre page : rien ne doit changer. Le check
+  //  est placé AVANT les appels réseau pour marcher même si l'API rame.)
+  const pending = loadOwnershipChallenge();
+  if (pending && pending.publicId === publicId && pending.username === username) {
+    showOwnershipStep2(pending);
+    showToast(T("pf.code_pending", "Défi déjà en cours — même code : {code}. Joue (ou finis) ta partie, puis reviens cliquer sur Vérifier.", { code: pending.code }), "info", 6000);
     return;
   }
 
   // If user already has a different publicId, refuse change
   try {
     if (currentProfile && currentProfile.publicId && currentProfile.publicId !== publicId) {
-      showToast("Le Public ID OpenFront ne peut plus être modifié.", "error");
+      showToast(T("profile.public_id_locked_alert", "Le Public ID OpenFront ne peut plus être modifié."), "error");
       return;
     }
   } catch (e) { /* non-blocking */ }
 
   // Verify publicId exists on OpenFront
-  showToast("Vérification du Public ID…", "info", 3000);
+  showToast(T("pf.checking_pid", "Vérification du Public ID…"), "info", 3000);
   try {
     const playerData = await fetchOpenFront(`/public/player/${encodeURIComponent(publicId)}`);
     if (!playerData || !playerData.publicId) {
-      showToast("Public ID introuvable sur OpenFront. Vérifiez votre saisie.", "error");
+      showToast(T("pf.pid_not_found", "Public ID introuvable sur OpenFront. Vérifiez votre saisie."), "error");
       return;
     }
   } catch (e) {
     if (e?.isNotFound || e?.status === 404) {
-      showToast("Public ID introuvable sur OpenFront. Vérifiez votre saisie.", "error");
+      showToast(T("pf.pid_not_found", "Public ID introuvable sur OpenFront. Vérifiez votre saisie."), "error");
       return;
     }
-    showToast("Impossible de vérifier le Public ID (API indisponible). Réessayez plus tard.", "error", 6000);
+    showToast(T("pf.pid_check_fail", "Impossible de vérifier le Public ID (API indisponible). Réessayez plus tard."), "error", 6000);
     console.error("[setup] API check failed:", e);
     return;
   }
 
   // Check that no other user has this publicId already
+  // (fix 2026-08-29 : FIRESTORE_BASE n'existe plus depuis la migration MySQL —
+  //  la vérification pointait vers une variable undefined → ReferenceError
+  //  avalé par le catch, check mort. Remplacé par l'API MySQL public-aliases.)
+  // (fix 2026-09-03 : comparaison uid cassée — alias.uid (id MySQL) ne peut
+  //  JAMAIS égaler currentUser.uid (id Discord) → le check ne servait à rien.
+  //  En setup le compte n'est pas encore lié : si le pid figure dans les
+  //  alias publics, il appartient forcément à un autre compte → refus.)
   try {
-    const aliasesRes = await fetch(`${FIRESTORE_BASE}/public-aliases`);
+    const aliasesRes = await fetch("/api/public-aliases.php", { cache: "no-store" });
     if (aliasesRes.ok) {
       const aliasesData = await aliasesRes.json();
-      const docs = aliasesData.documents || [];
-      for (const doc of docs) {
-        const f = doc.fields || {};
-        const val = (field) => (field?.stringValue || field?.integerValue || "");
-        const pid = val(f.publicId);
-        const docUid = doc.name?.split("/").pop();
-        if (pid === publicId && docUid !== currentUser.uid) {
-          showToast("Ce Public ID est déjà lié à un autre compte.", "error");
+      const aliases = aliasesData.aliases || [];
+      for (const alias of aliases) {
+        if (alias.publicId && alias.publicId === publicId) {
+          showToast(T("pf.pid_taken", "Ce Public ID est déjà lié à un autre compte."), "error");
           return;
         }
       }
     }
-  } catch (e) { /* non-blocking */ }
+  } catch (e) { /* API indisponible — le défi en jeu ci-dessous reste la preuve de propriété */ }
 
-  // Directly save — no challenge code needed, public ID is unique
-  await saveUserProfile(username, publicId);
+  // ── Défi de propriété (2026-09-03 — remplace « Directly save ») ──────
+  // Lier un Public ID = revendiquer une identité OpenFront. Sans preuve,
+  // n'importe qui pouvait réclamer le pid d'un joueur non lié puis piloter
+  // « son » profil (pseudo public, cosmétiques). Désormais : un code unique
+  // doit apparaître dans une partie récente jouée avec ce compte — seule la
+  // personne qui le CONTRÔLE peut le faire apparaître.
+  const CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sans O/0 ni I/1
+  let code = "TFH";
+  for (let i = 0; i < 4; i++) code += CHARS[Math.floor(Math.random() * CHARS.length)];
+  const challenge = { code, publicId, username, ts: Date.now() };
+  saveOwnershipChallenge(challenge); // persisté : survit aux navigations/reloads
+  showOwnershipStep2(challenge);
+  showToast(T("pf.play_with_code", "Joue une partie avec le code {code} dans ton pseudo, puis clique sur Vérifier.", { code }), "info", 7000);
+};
+
+/** Copie le code de vérification dans le presse-papiers (étape 2 du setup). */
+window.copyOwnershipCode = function () {
+  const code = _ownershipCode
+    || document.getElementById("ownership-code-display")?.textContent
+    || "";
+  if (!code || code === "—") return;
+  const done = () => showToast(T("pf.code_copied", "Code copié : {code}", { code }), "success");
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(code).then(done).catch(() => showToast(T("pf.code_show", "Code : {code}", { code }), "info"));
+  } else {
+    showToast(T("pf.code_show", "Code : {code}", { code }), "info");
+  }
 };
 
 window.confirmOwnershipVerification = async () => {
+  // Sécurité : si la page vient d'être rechargée et que l'étape 2 n'a pas
+  // encore été re-rendue, on repêche le défi persistant (même code).
+  if (!_ownershipCode || !_ownershipPublicId) {
+    const pending = loadOwnershipChallenge();
+    if (pending) {
+      _ownershipCode = pending.code;
+      _ownershipPublicId = pending.publicId;
+      _ownershipUsername = pending.username;
+    }
+  }
   if (!_ownershipCode || !_ownershipPublicId) return;
   const btn = document.getElementById("confirm-ownership-btn");
-  const original = btn?.textContent || "Confirmer";
-  if (btn) { btn.disabled = true; btn.textContent = "Vérification…"; }
+  const original = btn?.textContent || T("pf.confirm", "Confirmer");
+  if (btn) { btn.disabled = true; btn.textContent = T("pf.verifying", "Vérification…"); }
 
   try {
     // L'API /public/player/{id} ne renvoie plus `games`. On récupère les
     // parties récentes via l'endpoint dédié /public/player/{id}/games.
     const gamesData = await fetchOpenFront(`/public/player/${encodeURIComponent(_ownershipPublicId)}/games`);
     const games = Array.isArray(gamesData?.results) ? gamesData.results : [];
-    let found = games.some((g) => g.username && g.username.includes(_ownershipCode));
+    // Comparaison insensible à la casse : le code peut être tapé en minuscules.
+    const needle = String(_ownershipCode).toUpperCase();
+    let found = games.some((g) => String(g.username || "").toUpperCase().includes(needle));
     if (!found) {
-      showToast("Code non trouvé dans vos parties récentes. Jouez une partie avec le code dans votre pseudo, puis confirmez.", "error", 6000);
+      showToast(T("pf.code_not_found", "Code non trouvé dans vos parties récentes. Jouez une partie avec le code dans votre pseudo, puis confirmez."), "error", 6000);
       if (btn) { btn.disabled = false; btn.textContent = original; }
       return;
     }
     // Verified → save to Firestore
     await saveUserProfile(_ownershipUsername, _ownershipPublicId);
+    // Liaison réussie → le défi persistant n'a plus de raison d'exister.
+    clearOwnershipChallenge();
   } catch (e) {
     console.error("[ownership] Confirmation failed:", e);
-    showToast("Erreur lors de la vérification. Réessayez.", "error");
+    // Fix 2026-09-06 : affiche la vraie raison renvoyée par l'API
+    // (pseudo déjà pris, public ID déjà lié à un autre compte…)
+    // au lieu d'un message générique qui masquait le problème.
+    showToast(e?.message ? e.message : T("pf.verify_error", "Erreur lors de la vérification. Réessayez."), "error", 7000);
     if (btn) { btn.disabled = false; btn.textContent = original; }
   }
 };
 
 window.cancelOwnershipVerification = () => {
+  // ⚠️ On ne supprime PAS le défi persistant (loadOwnershipChallenge) :
+  // « Modifier mes infos » ne doit pas invalider le code que l'utilisateur
+  // a peut-être déjà mis dans son pseudo en jeu. S'il relance la liaison
+  // avec les mêmes infos, le MÊME code est réaffiché (reuse dans
+  // startOwnershipVerification). Effacement uniquement après liaison OK.
   _ownershipCode = null;
   _ownershipPublicId = null;
   _ownershipUsername = null;
@@ -828,7 +1462,7 @@ async function saveUserProfile(username, publicId) {
     }, { merge: true });
 
     currentProfile = { ...(currentProfile || {}), username, publicId, verified: true };
-    showToast("Profil vérifié et enregistré avec succès !", "success");
+    showToast(T("pf.profile_saved", "Profil vérifié et enregistré avec succès !"), "success");
 
     // Publie le lien publicId ↔ username/uid dans une collection publique pour que
     // le matching VIP par PUBLIC ID fonctionne pour tous les viewers (skin suit le
@@ -861,14 +1495,32 @@ async function saveUserProfile(username, publicId) {
     renderHero(currentUser, currentProfile);
     loadVipForProfile(); // écoute VIP pour appliquer le skin par publicId
     await loadStats(publicId);
+    loadProfileSpeedruns(publicId, true, [username]);
   } catch (e) {
     console.error("[profile] Save profile error:", e);
-    showToast("Erreur lors de la sauvegarde du profil.", "error");
+    showToast(T("pf.profile_save_error", "Erreur lors de la sauvegarde du profil."), "error");
     throw e;
   }
 }
 
 /* ── Sidebar / auth modal handlers ── */
+
+// État visuel des boutons Discord pendant la redirection OAuth (modal + gate)
+function setDiscordRedirecting(redirecting) {
+  const btns = document.querySelectorAll(".auth-btn.discord, .pf-discord-btn, #auth-btn-discord");
+  btns.forEach((btn) => {
+    const label = btn.querySelector(".auth-btn-label");
+    if (redirecting) {
+      btn.disabled = true;
+      btn.classList.add("is-redirecting");
+      if (label) label.textContent = T("pf.redirecting_discord", "Redirection vers Discord…");
+    } else {
+      btn.disabled = false;
+      btn.classList.remove("is-redirecting");
+      if (label) label.textContent = T("auth.continue_discord", "Continuer avec Discord");
+    }
+  });
+}
 
 window.toggleAuthModal = function () {
   const modal = document.getElementById("auth-modal");
@@ -878,25 +1530,22 @@ window.toggleAuthModal = function () {
 window.handleLogin = async function (provider) {
   if (window._loginInProgress) return;
   window._loginInProgress = true;
-  const authBtns = document.querySelectorAll(".auth-btn");
-  authBtns.forEach((b) => { b.disabled = true; b.style.opacity = "0.6"; });
+  setDiscordRedirecting(true);
   try {
-    if (provider === "google") await window.loginWithGoogle();
-    else if (provider === "discord") await window.loginWithDiscord();
-    // Close modal on success — onAuthStateChanged will switch view
+    // Discord uniquement — loginWithDiscord() redirige vers l'OAuth
+    await window.loginWithDiscord();
     const modal = document.getElementById("auth-modal");
     if (modal) modal.classList.remove("active");
   } catch (e) {
     console.error("[profile] Login error:", e);
-  } finally {
     window._loginInProgress = false;
-    authBtns.forEach((b) => { b.disabled = false; b.style.opacity = ""; });
+    setDiscordRedirecting(false);
   }
 };
 
 window.handleLogout = async function (event) {
   if (event) event.stopPropagation();
-  if (!confirm("Voulez-vous vous déconnecter ?")) return;
+  if (!confirm(T("profile.logout_confirm", "Voulez-vous vous déconnecter ?"))) return;
   try { await window.logout(); } catch (e) { console.warn("[profile] logout error:", e); }
   currentUser = null;
   currentProfile = null;
@@ -932,33 +1581,126 @@ document.addEventListener("click", (e) => {
 
 
 /* ═══ Weekly Performance Chart — Line chart ═══
-   Graphique en lignes: semaines sur l'axe X (horizontal), score sur
+   Graphique en lignes : semaines sur l'axe X (S1, S2, S3… — l'historique
+   s'accumule semaine après semaine, voir sync-dashboard.js), score sur
    l'axe Y gauche, position sur l'axe Y droite (inversé).
-   Lignes colorées par mode: FFA=rouge, Team=bleu, Total=noir.
-   Points avec cercle contenant le rang (#X). */
+   Lignes colorées par mode : FFA=rouge, Team=bleu, Classé=violet, Total=noir.
+   Points avec cercle contenant le rang (#X) sur la série Total. */
+
+/* 🌱 mergeWeeklySeed() réactivée (retour demandé par Skailex 2026-09-23) :
+   les semaines « seed » reconstituées a posteriori (data/weekly_history_seed.json)
+   complètent l'historique live — S1, S2 réapparaissent sur la courbe.
+   Garde-fous : on ne remplace JAMAIS une semaine déjà enregistrée par la sync,
+   et on ne comble que des semaines STRICTEMENT antérieures à la plus vieille
+   semaine connue. Les labels restent absolus (S = semaine de saison), donc
+   aucun décalage de numérotation. */
+async function mergeWeeklySeed() {
+  try {
+    const seedRes = await fetch("data/weekly_history_seed.json", { cache: "no-cache" });
+    if (!seedRes.ok) return;
+    const seed = await seedRes.json();
+    const seedWeeks = (seed && seed.weeks) || {};
+    const hist = window._profileWeekHistory = window._profileWeekHistory || { version: 1, weeks: {} };
+    hist.weeks = hist.weeks || {};
+    const oldest = Object.keys(hist.weeks).sort()[0] || null;
+    let added = 0;
+    for (const k of Object.keys(seedWeeks)) {
+      if (hist.weeks[k]) continue;          // semaine enregistrée → live prioritaire
+      if (oldest && k >= oldest) continue;  // uniquement antérieur à l'historique
+      hist.weeks[k] = seedWeeks[k];
+      added++;
+    }
+    if (added) console.log("[profile] Historique hebdo : +" + added + " semaine(s) du seed");
+  } catch (e) { /* seed indisponible → historique live seul */ }
+}
+
+/* Construit la liste chronologique des semaines :
+   historique figé (weekly_history.json) + point live (semaine en cours,
+   données les plus fraîches) en dernière position. */
+function buildWeeklyWeeks(data) {
+  const weeks = [];
+  const hist = window._profileWeekHistory;
+  const histWeeks = hist && hist.weeks ? Object.entries(hist.weeks).sort((a, b) => a[0].localeCompare(b[0])) : [];
+  for (const [key, wk] of histWeeks) {
+    const p = wk && wk.players ? wk.players[data.publicId] : null;
+    weeks.push({
+      key,
+      start: (wk && wk.start) || key,
+      total: p ? p.t || 0 : 0,
+      ffa: p ? p.f || 0 : 0,
+      team: p ? p.te || 0 : 0,
+      ranked: p ? p.r || 0 : 0,
+      rank: p && p.k ? p.k : "—",
+    });
+  }
+  // Semaine en cours : refresh avec les données live (dashboard_scores)
+  const liveKey = (data.weekStart || "").slice(0, 10);
+  const liveIdx = weeks.findIndex((w) => w.key === liveKey);
+  if (liveIdx >= 0) {
+    const w = weeks[liveIdx];
+    w.total = data.total;
+    w.ffa = data.ffa;
+    w.team = data.team;
+    w.ranked = data.ffaRanked + data.teamRanked;
+    w.rank = data.rank;
+  } else {
+    // ⚠️ Garde-fou cache : si les données live sont PLUS ANCIENNES que la
+    // dernière semaine de l'historique (dashboard_scores périmé dans le
+    // navigateur, ex. après le reset du lundi), on ne les ajoute PAS.
+    // Sinon un point « S2 » à droite affichait la semaine précédente →
+    // inversion S1/S2 sur la courbe (bug signalé par Skailex).
+    const lastKey = weeks.length ? weeks[weeks.length - 1].key : null;
+    if (!lastKey || liveKey >= lastKey) {
+      weeks.push({
+        key: liveKey || "live",
+        start: data.weekStart || new Date().toISOString(),
+        total: data.total,
+        ffa: data.ffa,
+        team: data.team,
+        ranked: data.ffaRanked + data.teamRanked,
+        rank: data.rank,
+      });
+    }
+  }
+  // Labels = semaine de SAISON (pas index dans le tableau) : S1 = première
+  // semaine suivie par le site (lundi 24/08/2026 00h00 Paris).
+  // Un trou dans l'historique ne décale plus la numérotation — la semaine du
+  // 31/08 reste S2 même si une semaine manque. Fallback = index si la date
+  // est antérieure à la saison (données hors périmètre).
+  // 🔄 Nouvelle saison de classement hebdo → mettre à jour WEEKLY_SEASON_START.
+  const WEEKLY_SEASON_START_MS = Date.parse("2026-08-23T22:00:00.000Z"); // lundi 24/08 00h00 Paris
+  weeks.forEach((w, i) => {
+    let n = null;
+    const t = Date.parse(w.start);
+    if (Number.isFinite(t) && Number.isFinite(WEEKLY_SEASON_START_MS) && t >= WEEKLY_SEASON_START_MS) {
+      n = 1 + Math.round((t - WEEKLY_SEASON_START_MS) / (7 * 86400000));
+    }
+    w.label = "S" + (n && n >= 1 ? n : i + 1);
+  });
+  return weeks;
+}
 
 function renderWeeklyChart() {
   const data = window._profileWeekData;
-  if (!data) return;
+  if (!data || !data.publicId) return;
 
   let wrap = document.getElementById("weekly-chart-card");
   if (!wrap) {
-    const recent = document.getElementById("profile-recent-games");
-    if (!recent) return;
+    // En HAUT du profil (sous les cartes de stats), puis fallbacks historiques
+    const mount = document.getElementById("pf2-weekly-top") || document.getElementById("pf2-below") || document.getElementById("career-stats-section") || document.getElementById("playtime-section-mount");
+    if (!mount) return;
     wrap = document.createElement("div");
     wrap.id = "weekly-chart-card";
-    wrap.className = "pf-card";
-    wrap.style.marginTop = "16px";
+    wrap.className = "pf2-panel";
     wrap.innerHTML = `
-      <div class="pf-card-header">
-        <span class="pf-card-title">Weekly Performance</span>
-        <span class="pf-card-sub">Points par semaine</span>
-      </div>
-      <div class="pf-card-body" style="padding:16px">
-        <canvas id="weekly-chart-canvas" style="width:100%;height:320px;display:block"></canvas>
-      </div>
+      <header class="pf2-panel-head">
+        <h3>${T("pf.chart_title", "Points par semaine")}</h3>
+        <i class="pf2-panel-rule"></i>
+        <span class="pf2-panel-sub">${T("pf.chart_sub", "Performance hebdomadaire (FFA, Team, Classé) — une nouvelle semaine s'ajoute chaque lundi")}</span>
+      </header>
+      <canvas id="weekly-chart-canvas" style="width:100%;height:300px;display:block"></canvas>
     `;
-    recent.parentNode.after(wrap);
+    mount.appendChild(wrap);
   }
 
   const canvas = document.getElementById("weekly-chart-canvas");
@@ -973,14 +1715,16 @@ function renderWeeklyChart() {
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, W, H);
 
-  // ── Data: 1 week for now (Week 1). Will expand as history accumulates. ──
-  const weeks = ["Week 1"];
+  // ── Data : S1 → Sn (historique) + semaine en cours en dernier point ──
+  const weeks = buildWeeklyWeeks(data);
+  if (weeks.length === 0) return;
   const rankedScore = data.ffaRanked + data.teamRanked;
+  const isLive = (i) => i === weeks.length - 1; // dernier point = semaine en cours (live)
   const series = [
-    { label: "FFA", color: "#ef4444", points: [{ score: data.ffa, rank: data.rank, detail: { wins: data.ffaCasual } }] },
-    { label: "Team", color: "#2196f3", points: [{ score: data.team, rank: data.rank, detail: { wins: data.teamCasual } }] },
-    { label: "Class\u00e9", color: "#9333ea", points: [{ score: rankedScore, rank: data.rank, detail: { ffa1v1: data.ffaRanked, team2v2: data.teamRanked } }] },
-    { label: "Total", color: "#111827", points: [{ score: data.total, rank: data.rank, detail: { ffa: data.ffa, team: data.team, ranked: rankedScore, allTime: data.allTimePoints } }] },
+    { id: "ffa", label: T("pf.series_ffa", "FFA"), color: "#ef4444", points: weeks.map((w, i) => ({ score: w.ffa, rank: w.rank, detail: isLive(i) ? { wins: data.ffaCasual } : {}, date: w.start })) },
+    { id: "team", label: T("pf.series_team", "Team"), color: "#2196f3", points: weeks.map((w, i) => ({ score: w.team, rank: w.rank, detail: isLive(i) ? { wins: data.teamCasual } : {}, date: w.start })) },
+    { id: "ranked", label: T("pf.series_ranked", "Classé"), color: "#9333ea", points: weeks.map((w, i) => ({ score: w.ranked, rank: w.rank, detail: isLive(i) ? { ffa1v1: data.ffaRanked, team2v2: data.teamRanked } : {}, date: w.start })) },
+    { id: "total", label: T("pf.series_total", "Total"), color: "#111827", points: weeks.map((w, i) => ({ score: w.total, rank: w.rank, detail: isLive(i) ? { ffa: data.ffa, team: data.team, ranked: rankedScore, allTime: data.allTimePoints } : { ffa: w.ffa, team: w.team, ranked: w.ranked }, date: w.start })) },
   ];
 
   // Store point positions for hover detection
@@ -1028,21 +1772,24 @@ function renderWeeklyChart() {
   ctx.textAlign = "center";
   ctx.fillStyle = "#6b7280";
   ctx.font = "11px Inter, sans-serif";
-  ctx.fillText("Score", 0, 0);
+  ctx.fillText(T("pf.axis_score", "Score"), 0, 0);
   ctx.restore();
 
-  // ── X-axis labels (weeks) ──
+  // ── X-axis labels (S1, S2, … — échantillonnés si trop nombreuses) ──
   ctx.fillStyle = "#6b7280";
   ctx.font = "11px Inter, sans-serif";
   ctx.textAlign = "center";
-  weeks.forEach((label, i) => {
-    ctx.fillText(label, xForIndex(i), padding.top + chartH + 20);
+  const labelStep = weeks.length > 12 ? Math.ceil(weeks.length / 12) : 1;
+  weeks.forEach((w, i) => {
+    if (i % labelStep === 0 || i === weeks.length - 1) {
+      ctx.fillText(w.label, xForIndex(i), padding.top + chartH + 20);
+    }
   });
 
-  // "Week" label centered
+  // "Semaines" label centered
   ctx.fillStyle = "#9ca3af";
   ctx.font = "10px Inter, sans-serif";
-  ctx.fillText("Week", padding.left + chartW / 2, H - 8);
+  ctx.fillText(T("pf.axis_weeks", "Semaines"), padding.left + chartW / 2, H - 8);
 
   // ── Draw lines + points for each series ──
   series.forEach(s => {
@@ -1067,7 +1814,7 @@ function renderWeeklyChart() {
       const x = xForIndex(i);
       const y = yForScore(p.score);
 
-      if (s.label === "Total" && p.rank && p.rank !== "—") {
+      if (s.id === "total" && p.rank && p.rank !== "—") {
         // Total point: rank circle with "#X" inside
         const r = 16;
         ctx.beginPath();
@@ -1118,7 +1865,7 @@ function renderWeeklyChart() {
       }
 
       // Store position for hover detection
-      pointPositions.push({ x, y, r: s.label === "Total" ? 18 : 12, series: s, point: p, weekIndex: i });
+      pointPositions.push({ x, y, r: s.id === "total" ? 18 : 12, series: s, point: p, weekIndex: i });
     });
   });
 
@@ -1172,23 +1919,25 @@ function renderWeeklyChart() {
 
     if (found) {
       const d = found.point.detail || {};
-      const wk = weeks[found.weekIndex] || "";
-      let html = `<div style="font-weight:700;color:#fff;margin-bottom:4px">${found.series.label} \u2014 ${wk}</div>`;
-      html += `<div style="color:#9ca3af;font-size:11px;margin-bottom:6px">Score: <span style="color:${found.series.color};font-weight:700">${found.point.score} pts</span></div>`;
+      const wMeta = weeks[found.weekIndex] || {};
+      const dateStr = wMeta.start ? new Intl.DateTimeFormat(LOCALE(), { day: "2-digit", month: "2-digit" }).format(new Date(wMeta.start)) : "";
+      const wkTitle = `${wMeta.label || ""}${dateStr ? ` <span style="color:#9ca3af;font-weight:400">· ${T("pf.tooltip_week_of", "semaine du {date}", { date: dateStr })}</span>` : ""}`;
+      let html = `<div style="font-weight:700;color:#fff;margin-bottom:4px">${found.series.label} — ${wkTitle}</div>`;
+      html += `<div style="color:#9ca3af;font-size:11px;margin-bottom:6px">${T("pf.tooltip_score", "Score: {n} pts", { n: found.point.score })}</div>`;
 
-      if (found.series.label === "FFA") {
-        html += `<div style="font-size:11px;color:#a89480">Wins FFA: ${d.wins || 0}</div>`;
-      } else if (found.series.label === "Team") {
-        html += `<div style="font-size:11px;color:#a89480">Wins Team: ${d.wins || 0}</div>`;
-      } else if (found.series.label === "Class\u00e9") {
-        html += `<div style="font-size:11px;color:#a89480">1v1: ${d.ffa1v1 || 0} wins</div>`;
-        html += `<div style="font-size:11px;color:#a89480">2v2: ${d.team2v2 || 0} wins</div>`;
-      } else if (found.series.label === "Total") {
-        html += `<div style="font-size:11px;color:#a89480">FFA: ${d.ffa || 0} pts</div>`;
-        html += `<div style="font-size:11px;color:#a89480">Team: ${d.team || 0} pts</div>`;
-        html += `<div style="font-size:11px;color:#a89480">Class\u00e9: ${d.ranked || 0} pts</div>`;
-        html += `<div style="font-size:11px;color:#a89480">Rang: #${found.point.rank}</div>`;
-        html += `<div style="font-size:11px;color:#a89480;margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.1)">All-time: ${d.allTime || 0} pts</div>`;
+      if (found.series.id === "ffa") {
+        if (d.wins !== undefined) html += `<div style="font-size:11px;color:#a89480">${T("pf.tooltip_wins_ffa", "Wins FFA: {n}", { n: d.wins || 0 })}</div>`;
+      } else if (found.series.id === "team") {
+        if (d.wins !== undefined) html += `<div style="font-size:11px;color:#a89480">${T("pf.tooltip_wins_team", "Wins Team: {n}", { n: d.wins || 0 })}</div>`;
+      } else if (found.series.id === "ranked") {
+        if (d.ffa1v1 !== undefined) html += `<div style="font-size:11px;color:#a89480">${T("pf.tooltip_1v1_wins", "1v1: {n} wins", { n: d.ffa1v1 || 0 })}</div>`;
+        if (d.team2v2 !== undefined) html += `<div style="font-size:11px;color:#a89480">${T("pf.tooltip_2v2_wins", "2v2: {n} wins", { n: d.team2v2 || 0 })}</div>`;
+      } else if (found.series.id === "total") {
+        html += `<div style="font-size:11px;color:#a89480">${T("pf.tooltip_ffa_pts", "FFA: {n} pts", { n: d.ffa || 0 })}</div>`;
+        html += `<div style="font-size:11px;color:#a89480">${T("pf.tooltip_team_pts", "Team: {n} pts", { n: d.team || 0 })}</div>`;
+        html += `<div style="font-size:11px;color:#a89480">${T("pf.tooltip_ranked_pts", "Classé: {n} pts", { n: d.ranked || 0 })}</div>`;
+        if (found.point.rank && found.point.rank !== "—") html += `<div style="font-size:11px;color:#a89480">${T("pf.tooltip_rank", "Rang hebdo: #{n}", { n: found.point.rank })}</div>`;
+        if (d.allTime !== undefined) html += `<div style="font-size:11px;color:#a89480;margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.1)">${T("pf.tooltip_alltime", "All-time: {n} pts", { n: d.allTime || 0 })}</div>`;
       }
 
       tooltip.innerHTML = html;
@@ -1213,3 +1962,1273 @@ function renderWeeklyChart() {
     newCanvas.style.cursor = "default";
   });
 }
+/* ════════════════════════════════════════════════════════════════
+   RÉCOMPENSES v2 — codes + cosmétiques (design 2026-08)
+   ════════════════════════════════════════════════════════════════ */
+
+const RW_SUBMIT_LABEL = () => T("pf.rw_submit", "Valider");
+
+function setRwFeedback(type, msg) {
+  const el = document.getElementById("rw-feedback");
+  if (!el) return;
+  el.className = "rw-feedback show " + type;
+  const icon =
+    type === "success"
+      ? '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><polyline points="20 6 9 17 4 12"/></svg>'
+      : '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
+  el.innerHTML = icon + "<span>" + esc(msg) + "</span>";
+  el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function clearRwFeedback() {
+  const el = document.getElementById("rw-feedback");
+  if (el) {
+    el.className = "rw-feedback";
+    el.innerHTML = "";
+  }
+}
+
+function renderRewardCodeCard(publicId) {
+  _rewardCardState.publicId = publicId;
+  const container = document.getElementById("reward-code-section");
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="rw-card rw-card-compact">
+      <div class="rw-header">
+        <span class="rw-header-icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
+        </span>
+        <div class="rw-header-text">
+          <h2>${T("pf.rw_title", "Code de récompense")}</h2>
+          <p>${T("pf.rw_sub", "Entre un code pour débloquer un cosmétique pour ton pseudo.")}</p>
+        </div>
+      </div>
+      <div class="rw-redeem">
+        <div class="rw-redeem-row">
+          <div class="rw-input-wrap">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+            <input type="text" id="reward-code-input" placeholder="${T("pf.rw_ph", "TON-CODE-ICI")}" autocomplete="off" spellcheck="false">
+          </div>
+          <button type="button" class="rw-submit" id="reward-code-submit" disabled>
+            <span class="auth-spinner" aria-hidden="true"></span>
+            <span class="rw-submit-label">${RW_SUBMIT_LABEL()}</span>
+          </button>
+        </div>
+        <div class="rw-feedback" id="rw-feedback" role="status"></div>
+      </div>
+      <div class="rw-owned" id="rw-owned" hidden>
+        <div class="rw-owned-head">
+          <h3>${T("pf.rw_owned", "Mes cosmétiques")} <span class="rw-count" id="owned-skins-count">0</span></h3>
+          <span class="rw-gallery-hint">${T("pf.rw_click_activate", "Clique pour activer")}</span>
+        </div>
+        <div class="rw-chips" id="rw-chips"></div>
+      </div>
+      <div class="rw-owned rw-owned-banners" id="rw-banners" hidden>
+        <div class="rw-owned-head">
+          <h3>${T("pf.rw_banners", "Mes bannières")} <span class="rw-count" id="owned-banners-count">0</span></h3>
+          <span class="rw-gallery-hint">${T("pf.rw_banners_hint", "Clique pour l’appliquer sur ta plaquette")}</span>
+        </div>
+        <div class="rw-chips" id="rw-banner-chips"></div>
+      </div>
+    </div>
+  `;
+
+  const input = document.getElementById("reward-code-input");
+  const btn = document.getElementById("reward-code-submit");
+
+  input.addEventListener("input", () => {
+    input.value = normalizeCode(input.value);
+    btn.disabled = !input.value.trim();
+    clearRwFeedback();
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && input.value.trim()) handleRedeem();
+  });
+  btn.addEventListener("click", handleRedeem);
+
+  refreshOwnedSkins(publicId);
+  refreshOwnedBanners(publicId);
+}
+
+async function refreshOwnedSkins(publicId) {
+  const ownedWrap = document.getElementById("rw-owned");
+  if (!ownedWrap) return;
+
+  try {
+    const { ownedSkins, activeSkinId } = await fetchOwnedSkins(publicId);
+    _rewardCardState.ownedSkins = ownedSkins;
+    _rewardCardState.activeSkinId = activeSkinId;
+    renderOwnedSkins(ownedSkins, activeSkinId);
+  } catch (e) {
+    console.warn("[profile] refreshOwnedSkins failed:", e);
+  }
+}
+
+/**
+ * Affiche les cosmétiques possédés en chips compactes.
+ * La ligne n'apparaît QUE si le joueur possède au moins un skin du
+ * catalogue — sinon la carte reste une simple entrée de code.
+ * (Les ids hérités de l'ancien catalogue sont ignorés.)
+ */
+function renderOwnedSkins(ownedSkins, activeSkinId) {
+  const wrap = document.getElementById("rw-owned");
+  const chipsEl = document.getElementById("rw-chips");
+  const countEl = document.getElementById("owned-skins-count");
+  if (!wrap || !chipsEl) return;
+
+  const owned = getUnlockableSkins().filter((s) =>
+    ownedSkins.some((o) => o.skinId === s.id)
+  );
+  if (owned.length === 0) {
+    wrap.hidden = true;
+    chipsEl.innerHTML = "";
+    if (countEl) countEl.textContent = "0";
+    return;
+  }
+
+  wrap.hidden = false;
+  if (countEl) countEl.textContent = String(owned.length);
+
+  const isActive = (skinId) =>
+    (skinId === DEFAULT_SKIN_ID && (!activeSkinId || activeSkinId === DEFAULT_SKIN_ID)) ||
+    activeSkinId === skinId;
+
+  const chip = (skin) => {
+    const rarity = RARITY_META[skin.rarity] || RARITY_META.common;
+    const active = isActive(skin.id);
+    return `
+      <button type="button" class="rw-chip ${active ? "active" : ""}" data-skin-id="${esc(skin.id)}" title="${esc(skin.description)}">
+        <span class="rw-chip-preview"><span class="${skin.cssClass}">${esc(skin.name)}</span></span>
+        <span class="rw-chip-dot" style="background:${rarity.color}"></span>
+        ${active ? `<span class="rw-chip-badge">${T("pf.rw_active", "Actif")}</span>` : ""}
+      </button>
+    `;
+  };
+
+  chipsEl.innerHTML = chip(getSkin(DEFAULT_SKIN_ID)) + owned.map(chip).join("");
+
+  chipsEl.querySelectorAll(".rw-chip[data-skin-id]").forEach((el) => {
+    el.addEventListener("click", () => handleActivate(el.dataset.skinId));
+  });
+}
+
+async function handleRedeem() {
+  // Verrou : les codes cosmétiques ne concernent que le profil du compte connecté
+  if (!editingAllowed) { showToast(T("pf.rw_lock", "Les codes cosmétiques se saisissent sur ton propre profil."), "warning"); return; }
+  const input = document.getElementById("reward-code-input");
+  const btn = document.getElementById("reward-code-submit");
+  const label = btn ? btn.querySelector(".rw-submit-label") : null;
+  if (!input || !input.value.trim()) return;
+
+  const code = input.value.trim();
+  const publicId = _rewardCardState.publicId;
+  if (!publicId) return;
+
+  btn.disabled = true;
+  btn.classList.add("is-redirecting");
+  if (label) label.textContent = T("pf.rw_validating", "Validation…");
+  clearRwFeedback();
+
+  try {
+    const result = await redeemCode(code, publicId);
+
+    /* ── Bannière pixel art : auto-activation sur la plaquette ─────
+     * (skins.php a routé le code vers tfh_user_banners — kind:"banner") */
+    if (result.kind === "banner") {
+      const bName = getBanner(result.skinId)?.name || result.skinId;
+      let message = result.alreadyOwned
+        ? T("pf.banner_already", "Tu possèdes déjà la bannière « {name} » — réactivée.", { name: bName })
+        : T("pf.banner_unlocked", "Bannière « {name} » débloquée et appliquée sur ta plaquette !", { name: bName });
+      try {
+        const act = await activateBanner(publicId, result.skinId);
+        _rewardCardState.activeBannerId = act.activeBannerId;
+        paintBanner(document.querySelector(".pf2-id"), act.activeBannerId);
+      } catch (e) {
+        if (!result.alreadyOwned) {
+          message = `${result.message} ${T("pf.rw_activate_below", "Active-le ci-dessous.")}`;
+        }
+      }
+      setRwFeedback("success", message);
+      showToast(
+        result.alreadyOwned
+          ? T("pf.banner_reactivated_short", "Bannière « {name} » réactivée", { name: bName })
+          : T("pf.banner_unlocked_short", "Bannière « {name} » débloquée !", { name: bName }),
+        result.alreadyOwned ? "info" : "success"
+      );
+      input.value = "";
+      await refreshOwnedBanners(publicId);
+      return; // le bloc finally restaure le bouton
+    }
+
+    let message = result.message;
+
+    // Auto-activation : le skin débloqué s'applique aussitôt au pseudo.
+    // (Peut échouer pour un id hérité hors catalogue → message dégradé.)
+    try {
+      await activateSkin(publicId, result.skinId);
+      message = result.alreadyOwned
+        ? T("pf.skin_reactivated", "Skin « {name} » déjà dans ta collection — réactivé.", { name: result.skinName })
+        : T("pf.skin_unlocked", "Skin « {name} » débloqué et activé !", { name: result.skinName });
+    } catch (e) {
+      if (!result.alreadyOwned) message = `${result.message} ${T("pf.rw_activate_below", "Active-le ci-dessous.")}`;
+    }
+
+    setRwFeedback("success", message);
+    showToast(
+      result.alreadyOwned
+        ? T("pf.skin_reactivated_short", "Skin « {name} » réactivé", { name: result.skinName })
+        : T("pf.cosmetic_unlocked", "Cosmétique « {name} » débloqué !", { name: result.skinName }),
+      result.alreadyOwned ? "info" : "success"
+    );
+    input.value = "";
+    await refreshOwnedSkins(publicId);
+    if (currentProfile) renderHero(currentUser, currentProfile);
+  } catch (e) {
+    setRwFeedback("error", e.message || T("pf.code_invalid_expired", "Code invalide ou expiré."));
+    showToast(e.message || T("pf.code_invalid", "Code invalide"), "error");
+  } finally {
+    btn.disabled = true; // sera ré-activé par l'input listener si besoin
+    btn.classList.remove("is-redirecting");
+    if (label) label.textContent = RW_SUBMIT_LABEL();
+  }
+}
+
+async function handleActivate(skinId) {
+  // Verrou : activer un skin ne concerne que le profil du compte connecté
+  if (!editingAllowed) { showToast(T("pf.skin_lock", "Les cosmétiques s’activent sur ton propre profil."), "warning"); return; }
+  const publicId = _rewardCardState.publicId;
+  if (!publicId) return;
+  try {
+    const result = await activateSkin(publicId, skinId);
+    _rewardCardState.activeSkinId = result.activeSkinId;
+    showToast(
+      skinId === DEFAULT_SKIN_ID ? T("pf.skin_default_active", "Skin standard activé") : T("pf.skin_activated", "Skin « {name} » activé", { name: getSkin(skinId).name }),
+      "success"
+    );
+    renderOwnedSkins(_rewardCardState.ownedSkins, result.activeSkinId);
+    // Rafraîchit le pseudo du hero avec le skin actif
+    if (currentProfile) renderHero(currentUser, currentProfile);
+  } catch (e) {
+    showToast(e.message || T("pf.skin_activate_fail", "Activation impossible"), "error");
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   BANNIÈRES PIXEL ART (plaquette de pseudo)
+   Possession/activation via /api/banners.php (tfh_user_banners).
+   Le rachat passe par le MÊME champ de code (skins.php route les
+   skin_id préfixés banner_ vers la table des bannières).
+   ══════════════════════════════════════════════════════════════ */
+
+async function refreshOwnedBanners(publicId) {
+  const wrap = document.getElementById("rw-banners");
+  if (!wrap) return;
+  try {
+    const { ownedBanners, activeBannerId } = await fetchOwnedBanners(publicId);
+    _rewardCardState.ownedBanners = ownedBanners;
+    _rewardCardState.activeBannerId = activeBannerId;
+    renderOwnedBanners(ownedBanners, activeBannerId);
+  } catch (e) {
+    console.warn("[profile] refreshOwnedBanners failed:", e);
+  }
+}
+
+/**
+ * Chips « Mes bannières » : aperçu pixel art en miniature + puce « Aucune »
+ * (plaquette standard). N'apparaît QUE si le joueur possède au moins une
+ * bannière du catalogue.
+ */
+function renderOwnedBanners(ownedBanners, activeBannerId) {
+  const wrap = document.getElementById("rw-banners");
+  const chipsEl = document.getElementById("rw-banner-chips");
+  const countEl = document.getElementById("owned-banners-count");
+  if (!wrap || !chipsEl) return;
+
+  const owned = BANNERS.filter((b) => (ownedBanners || []).some((o) => o.bannerId === b.id));
+  if (owned.length === 0) {
+    wrap.hidden = true;
+    chipsEl.innerHTML = "";
+    if (countEl) countEl.textContent = "0";
+    return;
+  }
+
+  wrap.hidden = false;
+  if (countEl) countEl.textContent = String(owned.length);
+
+  const preview = (banner) => {
+    const url = renderBannerUrl(banner, currentTheme());
+    return `<img src="${url}" alt="" width="${banner.cols}" height="${banner.rows}" loading="lazy">`;
+  };
+
+  const chip = (banner) => {
+    const rarity = RARITY_META[banner.rarity] || RARITY_META.common;
+    const active = activeBannerId === banner.id;
+    return `
+      <button type="button" class="rw-chip rw-chip-banner ${active ? "active" : ""}" data-banner-id="${esc(banner.id)}" title="${esc(banner.description)}">
+        <span class="rw-chip-preview">${preview(banner)}</span>
+        <span class="rw-chip-label">${esc(banner.name)}</span>
+        <span class="rw-chip-dot" style="background:${rarity.color}"></span>
+        ${active ? `<span class="rw-chip-badge">${T("pf.rw_active", "Actif")}</span>` : ""}
+      </button>
+    `;
+  };
+
+  const noneActive = !activeBannerId;
+  chipsEl.innerHTML =
+    `<button type="button" class="rw-chip rw-chip-banner ${noneActive ? "active" : ""}" data-banner-id="none" title="${esc(T("pf.rw_banner_none_title", "Retire la bannière — plaquette standard"))}">
+       <span class="rw-chip-preview rw-chip-none-preview">${T("pf.rw_banner_none", "Aucune")}</span>
+       <span class="rw-chip-label">${T("pf.rw_banner_none_label", "Standard")}</span>
+     </button>` +
+    owned.map(chip).join("");
+
+  chipsEl.querySelectorAll(".rw-chip[data-banner-id]").forEach((el) => {
+    el.addEventListener("click", () => handleActivateBanner(el.dataset.bannerId));
+  });
+}
+
+async function handleActivateBanner(bannerId) {
+  // Verrou : l'activation ne concerne que le profil du compte connecté
+  if (!editingAllowed) { showToast(T("pf.banner_lock", "Les bannières s’activent sur ton propre profil."), "warning"); return; }
+  const publicId = _rewardCardState.publicId;
+  if (!publicId) return;
+  try {
+    const result = await activateBanner(publicId, bannerId);
+    _rewardCardState.activeBannerId = result.activeBannerId;
+    // Applique (ou retire) immédiatement sur la plaquette affichée
+    paintBanner(document.querySelector(".pf2-id"), result.activeBannerId);
+    showToast(
+      bannerId === DEFAULT_BANNER_ID
+        ? T("pf.banner_removed", "Bannière retirée — plaquette standard")
+        : T("pf.banner_activated", "Bannière « {name} » appliquée sur ta plaquette !", { name: getBanner(bannerId)?.name || bannerId }),
+      "success"
+    );
+    renderOwnedBanners(_rewardCardState.ownedBanners, result.activeBannerId);
+  } catch (e) {
+    showToast(e.message || T("pf.banner_activate_fail", "Activation impossible"), "error");
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   CAREER STATS OVERVIEW + CHARTS
+   ════════════════════════════════════════════════════════════════ */
+
+function renderCareerStats(statsTree, publicId) {
+  // Cockpit redesign: the full career overview (metrics, rings, cat bars,
+  // activity, recent games, map stats) is now rendered by renderPrecomputedStats
+  // once the pre-computed stats file (player-stats/<pid>.json) is loaded by
+  // loadAllGamesForStats(). This function is kept as a no-op placeholder so the
+  // existing loadStats flow doesn't break — the container shows a loading state
+  // until the cockpit data arrives.
+  const container = document.getElementById("career-stats-section");
+  if (!container) return;
+  container.innerHTML = `<div class="pf2-loading"><div class="pf2-loading-spinner"></div><span>${T("pf.dossier_loading", "Chargement du dossier…")}</span></div>`;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   ALL GAMES PAGINATION (for playtime + map stats)
+   ════════════════════════════════════════════════════════════════ */
+
+async function loadAllGamesForStats(publicId) {
+  if (_allGamesLoading) return;
+  _allGamesLoading = true;
+
+  const mount = document.getElementById("career-stats-section");
+  if (mount) mount.innerHTML = `<div class="pf2-loading"><div class="pf2-loading-spinner"></div><span>${T("pf.dossier_loading", "Chargement du dossier…")}</span></div>`;
+
+  // Load the PRE-CALCULATED stats file — instant, zero calculation!
+  // Generated by compute-player-stats.js (GitHub Actions workflow, continuous loop).
+  try {
+    const statsRes = await fetch(`player-stats/${encodeURIComponent(publicId)}.json`, { cache: "no-store" });
+    if (statsRes.ok) {
+      const stats = await statsRes.json();
+      if (stats && stats.totalGames != null) {
+        if (mount) mount.innerHTML = "";
+        renderPrecomputedStats(stats, mount);
+        _allGamesLoading = false;
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn("[profile] Could not load pre-computed stats file:", e.message);
+  }
+
+  // Fallback: no pre-computed stats available. The CI pipeline generates them
+  // within a few minutes of the first sync. Show a friendly message instead of
+  // duplicating the heavy compute logic client-side (the cockpit relies on
+  // pre-computed fields: level, nextMilestones, sparkline7d, etc.).
+  if (mount) {
+    mount.innerHTML = `
+      <div class="pf2-fallback">
+        <div class="pf2-fallback-icon">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+        <h3>${T("pf.fallback_title", "Stats en cours de calcul")}</h3>
+        <p>${T("pf.fallback_sub", "Notre serveur prépare ton dossier. Recharge la page dans 1-2 minutes.")}</p>
+        <button type="button" class="pf2-fallback-btn" onclick="location.reload()">${T("pf.reload", "Recharger")}</button>
+      </div>
+    `;
+  }
+  _allGamesLoading = false;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   [COCKPIT-REDESIGN] The 4 functions below (renderPlaytimeStats,
+   renderActivityStats, renderMapStatsTable, renderRecentGamesFull) were
+   removed and merged into the new renderPrecomputedStats() which builds
+   the Cockpit layout from the pre-computed stats file.
+   The map stats table + recent games list are kept inside the cockpit,
+   just restyled and rendered inline by renderPrecomputedStats.
+   ════════════════════════════════════════════════════════════════ */
+
+/* ════════════════════════════════════════════════════════════════
+   GAME DETAIL MODAL — opens when clicking a recent game row
+   ════════════════════════════════════════════════════════════════ */
+
+/** Attach click handlers to all [data-game-id] rows inside `container`. */
+function attachGameRowClickHandlers(container, games) {
+  if (!container) return;
+  const rows = container.querySelectorAll('[data-game-id]');
+  rows.forEach((row) => {
+    const open = () => {
+      const id = row.getAttribute('data-game-id');
+      const game = games.find((g) => String(g.gameId) === id);
+      if (game) showGameModal(game);
+    };
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('a, button')) return;
+      open();
+    });
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        open();
+      }
+    });
+  });
+}
+
+/** Show a modal with detailed info about a single game. */
+function showGameModal(game) {
+  let modal = document.getElementById('game-detail-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'game-detail-modal';
+    modal.className = 'game-modal-overlay';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.innerHTML = `
+      <div class="game-modal">
+        <button class="game-modal-close" aria-label="${T("modal.close", "Fermer")}" type="button">&times;</button>
+        <div class="game-modal-content"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal || e.target.closest('.game-modal-close')) {
+        closeGameModal();
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modal.classList.contains('is-open')) closeGameModal();
+    });
+  }
+
+  const cat = classifyGame(game);
+  const catLabels = { ffaCasual: "FFA Casual", ffaRanked: "1v1", teamCasual: "Team Casual", teamRanked: "2v2" };
+  const resultColor = game.result === "victory" ? "#10b981" : game.result === "defeat" ? "#ef4444" : game.result === "incomplete" ? "#6B7280" : "#9CA3AF";
+  const resultLabel = game.result === "victory" ? T("pf.result_victory", "Victoire") : game.result === "defeat" ? T("pf.result_defeat", "Défaite") : game.result === "incomplete" ? T("pf.result_incomplete", "Incomplet") : (game.result || "—");
+  const duration = game.durationSeconds || game.duration;
+  const startDate = game.start ? formatFrenchDate(new Date(game.start).getTime()) : "—";
+  const replayUrl = game.gameId ? `https://openfront.io/game/${encodeURIComponent(game.gameId)}` : null;
+
+  const content = modal.querySelector('.game-modal-content');
+  content.innerHTML = `
+    <div class="game-modal-result-badge" style="background:${resultColor}">${esc(resultLabel)}</div>
+    <h3 class="game-modal-map">${esc(game.map || T("pf.unknown_map", "Carte inconnue"))}</h3>
+    <div class="game-modal-rows">
+      <div class="game-modal-row"><span class="game-modal-row-label">${T("pf.row_mode", "Mode")}</span><span class="game-modal-row-value">${esc(catLabels[cat] || game.mode || "—")}</span></div>
+      <div class="game-modal-row"><span class="game-modal-row-label">${T("pf.row_ranked_type", "Type classé")}</span><span class="game-modal-row-value">${esc(game.rankedType || "—")}</span></div>
+      <div class="game-modal-row"><span class="game-modal-row-label">${T("pf.row_duration", "Durée")}</span><span class="game-modal-row-value">${duration ? formatDurationCompact(Number(duration) || 0) : "—"}</span></div>
+      <div class="game-modal-row"><span class="game-modal-row-label">${T("pf.row_players", "Joueurs")}</span><span class="game-modal-row-value">${game.totalPlayers != null ? esc(String(game.totalPlayers)) : "—"}</span></div>
+      <div class="game-modal-row"><span class="game-modal-row-label">${T("profile.col_date", "Date")}</span><span class="game-modal-row-value">${esc(startDate)}</span></div>
+      <div class="game-modal-row"><span class="game-modal-row-label">Game ID</span><span class="game-modal-row-value game-modal-gameid">${esc(String(game.gameId || "—"))}</span></div>
+    </div>
+    ${replayUrl ? `<a class="game-modal-replay" href="${replayUrl}" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> ${T("pf.view_replay_of", "Voir le replay sur OpenFront")}</a>` : ""}
+  `;
+
+  modal.classList.add('is-open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeGameModal() {
+  const modal = document.getElementById('game-detail-modal');
+  if (modal) modal.classList.remove('is-open');
+  document.body.style.overflow = '';
+}
+
+/* ════════════════════════════════════════════════════════════════
+   [COCKPIT-REDESIGN] renderRecentGamesFull was removed — recent games
+   are now rendered inline by renderPrecomputedStats (in the cockpit's
+   bottom full-width section). The game modal (showGameModal / closeGameModal
+   / attachGameRowClickHandlers) is kept as-is for clickable row details.
+   ════════════════════════════════════════════════════════════════ */
+
+/* ════════════════════════════════════════════════════════════════
+   FALLBACK: si onAuthStateChanged ne se déclenche pas (Firebase CDN
+   bloqué ou lent), force le rendu du profil public après 8s.
+   ════════════════════════════════════════════════════════════════ */
+setTimeout(() => {
+  const loading = document.getElementById("profile-loading");
+  if (loading && loading.classList.contains("is-active")) {
+    const pubReq = getPublicProfileRequest();
+    if (pubReq) {
+      console.warn("[profile] Auth state timeout — forcing public profile render");
+      currentUser = null;
+      currentProfile = null;
+      updateSidebarUI(null);
+      viewingPublicId = pubReq.publicId;
+      viewingUsername = pubReq.username;
+      showView("profile-main");
+      renderPublicProfile(pubReq.username, pubReq.publicId);
+      loadVipForProfile();
+      loadStats(pubReq.publicId);
+      loadProfileSpeedruns(pubReq.publicId, false, [pubReq.username]);
+    } else {
+      console.warn("[profile] Auth state timeout — showing gate");
+      showView("profile-gate");
+    }
+  }
+}, 8000);
+
+/* ════════════════════════════════════════════════════════════════
+   SPEEDRUNS PAR CARTE (section « Speedruns » du profil)
+   ════════════════════════════════════════════════════════════════
+   Source : runs_public.json.gz (payload public compact ~110 Ko =
+   top 25 par carte, régénéré par la sync toutes les 5 min). On y
+   retrouve les runs du joueur via ses alias publics (pseudo hub +
+   pseudos en jeu), puis on calcule son meilleur temps et son rang
+   sur chaque carte. Le playerId des runs est un ID de SESSION
+   (change à chaque partie) → matching par NOM uniquement (même
+   convention que app.js, qui ne s'y fie jamais aveuglément).
+   Tout échec = section laissée masquée, jamais d'erreur bloquante. */
+
+let _speedrunPayloadCache = { data: null, at: 0 };
+const SPEEDRUN_PAYLOAD_TTL = 5 * 60 * 1000; // la sync régénère toutes les 5 min
+let _speedrunLoadToken = 0;
+
+function speedrunEsc(str) {
+  return String(str == null ? "" : str).replace(/[&<>"']/g, (s) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[s]
+  ));
+}
+
+/** Décompacte le payload public {k: clés, r: lignes} → tableau d'objets run.
+ *  (Même format que decodeCompactPayload d'app.js — copie locale car app.js
+ *  est un script de page non importable depuis le module profil.) */
+function decodeSpeedrunPayload(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload.k) && Array.isArray(payload.r) && Array.isArray(payload.r[0])) {
+    const keys = payload.k;
+    return payload.r.map((row) => {
+      const o = {};
+      keys.forEach((k, i) => { o[k] = row[i]; });
+      return o;
+    });
+  }
+  if (Array.isArray(payload.runs)) return payload.runs;
+  return Array.isArray(payload) ? payload : [];
+}
+
+async function fetchSpeedrunPayload() {
+  if (_speedrunPayloadCache.data && Date.now() - _speedrunPayloadCache.at < SPEEDRUN_PAYLOAD_TTL) {
+    return _speedrunPayloadCache.data;
+  }
+  let data = null;
+  try {
+    const res = await fetch("runs_public.json.gz", { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const ds = new DecompressionStream("gzip");
+    data = await new Response(res.body.pipeThrough(ds)).json();
+  } catch (e) {
+    // Fallback fichier non compressé
+    const res = await fetch("runs_public.json", { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    data = await res.json();
+  }
+  _speedrunPayloadCache = { data, at: Date.now() };
+  return data;
+}
+
+/** Alias (pseudos) connus d'un publicId : pseudo hub + pseudos en jeu,
+ *  via l'API publique des alias. Retourne null si introuvable/indispo. */
+async function fetchAliasesForPublicId(publicId) {
+  try {
+    const res = await fetch("/api/public-aliases.php", { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const entry = (data.aliases || []).find((a) => String(a.publicId || "") === String(publicId));
+    if (!entry) return null;
+    const names = new Set();
+    if (entry.username) names.add(String(entry.username));
+    (Array.isArray(entry.aliases) ? entry.aliases : []).forEach((n) => { if (n) names.add(String(n)); });
+    return names;
+  } catch (e) {
+    return null;
+  }
+}
+
+/** Prédicat de matching : pseudo du run exact (insensible casse) ou
+ *  normalisé (tags de clan, discriminateurs .9236 — règle du site). */
+function speedrunAliasMatcher(nameSet) {
+  const exact = new Set([...nameSet].map((n) => n.toLowerCase()));
+  const norm = new Set([...nameSet].map((n) => normPlayerName(n)).filter(Boolean));
+  return (run) => {
+    const p = String(run.player || "");
+    if (!p) return false;
+    return exact.has(p.toLowerCase()) || norm.has(normPlayerName(p));
+  };
+}
+
+/** Par carte : meilleur run du joueur + rang dans le top 25 de la carte. */
+function computeSpeedrunsPerMap(runs, matchFn) {
+  const byMap = new Map();
+  for (const r of runs) {
+    if (!r || !r.map || typeof r.duration_s !== "number" || !Number.isFinite(r.duration_s)) continue;
+    let list = byMap.get(r.map);
+    if (!list) { list = []; byMap.set(r.map, list); }
+    list.push(r);
+  }
+  const result = [];
+  byMap.forEach((mapRuns, map) => {
+    mapRuns.sort((a, b) => a.duration_s - b.duration_s);
+    let best = null;
+    let entries = 0;
+    mapRuns.forEach((r) => {
+      if (!matchFn(r)) return;
+      entries += 1;
+      if (!best || r.duration_s < best.duration_s) best = r;
+    });
+    if (!best) return;
+    const rank = mapRuns.findIndex((r) => r === best) + 1;
+    result.push({ map, best, rank, entries });
+  });
+  // Meilleurs rangs d'abord, puis temps croissant
+  result.sort((a, b) => a.rank - b.rank || a.best.duration_s - b.best.duration_s);
+  return result;
+}
+
+/** Nom de carte francisé via i18n (même mécanique que runs.js). */
+function speedrunMapName(raw) {
+  if (!raw) return "—";
+  const key = "map." + raw;
+  const translated = typeof window.t === "function" ? window.t(key) : null;
+  return translated && translated !== key ? translated : raw;
+}
+
+/** Temps au format m:ss (identique à runs.js / index). */
+function speedrunFormatTime(sec) {
+  if (typeof sec !== "number" || !Number.isFinite(sec)) return "—";
+  const m = Math.floor(sec / 60);
+  const s = String(Math.round(sec % 60)).padStart(2, "0");
+  return m + ":" + s;
+}
+
+function renderSpeedrunsSection(items, updatedISO, isOwn) {
+  const sec = document.getElementById("pf2-speedruns");
+  if (!sec) return;
+  const grid = sec.querySelector(".pf2-speed-grid");
+  const empty = sec.querySelector(".pf2-speed-empty");
+  const countEl = sec.querySelector(".pf2-panel-count");
+  const subEl = sec.querySelector(".pf2-panel-sub");
+
+  if (!items.length) {
+    if (grid) grid.innerHTML = "";
+    // Vide → panneau discret sur SON profil, masqué sur les profils publics.
+    if (empty) empty.hidden = !isOwn;
+    sec.hidden = !isOwn;
+    return;
+  }
+  if (empty) empty.hidden = true;
+  if (countEl) countEl.textContent = String(items.length);
+  if (subEl && updatedISO) {
+    try {
+      subEl.textContent = T("pf.speed_updated", "Top 25 · {date}", {
+        date: new Date(updatedISO).toLocaleDateString(LOCALE(), { day: "numeric", month: "short", year: "numeric" }),
+      });
+    } catch (e) { /* i18n absent */ }
+  }
+
+  const cards = items.map((it) => {
+    const rankCls = it.rank === 1 ? " gold" : it.rank === 2 ? " silver" : it.rank === 3 ? " bronze" : "";
+    const thumb = mapThumbUrl(it.map);
+    const thumbHtml = thumb
+      ? `<img src="${speedrunEsc(thumb)}" alt="" loading="lazy">`
+      : speedrunEsc(speedrunMapName(it.map).charAt(0));
+    const diff = it.best.difficulty ? ` · ${speedrunEsc(it.best.difficulty)}` : "";
+    let dateTxt = "";
+    try {
+      dateTxt = it.best.timestamp
+        ? new Date(it.best.timestamp).toLocaleDateString(LOCALE(), { day: "numeric", month: "short" })
+        : "";
+    } catch (e) { /* ignore */ }
+    const entriesTxt = it.entries > 1
+      ? ` <span class="pf2-speed-entries">${speedrunEsc(T("pf.speed_entries", "{n} runs top 25", { n: it.entries }))}</span>`
+      : "";
+    const mapName = speedrunMapName(it.map);
+    return `
+      <article class="pf2-speed-card">
+        <div class="pf2-speed-thumb" aria-hidden="true">${thumbHtml}</div>
+        <div class="pf2-speed-info">
+          <span class="pf2-speed-map" title="${speedrunEsc(mapName)}">${speedrunEsc(mapName)}</span>
+          <span class="pf2-speed-time">${speedrunEsc(speedrunFormatTime(it.best.duration_s))}</span>
+          <span class="pf2-speed-meta">#${it.rank}${diff}${dateTxt ? " · " + speedrunEsc(dateTxt) : ""}${entriesTxt}</span>
+        </div>
+        <span class="pf2-speed-rank${rankCls}" aria-label="${speedrunEsc(T("pf.speed_rank_aria", "Rang {n}", { n: it.rank }))}">${it.rank}</span>
+      </article>`;
+  }).join("");
+
+  if (grid) grid.innerHTML = cards;
+  sec.hidden = false;
+}
+
+/** Charge et affiche les speedruns du joueur (par carte) — non bloquant.
+ *  Appelé depuis les 3 chemins d'affichage (profil propre, profil public,
+ *  post-liaison). extraNames : pseudos hub connus en secours si l'API
+ *  d'alias est indisponible. */
+async function loadProfileSpeedruns(publicId, isOwn, extraNames) {
+  const sec = document.getElementById("pf2-speedruns");
+  if (!sec || !publicId) return;
+  const token = ++_speedrunLoadToken;
+  try {
+    const [payload, aliases] = await Promise.all([
+      fetchSpeedrunPayload(),
+      fetchAliasesForPublicId(publicId),
+    ]);
+    if (token !== _speedrunLoadToken) return; // une demande plus récente a pris le dessus
+    const names = aliases || new Set();
+    if (Array.isArray(extraNames)) extraNames.forEach((n) => { if (n) names.add(String(n)); });
+    const runs = decodeSpeedrunPayload(payload);
+    const items = names.size ? computeSpeedrunsPerMap(runs, speedrunAliasMatcher(names)) : [];
+    renderSpeedrunsSection(items, payload?.u || null, isOwn);
+  } catch (e) {
+    console.warn("[profile] speedruns load failed (non-critique):", e?.message || e);
+    // Section laissée masquée — jamais d'erreur bloquante sur le profil.
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   COCKPIT HELPERS — count-up animation, progress rings SVG,
+   sparkline SVG, keyboard shortcuts, share-profile action.
+   ════════════════════════════════════════════════════════════════ */
+
+const COCKPIT_CAT_LABELS = { ffaCasual: "FFA Casual", ffaRanked: "1v1", teamCasual: "Team Casual", teamRanked: "2v2" };
+const COCKPIT_CAT_COLORS = { ffaCasual: "#ff7a00", ffaRanked: "#d97706", teamCasual: "#10b981", teamRanked: "#a855f7" };
+const COCKPIT_WEEKDAYS = () => [
+  T("pf.wd_1", "Lun"), T("pf.wd_2", "Mar"), T("pf.wd_3", "Mer"), T("pf.wd_4", "Jeu"),
+  T("pf.wd_5", "Ven"), T("pf.wd_6", "Sam"), T("pf.wd_7", "Dim"),
+];
+
+/** Animate a number from 0 to target over `duration` ms (ease-out cubic). */
+function cockpitCountUp(el, target, duration = 1000) {
+  if (!el) return;
+  const targetNum = Number(target);
+  if (!Number.isFinite(targetNum)) return;
+  const start = performance.now();
+  const fmt = (n) => new Intl.NumberFormat(LOCALE()).format(Math.round(n));
+  const tick = (now) => {
+    const t = Math.min(1, (now - start) / duration);
+    const eased = 1 - Math.pow(1 - t, 3);
+    el.textContent = fmt(targetNum * eased);
+    if (t < 1) requestAnimationFrame(tick);
+    else el.textContent = fmt(targetNum);
+  };
+  requestAnimationFrame(tick);
+}
+
+/** Build a small SVG sparkline from an array of 7 numbers. */
+function cockpitSparkline(values) {
+  const w = 220;
+  const h = 64;
+  const pad = 6;
+  const vals = Array.isArray(values) && values.length > 0 ? values.slice(-7) : [0, 0, 0, 0, 0, 0, 0];
+  while (vals.length < 7) vals.unshift(0);
+  const max = Math.max(...vals, 1);
+  const min = Math.min(...vals, 0);
+  const range = max - min || 1;
+  const stepX = (w - pad * 2) / Math.max(1, vals.length - 1);
+  const pts = vals.map((v, i) => ({
+    x: pad + i * stepX,
+    y: h - pad - ((v - min) / range) * (h - pad * 2 - 8) - 4,
+  }));
+  const linePath = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(" ");
+  const areaPath = `${linePath} L${pts[pts.length - 1].x.toFixed(2)},${h - pad} L${pts[0].x.toFixed(2)},${h - pad} Z`;
+  let totalLength = 0;
+  for (let i = 1; i < pts.length; i++) {
+    totalLength += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  }
+  return `
+    <svg viewBox="0 0 ${w} ${h}" class="sparkline-svg" width="100%" height="${h}" preserveAspectRatio="none" role="img" aria-label="${T("pf.spark_aria", "Activité 7 derniers jours")}">
+      <defs>
+        <linearGradient id="cockpit-spark-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#ff7a00" stop-opacity="0.28" />
+          <stop offset="100%" stop-color="#ff7a00" stop-opacity="0" />
+        </linearGradient>
+      </defs>
+      <path d="${areaPath}" fill="url(#cockpit-spark-grad)" />
+      <path d="${linePath}" fill="none" stroke="#ff7a00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+        stroke-dasharray="${totalLength.toFixed(2)}" stroke-dashoffset="${totalLength.toFixed(2)}"
+        style="transition: stroke-dashoffset 1.4s cubic-bezier(0.4, 0, 0.2, 1) 0.25s"
+        data-target-offset="0" class="sparkline-path" />
+      ${pts.map((p, i) => `<circle cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${i === pts.length - 1 ? 3 : 0}" fill="#ff7a00" />`).join("")}
+    </svg>
+  `;
+}
+
+/** Wire up keyboard shortcuts (g=games, m=maps, s=skins, r=recent, Esc=modal). */
+function setupCockpitKeyboardShortcuts() {
+  if (window._cockpitKbInit) return;
+  window._cockpitKbInit = true;
+  document.addEventListener("keydown", (e) => {
+    const tag = (e.target?.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || e.target?.isContentEditable) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k === "g" || k === "r") {
+      const el = document.getElementById("pf2-recent");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else if (k === "m") {
+      const el = document.getElementById("pf2-maps");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else if (k === "s") {
+      const el = document.getElementById("reward-code-section");
+      if (el && el.children.length > 0) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  });
+}
+
+/** Copie l'URL du profil consulté dans le presse-papiers.
+ *  ⚠️ Partage TOUJOURS le profil AFFICHÉ, jamais le compte connecté :
+ *  sur le profil d'un autre joueur, _rewardCardState.publicId (carte code)
+ *  et currentProfile (sidebar) restent ceux du VISITEUR connecté — l'ancien
+ *  ordre de priorité partageait donc le mauvais compte (bug signalé).
+ *  Cas spécial : viewingPublicId === "__speedrun__" = profil speedrun sans
+ *  compte lié → l'URL courante (?player=NOM) est déjà la bonne. */
+function cockpitShareProfile() {
+  let url;
+  if (viewingPublicId && viewingPublicId !== "__speedrun__") {
+    // Profil d'un autre joueur consulté (?player=…&publicId=…) → on partage
+    // CELUI-CI sous forme canonique ?pid=<publicId consulté>.
+    url = `${window.location.origin}${window.location.pathname}?pid=${encodeURIComponent(viewingPublicId)}`;
+  } else if (viewingPublicId === "__speedrun__") {
+    // Profil speedrun sans compte lié : l'URL courante ?player=NOM est la
+    // seule forme qui permet de retrouver ce profil.
+    url = window.location.href;
+  } else {
+    // Propre profil (connecté, pas de consultation étrangère en cours).
+    const pid = (currentProfile && currentProfile.publicId) || _rewardCardState.publicId;
+    url = pid ? `${window.location.origin}${window.location.pathname}?pid=${encodeURIComponent(pid)}` : window.location.href;
+  }
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(url).then(
+      () => showToast(T("pf.link_copied", "Lien du profil copié !"), "success"),
+      () => showToast(T("pf.copy_fail_hint", "Copie impossible — sélectionne l'URL manuellement"), "info")
+    );
+  } else {
+    const tmp = document.createElement("input");
+    tmp.value = url;
+    document.body.appendChild(tmp);
+    tmp.select();
+    try { document.execCommand("copy"); showToast(T("pf.link_copied", "Lien du profil copié !"), "success"); }
+    catch { showToast(T("pf.copy_fail", "Copie impossible"), "error"); }
+    document.body.removeChild(tmp);
+  }
+}
+window.cockpitShareProfile = cockpitShareProfile;
+
+/* ════════════════════════════════════════════════════════════════
+   RENDER PRE-COMPUTED STATS — layout « A · Dossier »
+   (from player-stats/<pid>.json — instant display, zero calculation)
+   ════════════════════════════════════════════════════════════════ */
+
+function renderPrecomputedStats(stats, mount) {
+  if (!mount || !stats) return;
+  mount.innerHTML = "";
+  // Idempotence : vide aussi les zones hors mount (rappels loadStats / profils publics)
+  const sideExtra = document.getElementById("pf2-side-extra");
+  if (sideExtra) sideExtra.innerHTML = "";
+  const below = document.getElementById("pf2-below");
+  if (below) below.innerHTML = "";
+  const weeklyCard = document.getElementById("weekly-chart-card");
+  if (weeklyCard) weeklyCard.remove();
+  setupCockpitKeyboardShortcuts();
+
+  const fmt = (n) => new Intl.NumberFormat(LOCALE()).format(Number(n) || 0);
+
+  // ─────────── Cartes statistiques (au-dessus de la grille) ───────────
+  const results = stats.results || {};
+  setText("stat-games", fmt(stats.totalGames));
+  setText("stat-wins", fmt(stats.totalWins));
+  setText("stat-winrate", stats.formatted?.winrate || "—");
+  setText("stat-maps", String(stats.maps?.length || 0));
+  setText("stat-games-sub", stats.formatted?.avgGameDuration ? T("pf.sub_avg_duration", "Durée moy. {v}", { v: stats.formatted.avgGameDuration }) : "");
+  setText("stat-wins-sub", stats.streaks?.best ? T("pf.sub_best_streak", "Record série : {v}", { v: stats.streaks.best }) : "");
+  setText("stat-winrate-sub", results.victory != null ? T("pf.sub_wl", "{w}V · {l}D", { w: fmt(results.victory), l: fmt(results.defeat || 0) }) : "");
+  setText("stat-maps-sub", "");
+
+  // ─────────── Chips meta (niveau / temps de jeu / série) ───────────
+  const metaEl = document.getElementById("cockpit-status-meta");
+  if (metaEl) {
+    const playtimeHours = Math.floor((stats.playtime?.totalSec || 0) / 3600);
+    const streak = stats.streaks?.current || 0;
+    const level = stats.level ?? Math.floor((stats.points || 0) / 100);
+    const flameSvg = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>`;
+    const starSvg = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+    const clockSvg = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
+    metaEl.innerHTML = `
+      <span class="pf2-chip">${starSvg} ${T("pf.chip_level", "Niv. {n}", { n: level })}</span>
+      <span class="pf2-chip">${clockSvg} ${T("pf.chip_hours", "{n} h", { n: playtimeHours })}</span>
+      <span class="pf2-chip${streak > 0 ? " is-active" : ""}">${flameSvg} ${T("pf.chip_streak", "Série de {n}", { n: streak })}</span>
+    `;
+  }
+
+  // ─────────── Badge de synchro ───────────
+  const syncedDate = stats.lastSyncedAt ? new Date(stats.lastSyncedAt) : null;
+  const syncedStr = syncedDate ? syncedDate.toLocaleString(LOCALE(), { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : T("pf.recently", "récemment");
+  const badge = document.createElement("div");
+  badge.className = "pf2-sync";
+  badge.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> ${T("pf.sync_badge", "Données synchronisées · {n} parties · MAJ {time}", { n: fmt(stats.totalGames), time: syncedStr })}`;
+  mount.appendChild(badge);
+
+  // ─────────── Panneau : Parties récentes ───────────
+  const recentGames = stats.recentGames || [];
+  const recentPanel = document.createElement("section");
+  recentPanel.className = "pf2-panel";
+  recentPanel.id = "pf2-recent";
+  recentPanel.innerHTML = `
+    <header class="pf2-panel-head">
+      <h3>${T("pf.recent_title", "Parties récentes")}</h3>
+      <span class="pf2-panel-count">${fmt(stats.totalGames)}</span>
+      <i class="pf2-panel-rule"></i>
+      <span class="pf2-panel-sub">${T("pf.click_details", "clique pour les détails")}</span>
+    </header>
+    <div class="pf2-recent-list"></div>
+  `;
+  const recentList = recentPanel.querySelector(".pf2-recent-list");
+  if (recentGames.length > 0) {
+    recentList.innerHTML = recentGames.slice(0, 20).map((g) => {
+      const win = g.result === "victory";
+      const loss = g.result === "defeat";
+      const pillCls = win ? "pf2-pill-win" : loss ? "pf2-pill-loss" : "pf2-pill-other";
+      const label = win ? T("pf.result_victory", "Victoire") : loss ? T("pf.result_defeat", "Défaite") : (g.result || "—");
+      const dateStr = g.start ? formatFrenchDate(new Date(g.start).getTime()) : "—";
+      const durStr = g.durationSeconds ? formatDurationCompact(Number(g.durationSeconds) || 0) : "—";
+      const thumb = mapThumbUrl(g.map);
+      const letter = esc((g.map || "?").charAt(0).toUpperCase());
+      return `
+        <div class="pf2-gamerow" data-game-id="${esc(String(g.gameId ?? ""))}" role="button" tabindex="0" aria-label="${T("pf.game_details_aria", "Détails de la partie — {map}", { map: esc(g.map || T("pf.unknown_map_lower", "carte inconnue")) })}">
+          <span class="pf2-gamerow-thumb">${letter}${thumb ? `<img src="${thumb}" alt="" loading="lazy" onerror="this.remove()">` : ""}</span>
+          <div class="pf2-gamerow-info">
+            <p class="pf2-gamerow-map">${esc(g.map || T("pf.unknown_map", "Carte inconnue"))}</p>
+            <p class="pf2-gamerow-meta">${esc(COCKPIT_CAT_LABELS[g.category] || g.mode || "—")} · ${T("pf.row_players_count", "{n} joueurs", { n: g.totalPlayers || "?" })}</p>
+          </div>
+          <div class="pf2-gamerow-right">
+            <span class="pf2-pill ${pillCls}">${label}</span>
+            <span class="pf2-gamerow-date">${esc(dateStr)} · ${esc(durStr)}</span>
+          </div>
+        </div>
+      `;
+    }).join("");
+  } else {
+    recentList.innerHTML = `<div class="pf-empty">${T("pf.no_recent_games", "Aucune partie récente.")}</div>`;
+  }
+  mount.appendChild(recentPanel);
+  if (recentGames.length > 0) attachGameRowClickHandlers(recentPanel, recentGames.slice(0, 20));
+
+  // ─────────── Panneau : Temps par catégorie ───────────
+  const cat = stats.playtime?.byCategory || {};
+  const totalSec = stats.playtime?.totalSec || 0;
+  const catRows = ["ffaCasual", "ffaRanked", "teamCasual", "teamRanked"].map((key) => ({
+    key,
+    playtimeSec: cat[key]?.playtimeSec || 0,
+    games: cat[key]?.games || 0,
+  }));
+  const catPanel = document.createElement("section");
+  catPanel.className = "pf2-panel";
+  catPanel.innerHTML = `
+    <header class="pf2-panel-head">
+      <h3>${T("pf.cat_title", "Temps par catégorie")}</h3>
+      <i class="pf2-panel-rule"></i>
+      <span class="pf2-panel-sub">${T("pf.cat_total", "{v} au total", { v: esc(stats.formatted?.totalPlaytime || "—") })}</span>
+    </header>
+    ${catRows.map((c) => {
+      const pct = totalSec > 0 ? (c.playtimeSec / totalSec) * 100 : 0;
+      const hours = c.playtimeSec / 3600;
+      const hoursStr = hours >= 1
+        ? T("pf.dur_hm", "{h} h {m} m", { h: Math.floor(hours), m: Math.floor((hours % 1) * 60) })
+        : T("pf.dur_m", "{m} m", { m: Math.floor(c.playtimeSec / 60) });
+      return `
+        <div class="pf2-cat-row">
+          <div class="pf2-cat-label">
+            <span class="pf2-cat-name">${esc(COCKPIT_CAT_LABELS[c.key] || c.key)}</span>
+            <span class="pf2-cat-hours">${esc(hoursStr)} · ${Math.round(pct)} %</span>
+          </div>
+          <div class="pf2-cat-track">
+            <div class="pf2-cat-fill" style="background:${COCKPIT_CAT_COLORS[c.key] || "#ff7a00"}" data-target-width="${pct.toFixed(2)}"></div>
+          </div>
+          <div class="pf2-cat-sub">${T("pf.n_games", "{n} parties", { n: fmt(c.games) })}</div>
+        </div>
+      `;
+    }).join("")}
+  `;
+  mount.appendChild(catPanel);
+
+  // ─────────── Panneau : Activité par jour ───────────
+  const wd = stats.activity?.byWeekday || [0, 0, 0, 0, 0, 0, 0];
+  const maxWd = Math.max(...wd, 1);
+  const peakWdIdx = wd.indexOf(Math.max(...wd));
+  const weekPanel = document.createElement("section");
+  weekPanel.className = "pf2-panel";
+  weekPanel.innerHTML = `
+    <header class="pf2-panel-head">
+      <h3>${T("pf.activity_title", "Activité par jour")}</h3>
+      <i class="pf2-panel-rule"></i>
+      <span class="pf2-panel-sub">${T("pf.peak", "Pic : {day} ({n} parties)", { day: esc(COCKPIT_WEEKDAYS()[peakWdIdx] || "—"), n: fmt(maxWd) })}</span>
+    </header>
+    <div class="pf2-week">
+      ${wd.map((count, i) => {
+        const h = Math.max(2, (count / maxWd) * 100);
+        const isPeak = i === peakWdIdx && count > 0;
+        return `
+          <div class="pf2-week-col${isPeak ? " is-peak" : ""}" title="${T("pf.day_games_title", "{day} — {n} parties", { day: esc(COCKPIT_WEEKDAYS()[i]), n: fmt(count) })}">
+            <div class="pf2-week-track">
+              <div class="pf2-week-fill" data-target-height="${h.toFixed(2)}"></div>
+            </div>
+            <div class="pf2-week-label">${esc(COCKPIT_WEEKDAYS()[i])}</div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+  mount.appendChild(weekPanel);
+
+  // ─────────── Colonne droite : Objectifs · Succès · Niveau · 7 jours ───────────
+
+  // Milestones (objectifs) — fallback calculé si absentes
+  const ms = stats.nextMilestones || (() => {
+    const winsCurrent = stats.totalWins || 0;
+    const playtimeCurrent = Math.floor((stats.playtime?.totalSec || 0) / 3600);
+    const mapsCurrent = stats.maps?.length || 0;
+    const nextMult = (val, step) => {
+      if (val <= 0) return step;
+      const m = Math.ceil(val / step) * step;
+      return m > val ? m : m + step;
+    };
+    return {
+      wins: { current: winsCurrent, target: nextMult(winsCurrent, 50) },
+      playtime: { current: playtimeCurrent, target: nextMult(playtimeCurrent, 50) },
+      maps: { current: mapsCurrent, target: nextMult(mapsCurrent, 10) },
+    };
+  })();
+  const goals = [
+    { name: T("pf.goal_wins", "Victoires"), value: ms.wins.current, target: ms.wins.target },
+    { name: T("pf.goal_playtime", "Heures de jeu"), value: ms.playtime.current ?? Math.floor((stats.playtime?.totalSec || 0) / 3600), target: ms.playtime.target },
+    { name: T("pf.goal_maps", "Cartes explorées"), value: ms.maps.current ?? (stats.maps?.length || 0), target: ms.maps.target },
+  ];
+  if (sideExtra) {
+    const goalsPanel = document.createElement("section");
+    goalsPanel.className = "pf2-panel";
+    goalsPanel.innerHTML = `
+      <header class="pf2-panel-head"><h3>${T("pf.goals_title", "Objectifs")}</h3><i class="pf2-panel-rule"></i></header>
+      ${goals.map((g) => {
+        const pct = g.target > 0 ? Math.min(100, (g.value / g.target) * 100) : 0;
+        const remaining = Math.max(0, g.target - g.value);
+        return `
+          <div class="pf2-goal">
+            <div class="pf2-goal-head">
+              <span class="pf2-goal-name">${esc(g.name)}</span>
+              <span class="pf2-goal-value">${fmt(g.value)} / ${fmt(g.target)}</span>
+            </div>
+            <div class="pf2-goal-track">
+              <div class="pf2-goal-fill" data-target-width="${pct.toFixed(2)}"></div>
+            </div>
+            <div class="pf2-goal-sub">${remaining > 0 ? T("pf.remaining", "{n} restants", { n: fmt(remaining) }) : T("pf.goal_done", "Objectif atteint !")}</div>
+          </div>
+        `;
+      }).join("")}
+    `;
+    sideExtra.appendChild(goalsPanel);
+
+    // ── Succès (tuiles) ──
+    const achvData = stats.achievements;
+    if (achvData?.list?.length) {
+      const ACHV_ICONS = {
+        "first-win": `<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>`,
+        "ten-wins": `<circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/>`,
+        "hundred-wins": `<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>`,
+        "marathon": `<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>`,
+        "weekend": `<rect width="18" height="18" x="3" y="4" rx="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/>`,
+        "cartographer": `<polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/>`,
+        "streak5": `<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>`,
+        "streak10": `<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>`,
+        "polyvalent": `<path d="m6 10 6-5 6 5"/><path d="m6 15 6-5 6 5"/><path d="m6 20 6-5 6 5"/>`,
+        "night-owl": `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>`,
+      };
+      const lockSvg = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
+      const achvPanel = document.createElement("section");
+      achvPanel.className = "pf2-panel";
+      achvPanel.innerHTML = `
+        <header class="pf2-panel-head">
+          <h3>${T("pf.achv_title", "Succès")}</h3>
+          <span class="pf2-panel-count">${achvData.unlockedCount ?? achvData.list.filter((a) => a.unlocked).length}/${achvData.list.length}</span>
+          <i class="pf2-panel-rule"></i>
+        </header>
+        <div class="pf2-achv-grid">
+          ${achvData.list.map((a) => {
+            const icon = a.unlocked
+              ? `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ACHV_ICONS[a.id] || ACHV_ICONS["first-win"]}</svg>`
+              : lockSvg;
+            const prog = !a.unlocked && a.progress?.target > 0
+              ? `<div class="pf2-achv-progress"><div class="pf2-achv-progress-fill" style="width:${Math.min(100, Math.round((a.progress.current / a.progress.target) * 100))}%"></div></div>`
+              : "";
+            return `
+              <div class="pf2-achv${a.unlocked ? "" : " is-locked"}">
+                <span class="pf2-achv-icon">${icon}</span>
+                <p class="pf2-achv-name">${esc(T("pf.achv_" + a.id + "_name", a.name))}</p>
+                <p class="pf2-achv-desc">${esc(T("pf.achv_" + a.id + "_desc", a.desc))}</p>
+                ${prog}
+              </div>
+            `;
+          }).join("")}
+        </div>
+      `;
+      sideExtra.appendChild(achvPanel);
+    }
+
+    // ── Niveau ──
+    const level = stats.level ?? Math.floor((stats.points || 0) / 100);
+    const levelProgress = stats.levelProgress ?? ((stats.points || 0) % 100);
+    const levelPct = Math.min(100, levelProgress);
+    const levelPanel = document.createElement("section");
+    levelPanel.className = "pf2-panel";
+    levelPanel.innerHTML = `
+      <header class="pf2-panel-head"><h3>${T("pf.level_title", "Niveau")}</h3><i class="pf2-panel-rule"></i></header>
+      <div class="pf2-level-head">
+        <span class="pf2-level-title">${T("pf.level_n", "Niveau {n}", { n: level })}</span>
+        <span class="pf2-level-sub">${T("pf.level_sub", "{p} / 100 pts → Niv. {n}", { p: levelProgress, n: level + 1 })}</span>
+      </div>
+      <div class="pf2-level-track">
+        <div class="pf2-level-fill" data-target-width="${levelPct.toFixed(2)}"></div>
+      </div>
+      <div class="pf2-level-stats">
+        <span>${T("pf.n_pts", "{n} pts", { n: fmt(levelProgress) })}</span>
+        <span>${T("pf.pts_total", "{n} pts total", { n: esc(stats.formatted?.points || fmt(stats.points)) })}</span>
+      </div>
+    `;
+    sideExtra.appendChild(levelPanel);
+
+    // ── 7 derniers jours (sparkline) ──
+    const sparkValues = stats.sparkline7d || [0, 0, 0, 0, 0, 0, 0];
+    const sparkTotal = sparkValues.reduce((s, v) => s + (Number(v) || 0), 0);
+    const sparkPanel = document.createElement("section");
+    sparkPanel.className = "pf2-panel";
+    sparkPanel.innerHTML = `
+      <header class="pf2-panel-head">
+        <h3>${T("pf.spark_title", "7 derniers jours")}</h3>
+        <i class="pf2-panel-rule"></i>
+        <span class="pf2-panel-sub">${T("pf.n_games", "{n} parties", { n: fmt(sparkTotal) })}</span>
+      </header>
+      <div class="pf2-spark-wrap">${cockpitSparkline(sparkValues)}</div>
+      <div class="pf2-spark-axis"><span>${T("pf.d6", "J-6")}</span><span></span><span></span><span></span><span></span><span></span><span>${T("pf.today", "Auj.")}</span></div>
+    `;
+    sideExtra.appendChild(sparkPanel);
+  }
+
+  // ─────────── Sous la grille : stats par carte ───────────
+  if (below && stats.maps && stats.maps.length > 0) {
+    below.innerHTML = "";
+    const allMaps = stats.maps;
+    const topMaps = allMaps.slice(0, 10);
+    const mapRowHtml = (m) => {
+      const wr = m.winRate * 100;
+      const wrColor = wr >= 60 ? "is-win" : wr >= 40 ? "" : "is-loss";
+      return `<tr>
+        <td>${esc(m.map)}</td>
+        <td>${fmt(m.count)}</td>
+        <td class="is-win">${fmt(m.wins)}</td>
+        <td class="is-loss">${fmt(m.losses)}</td>
+        <td class="${wrColor}" style="font-weight:700">${esc(m.formatted?.winRate || "—")}</td>
+        <td>${esc(m.formatted?.avgDuration || "—")}</td>
+        <td class="is-last">${esc(m.formatted?.lastPlayed || "—")}</td>
+      </tr>`;
+    };
+    const mapPanel = document.createElement("section");
+    mapPanel.className = "pf2-panel";
+    mapPanel.id = "pf2-maps";
+    mapPanel.innerHTML = `
+      <header class="pf2-panel-head">
+        <h3>${T("pf.maps_title", "Statistiques par carte")}</h3>
+        <span class="pf2-panel-count">${allMaps.length}</span>
+        <i class="pf2-panel-rule"></i>
+      </header>
+      <button type="button" id="pf2-maps-toggle" class="pf2-maps-toggle" aria-expanded="false">${T("pf.maps_show", "Voir les {n} cartes", { n: allMaps.length })}</button>
+      <div class="pf2-maps-body" id="pf2-maps-body">
+        <div class="pf2-maps-wrap">
+          <table class="pf2-maps-table">
+            <thead><tr><th>${T("pf.th_map", "Carte")}</th><th>${T("pf.th_games", "Parties")}</th><th>${T("pf.th_w", "V")}</th><th>${T("pf.th_l", "D")}</th><th>${T("pf.th_winrate", "Winrate")}</th><th>${T("pf.th_avg_duration", "Durée moy.")}</th><th>${T("pf.th_last", "Dernière")}</th></tr></thead>
+            <tbody>${topMaps.map(mapRowHtml).join("")}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
+    below.appendChild(mapPanel);
+    const toggleBtn = mapPanel.querySelector("#pf2-maps-toggle");
+    const mapsBody = mapPanel.querySelector("#pf2-maps-body");
+    if (toggleBtn && mapsBody) {
+      let expanded = false;
+      toggleBtn.addEventListener("click", () => {
+        expanded = !expanded;
+        mapsBody.classList.toggle("is-open", expanded);
+        toggleBtn.textContent = expanded ? T("pf.maps_hide", "Masquer les cartes") : T("pf.maps_show", "Voir les {n} cartes", { n: allMaps.length });
+        toggleBtn.setAttribute("aria-expanded", String(expanded));
+        const tbody = mapsBody.querySelector("tbody");
+        if (tbody) tbody.innerHTML = (expanded ? allMaps : topMaps).map(mapRowHtml).join("");
+      });
+    }
+  }
+
+  // ── Animations au frame suivant (barres, sparkline) ──
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      mount.querySelectorAll(".pf2-cat-fill").forEach((el) => {
+        el.style.width = el.dataset.targetWidth + "%";
+      });
+      mount.querySelectorAll(".pf2-week-fill").forEach((el) => {
+        el.style.height = el.dataset.targetHeight + "%";
+      });
+      document.querySelectorAll(".pf2-goal-fill").forEach((el) => {
+        el.style.width = el.dataset.targetWidth + "%";
+      });
+      document.querySelectorAll(".pf2-level-fill").forEach((el) => {
+        el.style.width = el.dataset.targetWidth + "%";
+      });
+      document.querySelectorAll(".sparkline-path").forEach((el) => {
+        el.style.strokeDashoffset = el.dataset.targetOffset || "0";
+      });
+    });
+  });
+
+  // ── Graphique hebdomadaire (points par semaine) ──
+  if (window._profileWeekData) {
+    setTimeout(() => renderWeeklyChart(), 100);
+  }
+}
+
+/* ── Hook de debug (E2E / support) — même pattern que _lobbyDebug ── */
+window._profileDebug = {
+  showView,
+  renderHero,
+  renderPrecomputedStats,
+  loadStats,
+  renderWeeklyChart,
+};

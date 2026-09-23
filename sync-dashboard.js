@@ -396,6 +396,29 @@ async function main() {
   }
   if (!history || typeof history !== "object" || !history.weeks) history = { version: 1, weeks: {} };
 
+  // ═══ Seed hebdo : complète les semaines antérieures reconstituées ═══
+  // (data/weekly_history_seed.json → S1, S2… produites a posteriori).
+  // Ne remplace JAMAIS une semaine déjà enregistrée ; ne comble que les
+  // semaines STRICTEMENT antérieures à la plus vieille semaine connue.
+  try {
+    const seedPath = "data/weekly_history_seed.json";
+    if (fs.existsSync(seedPath)) {
+      const seed = JSON.parse(fs.readFileSync(seedPath, "utf8"));
+      const seedWeeks = (seed && seed.weeks) || {};
+      const oldestKnown = Object.keys(history.weeks).sort()[0] || null;
+      let added = 0;
+      for (const k of Object.keys(seedWeeks)) {
+        if (history.weeks[k]) continue;
+        if (oldestKnown && k >= oldestKnown) continue;
+        history.weeks[k] = seedWeeks[k];
+        added++;
+      }
+      if (added) console.log(`[dashboard-sync] 🌱 Historique hebdo : ${added} semaine(s) du seed fusionnée(s)`);
+    }
+  } catch (e) {
+    console.warn("[dashboard-sync] Seed hebdo illisible :", e.message);
+  }
+
   const weekKey = weekStartIso.slice(0, 10); // "YYYY-MM-DD" (lundi, frontière Paris)
   const weeklySorted = [...results].sort((a, b) => (b.weekly_points || 0) - (a.weekly_points || 0));
   const snapshot = {};

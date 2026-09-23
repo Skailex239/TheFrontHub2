@@ -168,7 +168,8 @@ case 'speedruns': {
             ],
         ];
     }
-    json_out(['ok' => true, 'runs' => $runs]);
+    $gamesTotal = (int)$pdo->query('SELECT COUNT(*) FROM tfh_g_games')->fetchColumn();
+    json_out(['ok' => true, 'runs' => $runs, 'games_total' => $gamesTotal]);
 }
 
 /* ── Pré-profil d'un joueur (par publicId) ───────────────────────────────── */

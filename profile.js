@@ -929,6 +929,7 @@ async function loadStats(publicId) {
           if (fb.ok) window._profileWeekHistory = await fb.json();
         }
         if (window._profileWeekHistory) {
+          await mergeWeeklySeed();
           renderWeeklyChart();
         }
       })
@@ -1586,9 +1587,32 @@ document.addEventListener("click", (e) => {
    Lignes colorées par mode : FFA=rouge, Team=bleu, Classé=violet, Total=noir.
    Points avec cercle contenant le rang (#X) sur la série Total. */
 
-/* ⛔ mergeWeeklySeed() supprimée (annulation de la fusion des semaines seed,
-   demande utilisateur) : la courbe n'affiche plus que les semaines réellement
-   enregistrées par sync-dashboard.js dans weekly_history.json(.gz). */
+/* 🌱 mergeWeeklySeed() réactivée (retour demandé par Skailex 2026-09-23) :
+   les semaines « seed » reconstituées a posteriori (data/weekly_history_seed.json)
+   complètent l'historique live — S1, S2 réapparaissent sur la courbe.
+   Garde-fous : on ne remplace JAMAIS une semaine déjà enregistrée par la sync,
+   et on ne comble que des semaines STRICTEMENT antérieures à la plus vieille
+   semaine connue. Les labels restent absolus (S = semaine de saison), donc
+   aucun décalage de numérotation. */
+async function mergeWeeklySeed() {
+  try {
+    const seedRes = await fetch("data/weekly_history_seed.json", { cache: "no-cache" });
+    if (!seedRes.ok) return;
+    const seed = await seedRes.json();
+    const seedWeeks = (seed && seed.weeks) || {};
+    const hist = window._profileWeekHistory = window._profileWeekHistory || { version: 1, weeks: {} };
+    hist.weeks = hist.weeks || {};
+    const oldest = Object.keys(hist.weeks).sort()[0] || null;
+    let added = 0;
+    for (const k of Object.keys(seedWeeks)) {
+      if (hist.weeks[k]) continue;          // semaine enregistrée → live prioritaire
+      if (oldest && k >= oldest) continue;  // uniquement antérieur à l'historique
+      hist.weeks[k] = seedWeeks[k];
+      added++;
+    }
+    if (added) console.log("[profile] Historique hebdo : +" + added + " semaine(s) du seed");
+  } catch (e) { /* seed indisponible → historique live seul */ }
+}
 
 /* Construit la liste chronologique des semaines :
    historique figé (weekly_history.json) + point live (semaine en cours,
