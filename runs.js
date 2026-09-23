@@ -446,6 +446,7 @@ async function loadTopRuns() {
     } else {
       status.textContent = runs.length ? '' : TP("runs.none_found", { days: c.windowDays }, "Aucun run trouvé dans les " + c.windowDays + " derniers jours.");
     }
+    meta.textContent = ''; // le « Chargement… » du header disparaît dès que le top est affiché
 
     const frag = document.createDocumentFragment();
     runs.forEach(function(r, idx) { frag.appendChild(renderRunRow(idx, r)); });
