@@ -284,7 +284,8 @@ async function loadMapOptions(category, selected) {
   const sel = $('mapFilter');
   if (!sel) return;
   try {
-    const res = await fetch(GAMES_API + '?route=maps&category=' + encodeURIComponent(category), { cache: 'no-store' });
+    const res = await fetch(GAMES_API + '?route=maps&category=' + encodeURIComponent(category),
+      Object.assign({ cache: 'no-store' }, (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(8000) } : {}));
     if (!res.ok) return;
     const data = await res.json();
     if (!data.ok || !Array.isArray(data.maps) || !data.maps.length) return;
@@ -379,7 +380,10 @@ async function loadTopRuns() {
         + '&sort=' + encodeURIComponent(c.sort)
         + '&window=' + c.windowDays + 'd'
         + '&limit=' + c.limit;
-      const res = await fetch(url, { cache: 'no-store' });
+      /* Timeout 8 s : sans lui, un réseau qui hang laisse la page bloquée
+         sur « Chargement… » au lieu de basculer sur le fallback fichier. */
+      const res = await fetch(url, Object.assign({ cache: 'no-store' },
+        (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(8000) } : {}));
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
       if (!data.ok || !Array.isArray(data.runs)) throw new Error('bad api payload');
