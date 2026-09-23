@@ -223,18 +223,20 @@
 
   /* ── Routing sidebar ─────────────────────────────────────────────────────── */
 
-  const VIEWS = ['tasks', 'chat', 'support', 'supchat'];
+  const VIEWS = ['tasks', 'chat', 'support', 'supchat', 'games'];
   const viewEls = {
     tasks: $('#view-tasks'),
     chat: $('#view-chat'),
     support: $('#view-support'),
-    supchat: $('#view-supchat')
+    supchat: $('#view-supchat'),
+    games: $('#view-games')
   };
   const sideEls = {
     tasks: $('#side-tasks'),
     chat: $('#side-chat'),
     support: $('#side-support'),
-    supchat: $('#side-supchat')
+    supchat: $('#side-supchat'),
+    games: $('#side-games')
   };
   const badgeEls = {
     support: $('#side-badge-support'),
@@ -302,6 +304,8 @@
       Supchat.activate();
     }
     if (name !== 'supchat') Supchat.stopPoll();
+    if (name === 'games' && window.TfhAdminGames) window.TfhAdminGames.activate();
+    if (name !== 'games' && window.TfhAdminGames) window.TfhAdminGames.stopPoll();
 
     try { localStorage.setItem('tfh-admin-view', name); } catch (e) { /* ignore */ }
   }

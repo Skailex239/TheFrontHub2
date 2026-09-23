@@ -100,6 +100,10 @@ task_page_head('Admin — TheFrontHub');
       <span class="side-label">Chat support</span>
       <span class="side-badge side-badge-red" id="side-badge-supchat" hidden></span>
     </button>
+    <button type="button" class="side-item" id="side-games" data-view="games" title="Parties récupérées (compteur d'ingestion)">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-6 4 3 5-8"/></svg>
+      <span class="side-label">Parties</span>
+    </button>
   </div>
   <div class="side-me">
     <img id="me-avatar" src="<?= task_e($boot['me']['avatar']) ?>" alt="" onerror="this.style.visibility='hidden'">
@@ -296,6 +300,49 @@ task_page_head('Admin — TheFrontHub');
         </form>
       </div>
     </section>
+  </div>
+</div><!-- /.view-supchat pane -->
+
+<!-- ═══ Parties récupérées ═══ -->
+<div class="pane" id="view-games" hidden role="tabpanel" aria-label="Parties récupérées">
+  <div class="games-head">
+    <h1 class="pane-title">Parties récupérées</h1>
+    <span class="games-live" id="games-live" title="Actualisation automatique toutes les 30 secondes">
+      <span class="games-dot" aria-hidden="true"></span>Auto · 30 s
+    </span>
+  </div>
+  <p class="pane-hint">Ingestion OpenFront → base MySQL (cron <code>games-sync</code> toutes les 10 min). Le compteur s'actualise automatiquement.</p>
+
+  <div class="games-grid" id="games-grid" aria-live="polite">
+    <div class="gstat gstat-hero">
+      <span class="gstat-label">Parties en base</span>
+      <span class="gstat-value" id="st-games">—</span>
+      <span class="gstat-sub" id="st-last24h">chargement…</span>
+    </div>
+    <div class="gstat">
+      <span class="gstat-label">Participations</span>
+      <span class="gstat-value" id="st-roster">—</span>
+      <span class="gstat-sub">joueurs × parties (roster)</span>
+    </div>
+    <div class="gstat">
+      <span class="gstat-label">Joueurs suivis</span>
+      <span class="gstat-value" id="st-players">—</span>
+      <span class="gstat-sub">pré-profils publicId</span>
+    </div>
+    <div class="gstat">
+      <span class="gstat-label">Speedruns</span>
+      <span class="gstat-value" id="st-speedruns">—</span>
+      <span class="gstat-sub">parties classées speedrun</span>
+    </div>
+    <div class="gstat gstat-wide">
+      <span class="gstat-label">Backfill historique <span class="gstat-note">(13 mois — depuis le 10 sept 2025)</span></span>
+      <div class="gbar" role="progressbar" aria-label="Progression du backfill historique" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="st-progressbar"><i id="st-progress"></i></div>
+      <span class="gstat-sub" id="st-cursor">—</span>
+    </div>
+    <div class="gstat gstat-wide gstat-meta">
+      <span class="gstat-sub"><strong>Partie la plus récente :</strong> <span id="st-newest">—</span></span>
+      <span class="gstat-sub"><strong>Compteurs actualisés :</strong> <span id="st-updated">—</span></span>
+    </div>
   </div>
 </div>
 
@@ -527,5 +574,6 @@ window.TASK_BOOT = <?= json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG 
 <script src="<?= task_e($base) ?>/assets/app.js?v=<?= TASK_ASSET_VER ?>"></script>
 <script src="<?= task_e($base) ?>/assets/chat.js?v=<?= TASK_ASSET_VER ?>"></script>
 <script src="<?= task_e($base) ?>/assets/support.js?v=<?= TASK_ASSET_VER ?>"></script>
+<script src="<?= task_e($base) ?>/assets/games.js?v=<?= TASK_ASSET_VER ?>"></script>
 </body>
 </html>

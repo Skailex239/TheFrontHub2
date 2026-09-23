@@ -70,7 +70,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     $getAction = (string) ($_GET['action'] ?? '');
     $getAllowed = ['state', 'chat.list',
         /* Support : tickets + chat joueur (barre latérale de l'admin) */
-        'support.tickets', 'support.thread', 'supchat.convs', 'supchat.poll'];
+        'support.tickets', 'support.thread', 'supchat.convs', 'supchat.poll',
+        /* Parties : compteur d'ingestion (tables tfh_g_* de games-sync) */
+        'games.status'];
     if (!in_array($getAction, $getAllowed, true)) {
         fail(404, 'unknown_action', 'Action inconnue.');
     }
@@ -385,6 +387,49 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
             )->execute([$convId]);
         }
         json_out(['ok' => true, 'messages' => $messages, 'last_id' => $lastId]);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════
+       PARTIES — compteur d'ingestion (tables tfh_g_* de api/games-sync.php).
+       Lecture directe MySQL (même base que le panel) — aucun appel HTTP.
+       Les tables peuvent ne pas exister encore (sync jamais lancé) :
+       on renvoie available:false au lieu de casser la réponse.
+       ═══════════════════════════════════════════════════════════════════ */
+    if ($getAction === 'games.status') {
+        try {
+            $cnt = $pdo->query('SELECT
+                (SELECT COUNT(*) FROM tfh_g_games) AS games,
+                (SELECT COUNT(*) FROM tfh_g_roster) AS roster_rows,
+                (SELECT COUNT(*) FROM tfh_g_players WHERE deleted_at IS NULL) AS players,
+                (SELECT COUNT(*) FROM tfh_g_games WHERE speedrun_category IS NOT NULL) AS speedruns,
+                (SELECT COUNT(*) FROM tfh_g_games WHERE started_at >= NOW() - INTERVAL 1 DAY) AS last24h,
+                (SELECT MAX(started_at) FROM tfh_g_games) AS newest,
+                (SELECT MIN(started_at) FROM tfh_g_games) AS oldest')->fetch();
+            $stRows = $pdo->query(
+                "SELECT skey, svalue FROM tfh_g_state WHERE skey IN ('recent_end_ms', 'backfill_cursor_ms')"
+            )->fetchAll();
+            $stMap = [];
+            foreach ($stRows as $s) {
+                $stMap[(string) $s['skey']] = (string) $s['svalue'];
+            }
+            $cursor = isset($stMap['backfill_cursor_ms']) ? (int) round((float) $stMap['backfill_cursor_ms']) : null;
+            json_out([
+                'ok'                 => true,
+                'available'          => true,
+                'games'              => (int) $cnt['games'],
+                'roster_rows'        => (int) $cnt['roster_rows'],
+                'players'            => (int) $cnt['players'],
+                'speedruns'          => (int) $cnt['speedruns'],
+                'last24h'            => (int) $cnt['last24h'],
+                'newest_game'        => $cnt['newest'] !== null ? (string) $cnt['newest'] : null,
+                'oldest_game'        => $cnt['oldest'] !== null ? (string) $cnt['oldest'] : null,
+                'backfill_cursor_ms' => $cursor,
+                'checked_at'         => time(),
+            ]);
+        } catch (Throwable $e) {
+            error_log('[tfh-task] games.status: ' . $e->getMessage());
+            json_out(['ok' => true, 'available' => false, 'checked_at' => time()]);
+        }
     }
 
     /* Archive automatique : les tâches terminées depuis plus de 14 jours
