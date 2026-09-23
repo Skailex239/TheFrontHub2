@@ -61,8 +61,11 @@ fetch_asset() {
 
 # ══ 1. Snapshots critiques (à chaque exécution) ══════════════════════════════
 # Ordre = priorité : le payload optimisé de l'accueil d'abord.
-fetch_asset "runs_public.json.gz"
-fetch_asset "runs_public.json"
+# NOUVEAU DÉPART (2026-09-23) : les payloads SPEEDRUNS (runs_public,
+# runs_compact_public) ne sont PLUS téléchargés depuis la release GitHub —
+# ils sont générés LOCALEMENT depuis MySQL par api/games-export.php
+# (lancé par deploy.sh). Source = la nouvelle ingestion publicID
+# (api/games-sync.php), avec les vrais publicId par run.
 fetch_asset "lobby_state.json"
 fetch_asset "ranked.json"
 fetch_asset "ranked.json.gz"
@@ -74,8 +77,6 @@ fetch_asset "dashboard_ranking.json"
 fetch_asset "dashboard_player_games.json"
 fetch_asset "weekly_history.json.gz"
 fetch_asset "weekly_history.json"
-fetch_asset "runs_compact_public.json.gz"
-fetch_asset "runs_compact_public.json"
 fetch_asset "clans.json"
 fetch_asset "news.json"
 fetch_asset "sync-players.json"
@@ -105,32 +106,10 @@ else
   echo "  ⚠️  player-files.tar.gz : échec — fichiers précédents conservés"
 fi
 
-# ══ 3. Store principal : runs.json.gz (téléchargé si l'asset a changé) ══════
-# ANCIEN fonctionnement : re-téléchargement max 1×/24 h — runs.json.gz était
-# considéré comme un simple fallback quasi statique.
-# ⚠️ INCIDENT du 2026-09-09 : suite à une perte d'état côté sync (voir
-# sync.js), runs.json.gz est devenu le STORE principal des speedruns — la
-# page /runs.html le charge directement. Avec la porte 24 h, la récupération
-# des données mettait jusqu'à 24 h à atteindre le site.
-# NOUVEAU fonctionnement : un HEAD à chaque cycle (coût négligeable) compare
-# le Last-Modified distant au dernier installé ; téléchargement UNIQUEMENT
-# si l'asset a changé (~1×/cycle de sync, soit ~12 Mo toutes les 7-15 min).
-RUNS="${WEB_ROOT}/runs.json.gz"
-RUNS_LM="${TFS_LM_STATE:-/home2/mask6607/.runs_gz_last_modified}"
-REMOTE_LM=$(curl -fsSIL --retry 2 --connect-timeout 20 --max-time 30 "${BASE}/runs.json.gz" 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="last-modified:"{sub(/^last-modified:[ ]*/,"");print;exit}')
-if [[ -z "$REMOTE_LM" ]]; then
-  echo "  ⚠️  runs.json.gz : HEAD impossible — tentative de téléchargement direct"
-  fetch_asset "runs.json.gz"
-else
-  LOCAL_LM=""
-  [[ -f "$RUNS_LM" ]] && LOCAL_LM=$(cat "$RUNS_LM" 2>/dev/null)
-  if [[ "$REMOTE_LM" != "$LOCAL_LM" ]]; then
-    if fetch_asset "runs.json.gz"; then
-      printf '%s' "$REMOTE_LM" > "$RUNS_LM"
-    fi
-  else
-    echo "  ℹ️  runs.json.gz inchangé côté release — ignoré"
-  fi
-fi
+# ══ 3. Store runs.json.gz : SUPPRIMÉ (nouveau départ 2026-09-23) ════════════
+# L'ancien store statique (153 321 runs sans publicId fiable) n'est plus
+# téléchargé : runs.html lit la DB (/api/games-api.php) et l'accueil lit le
+# payload régénéré localement par api/games-export.php. Le webroot est
+# nettoyé de l'ancien fichier par deploy.sh.
 
 echo "$(date '+%F %T') [pull-data] Fin"

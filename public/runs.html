@@ -23,7 +23,8 @@
 
     <!-- Performance: Preload critical assets -->
     <link rel="preload" href="styles.css?v=92" as="style">
-    <link rel="preload" href="runs.json.gz" as="fetch" crossorigin="anonymous">
+    <!-- runs.json.gz préchargé retiré (nouveau départ 2026-09-23) : la page
+         speedruns lit la DB via /api/games-api.php, plus aucun fichier statique. -->
 
     <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Orbitron:wght@900&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
@@ -41,7 +42,7 @@
   <script type="module" src="dist/icons.min.js?v=9"></script>
 
 <!-- i18n : dict de page (synchrone, avant i18n.js) + moteur + sélecteur de langue -->
-<script src="dist/i18n-dict-runs.min.js?v=3"></script>
+<script src="dist/i18n-dict-runs.min.js?v=4"></script>
 <script src="dist/i18n-dict-widgets.min.js?v=3"></script>
 <script src="dist/i18n.min.js?v=6" defer></script>
 <script src="dist/lang-switcher.min.js?v=2" defer></script>
@@ -270,7 +271,7 @@
 <script src="dist/animations.min.js?v=2" defer></script>
     <script src="dist/toast.min.js?v=2"></script>
 <script type="module" src="banners.js?v=4"></script>
-<script type="module" src="dist/runs.min.js?v=19"></script>
+<script type="module" src="dist/runs.min.js?v=20"></script>
 <script type="module" src="dist/tutorial.min.js?v=5"></script>
 <script type="module" src="dist/auth-ui.min.js?v=4"></script>
 <script>

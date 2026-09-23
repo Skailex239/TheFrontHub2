@@ -1,9 +1,13 @@
 # Système « Parties & Pré-profils » TheFrontHub
 
-> Stockage **MySQL o2switch** de toutes les parties publiques OpenFront depuis
-> l'ère **publicID** (début : **2025-09-10 ~06h UTC** — vérifié en live), avec
-> roster complet lié par publicId, speedruns pré-calculés et pré-profils
-> agrégés par joueur.
+> Stockage **MySQL o2switch** de toutes les parties OpenFront (Public **et**
+> Private) depuis l'ère publicID (début : **2025-09-10 ~06h UTC** — vérifié en
+> live), avec roster complet lié par publicId, speedruns pré-calculés et
+> pré-profils agrégés par joueur.
+>
+> Périmètre v2 (2026-09-23) : Public + Private, parties gardées dès 1 joueur
+> (`min_players_to_keep`). Singleplayer exclu par défaut (80 000+/jour de
+> lobbies solo vides) — activable via `game_types`.
 
 ## Architecture
 
@@ -41,7 +45,8 @@ l'API auth) — 2 clés nouvelles :
   "mysql": { "host": "localhost", "port": 3306, "database": "…", "username": "…", "password": "…" },
   "openfront_access": "TON_TOKEN_SKAILEX",
   "games": {
-    "min_players": 3,
+    "game_types": "Public,Private",
+    "min_players_to_keep": 1,
     "detail_concurrency": 4,
     "player_stats_mode": "subset",
     "tick_budget": 240
@@ -99,7 +104,7 @@ Toutes les réponses : `{ok:true,…}` / `{ok:false,error}` — cache 45-600 s.
 
 | Endpoint | Description |
 |---|---|
-| `?route=recent&limit=30` | Dernières parties publiques (tous modes) + gagnant lié |
+| `?route=recent&limit=30` | Dernières parties (Public + Private, tous modes) + gagnant lié |
 | `?route=game&id=X` | Détail d'une partie + roster complet (publicId par joueur) |
 | `?route=speedruns&category=normal\|compact&map=&sort=duration\|date&window=30d` | Records speedrun (offset 32 s appliqué à l'ingestion) |
 | `?route=profile&publicId=X` | Pré-profil : alias, stats par mode, top cartes, meilleurs speedruns, dernières parties |
@@ -116,8 +121,8 @@ curl "https://thefronthub.com/api/games-api.php?route=profile&publicId=syWkxQyM"
 
 ## Volumes & quota
 
-- ~7 000 parties publiques/jour dont ~20 % lobbies 1-2 joueurs (ignorés,
-  seuil `min_players`).
+- ~7 000 parties publiques/jour + parties privées ; lobbies vides ignorés
+  (seuil `min_players_to_keep`, défaut 1 joueur).
 - ~1,5-2 M parties/an + ~40-50 M lignes roster/an ≈ **3-5 Go/an** avec index
   (dictionnaires normalisés : pseudos stockés une seule fois).
 - `player_stats_mode=subset` : stats détaillées JSON par joueur stockées

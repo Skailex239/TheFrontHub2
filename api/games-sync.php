@@ -8,12 +8,16 @@ declare(strict_types=1);
  *   php /home/USER/public_html/thefronthub.com/api/games-sync.php
  *
  * Ce que fait chaque tick :
- *   1. Scan RÉCENT : toutes les parties publiques depuis le dernier scan
- *      (fenêtre avec chevauchement de 10 min) → métadonnées + roster complet
- *      (publicId de CHAQUE joueur) + speedruns pré-calculés.
+ *   1. Scan RÉCENT : toutes les parties (PUBLIC + PRIVÉ) depuis le dernier
+ *      scan (fenêtre avec chevauchement de 10 min) → métadonnées + roster
+ *      complet (publicId de CHAQUE joueur) + speedruns pré-calculés.
  *   2. BACKFILL : reprend le curseur historique (newest → oldest, epoch =
  *      2025-09-10T06:00Z, début de l'ère publicID) dans la limite du budget.
  *   3. Purges : poll quotidien de /public/players/recently-deleted (tombstone).
+ *
+ *   Périmètre v2 (2026-09-23) : Public + Private, parties gardées dès
+ *   1 joueur. Chaque changement de périmètre (SCOPE_VER) relance
+ *   automatiquement un re-backfill complet (idempotent).
  *
  * Commandes CLI :
  *   (sans argument)        tick normal (budget TICK_BUDGET)
@@ -25,8 +29,11 @@ declare(strict_types=1);
  * Secrets : même fichier que le reste de l'API (~/.tfs_secrets/tfh-secrets.json),
  * avec en plus (optionnel mais recommandé) :
  *   { "mysql": {...}, "openfront_access": "token-skailex",
- *     "games": { "min_players": 3, "detail_concurrency": 4, "player_stats_mode": "subset" } }
- */
+ *     "games": { "game_types": "Public,Private", "min_players_to_keep": 1,
+ *                "detail_concurrency": 4, "player_stats_mode": "subset" } }
+ *
+ *   NB : l'ancienne clé "min_players" (v1) est ignorée — la nouvelle clé
+ *   "min_players_to_keep" la remplace (défaut 1).
 
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
@@ -54,16 +61,28 @@ if (!is_array($secrets) || !is_array($secrets['mysql'] ?? null)) {
 }
 
 $cfg = array_merge([
-    'min_players'        => 3,       // ignore les lobbies 1-2 joueurs
-    'detail_concurrency' => 4,       // appels /public/game/:id en parallèle
-    'player_stats_mode'  => 'subset', // subset | all | none
-    'tick_budget'        => 240,     // secondes max par tick cron
-    'recent_overlap_min' => 10,
-    'window_days'        => 2,       // fenêtre backfill (max API = 2 jours)
-    'list_limit'         => 1000,
-    'list_max_offset'    => 40000,   // garde-fou pagination
-    'hard_delete'        => false,   // purge réelle des joueurs supprimés ?
+    'game_types'          => 'Public,Private', // types scannés (API : Public|Private|Singleplayer)
+    'min_players_to_keep' => 1,       // on garde même les parties à 1-2 joueurs
+    'detail_concurrency'  => 4,       // appels /public/game/:id en parallèle
+    'player_stats_mode'   => 'subset', // subset | all | none
+    'tick_budget'         => 240,     // secondes max par tick cron
+    'recent_overlap_min'  => 10,
+    'window_days'         => 2,       // fenêtre backfill (max API = 2 jours)
+    'list_limit'          => 1000,
+    'list_max_offset'     => 40000,   // garde-fou pagination
+    'hard_delete'         => false,   // purge réelle des joueurs supprimés ?
 ], is_array($secrets['games'] ?? null) ? $secrets['games'] : []);
+
+/* Types de parties scannés (liste blanche API). Singleplayer EXCLU par
+ * défaut : 80 000+ parties/jour, quasi toutes des lobbies solo VIDES
+ * (numPlayers 0, pas de winner) — ≈ 30 M de lignes sur l'ère publicID
+ * pour zéro valeur classement/profil. Activable via secrets :
+ *   "games": { "game_types": ["Public","Private","Singleplayer"] } */
+$GAME_TYPES = array_values(array_filter(array_map('trim',
+    is_array($cfg['game_types'] ?? null) ? $cfg['game_types'] : explode(',', (string)($cfg['game_types'] ?? 'Public,Private')))));
+$GAME_TYPES = array_values(array_intersect($GAME_TYPES, ['Public', 'Private', 'Singleplayer']));
+if (!$GAME_TYPES) $GAME_TYPES = ['Public', 'Private'];
+$MIN_KEEP = max(0, (int)($cfg['min_players_to_keep'] ?? 1));
 
 const OF_API_BASE    = 'https://api.openfront.io';
 const GAMES_EPOCH_MS = 1757493600000;  // 2025-09-10T06:00:00Z — début ère publicID
@@ -503,21 +522,22 @@ function ingest_game(PDO $pdo, string $gameId, array $detail, array $listMeta, a
 /* ─────────────────────────── Scan d'une plage temporelle ─────────────────────────── */
 
 /**
- * Liste + ingère les parties publiques de [startMs, endMs].
- * Retourne [ingérées, vues]. Respecte $deadline.
+ * Liste + ingère les parties de [startMs, endMs] pour UN type donné
+ * (Public, Private…). Retourne [ingérées, vues]. Respecte $deadline.
  * $startOffset : reprise intra-fenêtre (offset de pagination).
  * $onProgress : callable(int $offset) appelé après chaque page traitée.
+ * $gameType   : valeur du paramètre type de /public/games.
  */
-function scan_range(PDO $pdo, int $startMs, int $endMs, array $cfg, float $deadline, array &$unameCache, string $label, int $startOffset = 0, ?callable $onProgress = null): array {
+function scan_range(PDO $pdo, int $startMs, int $endMs, array $cfg, float $deadline, array &$unameCache, string $label, int $startOffset = 0, ?callable $onProgress = null, string $gameType = 'Public'): array {
     $ingested = 0; $seen = 0;
     $limit = (int)$cfg['list_limit'];
-    $minPlayers = (int)$cfg['min_players'];
+    $minPlayers = max(0, (int)($cfg['min_players_to_keep'] ?? 1));
 
     for ($offset = $startOffset; $offset <= (int)$cfg['list_max_offset']; $offset += $limit) {
         if (microtime(true) >= $deadline) break;
         $url = OF_API_BASE . '/public/games?start=' . rawurlencode(gmdate('Y-m-d\TH:i:s\Z', intdiv($startMs, 1000)))
              . '&end=' . rawurlencode(gmdate('Y-m-d\TH:i:s\Z', intdiv($endMs, 1000)))
-             . '&type=Public&limit=' . $limit . '&offset=' . $offset;
+             . '&type=' . rawurlencode($gameType) . '&limit=' . $limit . '&offset=' . $offset;
         $games = of_get($url);
         if ($games === null || !is_array($games)) break;
 
@@ -525,7 +545,7 @@ function scan_range(PDO $pdo, int $startMs, int $endMs, array $cfg, float $deadl
         foreach ($games as $g) {
             if (!is_array($g) || empty($g['game'])) continue;
             $np = $g['numPlayers'] ?? null;
-            if ($np !== null && $np !== '' && (int)$np < $minPlayers) continue; // lobbies abandonnés
+            if ($np !== null && $np !== '' && (int)$np < $minPlayers) continue; // lobbies vides/abandonnés
             $candidates[(string)$g['game']] = $g;
         }
         $seen += count($candidates);
@@ -628,45 +648,82 @@ if (time() - $lastDel > 86400) {
     }
 }
 
-// 2) Scan récent (depuis le dernier état, chevauchement inclus)
+// 2) Scan récent (depuis le dernier état, chevauchement inclus) — tous les types
 $nowMs = (int)round(microtime(true) * 1000);
 $recentEnd = (int)state_get($pdo, STATE_KEY_RECENT, (string)($nowMs - 3 * 3600 * 1000));
 $recentStart = $recentEnd - (int)$cfg['recent_overlap_min'] * 60 * 1000;
 if ($recentStart < $nowMs) {
-    [$ing, $seen] = scan_range($pdo, $recentStart, $nowMs, $cfg, $deadline, $unameCache, 'recent');
-    $totalIngested += $ing;
-    log_line("[recent] fenêtre " . gmdate('m-d H:i', intdiv($recentStart, 1000)) . " → maintenant : $ing nouvelle(s) partie(s) ($seen vues)");
+    $ingTotal = 0; $seenTotal = 0;
+    foreach ($GAME_TYPES as $gt) {
+        if (microtime(true) >= $deadline) break;
+        [$ing, $seen] = scan_range($pdo, $recentStart, $nowMs, $cfg, $deadline, $unameCache, 'recent', 0, null, $gt);
+        $ingTotal += $ing; $seenTotal += $seen;
+    }
+    $totalIngested += $ingTotal;
+    log_line("[recent] fenêtre " . gmdate('m-d H:i', intdiv($recentStart, 1000)) . " → maintenant : $ingTotal nouvelle(s) partie(s) ($seenTotal vues, types " . implode('+', $GAME_TYPES) . ')');
     if (microtime(true) < $deadline) state_set($pdo, STATE_KEY_RECENT, (string)$nowMs);
 }
 
 // 3) Backfill historique (newest → oldest jusqu'à l'epoch publicID)
 //    Reprise intra-fenêtre : l'offset de pagination est persisté après chaque
 //    page (une fenêtre de 2 jours ne tient pas dans un tick de 240 s).
+//    v2 : la fenêtre est parcourue pour CHAQUE type (Public puis Private),
+//    le type en cours est persisté pour reprendre au bon endroit.
 const BK_WIN_START = 'backfill_window_start_ms';
+const BK_WIN_TYPE  = 'backfill_window_type';
 const BK_WIN_OFF   = 'backfill_window_offset';
+
+/* Changement de périmètre d'ingestion → re-backfill automatique.
+ * v2 (2026-09-23) : Public + Private (au lieu de Public seul) et parties
+ * gardées dès 1 joueur (au lieu de 3). Le curseur repart de « maintenant »
+ * pour ré-ingérer TOUT l'historique publicID avec le nouveau périmètre
+ * (idempotent : les parties déjà en base ne sont pas dupliquées). */
+const SCOPE_VER_KEY = 'ingest_scope_ver';
+const SCOPE_VER     = '2';
+if (state_get($pdo, SCOPE_VER_KEY) !== SCOPE_VER) {
+    state_set($pdo, STATE_KEY_BACKFIL, (string)$nowMs);
+    state_set($pdo, BK_WIN_START, '0');
+    state_set($pdo, BK_WIN_TYPE, '');
+    state_set($pdo, BK_WIN_OFF, '0');
+    state_set($pdo, SCOPE_VER_KEY, SCOPE_VER);
+    log_line('[scope] v' . SCOPE_VER . ' activée (' . implode('+', $GAME_TYPES) . ', ≥' . $MIN_KEEP . ' joueur) — re-backfill complet relancé depuis maintenant');
+}
+
 $cursor = (int)state_get($pdo, STATE_KEY_BACKFIL, (string)$nowMs);
 $windowMs = (int)$cfg['window_days'] * 86400 * 1000;
 $windowsDone = 0;
 while (microtime(true) < $deadline && $cursor - $windowMs >= GAMES_EPOCH_MS - 3600 * 1000) {
     $wEnd = $cursor;
     $wStart = max($cursor - $windowMs, GAMES_EPOCH_MS);
-    // Reprise : si la fenêtre en cours est la même, on repart de l'offset sauvé
+    // Reprise : si la fenêtre en cours est la même, on reprend au type et à
+    // l'offset persistés (sinon on démarre au premier type, offset 0)
     $savedWinStart = (int)state_get($pdo, BK_WIN_START, '0');
-    $startOffset = ($savedWinStart === $wStart) ? (int)state_get($pdo, BK_WIN_OFF, '0') : 0;
-    state_set($pdo, BK_WIN_START, (string)$wStart);
-    state_set($pdo, BK_WIN_OFF, (string)$startOffset);
-    [$ing, $seen] = scan_range(
-        $pdo, $wStart, $wEnd, $cfg, $deadline, $unameCache, 'backfill', $startOffset,
-        function (int $nextOffset) use ($pdo) {
-            state_set($pdo, BK_WIN_OFF, (string)$nextOffset);
-        }
-    );
-    $totalIngested += $ing;
+    $savedWinType  = (string)state_get($pdo, BK_WIN_TYPE, '');
+    $typeStart = ($savedWinStart === $wStart && in_array($savedWinType, $GAME_TYPES, true))
+        ? max(0, array_search($savedWinType, $GAME_TYPES, true)) : 0;
+    $resumeOffset = ($savedWinStart === $wStart) ? (int)state_get($pdo, BK_WIN_OFF, '0') : 0;
+    $winIng = 0; $winSeen = 0;
+    for ($ti = $typeStart; $ti < count($GAME_TYPES) && microtime(true) < $deadline; $ti++) {
+        $gt = $GAME_TYPES[$ti];
+        $startOffset = ($ti === $typeStart) ? $resumeOffset : 0;
+        state_set($pdo, BK_WIN_START, (string)$wStart);
+        state_set($pdo, BK_WIN_TYPE, $gt);
+        state_set($pdo, BK_WIN_OFF, (string)$startOffset);
+        [$ing, $seen] = scan_range(
+            $pdo, $wStart, $wEnd, $cfg, $deadline, $unameCache, 'backfill', $startOffset,
+            function (int $nextOffset) use ($pdo) {
+                state_set($pdo, BK_WIN_OFF, (string)$nextOffset);
+            },
+            $gt
+        );
+        $winIng += $ing; $winSeen += $seen;
+    }
+    $totalIngested += $winIng;
     $windowsDone++;
     $cursor = $wStart;
     state_set($pdo, STATE_KEY_BACKFIL, (string)$cursor);
-    log_line('[backfill] fenêtre ' . gmdate('Y-m-d', intdiv($wStart, 1000)) . " : $ing partie(s) ($seen vues) — curseur " . gmdate('Y-m-d', intdiv($cursor, 1000)));
-    if ($ing === 0 && $seen === 0) { /* fenêtre vide : continue */ }
+    log_line('[backfill] fenêtre ' . gmdate('Y-m-d', intdiv($wStart, 1000)) . " : $winIng partie(s) ($winSeen vues) — curseur " . gmdate('Y-m-d', intdiv($cursor, 1000)));
+    if ($winIng === 0 && $winSeen === 0) { /* fenêtre vide : continue */ }
 }
 if ($windowsDone > 0 && $cursor <= GAMES_EPOCH_MS + 3600 * 1000) {
     log_line('[backfill] ✅ epoch publicID atteinte');

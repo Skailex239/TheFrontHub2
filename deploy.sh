@@ -127,5 +127,26 @@ else
   log "avertissement : pull-data.sh introuvable"
 fi
 
+# ── 5) NOUVEAU DEPART speedruns (2026-09-23) ──────────────────────────
+# a) Nettoyage de l'ancien store statique (153 321 runs sans publicId
+#    fiable) : la page speedruns lit la DB (/api/games-api.php) et
+#    l'accueil lit le payload régénéré ci-dessous.
+if [ -f "$DEST/runs.json.gz" ] || [ -f "$DEST/runs.json" ]; then
+  rm -f "$DEST/runs.json.gz" "$DEST/runs.json"
+  log "cleanup : ancien runs.json.gz / runs.json supprimé du webroot"
+fi
+# b) Régénération LOCALE des payloads speedruns (runs_public*,
+#    runs_compact_public*) depuis MySQL (tables tfh_g_* remplies par
+#    api/games-sync.php) — remplace la release GitHub « data-latest ».
+if [ -x /usr/local/bin/php ] && [ -f "$DEST/api/games-export.php" ]; then
+  if /usr/local/bin/php "$DEST/api/games-export.php" >> "$LOGDIR/games-export.log" 2>&1; then
+    log "games-export OK"
+  else
+    log "avertissement : games-export a echoue (voir games-export.log)"
+  fi
+else
+  log "avertissement : games-export indisponible (php ou script manquant)"
+fi
+
 log "SUCCES deploiement $COMMIT"
 echo "SUCCES deploiement $COMMIT (details : $LOG)"

@@ -397,14 +397,21 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
        ═══════════════════════════════════════════════════════════════════ */
     if ($getAction === 'games.status') {
         try {
+            /* roster_rows : ESTIMATE information_schema (un COUNT(*) plein-scan
+               prend plusieurs secondes sur une grosse table — ce compteur est
+               rafraîchi toutes les 30 s par le panel). */
             $cnt = $pdo->query('SELECT
                 (SELECT COUNT(*) FROM tfh_g_games) AS games,
-                (SELECT COUNT(*) FROM tfh_g_roster) AS roster_rows,
                 (SELECT COUNT(*) FROM tfh_g_players WHERE deleted_at IS NULL) AS players,
                 (SELECT COUNT(*) FROM tfh_g_games WHERE speedrun_category IS NOT NULL) AS speedruns,
                 (SELECT COUNT(*) FROM tfh_g_games WHERE started_at >= NOW() - INTERVAL 1 DAY) AS last24h,
                 (SELECT MAX(started_at) FROM tfh_g_games) AS newest,
                 (SELECT MIN(started_at) FROM tfh_g_games) AS oldest')->fetch();
+            $rosterEst = $pdo->query(
+                "SELECT TABLE_ROWS FROM information_schema.TABLES
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tfh_g_roster'"
+            )->fetchColumn();
+            $cnt['roster_rows'] = $rosterEst !== false ? (int) $rosterEst : 0;
             $stRows = $pdo->query(
                 "SELECT skey, svalue FROM tfh_g_state WHERE skey IN ('recent_end_ms', 'backfill_cursor_ms')"
             )->fetchAll();

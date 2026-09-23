@@ -246,19 +246,17 @@ function handlePlayerClick(name, pid) {
 window.handlePlayerClick = handlePlayerClick;
 
 /* ═══════════════════════════════════════════════════════════════════════
-   Source de données — v3 « pré-profils » (2026-09-22)
+   Source de données — v4 « nouveau départ » (2026-09-23)
 
-   1) PRIORITAIRE : API DB (/api/games-api.php?route=speedruns) remplie par
-      api/games-sync.php (cron o2switch). Toutes les parties publiques depuis
+   1) SOURCE UNIQUE : API DB (/api/games-api.php?route=speedruns) remplie
+      par api/games-sync.php (cron o2switch). Toutes les parties depuis
       l'ère publicID (2025-09-10), roster complet par publicId, speedruns
       pré-calculés (mêmes règles que l'ancienne sync, offset 32s inclus).
       → classement par TEMPS (les meilleurs temps « montent ») ou par DATE,
         filtres carte + catégorie (Normal/Compact), chargement < 100 ms.
-   2) FALLBACK : ancien runs.json.gz statique — UNIQUEMENT si l'API DB est
-      indisponible (réseau / HTTP / payload invalide). « Nouveau départ »
-      (2026-09-23) : une DB connectée mais encore vide (backfill en cours)
-      affiche l'état « nouvelle ère » — les records fichier pré-publicID ne
-      reviennent PAS dans le classement.
+   2) AUCUN fallback fichier : l'ancien store statique runs.json.gz
+      (153 321 runs pré-publicID) ne doit JAMAIS réapparaître. API
+      indisponible = état « nouvelle ère » vide, jamais les vieux records.
    ═══════════════════════════════════════════════════════════════════════ */
 
 const GAMES_API = '/api/games-api.php';
@@ -284,7 +282,8 @@ async function loadMapOptions(category, selected) {
   const sel = $('mapFilter');
   if (!sel) return;
   try {
-    const res = await fetch(GAMES_API + '?route=maps&category=' + encodeURIComponent(category), { cache: 'no-store' });
+    const res = await fetch(GAMES_API + '?route=maps&category=' + encodeURIComponent(category),
+      Object.assign({ cache: 'no-store' }, (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(8000) } : {}));
     if (!res.ok) return;
     const data = await res.json();
     if (!data.ok || !Array.isArray(data.maps) || !data.maps.length) return;
@@ -368,10 +367,12 @@ async function loadTopRuns() {
     let runs = [];
     let source = 'db';
     let dbFresh = false; // DB connectée mais encore vide (backfill en cours)
-    let totalAll = null;
     let filteredCount = null;
+    let apiOk = true;
 
-    // ── 1) API DB (pré-profils) ──
+    // ── SOURCE UNIQUE : API DB (pré-profils). « Nouveau départ » : AUCUN
+    //    fallback sur le vieux fichier statique (153 321 runs pré-publicID) —
+    //    si l'API est indisponible, on affiche l'état « nouvelle ère » vide. ──
     try {
       const url = GAMES_API + '?route=speedruns'
         + '&category=' + encodeURIComponent(c.category)
@@ -379,11 +380,13 @@ async function loadTopRuns() {
         + '&sort=' + encodeURIComponent(c.sort)
         + '&window=' + c.windowDays + 'd'
         + '&limit=' + c.limit;
-      const res = await fetch(url, { cache: 'no-store' });
+      /* Timeout 8 s : sans lui, un réseau qui hang laisse la page bloquée
+         sur « Chargement… » au lieu d'afficher l'état nouvelle ère. */
+      const res = await fetch(url, Object.assign({ cache: 'no-store' },
+        (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(8000) } : {}));
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
       if (!data.ok || !Array.isArray(data.runs)) throw new Error('bad api payload');
-      source = 'db';
       // Nouveau départ : la DB est LA source officielle. Une DB connectée mais
       // encore vide (backfill en cours) n'est PAS une raison de retomber sur
       // les anciens records fichier — état « nouvelle ère » affiché à la place.
@@ -402,50 +405,20 @@ async function loadTopRuns() {
       });
       filteredCount = runs.length;
     } catch (apiErr) {
-      // ── 2) Fallback : ancien fichier statique — UNIQUEMENT si l'API DB est
-      //    indisponible (réseau / HTTP / payload invalide) ──
-      source = 'file';
-      let allRunsData;
-      try {
-        const ds = new DecompressionStream('gzip');
-        const gzRes = await fetch('runs.json.gz', { cache: 'no-store', credentials: 'omit' });
-        if (!gzRes.ok) throw new Error('HTTP ' + gzRes.status);
-        const decompressed = gzRes.body.pipeThrough(ds);
-        allRunsData = await new Response(decompressed).json();
-      } catch (gzErr) {
-        const plainRes = await fetch('runs.json', { cache: 'no-store' });
-        if (!plainRes.ok) throw new Error(T("runs.err_file", "Impossible de charger runs.json"));
-        allRunsData = await plainRes.json();
-      }
-      const rawRuns = Array.isArray(allRunsData) ? allRunsData : (allRunsData.runs || []);
-      totalAll = allRunsData.totalCount || rawRuns.length;
-      const now = Date.now();
-      const windowMs = c.windowDays * 24 * 60 * 60 * 1000;
-      const filtered = rawRuns.filter(function(r) {
-        if (!r.timestamp) return false;
-        return (now - new Date(r.timestamp).getTime()) <= windowMs;
-      });
-      filtered.sort(function(a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
-      runs = filtered.slice(0, c.limit).map(function(r) {
-        return {
-          id: r.id,
-          name: r.player,
-          pid: (r.playerId && hubNameByPid[String(r.playerId)]) ? String(r.playerId) : '',
-          map: r.map,
-          durationS: r.duration_s,
-          difficulty: r.difficulty,
-          players: r.players,
-          ts: r.timestamp,
-        };
-      });
-      filteredCount = filtered.length;
+      apiOk = false;
+      console.warn('[runs] API DB indisponible — état « nouvelle ère » affiché :', apiErr);
+      runs = [];
+      filteredCount = 0;
     }
 
-    if (source === 'db' && dbFresh) {
-      status.textContent = T("runs.era_backfill", "Nouveau départ des speedruns : la base est connectée, le backfill historique est en cours — les records vont apparaître ici au fur et à mesure.");
+    if (dbFresh || !apiOk) {
+      status.textContent = apiOk
+        ? T("runs.era_backfill", "Nouveau départ des speedruns : la base est connectée, le backfill historique est en cours — les records vont apparaître ici au fur et à mesure.")
+        : T("runs.era_offline", "Nouvelle ère des speedruns (records depuis le 10 sept 2025) — l'API est momentanément indisponible, réessaie dans un instant. Les anciens records pré-publicID ne s'affichent plus.");
     } else {
       status.textContent = runs.length ? '' : TP("runs.none_found", { days: c.windowDays }, "Aucun run trouvé dans les " + c.windowDays + " derniers jours.");
     }
+    meta.textContent = ''; // le « Chargement… » du header disparaît dès que le top est affiché
 
     const frag = document.createDocumentFragment();
     runs.forEach(function(r, idx) { frag.appendChild(renderRunRow(idx, r)); });
@@ -455,11 +428,11 @@ async function loadTopRuns() {
     }
 
     const ms = Date.now() - startedAt;
-    const srcLabel = source === 'db'
-      ? (dbFresh
+    const srcLabel = !apiOk
+      ? T("runs.src_offline", "API momentanément indisponible — nouvelle ère uniquement")
+      : (dbFresh
         ? T("runs.src_era_backfill", "Nouvelle ère — DB connectée, backfill en cours")
-        : T("runs.src_era", "Nouvelle ère — DB pré-profils, records depuis le 10 sept 2025"))
-      : T("runs.src_file", "fichier statique (API indisponible)");
+        : T("runs.src_era", "Nouvelle ère — DB pré-profils, records depuis le 10 sept 2025"));
     const sortLabel = c.sort === 'date'
       ? T("runs.sort_date", "récentes d'abord")
       : T("runs.sort_duration", "meilleurs temps d'abord");
@@ -469,8 +442,7 @@ async function loadTopRuns() {
       days: c.windowDays,
       ms: ms,
     }, "Top " + runs.length + " sur " + (filteredCount != null ? filteredCount : '?') + " (" + c.windowDays + "j) • " + ms + "ms")
-      + ' • ' + srcLabel + ' • ' + sortLabel
-      + (totalAll ? ' • ' + TP("runs.total", { n: totalAll.toLocaleString(localeTag()) }, "Total: " + totalAll.toLocaleString(localeTag())) : '');
+      + ' • ' + srcLabel + ' • ' + sortLabel;
   } catch (e) {
     status.textContent = '';
     const message = e && e.message ? e.message : String(e);
