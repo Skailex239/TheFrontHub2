@@ -294,11 +294,13 @@ function of_on_429(): void {
     sleep(4);
 }
 
-/** Succès détail : remontée AIMD douce (+20 % tous les 500 succès, plafonnée). */
+/** Succès détail : remontée AIMD rapide (+20 % tous les 100 succès, plafonnée).
+ * v4.1 : 500 → 100 succès par palier — à 0,5 req/s au plancher il fallait
+ * ~5500 succès (~3 h) pour revenir à 4 req/s : le récent restait bloqué. */
 function of_ok_nudge(): void {
     global $OF_OK_RUN, $OF_RATE, $OF_RATE_MAX;
     $OF_OK_RUN++;
-    if ($OF_OK_RUN >= 500) {
+    if ($OF_OK_RUN >= 100) {
         $OF_RATE = min($OF_RATE_MAX, $OF_RATE * 1.2);
         $OF_OK_RUN = 0;
     }
@@ -873,6 +875,13 @@ if ($windowsDone > 0 && $cursor <= GAMES_EPOCH_MS + 3600 * 1000) {
 }
 
 // Résumé + persistance des stats HTTP (visibilité rate limits)
+// v4.1 : tick sans le moindre 429 → le débit remonte au moins au niveau de
+// départ (élasticité rapide après un passage au plancher AIMD).
+$rateStart = max(0.5, (float)$cfg['detail_rate_start_per_s']);
+if ($OF_STATS['r429'] === 0 && $OF_RATE < $rateStart) {
+    $OF_RATE = min($OF_RATE_MAX, $rateStart);
+    $OF_OK_RUN = 0;
+}
 $done = $cursor <= GAMES_EPOCH_MS + 3600 * 1000;
 state_set($pdo, 'of_rate_cur', (string)round($OF_RATE, 2));
 state_set($pdo, 'of_429_total', (string)((int)state_get($pdo, 'of_429_total', '0') + $OF_STATS['r429']));
