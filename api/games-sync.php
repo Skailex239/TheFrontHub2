@@ -19,6 +19,16 @@ declare(strict_types=1);
  *   1 joueur. Chaque changement de périmètre (SCOPE_VER) relance
  *   automatiquement un re-backfill complet (idempotent).
  *
+ *   Moteur v3 (2026-09-24) : HTTP FIABLE. Constat : depuis l'IP mutualisée
+ *   o2switch l'API rate-limite les rafales de détails → l'ancien code sautait
+ *   silencieusement les parties non détaillées et déclarait les fenêtres
+ *   terminées à moitié vides (backfill "terminé" avec ~2 % des parties).
+ *   Corrections : pacing AIMD du débit détail (3 req/s → plafond 10, /2 à
+ *   chaque 429), retries avec backoff (transitoire ≠ 404 permanent), curseur
+ *   STRICT (aucune fenêtre ni page déclarée faite tant qu'il reste un échec
+ *   transitoire), garde-fou anti-blocage (5 tentatives max par fenêtre),
+ *   compteurs 429/erreurs tracés dans le log + --status.
+ *
  * Commandes CLI :
  *   (sans argument)        tick normal (budget TICK_BUDGET)
  *   --backfill=N           session backfill prolongée de N secondes
@@ -71,6 +81,8 @@ $cfg = array_merge([
     'list_limit'          => 1000,
     'list_max_offset'     => 40000,   // garde-fou pagination
     'hard_delete'         => false,   // purge réelle des joueurs supprimés ?
+    'detail_rate_start_per_s' => 3.0,   // v3 : débit détail initial (req/s) — AIMD
+    'detail_rate_max_per_s'   => 10.0,  // v3 : plafond de remontée AIMD
 ], is_array($secrets['games'] ?? null) ? $secrets['games'] : []);
 
 /* Types de parties scannés (liste blanche API). Singleplayer EXCLU par
@@ -248,71 +260,146 @@ function ms_to_dt(int $ms): string {
 
 /* ─────────────────────────── HTTP OpenFront ─────────────────────────── */
 
-function of_get(string $url, int $retries = 3): ?array {
-    global $OF_ACCESS;
-    for ($attempt = 0; $attempt <= $retries; $attempt++) {
+/* v3 (2026-09-24) : HTTP fiable.
+ * Constat du 23-24 sept : depuis l'IP mutualisée o2switch, l'API rate-limite
+ * les rafales d'appels détail. L'ancien code sautait silencieusement toute
+ * partie dont le détail échouait ET déclarait la fenêtre terminée quand même
+ * → backfill quasi vide (~16,5 k parties au lieu de centaines de milliers).
+ * Désormais : pacing AIMD (débit détail adaptatif), retries avec backoff,
+ * échec transitoire ≠ échec permanent (404), et AUCUNE progression du
+ * curseur tant qu'une page n'est pas traitée intégralement. Tout est tracé. */
+
+$OF_STATS     = ['ok' => 0, 'r429' => 0, 'err' => 0, 'retries' => 0]; // compteurs HTTP du tick
+$OF_RATE      = 3.0;  // débit détail courant (req/s) — piloté par AIMD
+$OF_RATE_MIN  = 0.5;
+$OF_RATE_MAX  = 10.0; // réellement appliqué depuis $cfg au démarrage du tick
+$OF_OK_RUN    = 0;     // succès consécutifs (remontée AIMD)
+$OF_PACE_LAST = 0.0;   // fin du dernier batch détail (pacing)
+
+/** Maintient un débit ≈ $OF_RATE req/s entre deux batches de détails. */
+function of_pace(int $n): void {
+    global $OF_RATE, $OF_RATE_MIN, $OF_PACE_LAST;
+    if ($OF_PACE_LAST <= 0) return;
+    $minGap = $n / max($OF_RATE_MIN, $OF_RATE);
+    $wait = ($OF_PACE_LAST + $minGap) - microtime(true);
+    if ($wait > 0) usleep((int)($wait * 1e6));
+}
+
+/** 429 reçu : descente AIMD (débit /2) + respiration avant reprise. */
+function of_on_429(): void {
+    global $OF_RATE, $OF_RATE_MIN, $OF_OK_RUN, $OF_STATS;
+    $OF_STATS['r429']++;
+    $OF_OK_RUN = 0;
+    $OF_RATE = max($OF_RATE_MIN, $OF_RATE / 2);
+    sleep(4);
+}
+
+/** Succès détail : remontée AIMD douce (+20 % tous les 500 succès, plafonnée). */
+function of_ok_nudge(): void {
+    global $OF_OK_RUN, $OF_RATE, $OF_RATE_MAX;
+    $OF_OK_RUN++;
+    if ($OF_OK_RUN >= 500) {
+        $OF_RATE = min($OF_RATE_MAX, $OF_RATE * 1.2);
+        $OF_OK_RUN = 0;
+    }
+}
+
+/**
+ * GET OpenFront avec retries et backoff — v3. Retour [status, data|null].
+ * 429 → backoff long + AIMD ; autres erreurs → backoff croissant ;
+ * retourne le dernier status si tout échoue (l'appelant décide : reprise).
+ */
+function of_request(string $url, int $timeout, int $maxAttempts = 4): array {
+    global $OF_ACCESS, $OF_STATS;
+    $status = 0; $backoff = 2;
+    for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
         $ch = curl_init($url);
         $headers = ['User-Agent: TheFrontHub-GamesSync/1.0', 'Accept: application/json'];
         if ($OF_ACCESS !== '') $headers[] = 'x-skailex-access: ' . $OF_ACCESS;
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => 8,
-            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_TIMEOUT        => $timeout,
             CURLOPT_HTTPHEADER     => $headers,
             CURLOPT_ENCODING       => '',
         ]);
         $body   = curl_exec($ch);
         $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         curl_close($ch);
-        if ($status === 429) {
-            sleep(2 * ($attempt + 1));
-            continue;
+        if ($status === 200 && is_string($body)) {
+            $OF_STATS['ok']++;
+            $d = json_decode($body, true);
+            return [200, is_array($d) ? $d : null];
         }
-        if ($status !== 200 || !is_string($body)) return null;
-        $d = json_decode($body, true);
-        return is_array($d) ? $d : null;
+        if ($status === 429) { $OF_STATS['retries']++; of_on_429(); continue; }
+        $OF_STATS['err']++;
+        if ($attempt < $maxAttempts) { $OF_STATS['retries']++; sleep($backoff); $backoff = min(15, $backoff * 2); }
     }
-    return null;
+    return [$status, null];
 }
 
-/** GET parallélisé de N game details (curl_multi). Retour: gameId → détail|null. */
+/** Wrapper compat (listes ponctuelles, poll deletions) : data|null. */
+function of_get(string $url, int $retries = 4): ?array {
+    [$status, $data] = of_request($url, 30, $retries);
+    return $status === 200 ? $data : null;
+}
+
+/**
+ * GET parallélisé de N détails de parties — v3 : pacing AIMD + retries transitoires.
+ * Retour [gameId → détail|null, nbÉchecsTransitoiresRestants].
+ *   - 404             → null PERMANENT (partie disparue), la page peut avancer
+ *   - 429/5xx/réseau  → retryé 2× dans le tick (attente 3 s puis 6 s), sinon transitoire
+ */
 function of_details_multi(array $gameIds, int $concurrency): array {
-    global $OF_ACCESS;
+    global $OF_ACCESS, $OF_PACE_LAST;
     $out = [];
-    $queue = array_values($gameIds);
-    while ($queue) {
-        $batch = array_splice($queue, 0, max(1, $concurrency));
-        $mh = curl_multi_init();
-        $handles = [];
-        foreach ($batch as $gid) {
-            $ch = curl_init(OF_API_BASE . '/public/game/' . rawurlencode($gid) . '?turns=false');
-            $headers = ['User-Agent: TheFrontHub-GamesSync/1.0', 'Accept: application/json'];
-            if ($OF_ACCESS !== '') $headers[] = 'x-skailex-access: ' . $OF_ACCESS;
-            curl_setopt_array($ch, [
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_CONNECTTIMEOUT => 8,
-                CURLOPT_TIMEOUT        => 40,
-                CURLOPT_HTTPHEADER     => $headers,
-                CURLOPT_ENCODING       => '',
-            ]);
-            curl_multi_add_handle($mh, $ch);
-            $handles[$gid] = $ch;
+    $pending = array_values($gameIds);
+    for ($round = 0; $round < 3 && $pending; $round++) {
+        if ($round > 0) sleep(3 * $round);
+        $queue = $pending;
+        $pending = [];
+        while ($queue) {
+            $batch = array_splice($queue, 0, max(1, $concurrency));
+            of_pace(count($batch));
+            $mh = curl_multi_init();
+            $handles = [];
+            foreach ($batch as $gid) {
+                $ch = curl_init(OF_API_BASE . '/public/game/' . rawurlencode($gid) . '?turns=false');
+                $headers = ['User-Agent: TheFrontHub-GamesSync/1.0', 'Accept: application/json'];
+                if ($OF_ACCESS !== '') $headers[] = 'x-skailex-access: ' . $OF_ACCESS;
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_CONNECTTIMEOUT => 8,
+                    CURLOPT_TIMEOUT        => 40,
+                    CURLOPT_HTTPHEADER     => $headers,
+                    CURLOPT_ENCODING       => '',
+                ]);
+                curl_multi_add_handle($mh, $ch);
+                $handles[$gid] = $ch;
+            }
+            do {
+                curl_multi_exec($mh, $running);
+                if ($running) curl_multi_select($mh, 0.5);
+            } while ($running > 0);
+            foreach ($handles as $gid => $ch) {
+                $body   = curl_multi_getcontent($ch);
+                $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+                curl_multi_remove_handle($mh, $ch);
+                curl_close($ch);
+                if ($status === 200 && is_string($body)) {
+                    $d = json_decode($body, true);
+                    if (is_array($d)) { $out[$gid] = $d; of_ok_nudge(); continue; }
+                }
+                if ($status === 429) of_on_429();
+                if ($status === 404) { $out[$gid] = null; continue; } // permanent
+                $pending[] = $gid;                                    // transitoire → retry
+            }
+            curl_multi_close($mh);
+            $OF_PACE_LAST = microtime(true);
         }
-        do {
-            curl_multi_exec($mh, $running);
-            if ($running) curl_multi_select($mh, 0.5);
-        } while ($running > 0);
-        foreach ($handles as $gid => $ch) {
-            $body   = curl_multi_getcontent($ch);
-            $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-            $d = ($status === 200 && is_string($body)) ? json_decode($body, true) : null;
-            $out[$gid] = is_array($d) ? $d : null;
-            curl_multi_remove_handle($mh, $ch);
-            curl_close($ch);
-        }
-        curl_multi_close($mh);
     }
-    return $out;
+    foreach ($pending as $gid) $out[$gid] = null;
+    return [$out, count($pending)];
 }
 
 /* ─────────────────────────── Règles speedrun (miroir extract-speedrun.js) ─────────────────────────── */
@@ -523,23 +610,32 @@ function ingest_game(PDO $pdo, string $gameId, array $detail, array $listMeta, a
 
 /**
  * Liste + ingère les parties de [startMs, endMs] pour UN type donné
- * (Public, Private…). Retourne [ingérées, vues]. Respecte $deadline.
+ * (Public, Private…). Respecte $deadline.
  * $startOffset : reprise intra-fenêtre (offset de pagination).
  * $onProgress : callable(int $offset) appelé après chaque page traitée.
  * $gameType   : valeur du paramètre type de /public/games.
+ *
+ * v3 : retourne [ingérées, vues, complète]. complète=false si une page liste
+ * a échoué, si des détails restent en échec transitoire, ou si le budget du
+ * tick s'est écoulé avant la fin → l'appelant NE doit PAS avancer son
+ * curseur (la fenêtre sera reprise au prochain tick, dédup par la base).
  */
 function scan_range(PDO $pdo, int $startMs, int $endMs, array $cfg, float $deadline, array &$unameCache, string $label, int $startOffset = 0, ?callable $onProgress = null, string $gameType = 'Public'): array {
     $ingested = 0; $seen = 0;
     $limit = (int)$cfg['list_limit'];
     $minPlayers = max(0, (int)($cfg['min_players_to_keep'] ?? 1));
+    $chunkSize = max(1, (int)$cfg['detail_concurrency']) * 4;
 
     for ($offset = $startOffset; $offset <= (int)$cfg['list_max_offset']; $offset += $limit) {
-        if (microtime(true) >= $deadline) break;
+        if (microtime(true) >= $deadline) return [$ingested, $seen, false];
         $url = OF_API_BASE . '/public/games?start=' . rawurlencode(gmdate('Y-m-d\TH:i:s\Z', intdiv($startMs, 1000)))
              . '&end=' . rawurlencode(gmdate('Y-m-d\TH:i:s\Z', intdiv($endMs, 1000)))
              . '&type=' . rawurlencode($gameType) . '&limit=' . $limit . '&offset=' . $offset;
-        $games = of_get($url);
-        if ($games === null || !is_array($games)) break;
+        [$status, $games] = of_request($url, 30);
+        if ($status !== 200 || !is_array($games)) {
+            log_line("[$label] page liste $gameType offset=$offset : échec HTTP $status — reprise au prochain tick");
+            return [$ingested, $seen, false];
+        }
 
         $candidates = [];
         foreach ($games as $g) {
@@ -557,9 +653,9 @@ function scan_range(PDO $pdo, int $startMs, int $endMs, array $cfg, float $deadl
             $chk->execute([$gid]);
             if (!$chk->fetch()) $todo[] = $gid;
         }
-        foreach (array_chunk($todo, max(1, (int)$cfg['detail_concurrency'])) as $chunk) {
-            if (microtime(true) >= $deadline) break 2;
-            $details = of_details_multi($chunk, (int)$cfg['detail_concurrency']);
+        foreach (array_chunk($todo, $chunkSize) as $chunk) {
+            if (microtime(true) >= $deadline) return [$ingested, $seen, false];
+            [$details, $tfail] = of_details_multi($chunk, (int)$cfg['detail_concurrency']);
             foreach ($chunk as $gid) {
                 $d = $details[$gid] ?? null;
                 if ($d === null) continue;
@@ -569,13 +665,21 @@ function scan_range(PDO $pdo, int $startMs, int $endMs, array $cfg, float $deadl
                     log_line("[$label] ⚠️ $gid : " . cut($e->getMessage(), 120));
                 }
             }
+            if ($tfail > 0) {
+                // Échecs transitoires : on NE valide PAS la page → elle sera
+                // rejouée au prochain tick (dédup par la base : seuls les
+                // détails manquants seront refetchés).
+                log_line("[$label] $tfail détail(s) en échec transitoire (page offset=$offset) — reprise au prochain tick");
+                return [$ingested, $seen, false];
+            }
             if ($onProgress !== null) $onProgress($offset + $limit); // offset de la PROCHAINE page
         }
         if ($onProgress !== null && count($todo) === 0) $onProgress($offset + $limit);
 
-        if (count($games) < $limit) break; // dernière page
+        if (count($games) < $limit) return [$ingested, $seen, true]; // dernière page → fenêtre complète
     }
-    return [$ingested, $seen];
+    // list_max_offset atteint (garde-fou historique) : fenêtre considérée traitée
+    return [$ingested, $seen, true];
 }
 
 /* ─────────────────────────── Commandes spéciales ─────────────────────────── */
@@ -599,6 +703,9 @@ if ($argStatus) {
         'recent_end_ms' => state_get($pdo, STATE_KEY_RECENT),
         'backfill_cursor_ms' => state_get($pdo, STATE_KEY_BACKFIL),
         'backfill_done' => (int)state_get($pdo, STATE_KEY_BACKFIL, (string)GAMES_EPOCH_MS) <= GAMES_EPOCH_MS,
+        'detail_rate_per_s' => (float)state_get($pdo, 'of_rate_cur', '3'),
+        'http_429_total' => (int)state_get($pdo, 'of_429_total', '0'),
+        'http_err_total' => (int)state_get($pdo, 'of_err_total', '0'),
     ], JSON_PRETTY_PRINT) . "\n";
     exit(0);
 }
@@ -623,6 +730,10 @@ if ($argSince !== '') {
 
 $unameCache = [];
 $totalIngested = 0;
+
+// v3 : débit détail AIMD — repris de l'état du tick précédent
+$OF_RATE_MAX = max(1.0, (float)$cfg['detail_rate_max_per_s']);
+$OF_RATE = max(0.5, min($OF_RATE_MAX, (float)state_get($pdo, 'of_rate_cur', (string)$cfg['detail_rate_start_per_s'])));
 
 // 1) Purge quotidienne des joueurs supprimés (tombstone)
 $lastDel = (int)state_get($pdo, STATE_KEY_DELETER, '0');
@@ -653,15 +764,17 @@ $nowMs = (int)round(microtime(true) * 1000);
 $recentEnd = (int)state_get($pdo, STATE_KEY_RECENT, (string)($nowMs - 3 * 3600 * 1000));
 $recentStart = $recentEnd - (int)$cfg['recent_overlap_min'] * 60 * 1000;
 if ($recentStart < $nowMs) {
-    $ingTotal = 0; $seenTotal = 0;
+    $ingTotal = 0; $seenTotal = 0; $recentComplete = true;
     foreach ($GAME_TYPES as $gt) {
-        if (microtime(true) >= $deadline) break;
-        [$ing, $seen] = scan_range($pdo, $recentStart, $nowMs, $cfg, $deadline, $unameCache, 'recent', 0, null, $gt);
+        if (microtime(true) >= $deadline) { $recentComplete = false; break; }
+        [$ing, $seen, $ok] = scan_range($pdo, $recentStart, $nowMs, $cfg, $deadline, $unameCache, 'recent', 0, null, $gt);
         $ingTotal += $ing; $seenTotal += $seen;
+        if (!$ok) $recentComplete = false;
     }
     $totalIngested += $ingTotal;
     log_line("[recent] fenêtre " . gmdate('m-d H:i', intdiv($recentStart, 1000)) . " → maintenant : $ingTotal nouvelle(s) partie(s) ($seenTotal vues, types " . implode('+', $GAME_TYPES) . ')');
-    if (microtime(true) < $deadline) state_set($pdo, STATE_KEY_RECENT, (string)$nowMs);
+    // v3 : on n'avance le curseur récent QUE si la fenêtre est intégralement traitée
+    if ($recentComplete && microtime(true) < $deadline) state_set($pdo, STATE_KEY_RECENT, (string)$nowMs);
 }
 
 // 3) Backfill historique (newest → oldest jusqu'à l'epoch publicID)
@@ -672,14 +785,15 @@ if ($recentStart < $nowMs) {
 const BK_WIN_START = 'backfill_window_start_ms';
 const BK_WIN_TYPE  = 'backfill_window_type';
 const BK_WIN_OFF   = 'backfill_window_offset';
+const BK_WIN_TRIES = 'backfill_window_tries';
 
-/* Changement de périmètre d'ingestion → re-backfill automatique.
- * v2 (2026-09-23) : Public + Private (au lieu de Public seul) et parties
- * gardées dès 1 joueur (au lieu de 3). Le curseur repart de « maintenant »
- * pour ré-ingérer TOUT l'historique publicID avec le nouveau périmètre
- * (idempotent : les parties déjà en base ne sont pas dupliquées). */
+/* Changement de périmètre / moteur d'ingestion → re-backfill automatique.
+ * v3 (2026-09-24) : moteur HTTP fiable (pacing AIMD + retries + curseur
+ * strict). Le curseur repart de « maintenant » pour ré-ingérer TOUT
+ * l'historique publicID (idempotent : les parties déjà en base ne sont pas
+ * dupliquées, seuls les ~98 % manquants du passage v2 sont refetchés). */
 const SCOPE_VER_KEY = 'ingest_scope_ver';
-const SCOPE_VER     = '2';
+const SCOPE_VER     = '3';
 if (state_get($pdo, SCOPE_VER_KEY) !== SCOPE_VER) {
     state_set($pdo, STATE_KEY_BACKFIL, (string)$nowMs);
     state_set($pdo, BK_WIN_START, '0');
@@ -702,14 +816,14 @@ while (microtime(true) < $deadline && $cursor - $windowMs >= GAMES_EPOCH_MS - 36
     $typeStart = ($savedWinStart === $wStart && in_array($savedWinType, $GAME_TYPES, true))
         ? max(0, array_search($savedWinType, $GAME_TYPES, true)) : 0;
     $resumeOffset = ($savedWinStart === $wStart) ? (int)state_get($pdo, BK_WIN_OFF, '0') : 0;
-    $winIng = 0; $winSeen = 0;
+    $winIng = 0; $winSeen = 0; $winComplete = true;
     for ($ti = $typeStart; $ti < count($GAME_TYPES) && microtime(true) < $deadline; $ti++) {
         $gt = $GAME_TYPES[$ti];
         $startOffset = ($ti === $typeStart) ? $resumeOffset : 0;
         state_set($pdo, BK_WIN_START, (string)$wStart);
         state_set($pdo, BK_WIN_TYPE, $gt);
         state_set($pdo, BK_WIN_OFF, (string)$startOffset);
-        [$ing, $seen] = scan_range(
+        [$ing, $seen, $ok] = scan_range(
             $pdo, $wStart, $wEnd, $cfg, $deadline, $unameCache, 'backfill', $startOffset,
             function (int $nextOffset) use ($pdo) {
                 state_set($pdo, BK_WIN_OFF, (string)$nextOffset);
@@ -717,18 +831,43 @@ while (microtime(true) < $deadline && $cursor - $windowMs >= GAMES_EPOCH_MS - 36
             $gt
         );
         $winIng += $ing; $winSeen += $seen;
+        if (!$ok) { $winComplete = false; break; } // v3 : échec → on NE recule PAS le curseur
     }
     $totalIngested += $winIng;
+    if (!$winComplete) {
+        $tries = (int)state_get($pdo, BK_WIN_TRIES, '0') + 1;
+        state_set($pdo, BK_WIN_TRIES, (string)$tries);
+        if ($tries >= 5) {
+            // Garde-fou anti-blocage : après 5 ticks incomplets sur la même
+            // fenêtre, on l'abandonne (perte assumée et tracée) pour ne pas
+            // bloquer définitivement le curseur sur un jeu/gamme récalcitrant.
+            log_line('[backfill] ⚠️ fenêtre ' . gmdate('Y-m-d', intdiv($wStart, 1000)) . " abandonnée après $tries ticks incomplets ($winIng ingérée(s), $winSeen vue(s)) — curseur avancé quand même");
+            state_set($pdo, BK_WIN_TRIES, '0');
+            state_set($pdo, BK_WIN_START, '0');
+            state_set($pdo, BK_WIN_OFF, '0');
+            $cursor = $wStart;
+            state_set($pdo, STATE_KEY_BACKFIL, (string)$cursor);
+            $windowsDone++;
+        } else {
+            log_line('[backfill] fenêtre ' . gmdate('Y-m-d', intdiv($wStart, 1000)) . " incomplète (essai $tries/5, $winIng ingérée(s)) — reprise au prochain tick");
+        }
+        break; // pas d'autre fenêtre ce tick — on reprendra celle-ci
+    }
     $windowsDone++;
+    state_set($pdo, BK_WIN_TRIES, '0');
+    state_set($pdo, BK_WIN_START, '0');
+    state_set($pdo, BK_WIN_OFF, '0');
     $cursor = $wStart;
     state_set($pdo, STATE_KEY_BACKFIL, (string)$cursor);
-    log_line('[backfill] fenêtre ' . gmdate('Y-m-d', intdiv($wStart, 1000)) . " : $winIng partie(s) ($winSeen vues) — curseur " . gmdate('Y-m-d', intdiv($cursor, 1000)));
-    if ($winIng === 0 && $winSeen === 0) { /* fenêtre vide : continue */ }
+    log_line('[backfill] fenêtre ' . gmdate('Y-m-d', intdiv($wStart, 1000)) . " ✅ : $winIng partie(s) ($winSeen vues) — curseur " . gmdate('Y-m-d', intdiv($cursor, 1000)));
 }
 if ($windowsDone > 0 && $cursor <= GAMES_EPOCH_MS + 3600 * 1000) {
     log_line('[backfill] ✅ epoch publicID atteinte');
 }
 
-// Résumé
+// Résumé + persistance des stats HTTP (visibilité rate limits)
 $done = $cursor <= GAMES_EPOCH_MS + 3600 * 1000;
-log_line("[fin] $totalIngested partie(s) ingérée(s) — $windowsDone fenêtre(s) backfill — backfill " . ($done ? 'TERMINÉ' : 'en cours (' . gmdate('Y-m-d', intdiv($cursor, 1000)) . ')'));
+state_set($pdo, 'of_rate_cur', (string)round($OF_RATE, 2));
+state_set($pdo, 'of_429_total', (string)((int)state_get($pdo, 'of_429_total', '0') + $OF_STATS['r429']));
+state_set($pdo, 'of_err_total', (string)((int)state_get($pdo, 'of_err_total', '0') + $OF_STATS['err']));
+log_line("[fin] $totalIngested partie(s) ingérée(s) — $windowsDone fenêtre(s) backfill — HTTP ok:{$OF_STATS['ok']} 429:{$OF_STATS['r429']} err:{$OF_STATS['err']} — débit détail " . round($OF_RATE, 1) . '/s — backfill ' . ($done ? 'TERMINÉ' : 'en cours (' . gmdate('Y-m-d', intdiv($cursor, 1000)) . ')'));
