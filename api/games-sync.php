@@ -81,8 +81,8 @@ $cfg = array_merge([
     'list_limit'          => 1000,
     'list_max_offset'     => 40000,   // garde-fou pagination
     'hard_delete'         => false,   // purge réelle des joueurs supprimés ?
-    'detail_rate_start_per_s' => 4.0,   // v4 : débit détail initial (req/s) — AIMD (API testée : 3 req/s sans 429)
-    'detail_rate_max_per_s'   => 8.0,  // v4 : plafond de remontée AIMD
+    'detail_rate_start_per_s' => 1.5,   // v4.2 : débit détail initial (req/s) — calibré au seuil soutenable de l'API (4 req/s = 40 429/tick mesuré)
+    'detail_rate_max_per_s'   => 2.0,  // v4.2 : plafond de remontée AIMD (au-delà : 429 massifs)
 ], is_array($secrets['games'] ?? null) ? $secrets['games'] : []);
 
 /* Types de parties scannés (liste blanche API). Singleplayer EXCLU par
