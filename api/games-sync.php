@@ -75,14 +75,14 @@ $cfg = array_merge([
     'min_players_to_keep' => 1,       // on garde même les parties à 1-2 joueurs
     'detail_concurrency'  => 4,       // appels /public/game/:id en parallèle
     'player_stats_mode'   => 'subset', // subset | all | none
-    'tick_budget'         => 240,     // secondes max par tick cron
+    'tick_budget'         => 420,     // secondes max par tick cron (cron 10 min, verrou anti-chevauchement)
     'recent_overlap_min'  => 10,
-    'window_days'         => 2,       // fenêtre backfill (max API = 2 jours)
+    'window_days'         => 0.25,    // fenêtre backfill 6 h : finissable en 1-2 ticks → abandons rarissimes, pertes bornées
     'list_limit'          => 1000,
     'list_max_offset'     => 40000,   // garde-fou pagination
     'hard_delete'         => false,   // purge réelle des joueurs supprimés ?
-    'detail_rate_start_per_s' => 3.0,   // v3 : débit détail initial (req/s) — AIMD
-    'detail_rate_max_per_s'   => 10.0,  // v3 : plafond de remontée AIMD
+    'detail_rate_start_per_s' => 4.0,   // v4 : débit détail initial (req/s) — AIMD (API testée : 3 req/s sans 429)
+    'detail_rate_max_per_s'   => 8.0,  // v4 : plafond de remontée AIMD
 ], is_array($secrets['games'] ?? null) ? $secrets['games'] : []);
 
 /* Types de parties scannés (liste blanche API). Singleplayer EXCLU par
@@ -791,9 +791,14 @@ const BK_WIN_TRIES = 'backfill_window_tries';
  * v3 (2026-09-24) : moteur HTTP fiable (pacing AIMD + retries + curseur
  * strict). Le curseur repart de « maintenant » pour ré-ingérer TOUT
  * l'historique publicID (idempotent : les parties déjà en base ne sont pas
- * dupliquées, seuls les ~98 % manquants du passage v2 sont refetchés). */
+ * dupliquées, seuls les manquants des passages v2/v3 sont refetchés).
+ * v4 : corrige le bug des fenêtres abandonnées — une fenêtre de 2 jours
+ * (~50 000 détails) était abandonnée après 5 ticks (~7 % traités) et le
+ * curseur avançait quand même → ~90 % de parties perdues par fenêtre.
+ * Fenêtres de 6 h + 30 essais : une fenêtre est quasi toujours finie
+ * avant l'abandon, et une perte éventuelle est bornée à 6 h d'historique. */
 const SCOPE_VER_KEY = 'ingest_scope_ver';
-const SCOPE_VER     = '3';
+const SCOPE_VER     = '4';
 if (state_get($pdo, SCOPE_VER_KEY) !== SCOPE_VER) {
     state_set($pdo, STATE_KEY_BACKFIL, (string)$nowMs);
     state_set($pdo, BK_WIN_START, '0');
@@ -804,7 +809,7 @@ if (state_get($pdo, SCOPE_VER_KEY) !== SCOPE_VER) {
 }
 
 $cursor = (int)state_get($pdo, STATE_KEY_BACKFIL, (string)$nowMs);
-$windowMs = (int)$cfg['window_days'] * 86400 * 1000;
+$windowMs = (int)round((float)$cfg['window_days'] * 86400 * 1000);
 $windowsDone = 0;
 while (microtime(true) < $deadline && $cursor - $windowMs >= GAMES_EPOCH_MS - 3600 * 1000) {
     $wEnd = $cursor;
@@ -837,10 +842,12 @@ while (microtime(true) < $deadline && $cursor - $windowMs >= GAMES_EPOCH_MS - 36
     if (!$winComplete) {
         $tries = (int)state_get($pdo, BK_WIN_TRIES, '0') + 1;
         state_set($pdo, BK_WIN_TRIES, (string)$tries);
-        if ($tries >= 5) {
-            // Garde-fou anti-blocage : après 5 ticks incomplets sur la même
-            // fenêtre, on l'abandonne (perte assumée et tracée) pour ne pas
-            // bloquer définitivement le curseur sur un jeu/gamme récalcitrant.
+        $maxTries = max(5, (int)($cfg['bk_window_max_tries'] ?? 30));
+        if ($tries >= $maxTries) {
+            // Garde-fou anti-blocage : après $maxTries ticks incomplets sur la
+            // même fenêtre (30 = ~2 h de traitement), on l'abandonne (perte
+            // assumée, bornée à 6 h d'historique, et tracée) pour ne pas
+            // bloquer définitivement le curseur sur un jeu récalcitrant.
             log_line('[backfill] ⚠️ fenêtre ' . gmdate('Y-m-d', intdiv($wStart, 1000)) . " abandonnée après $tries ticks incomplets ($winIng ingérée(s), $winSeen vue(s)) — curseur avancé quand même");
             state_set($pdo, BK_WIN_TRIES, '0');
             state_set($pdo, BK_WIN_START, '0');
