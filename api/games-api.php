@@ -325,14 +325,25 @@ case 'status': {
         (SELECT COUNT(*) FROM tfh_g_players WHERE deleted_at IS NULL) AS players,
         (SELECT COUNT(*) FROM tfh_g_games WHERE speedrun_category IS NOT NULL) AS speedruns,
         (SELECT MAX(started_at) FROM tfh_g_games) AS newest')->fetch();
-    $backfill = $pdo->query("SELECT svalue FROM tfh_g_state WHERE skey = 'backfill_cursor_ms'")->fetchColumn();
+    $st = $pdo->query("SELECT skey, svalue FROM tfh_g_state WHERE skey IN
+        ('backfill_cursor_ms','recent_end_ms','of_rate_cur','of_429_total','of_err_total')");
+    $state = [];
+    foreach ($st->fetchAll() as $row) $state[$row['skey']] = $row['svalue'];
+    $cursorMs = $state['backfill_cursor_ms'] ?? null;
+    $recentMs = $state['recent_end_ms'] ?? null;
     json_out([
         'ok' => true,
         'games' => (int)$cnt['games'],
         'players' => (int)$cnt['players'],
         'speedruns' => (int)$cnt['speedruns'],
         'newestGame' => $cnt['newest'] !== null ? (string)$cnt['newest'] : null,
-        'backfillCursor' => $backfill !== false ? gmdate('Y-m-d', (int)round(((int)$backfill) / 1000)) : null,
+        'backfillCursor' => $cursorMs !== null ? gmdate('Y-m-d H:i', (int)round(((int)$cursorMs) / 1000)) : null,
+        'recentCursor' => $recentMs !== null ? gmdate('Y-m-d H:i', (int)round(((int)$recentMs) / 1000)) : null,
+        'httpStats' => [
+            'detailRatePerS' => isset($state['of_rate_cur']) ? round((float)$state['of_rate_cur'], 2) : null,
+            'total429' => isset($state['of_429_total']) ? (int)$state['of_429_total'] : null,
+            'totalErr' => isset($state['of_err_total']) ? (int)$state['of_err_total'] : null,
+        ],
     ]);
 }
 
