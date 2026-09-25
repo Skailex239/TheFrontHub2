@@ -1,8 +1,8 @@
 # Système « Parties & Pré-profils » TheFrontHub
 
 > Stockage **MySQL o2switch** de toutes les parties OpenFront (Public **et**
-> Private) depuis l'ère publicID (début : **2025-09-10 ~06h UTC** — vérifié en
-> live), avec roster complet lié par publicId, speedruns pré-calculés et
+> Private) depuis l'ère V34 (début : **2026-09-10 00h00 UTC** — v0.34.0-beta1),
+> avec roster complet lié par publicId, speedruns pré-calculés et
 > pré-profils agrégés par joueur.
 >
 > Périmètre v2 (2026-09-23) : Public + Private, parties gardées dès 1 joueur
@@ -81,21 +81,21 @@ cPanel → Cron Jobs → ajouter (toutes les 10 minutes) :
 php api/games-sync.php --status          # état : compteurs + curseurs
 php api/games-sync.php                   # tick normal (240 s max)
 php api/games-sync.php --backfill=3600   # session backfill d'1 h
-php api/games-sync.php --since=2025-09-10T06:00:00Z   # repositionner le curseur
+php api/games-sync.php --since=2026-09-10T00:00:00Z   # repositionner le curseur
 php api/games-sync.php --reset-backfill  # remettre le curseur à maintenant
 ```
 
-### 5. Backfill historique (13 mois de parties)
+### 5. Backfill historique (depuis le 10 sept 2026)
 
 Le backfill part de « maintenant » et remonte **newest → oldest** jusqu'à
-l'epoch `2025-09-10T06:00Z`. Progression : ~1 fenêtre de 2 jours par tick de
-budget ; accélère en lançant des sessions longues :
+l'epoch `2026-09-10T00:00Z`. Progression : fenêtres de 6 h par tick de
+budget (420 s) ; accélère en lançant des sessions longues :
 
 ```bash
 nohup php api/games-sync.php --backfill=14400 >> /home/USER/logs/games-backfill.log 2>&1 &
 ```
 
-Pour tout récupérer dès le début : `--since=2025-09-10T06:00:00Z` puis des
+Pour tout récupérer dès le début : `--since=2026-09-10T00:00:00Z` puis des
 sessions `--backfill` régulières (le cron suffit à terme).
 
 ## API JSON (frontend)

@@ -16,9 +16,9 @@
 
   const BASE = BOOT.base || '';
   const REFRESH_MS = 30000;
-  /* 2025-09-10T06:00Z — début de l'ère publicID (constante GAMES_EPOCH_MS de
+  /* 2026-09-10T00:00Z — début de l'ère V34 (constante GAMES_EPOCH_MS de
      api/games-sync.php). Curseur de backfill revenu à cette date = terminé. */
-  const EPOCH_MS = 1757493600000;
+  const EPOCH_MS = 1788998400000;
 
   const $ = (sel) => document.querySelector(sel);
   const ids = {
@@ -73,7 +73,7 @@
     if (cursorMs <= EPOCH_MS) {
       ids.progress.style.width = '100%';
       ids.bar.setAttribute('aria-valuenow', '100');
-      ids.cursor.textContent = 'Terminé — tout l\u2019historique publicID (depuis le 10 sept 2025) est en base.';
+      ids.cursor.textContent = 'Terminé — tout l\u2019historique V34 (depuis le 10 sept 2026) est en base.';
       return;
     }
     const total = Math.max(1, Date.now() - EPOCH_MS);

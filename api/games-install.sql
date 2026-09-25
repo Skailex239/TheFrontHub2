@@ -1,8 +1,8 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- api/games-install.sql — Base "parties & pré-profils" TheFrontHub (o2switch)
 --
--- Stocke TOUTES les parties publiques OpenFront (depuis l'ère publicID :
--- ~2025-09-10 06:00 UTC) avec leur roster complet lié par publicId, et les
+-- Stocke TOUTES les parties OpenFront (Public + Private, depuis l'ère V34 :
+-- 2026-09-10 00:00 UTC) avec leur roster complet lié par publicId, et les
 -- pré-profils joueurs (agrégats par publicId).
 --
 -- ⚙️ Auto-install : le script api/games-sync.php crée ces tables tout seul au

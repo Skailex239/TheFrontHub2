@@ -12,7 +12,7 @@ declare(strict_types=1);
  *      scan (fenêtre avec chevauchement de 10 min) → métadonnées + roster
  *      complet (publicId de CHAQUE joueur) + speedruns pré-calculés.
  *   2. BACKFILL : reprend le curseur historique (newest → oldest, epoch =
- *      2025-09-10T06:00Z, début de l'ère publicID) dans la limite du budget.
+ *      2026-09-10T00:00Z, début de l'ère V34) dans la limite du budget.
  *   3. Purges : poll quotidien de /public/players/recently-deleted (tombstone).
  *
  *   Périmètre v2 (2026-09-23) : Public + Private, parties gardées dès
@@ -29,10 +29,16 @@ declare(strict_types=1);
  *   transitoire), garde-fou anti-blocage (5 tentatives max par fenêtre),
  *   compteurs 429/erreurs tracés dans le log + --status.
  *
+ *   Epoch v4.3 (2026-09-25) : GAMES_EPOCH_MS réalignée sur le début de
+ *   l'ère V34 du jeu (v0.34.0-beta1 publiée le 2026-09-10) — le backfill
+ *   s'arrête désormais au 10 sept 2026 00:00 UTC (au lieu du 10 sept 2025).
+ *   SCOPE_VER inchangé : le backfill en cours continue et s'arrête plus tôt,
+ *   aucun re-scan complet n'est déclenché.
+ *
  * Commandes CLI :
  *   (sans argument)        tick normal (budget TICK_BUDGET)
  *   --backfill=N           session backfill prolongée de N secondes
- *   --since=ISO            repositionne le curseur backfill (ex: 2025-09-10T06:00:00Z)
+ *   --since=ISO            repositionne le curseur backfill (ex: 2026-09-10T00:00:00Z)
  *   --status               état de la sync (compteurs, curseurs)
  *   --reset-backfill       remet le curseur backfill à maintenant
  *
@@ -87,7 +93,7 @@ $cfg = array_merge([
 
 /* Types de parties scannés (liste blanche API). Singleplayer EXCLU par
  * défaut : 80 000+ parties/jour, quasi toutes des lobbies solo VIDES
- * (numPlayers 0, pas de winner) — ≈ 30 M de lignes sur l'ère publicID
+ * (numPlayers 0, pas de winner) — des millions de lignes
  * pour zéro valeur classement/profil. Activable via secrets :
  *   "games": { "game_types": ["Public","Private","Singleplayer"] } */
 $GAME_TYPES = array_values(array_filter(array_map('trim',
@@ -97,7 +103,7 @@ if (!$GAME_TYPES) $GAME_TYPES = ['Public', 'Private'];
 $MIN_KEEP = max(0, (int)($cfg['min_players_to_keep'] ?? 1));
 
 const OF_API_BASE    = 'https://api.openfront.io';
-const GAMES_EPOCH_MS = 1757493600000;  // 2025-09-10T06:00:00Z — début ère publicID
+const GAMES_EPOCH_MS = 1788998400000;  // 2026-09-10T00:00:00Z — début ère V34 (v0.34.0-beta1)
 const TIME_OFFSET_S  = 32;             // offset speedrun (extract-speedrun.js)
 const STATE_KEY_RECENT  = 'recent_end_ms';
 const STATE_KEY_BACKFIL = 'backfill_cursor_ms';
@@ -792,7 +798,7 @@ const BK_WIN_TRIES = 'backfill_window_tries';
 /* Changement de périmètre / moteur d'ingestion → re-backfill automatique.
  * v3 (2026-09-24) : moteur HTTP fiable (pacing AIMD + retries + curseur
  * strict). Le curseur repart de « maintenant » pour ré-ingérer TOUT
- * l'historique publicID (idempotent : les parties déjà en base ne sont pas
+ * l'historique V34 (idempotent : les parties déjà en base ne sont pas
  * dupliquées, seuls les manquants des passages v2/v3 sont refetchés).
  * v4 : corrige le bug des fenêtres abandonnées — une fenêtre de 2 jours
  * (~50 000 détails) était abandonnée après 5 ticks (~7 % traités) et le
