@@ -114,13 +114,13 @@ $cfg = array_merge([
     'min_players_to_keep' => 1,       // on garde même les parties à 1-2 joueurs
     'detail_concurrency'  => 6,       // v5 : appels /public/game/:id en parallèle (débit 10 req/s atteignable)
     'player_stats_mode'   => 'all',   // v5 : stats par joueur stockées pour TOUTES les parties
-    'tick_budget'         => 420,     // secondes max par tick cron (cron 10 min, verrou anti-chevauchement)
+    'tick_budget'         => 300,     // v5.6 : 300 s (5 min) — marge sous le watchdog de l'hôte
     'recent_overlap_min'  => 10,
     'window_days'         => 0.25,    // fenêtre backfill 6 h : finissable en 1-2 ticks → abandons rarissimes, pertes bornées
     'list_limit'          => 1000,
     'list_max_offset'     => 40000,   // garde-fou pagination
     'hard_delete'         => false,   // purge réelle des joueurs supprimés ?
-    'detail_rate_start_per_s' => 6.0,   // v5 : débit détail initial (plafond officiel ~25 req/s, on démarre à 24 %)
+    'detail_rate_start_per_s' => 4.0,   // v5.6 : départ 4 req/s (prudent), AIMD remonte jusqu'au plafond
     'detail_rate_max_per_s'   => 10.0,  // v5 : plafond AIMD (40 % du plafond officiel ; 429 → /2 auto)
     'turns_enabled'            => true, // v5 : stockage des replays (turn-by-turn gzip)
     'turns_max_games_per_tick' => 30,   // v5 : replays max par tick
@@ -663,8 +663,10 @@ function classify_speedrun(array $info): array {
 
 /** Heartbeat de diagnostic : la phase en cours est visible via route=status. */
 function phase_mark(PDO $pdo, string $phase): void {
+    global $OF_RATE;
     state_set($pdo, 'v5_phase', $phase);
     state_set($pdo, 'v5_phase_at', (string)time());
+    if (isset($OF_RATE)) state_set($pdo, 'of_rate_cur', (string)round($OF_RATE, 2));
 }
 
 /** Compresse les cosmétiques portés d'un joueur (sans les patternData/base64). */
@@ -965,6 +967,9 @@ function scan_range(PDO $pdo, int $startMs, int $endMs, array $cfg, float $deadl
             if (microtime(true) >= $deadline) return [$ingested, $seen, false];
             [$details, $tfail] = of_details_multi($chunk, (int)$cfg['detail_concurrency'], false, $deadline);
             foreach ($chunk as $gid) {
+                // v5.6 : deadline AUSSI pendant l'écriture (l'ingestion v5 fait
+                // ~40 SQL/partie : 1000 parties = plusieurs minutes d'écriture !)
+                if (microtime(true) >= $deadline) return [$ingested, $seen, false];
                 $d = $details[$gid] ?? null;
                 if ($d === null) continue;
                 try {
