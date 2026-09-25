@@ -445,7 +445,7 @@ case 'status': {
         (SELECT COUNT(*) FROM tfh_g_games WHERE speedrun_category IS NOT NULL) AS speedruns,
         (SELECT MAX(started_at) FROM tfh_g_games) AS newest')->fetch();
     $st = $pdo->query("SELECT skey, svalue FROM tfh_g_state WHERE skey IN
-        ('backfill_cursor_ms','recent_end_ms','of_rate_cur','of_429_total','of_err_total','rating_cursor_ms')");
+        ('backfill_cursor_ms','recent_end_ms','of_rate_cur','of_429_total','of_err_total','rating_cursor_ms','v5_phase','v5_phase_at')");
     $state = [];
     foreach ($st->fetchAll() as $row) $state[$row['skey']] = $row['svalue'];
     $cursorMs = $state['backfill_cursor_ms'] ?? null;
@@ -706,7 +706,10 @@ case 'synclog': {
         $all = @file($f, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
         if (is_array($all)) $lines = array_slice($all, -60);
     }
-    gout(['ok' => true, 'lines' => $lines]);
+    gout(['ok' => true,
+        'fileExists' => file_exists($f), 'fileSize' => file_exists($f) ? (int)filesize($f) : 0,
+        'fileWritable' => is_writable(__DIR__),
+        'lines' => $lines]);
 }
 
 default:
