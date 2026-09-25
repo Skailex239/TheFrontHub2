@@ -177,7 +177,10 @@ foreach (array_slice($argv, 1) as $a) {
 
 /* ─────────────────────────── Lock anti-chevauchement ─────────────────────────── */
 
-$lockFile = sys_get_temp_dir() . '/tfh-games-sync.lock';
+/* v5.3 : lock versionné — si un processus zombie d'une version antérieure
+ * retient l'ancien lock, les nouveaux ticks tournent quand même (l'ingestion
+ * est idempotente : INSERT IGNORE + dédup partout). */
+$lockFile = sys_get_temp_dir() . '/tfh-games-sync-v5.lock';
 $lockFp = fopen($lockFile, 'c');
 if (!$lockFp || !flock($lockFp, LOCK_EX | LOCK_NB)) {
     fwrite(STDERR, "[games-sync] un tick est déjà en cours — sortie\n");
