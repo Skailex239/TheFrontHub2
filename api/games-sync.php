@@ -75,6 +75,17 @@ if (PHP_SAPI !== 'cli') {
 }
 
 error_reporting(E_ALL & ~E_DEPRECATED);
+ini_set('display_errors', '0');
+/* v5.2 : log fichier lisible à distance (route=synclog) + capture des fatals. */
+$_TFH_LOG = __DIR__ . '/games-sync.log';
+ini_set('error_log', $_TFH_LOG);
+register_shutdown_function(function () use ($_TFH_LOG) {
+    $e = error_get_last();
+    if ($e && in_array((int)$e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        @file_put_contents($_TFH_LOG, '[' . gmdate('H:i:s') . '] 💥 FATAL: ' . cut_txt($e['message'], 300) . ' @ ' . $e['file'] . ':' . $e['line'] . "\n", FILE_APPEND);
+    }
+});
+function cut_txt(string $s, int $n): string { return function_exists('mb_substr') ? mb_substr($s, 0, $n, 'UTF-8') : substr($s, 0, $n); }
 ini_set('memory_limit', '1G');   // v5.1 : 512M → 1G (les replays géants peuvent dépasser 512M au décodage)
 /* v5.1 : heartbeat + garde-fous par phase — chaque phase trace son état dans
  * tfh_g_state (v5_phase / v5_phase_at) visible via route=status, et un échec
@@ -388,7 +399,10 @@ function state_set(PDO $pdo, string $k, string $v): void {
     $pdo->prepare('INSERT INTO tfh_g_state (skey, svalue) VALUES (?, ?) ON DUPLICATE KEY UPDATE svalue = VALUES(svalue)')
         ->execute([$k, $v]);
 }
-function log_line(string $s): void { fwrite(STDERR, '[' . gmdate('H:i:s') . '] ' . $s . "\n"); }
+function log_line(string $s): void {
+    fwrite(STDERR, '[' . gmdate('H:i:s') . '] ' . $s . "\n");
+    @file_put_contents(__DIR__ . '/games-sync.log', '[' . gmdate('Y-m-d H:i:s') . 'Z] ' . $s . "\n", FILE_APPEND);
+}
 
 /** Normalise un pseudo (miroir de normPlayerName.js) : minuscule, sans [TAG] ni discriminateur. */
 function norm_name(string $s): string {
@@ -1481,6 +1495,7 @@ if (time() - $lastDel > 86400) {
 }
 
 // 2) Scan récent (depuis le dernier état, chevauchement inclus) — tous les types
+phase_mark($pdo, 'recent');
 $nowMs = (int)round(microtime(true) * 1000);
 $recentEnd = (int)state_get($pdo, STATE_KEY_RECENT, (string)($nowMs - 3 * 3600 * 1000));
 $recentStart = $recentEnd - (int)$cfg['recent_overlap_min'] * 60 * 1000;
@@ -1529,9 +1544,11 @@ if (state_get($pdo, SCOPE_VER_KEY) !== SCOPE_VER) {
     log_line('[scope] v' . SCOPE_VER . ' activée (' . implode('+', $GAME_TYPES) . ', ≥' . $MIN_KEEP . ' joueur) — re-backfill complet relancé depuis maintenant');
 }
 
+phase_mark($pdo, 'backfill');
 $cursor = (int)state_get($pdo, STATE_KEY_BACKFIL, (string)$nowMs);
 $windowMs = (int)round((float)$cfg['window_days'] * 86400 * 1000);
 $windowsDone = 0;
+try {
 while (microtime(true) < $deadline && $cursor - $windowMs >= GAMES_EPOCH_MS - 3600 * 1000) {
     $wEnd = $cursor;
     $wStart = max($cursor - $windowMs, GAMES_EPOCH_MS);
@@ -1589,6 +1606,7 @@ while (microtime(true) < $deadline && $cursor - $windowMs >= GAMES_EPOCH_MS - 36
     state_set($pdo, STATE_KEY_BACKFIL, (string)$cursor);
     log_line('[backfill] fenêtre ' . gmdate('Y-m-d', intdiv($wStart, 1000)) . " ✅ : $winIng partie(s) ($winSeen vues) — curseur " . gmdate('Y-m-d', intdiv($cursor, 1000)));
 }
+} catch (Throwable $e) { log_line('[backfill] 💥 ' . cut_txt($e->getMessage(), 200) . ' @ ' . basename($e->getFile()) . ':' . $e->getLine()); }
 if ($windowsDone > 0 && $cursor <= GAMES_EPOCH_MS + 3600 * 1000) {
     log_line('[backfill] ✅ epoch publicID atteinte');
 }

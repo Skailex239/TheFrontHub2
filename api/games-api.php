@@ -698,6 +698,17 @@ case 'replay': {
     exit;
 }
 
+/* ── v5 : diagnostic — dernières lignes du log de sync ────────────────── */
+case 'synclog': {
+    $f = __DIR__ . '/games-sync.log';
+    $lines = [];
+    if (is_readable($f)) {
+        $all = @file($f, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if (is_array($all)) $lines = array_slice($all, -60);
+    }
+    gout(['ok' => true, 'lines' => $lines]);
+}
+
 default:
-    gfail(400, 'bad_route', 'Routes : recent, game, speedruns, profile, search, maps, status, leaderboard, clans, clan, cosmetics, cosmetic, replay');
+    gfail(400, 'bad_route', 'Routes : recent, game, speedruns, profile, search, maps, status, leaderboard, clans, clan, cosmetics, cosmetic, replay, synclog');
 }
