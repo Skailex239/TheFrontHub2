@@ -75,7 +75,11 @@ if (PHP_SAPI !== 'cli') {
 }
 
 error_reporting(E_ALL & ~E_DEPRECATED);
-ini_set('memory_limit', '512M');
+ini_set('memory_limit', '1G');   // v5.1 : 512M → 1G (les replays géants peuvent dépasser 512M au décodage)
+/* v5.1 : heartbeat + garde-fous par phase — chaque phase trace son état dans
+ * tfh_g_state (v5_phase / v5_phase_at) visible via route=status, et un échec
+ * dans une phase ne tue plus le tick (les autres continuent, l'état final
+ * est toujours sauvegardé). */
 
 /* ─────────────────────────── Secrets / config ─────────────────────────── */
 
@@ -113,7 +117,7 @@ $cfg = array_merge([
     'enrich_max_games_per_tick'=> 400,  // v5 : anciennes parties enrichies par tick
     'catalog_refresh_hours'    => 6,    // v5 : rafraîchissement catalogue cosmétiques
     'rating_seconds_per_tick'  => 60,   // v5 : budget Glicko-2 par tick
-    'rating_games_per_tick'    => 2500, // v5 : parties notées max par tick
+    'rating_games_per_tick'    => 800,  // v5.1 : lots courts (budget vérifié en cours de lot)
 ], is_array($secrets['games'] ?? null) ? $secrets['games'] : []);
 
 /* Types de parties scannés (liste blanche API). Singleplayer EXCLU par
@@ -632,6 +636,12 @@ function classify_speedrun(array $info): array {
 
 /* ─────────────────────── v5 : normalisation + agrégats ─────────────────────── */
 
+/** Heartbeat de diagnostic : la phase en cours est visible via route=status. */
+function phase_mark(PDO $pdo, string $phase): void {
+    state_set($pdo, 'v5_phase', $phase);
+    state_set($pdo, 'v5_phase_at', (string)time());
+}
+
 /** Compresse les cosmétiques portés d'un joueur (sans les patternData/base64). */
 function norm_cosmetics(mixed $c): ?string {
     if (!is_array($c)) return null;
@@ -1046,6 +1056,7 @@ function enrich_game(PDO $pdo, string $gameId, array $detail, array &$unameCache
 
 /** Phase d'enrichissement : re-détaille les parties antérieures à la v5. Retour [faites, restantes]. */
 function enrich_phase(PDO $pdo, array $cfg, float $deadline, array &$unameCache): array {
+    phase_mark($pdo, 'enrich');
     $batch = min(1500, max(10, (int)($cfg['enrich_max_games_per_tick'] ?? 400)));
     $st = $pdo->prepare('SELECT game_id FROM tfh_g_games WHERE v5_done = 0 ORDER BY started_at DESC LIMIT ' . $batch);
     $st->execute();
@@ -1074,6 +1085,7 @@ function enrich_phase(PDO $pdo, array $cfg, float $deadline, array &$unameCache)
 /** Phase replays : stocke le turn-by-turn gzip des parties sans replay (récentes d'abord). */
 function turns_phase(PDO $pdo, array $cfg, float $deadline): int {
     if (empty($cfg['turns_enabled'])) return 0;
+    phase_mark($pdo, 'turns');
     $maxGames = max(1, (int)($cfg['turns_max_games_per_tick'] ?? 30));
     $maxBytes = max(1048576, (int)($cfg['turns_max_bytes_per_tick'] ?? 83886080));
     $bytesUsed = 0; $done = 0;
@@ -1089,10 +1101,40 @@ function turns_phase(PDO $pdo, array $cfg, float $deadline): int {
     foreach ($ids as $gid) {
         if ($done >= $maxGames || $bytesUsed >= $maxBytes || microtime(true) >= $deadline) break;
         of_pace(1); // pacing global (partage le budget débit avec les détails)
-        [$status, $d] = of_request(OF_API_BASE . '/public/game/' . rawurlencode($gid) . '?turns=true', 90, 3);
+        // v5.1 : fetch brut direct — on rejette les corps > 25 Mo AVANT le
+        // décodage JSON pour ne jamais saturer la RAM (fatal = tick mort).
+        $ch = curl_init(OF_API_BASE . '/public/game/' . rawurlencode($gid) . '?turns=true');
+        $headers = ['User-Agent: TheFrontHub-GamesSync/1.0', 'Accept: application/json'];
+        global $OF_ACCESS;
+        if ($OF_ACCESS !== '') $headers[] = 'x-skailex-access: ' . $OF_ACCESS;
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 8,
+            CURLOPT_TIMEOUT        => 120,
+            CURLOPT_HTTPHEADER     => $headers,
+            CURLOPT_ENCODING       => '',
+        ]);
+        $body = curl_exec($ch);
+        $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        curl_close($ch);
+        if ($status === 200) $OF_STATS['ok']++;
         if ($status === 404) { $mark->execute([2, 0, $gid]); continue; }
-        if ($status !== 200 || !is_array($d) || !isset($d['turns']) || !is_array($d['turns'])) {
-            // échec transitoire : 5 tentatives max puis abandon tracé
+        if ($status !== 200 || !is_string($body) || $body === '') {
+            if ($status === 429) of_on_429();
+            $triesSel->execute([$gid]);
+            $t = (int)$triesSel->fetchColumn();
+            if ($t >= 4) { $mark->execute([2, 0, $gid]); log_line("[turns] ⚠️ $gid abandonné après " . ($t + 1) . " tentatives"); }
+            else $mark->execute([0, 1, $gid]);
+            continue;
+        }
+        if (strlen($body) > 26214400) { // > 25 Mo brut : trop gros, sauté (tracé)
+            log_line('[turns] ⚠️ ' . $gid . ' : replay ' . round(strlen($body) / 1048576, 1) . " Mo trop volumineux — sauté");
+            $mark->execute([2, 0, $gid]);
+            continue;
+        }
+        $d = json_decode($body, true);
+        unset($body);
+        if (!is_array($d) || !isset($d['turns']) || !is_array($d['turns'])) {
             $triesSel->execute([$gid]);
             $t = (int)$triesSel->fetchColumn();
             if ($t >= 4) { $mark->execute([2, 0, $gid]); log_line("[turns] ⚠️ $gid abandonné après " . ($t + 1) . " tentatives"); }
@@ -1121,6 +1163,7 @@ function turns_phase(PDO $pdo, array $cfg, float $deadline): int {
 
 /** Phase catalogue : snapshot du catalogue officiel des cosmétiques (throttlé). */
 function catalog_phase(PDO $pdo, array $cfg): void {
+    phase_mark($pdo, 'catalog');
     $hours = max(1, (int)($cfg['catalog_refresh_hours'] ?? 6));
     $last = (int)state_get($pdo, 'catalog_refreshed_at', '0');
     if (time() - $last < $hours * 3600) return;
@@ -1231,9 +1274,10 @@ final class Glicko2 {
  * 3 boards : ffa / team / ranked. Seuls les joueurs avec publicID comptent.
  */
 function rating_phase(PDO $pdo, array $cfg, float $deadline): void {
+    phase_mark($pdo, 'rating');
     $budget = max(5.0, (float)($cfg['rating_seconds_per_tick'] ?? 60));
     $endAt = microtime(true) + min($budget, max(5.0, $deadline - microtime(true)));
-    $batchGames = min(10000, max(100, (int)($cfg['rating_games_per_tick'] ?? 2500)));
+    $batchGames = min(10000, max(100, (int)($cfg['rating_games_per_tick'] ?? 800))); // v5.1 : lots courts
     $cursor = (int)state_get($pdo, STATE_KEY_RATING, (string)GAMES_EPOCH_MS);
     if ($cursor < GAMES_EPOCH_MS) $cursor = GAMES_EPOCH_MS;
     $gRated = 0; $pRated = 0;
@@ -1270,6 +1314,7 @@ function rating_phase(PDO $pdo, array $cfg, float $deadline): void {
 
         $stateCache = ['ffa' => [], 'team' => [], 'ranked' => []];
         foreach ($games as $g) {
+            if (microtime(true) >= $endAt) break; // v5.1 : budget aussi à l'intérieur du lot
             $seenChk->execute([$g['game_id']]);
             if ($seenChk->fetchColumn()) continue; // déjà notée (limite de lot sur même horodatage)
             $board = rating_board((string)($g['ranked_type'] ?? 'unranked'), $g['player_teams']);
@@ -1549,20 +1594,25 @@ if ($windowsDone > 0 && $cursor <= GAMES_EPOCH_MS + 3600 * 1000) {
 }
 
 // 4) v5 — Catalogue officiel des cosmétiques (throttlé 6 h)
-catalog_phase($pdo, $cfg);
+try { catalog_phase($pdo, $cfg); } catch (Throwable $e) { log_line('[catalog] ⚠️ ' . cut($e->getMessage(), 140)); }
 
 // 5) v5 — Enrichissement des anciennes parties (cosmétiques, clans, config, stats)
-[$enrDone, $enrLeft] = enrich_phase($pdo, $cfg, $deadline, $unameCache);
-if ($enrDone > 0) log_line("[enrich] $enrDone partie(s) enrichie(s) — restantes : $enrLeft");
+try {
+    [$enrDone, $enrLeft] = enrich_phase($pdo, $cfg, $deadline, $unameCache);
+    if ($enrDone > 0) log_line("[enrich] $enrDone partie(s) enrichie(s) — restantes : $enrLeft");
+} catch (Throwable $e) { log_line('[enrich] ⚠️ ' . cut($e->getMessage(), 140)); }
 
 // 6) v5 — Rating Glicko-2 (3 boards, curseur chronologique)
-if (microtime(true) < $deadline) rating_phase($pdo, $cfg, $deadline);
+try { if (microtime(true) < $deadline) rating_phase($pdo, $cfg, $deadline); } catch (Throwable $e) { log_line('[rating] ⚠️ ' . cut($e->getMessage(), 140)); }
 
 // 7) v5 — Replays turn-by-turn (gzip, plafonné par tick)
-if (microtime(true) < $deadline) {
-    $tn = turns_phase($pdo, $cfg, $deadline);
-    if ($tn > 0) log_line("[turns] $tn replay(s) stocké(s)");
-}
+try {
+    if (microtime(true) < $deadline) {
+        $tn = turns_phase($pdo, $cfg, $deadline);
+        if ($tn > 0) log_line("[turns] $tn replay(s) stocké(s)");
+    }
+} catch (Throwable $e) { log_line('[turns] ⚠️ ' . cut($e->getMessage(), 140)); }
+phase_mark($pdo, 'fin');
 
 // Résumé + persistance des stats HTTP (visibilité rate limits)
 // v4.1 : tick sans le moindre 429 → le débit remonte au moins au niveau de

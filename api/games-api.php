@@ -485,6 +485,8 @@ case 'status': {
             'ratedPlayers' => (int)$v5['rated_players'],
         ],
         'ratingCursor' => $ratingMs !== null ? gmdate('Y-m-d H:i', (int)round(((int)$ratingMs) / 1000)) : null,
+        'v5Phase' => $state['v5_phase'] ?? null,
+        'v5PhaseAt' => isset($state['v5_phase_at']) ? (int)$state['v5_phase_at'] : null,
     ]);
 }
 
