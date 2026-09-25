@@ -18,11 +18,11 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   "runs.topbar_title": "Top runs",
   "runs.topbar_subtitle": "Les meilleures parties OpenFront, toutes cartes confondues",
   "runs.loading": "Chargement…",
-  "runs.src_era": "Nouvelle ère — DB pré-profils, records depuis le 10 sept 2025",
+  "runs.src_era": "Nouvelle ère — DB pré-profils, records depuis le 10 sept 2026",
   "runs.src_era_backfill": "Nouvelle ère — DB connectée, backfill en cours",
   "runs.era_backfill": "Nouveau départ des speedruns : la base est connectée, le backfill historique est en cours — les records vont apparaître ici au fur et à mesure.",
   "runs.src_offline": "API momentanément indisponible — nouvelle ère uniquement",
-  "runs.era_offline": "Nouvelle ère des speedruns (records depuis le 10 sept 2025) — l'API est momentanément indisponible, réessaie dans un instant. Les anciens records pré-publicID ne s'affichent plus.",
+  "runs.era_offline": "Nouvelle ère des speedruns (records depuis le 10 sept 2026) — l'API est momentanément indisponible, réessaie dans un instant. Les anciens records pré-publicID ne s'affichent plus.",
   "runs.searching": "Recherche des meilleurs runs…",
 
   /* ── Contrôles ── */
@@ -73,11 +73,11 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
   "runs.topbar_title": "Top runs",
   "runs.topbar_subtitle": "The best OpenFront games across all maps",
   "runs.loading": "Loading…",
-  "runs.src_era": "New era — pre-profile DB, records since Sep 10, 2025",
+  "runs.src_era": "New era — pre-profile DB, records since Sep 10, 2026",
   "runs.src_era_backfill": "New era — DB connected, backfill in progress",
   "runs.era_backfill": "Speedrun fresh start: the database is connected and the historical backfill is running — records will appear here as it progresses.",
   "runs.src_offline": "API temporarily unavailable — new era only",
-  "runs.era_offline": "New speedrun era (records since Sep 10, 2025) — the API is temporarily unavailable, please retry in a moment. Old pre-publicID records are no longer shown.",
+  "runs.era_offline": "New speedrun era (records since Sep 10, 2026) — the API is temporarily unavailable, please retry in a moment. Old pre-publicID records are no longer shown.",
   "runs.searching": "Searching for the best runs…",
 
   /* ── Controls ── */

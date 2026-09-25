@@ -335,7 +335,7 @@ task_page_head('Admin — TheFrontHub');
       <span class="gstat-sub">parties classées speedrun</span>
     </div>
     <div class="gstat gstat-wide">
-      <span class="gstat-label">Backfill historique <span class="gstat-note">(13 mois — depuis le 10 sept 2025)</span></span>
+      <span class="gstat-label">Backfill historique <span class="gstat-note">(depuis le 10 sept 2026 — ère V34)</span></span>
       <div class="gbar" role="progressbar" aria-label="Progression du backfill historique" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="st-progressbar"><i id="st-progress"></i></div>
       <span class="gstat-sub" id="st-cursor">—</span>
     </div>

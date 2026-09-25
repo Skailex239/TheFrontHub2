@@ -250,7 +250,7 @@ window.handlePlayerClick = handlePlayerClick;
 
    1) SOURCE UNIQUE : API DB (/api/games-api.php?route=speedruns) remplie
       par api/games-sync.php (cron o2switch). Toutes les parties depuis
-      l'ère publicID (2025-09-10), roster complet par publicId, speedruns
+      l'ère V34 (2026-09-10), roster complet par publicId, speedruns
       pré-calculés (mêmes règles que l'ancienne sync, offset 32s inclus).
       → classement par TEMPS (les meilleurs temps « montent ») ou par DATE,
         filtres carte + catégorie (Normal/Compact), chargement < 100 ms.
@@ -414,7 +414,7 @@ async function loadTopRuns() {
     if (dbFresh || !apiOk) {
       status.textContent = apiOk
         ? T("runs.era_backfill", "Nouveau départ des speedruns : la base est connectée, le backfill historique est en cours — les records vont apparaître ici au fur et à mesure.")
-        : T("runs.era_offline", "Nouvelle ère des speedruns (records depuis le 10 sept 2025) — l'API est momentanément indisponible, réessaie dans un instant. Les anciens records pré-publicID ne s'affichent plus.");
+        : T("runs.era_offline", "Nouvelle ère des speedruns (records depuis le 10 sept 2026) — l'API est momentanément indisponible, réessaie dans un instant. Les anciens records pré-publicID ne s'affichent plus.");
     } else {
       status.textContent = runs.length ? '' : TP("runs.none_found", { days: c.windowDays }, "Aucun run trouvé dans les " + c.windowDays + " derniers jours.");
     }
@@ -432,7 +432,7 @@ async function loadTopRuns() {
       ? T("runs.src_offline", "API momentanément indisponible — nouvelle ère uniquement")
       : (dbFresh
         ? T("runs.src_era_backfill", "Nouvelle ère — DB connectée, backfill en cours")
-        : T("runs.src_era", "Nouvelle ère — DB pré-profils, records depuis le 10 sept 2025"));
+        : T("runs.src_era", "Nouvelle ère — DB pré-profils, records depuis le 10 sept 2026"));
     const sortLabel = c.sort === 'date'
       ? T("runs.sort_date", "récentes d'abord")
       : T("runs.sort_duration", "meilleurs temps d'abord");
