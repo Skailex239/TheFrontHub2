@@ -35,6 +35,23 @@ declare(strict_types=1);
  *   SCOPE_VER inchangé : le backfill en cours continue et s'arrête plus tôt,
  *   aucun re-scan complet n'est déclenché.
  *
+ *   v5.0 (2026-09-25) — « TOUT STOCKER, TOUT RELIER ». Migrations additives
+ *   (aucun reset, aucune perte) :
+ *     • Débit détail : plafond AIMD 2 → 10 req/s (plafond officiel révélé par
+ *       evan [OF] : ~250 req/10 s ; on reste à 40 %, AIMD toujours actif).
+ *       Démarrage plancher dur à 3 req/s (v5 ignore les secrets < 3/10).
+ *     • stats par joueur stockées pour TOUTES les parties (fin du mode subset).
+ *     • Roster enrichi : clan_tag, is_lobby_creator, persistent_id,
+ *       cosmetics_json (pattern+palette, couronne, drapeau, effets).
+ *     • Games enrichies : version, num_turns, config_json (config complète).
+ *     • ENRICHISSEMENT : les ~124k parties antérieures sont re-détaillées
+ *       (v5_done=0 → 1) pour remplir les nouvelles colonnes + agrégats.
+ *     • REPLAYS : stockage gzip du turn-by-turn (tfh_g_turns, LONGBLOB),
+ *       plafonds par tick (jeux + octets), réessais bornés (5).
+ *     • RATING : Glicko-2 (3 boards ffa/team/ranked), curseur chronologique,
+ *       historique par partie (tfh_g_ratings + tfh_g_rating_history).
+ *     • CATALOGUE cosmétiques : snapshot api /cosmetics.json toutes les 6 h.
+ *
  * Commandes CLI :
  *   (sans argument)        tick normal (budget TICK_BUDGET)
  *   --backfill=N           session backfill prolongée de N secondes
@@ -46,7 +63,8 @@ declare(strict_types=1);
  * avec en plus (optionnel mais recommandé) :
  *   { "mysql": {...}, "openfront_access": "token-skailex",
  *     "games": { "game_types": "Public,Private", "min_players_to_keep": 1,
- *                "detail_concurrency": 4, "player_stats_mode": "subset" } }
+ *                "detail_concurrency": 6, "player_stats_mode": "all",
+ *                "turns_enabled": true, "turns_max_games_per_tick": 30 } }
  *
  *   NB : l'ancienne clé "min_players" (v1) est ignorée — la nouvelle clé
  *   "min_players_to_keep" la remplace (défaut 1).
@@ -79,16 +97,23 @@ if (!is_array($secrets) || !is_array($secrets['mysql'] ?? null)) {
 $cfg = array_merge([
     'game_types'          => 'Public,Private', // types scannés (API : Public|Private|Singleplayer)
     'min_players_to_keep' => 1,       // on garde même les parties à 1-2 joueurs
-    'detail_concurrency'  => 4,       // appels /public/game/:id en parallèle
-    'player_stats_mode'   => 'subset', // subset | all | none
+    'detail_concurrency'  => 6,       // v5 : appels /public/game/:id en parallèle (débit 10 req/s atteignable)
+    'player_stats_mode'   => 'all',   // v5 : stats par joueur stockées pour TOUTES les parties
     'tick_budget'         => 420,     // secondes max par tick cron (cron 10 min, verrou anti-chevauchement)
     'recent_overlap_min'  => 10,
     'window_days'         => 0.25,    // fenêtre backfill 6 h : finissable en 1-2 ticks → abandons rarissimes, pertes bornées
     'list_limit'          => 1000,
     'list_max_offset'     => 40000,   // garde-fou pagination
     'hard_delete'         => false,   // purge réelle des joueurs supprimés ?
-    'detail_rate_start_per_s' => 1.5,   // v4.2 : débit détail initial (req/s) — calibré au seuil soutenable de l'API (4 req/s = 40 429/tick mesuré)
-    'detail_rate_max_per_s'   => 2.0,  // v4.2 : plafond de remontée AIMD (au-delà : 429 massifs)
+    'detail_rate_start_per_s' => 6.0,   // v5 : débit détail initial (plafond officiel ~25 req/s, on démarre à 24 %)
+    'detail_rate_max_per_s'   => 10.0,  // v5 : plafond AIMD (40 % du plafond officiel ; 429 → /2 auto)
+    'turns_enabled'            => true, // v5 : stockage des replays (turn-by-turn gzip)
+    'turns_max_games_per_tick' => 30,   // v5 : replays max par tick
+    'turns_max_bytes_per_tick' => 83886080, // v5 : 80 Mo gz max par tick
+    'enrich_max_games_per_tick'=> 400,  // v5 : anciennes parties enrichies par tick
+    'catalog_refresh_hours'    => 6,    // v5 : rafraîchissement catalogue cosmétiques
+    'rating_seconds_per_tick'  => 60,   // v5 : budget Glicko-2 par tick
+    'rating_games_per_tick'    => 2500, // v5 : parties notées max par tick
 ], is_array($secrets['games'] ?? null) ? $secrets['games'] : []);
 
 /* Types de parties scannés (liste blanche API). Singleplayer EXCLU par
@@ -108,6 +133,9 @@ const TIME_OFFSET_S  = 32;             // offset speedrun (extract-speedrun.js)
 const STATE_KEY_RECENT  = 'recent_end_ms';
 const STATE_KEY_BACKFIL = 'backfill_cursor_ms';
 const STATE_KEY_DELETER = 'deletions_polled_ms';
+const STATE_KEY_ENRICH  = 'enrich_cursor_ms';   // v5 (réservé)
+const STATE_KEY_TURNS   = 'turns_cursor_ms';    // v5 (réservé)
+const STATE_KEY_RATING  = 'rating_cursor_ms';   // v5 : parties antérieures à ce started_at déjà notées
 
 /* ─────────────────────────── PDO ─────────────────────────── */
 
@@ -218,6 +246,130 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_roster (
 $pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_state (
     skey   VARCHAR(40) NOT NULL PRIMARY KEY,
     svalue TEXT        NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+/* ─────────────── v5 : migration additive (idempotente, aucun reset) ─────────────── */
+
+function tfh_col_exists(PDO $pdo, string $table, string $col): bool {
+    $st = $pdo->prepare("SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?");
+    $st->execute([$table, $col]);
+    return (int)$st->fetchColumn() > 0;
+}
+function tfh_idx_exists(PDO $pdo, string $table, string $idx): bool {
+    $st = $pdo->prepare("SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?");
+    $st->execute([$table, $idx]);
+    return (int)$st->fetchColumn() > 0;
+}
+function tfh_add_col(PDO $pdo, string $table, string $col, string $ddl): void {
+    if (!tfh_col_exists($pdo, $table, $col)) {
+        $pdo->exec("ALTER TABLE `" . str_replace('`', '', $table) . "` ADD COLUMN " . $ddl);
+        log_line("[schema] $table.$col ajouté");
+    }
+}
+function tfh_add_idx(PDO $pdo, string $table, string $idx, string $ddl): void {
+    if (!tfh_idx_exists($pdo, $table, $idx)) {
+        $pdo->exec("ALTER TABLE `" . str_replace('`', '', $table) . "` ADD INDEX " . $ddl);
+        log_line("[schema] $table.$idx ajouté");
+    }
+}
+
+tfh_add_col($pdo, 'tfh_g_roster',  'clan_tag',          "`clan_tag` VARCHAR(16) NULL AFTER `public_id`");
+tfh_add_col($pdo, 'tfh_g_roster',  'is_lobby_creator',  "`is_lobby_creator` TINYINT(1) NOT NULL DEFAULT 0");
+tfh_add_col($pdo, 'tfh_g_roster',  'persistent_id',     "`persistent_id` VARCHAR(32) NULL");
+tfh_add_col($pdo, 'tfh_g_roster',  'team_index',        "`team_index` SMALLINT NULL");
+tfh_add_col($pdo, 'tfh_g_roster',  'cosmetics_json',    "`cosmetics_json` MEDIUMTEXT NULL");
+tfh_add_idx($pdo, 'tfh_g_roster',  'idx_groster_clan',  "`idx_groster_clan` (`clan_tag`, `game_id`)");
+tfh_add_col($pdo, 'tfh_g_games',   'version',           "`version` VARCHAR(24) NULL AFTER `git_commit`");
+tfh_add_col($pdo, 'tfh_g_games',   'num_turns',         "`num_turns` INT UNSIGNED NULL AFTER `version`");
+tfh_add_col($pdo, 'tfh_g_games',   'config_json',       "`config_json` MEDIUMTEXT NULL AFTER `num_turns`");
+tfh_add_col($pdo, 'tfh_g_games',   'v5_done',           "`v5_done` TINYINT(1) NOT NULL DEFAULT 0 AFTER `config_json`");
+tfh_add_col($pdo, 'tfh_g_games',   'turns_done',        "`turns_done` TINYINT(1) NOT NULL DEFAULT 0 AFTER `v5_done`");
+tfh_add_col($pdo, 'tfh_g_games',   'turns_tries',       "`turns_tries` TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER `turns_done`");
+tfh_add_idx($pdo, 'tfh_g_games',   'idx_ggames_v5',     "`idx_ggames_v5` (`v5_done`, `started_at`)");
+tfh_add_idx($pdo, 'tfh_g_games',   'idx_ggames_turns',  "`idx_ggames_turns` (`turns_done`, `started_at`)");
+tfh_add_col($pdo, 'tfh_g_players', 'last_clan_tag',     "`last_clan_tag` VARCHAR(16) NULL AFTER `last_username`");
+
+$pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_clans (
+    clan_tag       VARCHAR(16)     NOT NULL PRIMARY KEY,
+    first_seen     DATETIME        NOT NULL,
+    last_seen      DATETIME        NOT NULL,
+    participations INT UNSIGNED    NOT NULL DEFAULT 0,
+    wins           INT UNSIGNED    NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+$pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_cosmetics (
+    category       VARCHAR(12)     NOT NULL,
+    name           VARCHAR(64)     NOT NULL,
+    display_name   VARCHAR(80)     NULL,
+    rarity         VARCHAR(12)     NULL,
+    price_hard     INT UNSIGNED    NULL,
+    price_cents    INT UNSIGNED    NULL,
+    artist         VARCHAR(48)     NULL,
+    url            VARCHAR(160)    NULL,
+    affiliate_code VARCHAR(32)     NULL,
+    raw_json       MEDIUMTEXT      NULL,
+    first_seen     DATETIME        NOT NULL,
+    last_seen      DATETIME        NOT NULL,
+    PRIMARY KEY (category, name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+$pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_cosmetic_wearers (
+    category   VARCHAR(12)     NOT NULL,
+    name       VARCHAR(64)     NOT NULL,
+    public_id  VARCHAR(16)     NOT NULL,
+    times_worn INT UNSIGNED    NOT NULL DEFAULT 0,
+    first_worn DATETIME        NOT NULL,
+    last_worn  DATETIME        NOT NULL,
+    PRIMARY KEY (category, name, public_id),
+    INDEX idx_gcw_pid (public_id),
+    INDEX idx_gcw_last (category, name, last_worn)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+$pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_player_stats (
+    public_id      VARCHAR(16)     NOT NULL PRIMARY KEY,
+    games_count    INT UNSIGNED    NOT NULL DEFAULT 0,
+    wins_count     INT UNSIGNED    NOT NULL DEFAULT 0,
+    survived_count INT UNSIGNED    NOT NULL DEFAULT 0,
+    time_played_s  INT UNSIGNED    NOT NULL DEFAULT 0,
+    ffa_games      INT UNSIGNED    NOT NULL DEFAULT 0,
+    team_games     INT UNSIGNED    NOT NULL DEFAULT 0,
+    ranked_games   INT UNSIGNED    NOT NULL DEFAULT 0,
+    first_game_at  DATETIME        NULL,
+    last_game_at   DATETIME        NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+$pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_turns (
+    game_id    VARCHAR(16)     NOT NULL PRIMARY KEY,
+    version    VARCHAR(24)     NULL,
+    raw_bytes  INT UNSIGNED    NOT NULL DEFAULT 0,
+    gz_bytes   INT UNSIGNED    NOT NULL DEFAULT 0,
+    num_turns  INT UNSIGNED    NULL,
+    fetched_at DATETIME        NOT NULL,
+    data       LONGBLOB        NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+$pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_ratings (
+    public_id  VARCHAR(16)     NOT NULL,
+    board      VARCHAR(12)     NOT NULL,
+    rating     DOUBLE          NOT NULL DEFAULT 1500,
+    rd         DOUBLE          NOT NULL DEFAULT 350,
+    volatility DOUBLE          NOT NULL DEFAULT 0.06,
+    games      INT UNSIGNED    NOT NULL DEFAULT 0,
+    wins       INT UNSIGNED    NOT NULL DEFAULT 0,
+    peak       DOUBLE          NOT NULL DEFAULT 1500,
+    peak_at    DATETIME        NULL,
+    last_at    DATETIME        NULL,
+    PRIMARY KEY (public_id, board),
+    INDEX idx_gr_board (board, rating)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+$pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_rating_history (
+    id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    public_id  VARCHAR(16)     NOT NULL,
+    board      VARCHAR(12)     NOT NULL,
+    game_id    VARCHAR(16)     NOT NULL,
+    started_at DATETIME(3)     NOT NULL,
+    rating     DOUBLE          NOT NULL,
+    rd         DOUBLE          NOT NULL,
+    INDEX idx_grh_pid (public_id, board, started_at),
+    INDEX idx_grh_game (game_id),
+    INDEX idx_grh_board (board, started_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
 /* ─────────────────────────── Helpers ─────────────────────────── */
@@ -358,9 +510,10 @@ function of_get(string $url, int $retries = 4): ?array {
  *   - 404             → null PERMANENT (partie disparue), la page peut avancer
  *   - 429/5xx/réseau  → retryé 2× dans le tick (attente 3 s puis 6 s), sinon transitoire
  */
-function of_details_multi(array $gameIds, int $concurrency): array {
+function of_details_multi(array $gameIds, int $concurrency, bool $turns = false): array {
     global $OF_ACCESS, $OF_PACE_LAST;
     $out = [];
+    $gone = []; // 404 permanents
     $pending = array_values($gameIds);
     for ($round = 0; $round < 3 && $pending; $round++) {
         if ($round > 0) sleep(3 * $round);
@@ -372,7 +525,7 @@ function of_details_multi(array $gameIds, int $concurrency): array {
             $mh = curl_multi_init();
             $handles = [];
             foreach ($batch as $gid) {
-                $ch = curl_init(OF_API_BASE . '/public/game/' . rawurlencode($gid) . '?turns=false');
+                $ch = curl_init(OF_API_BASE . '/public/game/' . rawurlencode($gid) . '?turns=' . ($turns ? 'true' : 'false'));
                 $headers = ['User-Agent: TheFrontHub-GamesSync/1.0', 'Accept: application/json'];
                 if ($OF_ACCESS !== '') $headers[] = 'x-skailex-access: ' . $OF_ACCESS;
                 curl_setopt_array($ch, [
@@ -399,7 +552,7 @@ function of_details_multi(array $gameIds, int $concurrency): array {
                     if (is_array($d)) { $out[$gid] = $d; of_ok_nudge(); continue; }
                 }
                 if ($status === 429) of_on_429();
-                if ($status === 404) { $out[$gid] = null; continue; } // permanent
+                if ($status === 404) { $out[$gid] = null; $gone[] = $gid; continue; } // permanent
                 $pending[] = $gid;                                    // transitoire → retry
             }
             curl_multi_close($mh);
@@ -407,7 +560,7 @@ function of_details_multi(array $gameIds, int $concurrency): array {
         }
     }
     foreach ($pending as $gid) $out[$gid] = null;
-    return [$out, count($pending)];
+    return [$out, count($pending), $gone];
 }
 
 /* ─────────────────────────── Règles speedrun (miroir extract-speedrun.js) ─────────────────────────── */
@@ -477,6 +630,102 @@ function classify_speedrun(array $info): array {
     return [$isCompact ? 'compact' : 'normal', $dur, $winnerCid, $active ? implode(',', array_slice($active, 0, 6)) : null];
 }
 
+/* ─────────────────────── v5 : normalisation + agrégats ─────────────────────── */
+
+/** Compresse les cosmétiques portés d'un joueur (sans les patternData/base64). */
+function norm_cosmetics(mixed $c): ?string {
+    if (!is_array($c)) return null;
+    $out = [];
+    if (isset($c['flag']) && is_string($c['flag']) && $c['flag'] !== '') $out['flag'] = $c['flag'];
+    if (isset($c['pattern']) && is_array($c['pattern'])) {
+        $p = $c['pattern'];
+        $pe = [];
+        if (isset($p['name']) && is_string($p['name']) && $p['name'] !== '') {
+            $pe['name'] = $p['name'];
+            if (isset($p['colorPalette']) && is_array($p['colorPalette'])) {
+                $pal = $p['colorPalette'];
+                if (isset($pal['name']) && is_string($pal['name'])) $pe['palette'] = $pal['name'];
+                if (isset($pal['primaryColor']) && is_string($pal['primaryColor'])) $pe['primary'] = $pal['primaryColor'];
+                if (isset($pal['secondaryColor']) && is_string($pal['secondaryColor'])) $pe['secondary'] = $pal['secondaryColor'];
+            }
+            $out['pattern'] = $pe;
+        }
+    }
+    foreach (['crown', 'skin'] as $k) {
+        $v = $c[$k] ?? null;
+        if (is_array($v)) $v = $v['name'] ?? null;
+        if (is_string($v) && $v !== '') $out[$k] = $v;
+    }
+    if (isset($c['effects']) && is_array($c['effects'])) {
+        $effs = [];
+        foreach ($c['effects'] as $slot => $name) {
+            if (is_string($name) && $name !== '') $effs[(string)$slot] = $name;
+        }
+        if ($effs) $out['effects'] = $effs;
+    }
+    return $out ? json_encode($out, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : null;
+}
+
+/** Board de classement d'une partie : ffa | team | ranked. */
+function rating_board(string $rankedType, ?string $playerTeams): string {
+    if ($rankedType !== '' && $rankedType !== 'unranked') return 'ranked';
+    $pt = strtolower(trim((string)($playerTeams ?? 'ffa')));
+    return ($pt === '' || $pt === 'ffa') ? 'ffa' : 'team';
+}
+
+/** Aggrège la participation d'un tag de clan (1 ligne = 1 participation joueur). */
+function agg_clan(PDO $pdo, ?string $tag, string $at, int $won): void {
+    if ($tag === null || $tag === '') return;
+    $pdo->prepare('INSERT INTO tfh_g_clans (clan_tag, first_seen, last_seen, participations, wins)
+        VALUES (?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE last_seen = VALUES(last_seen),
+            participations = participations + 1, wins = wins + VALUES(wins)')
+        ->execute([$tag, $at, $at, $won]);
+}
+
+/** Aggrège le port d'un cosmétique par un joueur. */
+function agg_cosmetics_wear(PDO $pdo, string $cosJson, string $pid, string $at): void {
+    $c = json_decode($cosJson, true);
+    if (!is_array($c)) return;
+    $st = $pdo->prepare('INSERT INTO tfh_g_cosmetic_wearers (category, name, public_id, times_worn, first_worn, last_worn)
+        VALUES (?,?,?,1,?,?)
+        ON DUPLICATE KEY UPDATE times_worn = times_worn + 1, last_worn = VALUES(last_worn)');
+    $items = [];
+    foreach (['flag', 'crown', 'skin'] as $k) {
+        if (isset($c[$k]) && is_string($c[$k]) && $c[$k] !== '') $items[] = [$k, $c[$k]];
+    }
+    if (isset($c['pattern']['name']) && is_string($c['pattern']['name']) && $c['pattern']['name'] !== '') {
+        $items[] = ['pattern', $c['pattern']['name']];
+    }
+    foreach (($c['effects'] ?? []) as $effName) {
+        if (is_string($effName) && $effName !== '') $items[] = ['effect', $effName];
+    }
+    foreach ($items as [$cat, $name]) {
+        $st->execute([$cat, cut((string)$name, 64), $pid, $at, $at]);
+    }
+}
+
+/** Aggrège les compteurs lifetime d'un joueur (1 appel = 1 partie jouée). */
+function agg_player_stats(PDO $pdo, string $pid, string $at, int $durationS, int $won, int $survived, string $board): void {
+    $pdo->prepare('INSERT INTO tfh_g_player_stats
+        (public_id, games_count, wins_count, survived_count, time_played_s, ffa_games, team_games, ranked_games, first_game_at, last_game_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE
+            games_count = games_count + 1, wins_count = wins_count + VALUES(wins_count),
+            survived_count = survived_count + VALUES(survived_count),
+            time_played_s = time_played_s + VALUES(time_played_s),
+            ffa_games = ffa_games + VALUES(ffa_games),
+            team_games = team_games + VALUES(team_games),
+            ranked_games = ranked_games + VALUES(ranked_games),
+            first_game_at = IF(first_game_at IS NULL OR VALUES(first_game_at) < first_game_at, VALUES(first_game_at), first_game_at),
+            last_game_at = IF(last_game_at IS NULL OR VALUES(last_game_at) > last_game_at, VALUES(last_game_at), last_game_at)')
+        ->execute([
+            $pid, 1, $won, $survived, max(0, $durationS),
+            $board === 'ffa' ? 1 : 0, $board === 'team' ? 1 : 0, $board === 'ranked' ? 1 : 0,
+            $at, $at,
+        ]);
+}
+
 /* ─────────────────────────── Ingestion d'une partie ─────────────────────────── */
 
 /**
@@ -540,8 +789,9 @@ function ingest_game(PDO $pdo, string $gameId, array $detail, array $listMeta, a
         $ins = $pdo->prepare('INSERT IGNORE INTO tfh_g_games
             (game_id, started_at, ended_at, duration_s, game_type, game_mode, ranked_type, player_teams,
              game_map, map_size, difficulty, bots, num_players, max_players, lobby_fill_time,
-             winner_kind, winner_public_id, winner_username_id, speedrun_category, speedrun_duration_s, mods, git_commit)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+             winner_kind, winner_public_id, winner_username_id, speedrun_category, speedrun_duration_s, mods, git_commit,
+             version, num_turns, config_json, v5_done)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)');
         $ins->execute([
             $gameId,
             ms_to_dt($startMs),
@@ -558,15 +808,21 @@ function ingest_game(PDO $pdo, string $gameId, array $detail, array $listMeta, a
             $winnerKind,
             null, null, // remplis après résolution roster
             $srCat, $srDur, $modsCsv, $gitc !== '' ? $gitc : null,
+            (string)($detail['version'] ?? '') !== '' ? cut((string)$detail['version'], 24) : null,
+            isset($info['num_turns']) && is_numeric($info['num_turns']) ? (int)$info['num_turns'] : null,
+            $cfgG ? json_encode($cfgG, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : null,
         ]);
         if ($ins->rowCount() === 0) { $pdo->rollBack(); return 0; } // course inter-process
 
-        // ── Roster + joueurs + alias ──
-        $rosterIns = $pdo->prepare('INSERT IGNORE INTO tfh_g_roster (game_id, client_id, public_id, username_id, won, stats_json) VALUES (?,?,?,?,?,?)');
+        // ── Roster + joueurs + alias + v5 (clan, cosmétiques, stats lifetime) ──
+        $rosterIns = $pdo->prepare('INSERT IGNORE INTO tfh_g_roster
+            (game_id, client_id, public_id, username_id, won, stats_json, clan_tag, is_lobby_creator, persistent_id, cosmetics_json)
+            VALUES (?,?,?,?,?,?,?,?,?,?)');
         $nowDt = ms_to_dt($startMs);
         $statsMode = (string)$cfg['player_stats_mode'];
         $storeStats = $statsMode === 'all'
             || ($statsMode === 'subset' && ($srCat !== null || $rt !== 'unranked'));
+        $board = rating_board($rt, $pt);
 
         $winnerPidResolved = null; $winnerUnameIdResolved = null;
         foreach ($players as $p) {
@@ -581,7 +837,10 @@ function ingest_game(PDO $pdo, string $gameId, array $detail, array $listMeta, a
             if ($storeStats && isset($p['stats']) && is_array($p['stats'])) {
                 $sj = json_encode($p['stats'], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
             }
-            $rosterIns->execute([$gameId, $cid, $pid, $uid, $won, $sj]);
+            $clan = isset($p['clanTag']) && is_string($p['clanTag']) && $p['clanTag'] !== '' ? cut($p['clanTag'], 16) : null;
+            $cosj = norm_cosmetics($p['cosmetics'] ?? null);
+            $persistId = isset($p['persistentID']) && is_string($p['persistentID']) && $p['persistentID'] !== '' ? cut($p['persistentID'], 32) : null;
+            $rosterIns->execute([$gameId, $cid, $pid, $uid, $won, $sj, $clan, !empty($p['isLobbyCreator']) ? 1 : 0, $persistId, $cosj]);
 
             if ($winnerKind === 'player' && $cid === $winnerCids[0]) {
                 $winnerPidResolved = $pid; $winnerUnameIdResolved = $uid;
@@ -589,17 +848,23 @@ function ingest_game(PDO $pdo, string $gameId, array $detail, array $listMeta, a
 
             if ($pid !== null) {
                 // Pré-profil : upsert joueur + compteurs
-                $pdo->prepare('INSERT INTO tfh_g_players (public_id, last_username, first_seen, last_seen, last_game_id, games_count, wins_count)
-                    VALUES (?,?,?,?,?,1,?)
+                $pdo->prepare('INSERT INTO tfh_g_players (public_id, last_username, last_clan_tag, first_seen, last_seen, last_game_id, games_count, wins_count)
+                    VALUES (?,?,?,?,?,?,1,?)
                     ON DUPLICATE KEY UPDATE last_seen = VALUES(last_seen), last_game_id = VALUES(last_game_id),
+                        last_clan_tag = COALESCE(VALUES(last_clan_tag), last_clan_tag),
                         games_count = games_count + 1, wins_count = wins_count + VALUES(wins_count),
                         deleted_at = NULL')
-                    ->execute([$pid, $uname, $nowDt, $nowDt, $gameId, $won]);
+                    ->execute([$pid, $uname, $clan, $nowDt, $nowDt, $gameId, $won]);
                 // Alias
                 $pdo->prepare('INSERT INTO tfh_g_aliases (public_id, username_id, first_seen, last_seen, times_used)
                     VALUES (?,?,?,?,1)
                     ON DUPLICATE KEY UPDATE last_seen = VALUES(last_seen), times_used = times_used + 1')
                     ->execute([$pid, $uid, $nowDt, $nowDt]);
+                // v5 : agrégats (clans, cosmétiques portés, stats lifetime)
+                agg_clan($pdo, $clan, $nowDt, $won);
+                if ($cosj !== null) agg_cosmetics_wear($pdo, $cosj, $pid, $nowDt);
+                $survived = ($won === 1 || !isset($p['stats']['killedAt'])) ? 1 : 0;
+                agg_player_stats($pdo, $pid, $nowDt, (int)($durationS ?? 0), $won, $survived, $board);
             }
         }
         if ($winnerPidResolved !== null || $winnerUnameIdResolved !== null) {
@@ -690,6 +955,386 @@ function scan_range(PDO $pdo, int $startMs, int $endMs, array $cfg, float $deadl
     return [$ingested, $seen, true];
 }
 
+/* ─────────────────── v5 : enrichissement / replays / rating / catalogue ─────────────────── */
+
+/**
+ * Enrichit une partie EXISTANTE avec les données v5 (cosmétiques, clan, config…).
+ * Les agrégats ne sont comptés QUE pour les jeux v5_done = 0 → aucun double comptage.
+ */
+function enrich_game(PDO $pdo, string $gameId, array $detail, array &$unameCache): int {
+    $info = is_array($detail['info'] ?? null) ? $detail['info'] : null;
+    if ($info === null) return 0;
+    $cfgG = is_array($info['config'] ?? null) ? $info['config'] : [];
+    $players = is_array($info['players'] ?? null) ? $info['players'] : [];
+    if (!$players) return 0;
+
+    $startMs = isset($info['start']) && is_numeric($info['start']) ? (int)$info['start'] : null;
+    if ($startMs === null) return 0;
+    $durationS = null;
+    if (isset($info['duration']) && is_numeric($info['duration'])) {
+        $d = (int)$info['duration'];
+        $durationS = $d > 100000 ? (int)round($d / 1000) : $d;
+    } elseif (isset($info['end']) && is_numeric($info['end'])) {
+        $durationS = (int)round(((int)$info['end'] - $startMs) / 1000);
+    }
+
+    $winner = $info['winner'] ?? null;
+    $winnerKind = null; $winnerCids = [];
+    if (is_array($winner) && count($winner) >= 2) {
+        $winnerKind = (string)$winner[0];
+        if ($winnerKind === 'player') $winnerCids = [(string)$winner[1]];
+        elseif ($winnerKind === 'team') foreach (array_slice($winner, 2) as $cid) $winnerCids[] = (string)$cid;
+    }
+
+    $rt = (string)($cfgG['rankedType'] ?? 'unranked');
+    $pt = isset($cfgG['playerTeams']) ? (string)$cfgG['playerTeams'] : null;
+    $board = rating_board($rt, $pt);
+    $nowDt = ms_to_dt($startMs);
+
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare('UPDATE tfh_g_games SET version = ?, num_turns = ?, config_json = ?, v5_done = 1 WHERE game_id = ?')
+            ->execute([
+                (string)($detail['version'] ?? '') !== '' ? cut((string)$detail['version'], 24) : null,
+                isset($info['num_turns']) && is_numeric($info['num_turns']) ? (int)$info['num_turns'] : null,
+                $cfgG ? json_encode($cfgG, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : null,
+                $gameId,
+            ]);
+
+        $rosterUp = $pdo->prepare('INSERT INTO tfh_g_roster
+            (game_id, client_id, public_id, username_id, won, stats_json, clan_tag, is_lobby_creator, persistent_id, cosmetics_json)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+            ON DUPLICATE KEY UPDATE clan_tag = VALUES(clan_tag), is_lobby_creator = VALUES(is_lobby_creator),
+                persistent_id = VALUES(persistent_id), cosmetics_json = VALUES(cosmetics_json),
+                stats_json = COALESCE(stats_json, VALUES(stats_json))');
+        $winnerPidResolved = null; $winnerUnameIdResolved = null;
+        foreach ($players as $p) {
+            if (!is_array($p)) continue;
+            $cid = (string)($p['clientID'] ?? '');
+            $uname = cut((string)($p['username'] ?? ''), 64);
+            if ($cid === '' || $uname === '') continue;
+            $pid  = isset($p['publicID']) && is_string($p['publicID']) && $p['publicID'] !== '' ? cut($p['publicID'], 16) : null;
+            $uid  = username_id($pdo, $uname, $unameCache);
+            $won  = in_array($cid, $winnerCids, true) ? 1 : 0;
+            $sj   = isset($p['stats']) && is_array($p['stats']) ? json_encode($p['stats'], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : null;
+            $clan = isset($p['clanTag']) && is_string($p['clanTag']) && $p['clanTag'] !== '' ? cut($p['clanTag'], 16) : null;
+            $cosj = norm_cosmetics($p['cosmetics'] ?? null);
+            $persistId = isset($p['persistentID']) && is_string($p['persistentID']) && $p['persistentID'] !== '' ? cut($p['persistentID'], 32) : null;
+            $rosterUp->execute([$gameId, $cid, $pid, $uid, $won, $sj, $clan, !empty($p['isLobbyCreator']) ? 1 : 0, $persistId, $cosj]);
+
+            if ($winnerKind === 'player' && $cid === $winnerCids[0]) {
+                $winnerPidResolved = $pid; $winnerUnameIdResolved = $uid;
+            }
+            if ($pid !== null) {
+                agg_clan($pdo, $clan, $nowDt, $won);
+                if ($cosj !== null) agg_cosmetics_wear($pdo, $cosj, $pid, $nowDt);
+                $survived = ($won === 1 || !isset($p['stats']['killedAt'])) ? 1 : 0;
+                agg_player_stats($pdo, $pid, $nowDt, (int)($durationS ?? 0), $won, $survived, $board);
+            }
+        }
+        if ($winnerPidResolved !== null || $winnerUnameIdResolved !== null) {
+            $pdo->prepare('UPDATE tfh_g_games SET winner_public_id = ?, winner_username_id = ? WHERE game_id = ?')
+                ->execute([$winnerPidResolved, $winnerUnameIdResolved, $gameId]);
+        }
+        $pdo->commit();
+        return 1;
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+}
+
+/** Phase d'enrichissement : re-détaille les parties antérieures à la v5. Retour [faites, restantes]. */
+function enrich_phase(PDO $pdo, array $cfg, float $deadline, array &$unameCache): array {
+    $batch = min(1500, max(10, (int)($cfg['enrich_max_games_per_tick'] ?? 400)));
+    $st = $pdo->prepare('SELECT game_id FROM tfh_g_games WHERE v5_done = 0 ORDER BY started_at DESC LIMIT ' . $batch);
+    $st->execute();
+    $ids = $st->fetchAll(PDO::FETCH_COLUMN);
+    if (!$ids) return [0, 0];
+    [$details, $tfail, $gone] = of_details_multi($ids, (int)$cfg['detail_concurrency']);
+    if ($gone) {
+        $mark = $pdo->prepare('UPDATE tfh_g_games SET v5_done = 2 WHERE game_id = ?'); // disparues → abandon définitif
+        foreach ($gone as $gid) $mark->execute([$gid]);
+    }
+    $done = 0;
+    foreach ($ids as $gid) {
+        if (microtime(true) >= $deadline) break;
+        $d = $details[$gid] ?? null;
+        if ($d === null) continue; // transitoire → retenté au prochain tick
+        try {
+            $done += enrich_game($pdo, $gid, $d, $unameCache);
+        } catch (Throwable $e) {
+            log_line("[enrich] ⚠️ $gid : " . cut($e->getMessage(), 120));
+        }
+    }
+    $left = (int)$pdo->query('SELECT COUNT(*) FROM tfh_g_games WHERE v5_done = 0')->fetchColumn();
+    return [$done, $left];
+}
+
+/** Phase replays : stocke le turn-by-turn gzip des parties sans replay (récentes d'abord). */
+function turns_phase(PDO $pdo, array $cfg, float $deadline): int {
+    if (empty($cfg['turns_enabled'])) return 0;
+    $maxGames = max(1, (int)($cfg['turns_max_games_per_tick'] ?? 30));
+    $maxBytes = max(1048576, (int)($cfg['turns_max_bytes_per_tick'] ?? 83886080));
+    $bytesUsed = 0; $done = 0;
+    $st = $pdo->prepare('SELECT game_id FROM tfh_g_games WHERE turns_done = 0 ORDER BY started_at DESC LIMIT ' . ($maxGames * 2));
+    $st->execute();
+    $ids = $st->fetchAll(PDO::FETCH_COLUMN);
+    $ins = $pdo->prepare('INSERT INTO tfh_g_turns (game_id, version, raw_bytes, gz_bytes, num_turns, fetched_at, data)
+        VALUES (?,?,?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE version = VALUES(version), raw_bytes = VALUES(raw_bytes), gz_bytes = VALUES(gz_bytes),
+            num_turns = VALUES(num_turns), fetched_at = VALUES(fetched_at), data = VALUES(data)');
+    $mark = $pdo->prepare('UPDATE tfh_g_games SET turns_done = ?, turns_tries = turns_tries + ? WHERE game_id = ?');
+    $triesSel = $pdo->prepare('SELECT turns_tries FROM tfh_g_games WHERE game_id = ?');
+    foreach ($ids as $gid) {
+        if ($done >= $maxGames || $bytesUsed >= $maxBytes || microtime(true) >= $deadline) break;
+        of_pace(1); // pacing global (partage le budget débit avec les détails)
+        [$status, $d] = of_request(OF_API_BASE . '/public/game/' . rawurlencode($gid) . '?turns=true', 90, 3);
+        if ($status === 404) { $mark->execute([2, 0, $gid]); continue; }
+        if ($status !== 200 || !is_array($d) || !isset($d['turns']) || !is_array($d['turns'])) {
+            // échec transitoire : 5 tentatives max puis abandon tracé
+            $triesSel->execute([$gid]);
+            $t = (int)$triesSel->fetchColumn();
+            if ($t >= 4) { $mark->execute([2, 0, $gid]); log_line("[turns] ⚠️ $gid abandonné après " . ($t + 1) . " tentatives"); }
+            else $mark->execute([0, 1, $gid]);
+            continue;
+        }
+        $raw = json_encode($d, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        if ($raw === false) { $mark->execute([2, 0, $gid]); continue; }
+        $gz = gzencode($raw, 1);
+        if ($gz === false) { $mark->execute([2, 0, $gid]); continue; }
+        $info = is_array($d['info'] ?? null) ? $d['info'] : [];
+        $ins->execute([
+            $gid,
+            (string)($d['version'] ?? '') !== '' ? cut((string)$d['version'], 24) : null,
+            strlen($raw), strlen($gz),
+            isset($info['num_turns']) && is_numeric($info['num_turns']) ? (int)$info['num_turns'] : count($d['turns']),
+            gmdate('Y-m-d H:i:s'),
+            $gz,
+        ]);
+        $mark->execute([1, 0, $gid]);
+        $bytesUsed += strlen($gz);
+        $done++;
+    }
+    return $done;
+}
+
+/** Phase catalogue : snapshot du catalogue officiel des cosmétiques (throttlé). */
+function catalog_phase(PDO $pdo, array $cfg): void {
+    $hours = max(1, (int)($cfg['catalog_refresh_hours'] ?? 6));
+    $last = (int)state_get($pdo, 'catalog_refreshed_at', '0');
+    if (time() - $last < $hours * 3600) return;
+    $d = of_get(OF_API_BASE . '/cosmetics.json');
+    if (!is_array($d)) { log_line('[catalog] catalogue indisponible cette fois'); return; }
+    $now = gmdate('Y-m-d H:i:s');
+    $st = $pdo->prepare('INSERT INTO tfh_g_cosmetics
+        (category, name, display_name, rarity, price_hard, price_cents, artist, url, affiliate_code, raw_json, first_seen, last_seen)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), rarity = VALUES(rarity),
+            price_hard = VALUES(price_hard), price_cents = VALUES(price_cents), artist = VALUES(artist),
+            url = VALUES(url), affiliate_code = VALUES(affiliate_code), raw_json = VALUES(raw_json), last_seen = VALUES(last_seen)');
+    $map = [
+        'patterns' => 'pattern', 'flags' => 'flag', 'skins' => 'skin', 'crowns' => 'crown',
+        'effects' => 'effect', 'colorPalettes' => 'palette', 'packs' => 'pack',
+        'currencyPacks' => 'currency', 'subscriptions' => 'subscription',
+    ];
+    $n = 0;
+    foreach ($map as $key => $cat) {
+        $items = $d[$key] ?? null;
+        if (!is_array($items)) continue;
+        foreach ($items as $name => $item) {
+            if (!is_array($item)) continue;
+            $raw = $item;
+            unset($raw['pattern'], $raw['patternData']); // pas de base64 volumineux en base
+            $priceHard = isset($raw['priceHard']) && is_numeric($raw['priceHard']) ? (int)$raw['priceHard'] : null;
+            $priceCents = isset($raw['product']['priceInCents']) && is_numeric($raw['product']['priceInCents']) ? (int)$raw['product']['priceInCents'] : null;
+            $st->execute([
+                $cat, cut((string)$name, 64),
+                isset($raw['displayName']) && is_string($raw['displayName']) ? cut($raw['displayName'], 80) : null,
+                isset($raw['rarity']) && is_string($raw['rarity']) ? cut($raw['rarity'], 12) : null,
+                $priceHard, $priceCents,
+                isset($raw['artist']) && is_string($raw['artist']) ? cut($raw['artist'], 48) : null,
+                isset($raw['url']) && is_string($raw['url']) ? cut($raw['url'], 160) : null,
+                isset($raw['affiliateCode']) && is_string($raw['affiliateCode']) ? cut($raw['affiliateCode'], 32) : null,
+                json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+                $now, $now,
+            ]);
+            $n++;
+        }
+    }
+    state_set($pdo, 'catalog_refreshed_at', (string)time());
+    log_line("[catalog] $n cosmétique(s) synchronisé(s)");
+}
+
+/** Glicko-2 (Glickman) — unités internes μ/φ, échelle 173.7178. */
+final class Glicko2 {
+    const TAU = 0.5;
+    const SCALE = 173.7178;
+
+    public static function toMu(float $r): float { return ($r - 1500.0) / self::SCALE; }
+    public static function toR(float $mu): float { return $mu * self::SCALE + 1500.0; }
+    public static function toPhi(float $rd): float { return $rd / self::SCALE; }
+    public static function toRd(float $phi): float { return $phi * self::SCALE; }
+
+    private static function g(float $phi): float {
+        return 1.0 / sqrt(1.0 + 3.0 * $phi * $phi / (M_PI * M_PI));
+    }
+    private static function expect(float $mu, float $muj, float $phij): float {
+        return 1.0 / (1.0 + exp(-self::g($phij) * ($mu - $muj)));
+    }
+    /** $vs = [[muj, phij, score], …] → [μ', φ'] */
+    public static function rate(float $mu, float $phi, array $vs): array {
+        if (!$vs) return [$mu, $phi];
+        $v = 0.0; $deltaSum = 0.0;
+        foreach ($vs as $tuple) {
+            [$muj, $phij, $s] = $tuple;
+            $g = self::g($phij);
+            $e = self::expect($mu, $muj, $phij);
+            $v += $g * $g * $e * (1.0 - $e);
+            $deltaSum += $g * ($s - $e);
+        }
+        if ($v <= 0.0) return [$mu, $phi];
+        $delta = $deltaSum / $v;
+        $a = log($phi * $phi);
+        $f = function (float $x) use ($phi, $v, $delta, $a): float {
+            $ex = exp($x);
+            $den = 2.0 * (($phi * $phi + $v + $ex) ** 2);
+            if ($den == 0.0) return 0.0;
+            return ($ex * ($delta * $delta - $phi * $phi - $v - $ex)) / $den - ($x - $a) / self::TAU;
+        };
+        $eps = 0.000001;
+        $A = $a;
+        if (($delta * $delta) > ($phi * $phi + $v)) {
+            $B = log($delta * $delta - $phi * $phi - $v);
+        } else {
+            $k = 1;
+            while ($f($a - $k * self::TAU) < 0.0 && $k < 100) $k++;
+            $B = $a - $k * self::TAU;
+        }
+        $fA = $f($A); $fB = $f($B);
+        $guard = 0;
+        while (abs($B - $A) > $eps && $guard++ < 200) {
+            $C = $A + ($A - $B) * $fA / ($fB - $fA);
+            $fC = $f($C);
+            if ($fC * $fB <= 0.0) { $A = $B; $fA = $fB; } else { $fA = $fA / 2.0; }
+            $B = $C; $fB = $fC;
+        }
+        $xStar = ($A + $B) / 2.0;
+        $newPhi = exp($xStar / 2.0);
+        $newMu = $mu + $newPhi * $newPhi * $delta;
+        return [$newMu, $newPhi];
+    }
+}
+
+/**
+ * Phase rating : Glicko-2 chronologique (curseur = started_at du dernier lot).
+ * 3 boards : ffa / team / ranked. Seuls les joueurs avec publicID comptent.
+ */
+function rating_phase(PDO $pdo, array $cfg, float $deadline): void {
+    $budget = max(5.0, (float)($cfg['rating_seconds_per_tick'] ?? 60));
+    $endAt = microtime(true) + min($budget, max(5.0, $deadline - microtime(true)));
+    $batchGames = min(10000, max(100, (int)($cfg['rating_games_per_tick'] ?? 2500)));
+    $cursor = (int)state_get($pdo, STATE_KEY_RATING, (string)GAMES_EPOCH_MS);
+    if ($cursor < GAMES_EPOCH_MS) $cursor = GAMES_EPOCH_MS;
+    $gRated = 0; $pRated = 0;
+
+    $histIns = $pdo->prepare('INSERT INTO tfh_g_rating_history (public_id, board, game_id, started_at, rating, rd) VALUES (?,?,?,?,?,?)');
+    $seenChk = $pdo->prepare('SELECT 1 FROM tfh_g_rating_history WHERE game_id = ? LIMIT 1');
+    $selState = $pdo->prepare('SELECT rating, rd, games, wins, peak, peak_at FROM tfh_g_ratings WHERE board = ? AND public_id = ?');
+    $upState = $pdo->prepare('INSERT INTO tfh_g_ratings
+        (public_id, board, rating, rd, volatility, games, wins, peak, peak_at, last_at)
+        VALUES (?,?,?,?,0.06,?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE rating = VALUES(rating), rd = VALUES(rd), games = VALUES(games), wins = VALUES(wins),
+            peak = VALUES(peak), peak_at = VALUES(peak_at), last_at = VALUES(last_at)');
+
+    while (microtime(true) < $endAt && microtime(true) < $deadline) {
+        $dt = gmdate('Y-m-d H:i:s', intdiv($cursor, 1000)) . '.' . sprintf('%03d', $cursor % 1000);
+        $st = $pdo->prepare('SELECT game_id, started_at, UNIX_TIMESTAMP(started_at) AS start_s, ranked_type, player_teams
+            FROM tfh_g_games
+            WHERE started_at >= ? AND (game_type IS NULL OR game_type <> ?)
+            ORDER BY started_at ASC LIMIT ' . $batchGames);
+        $st->execute([$dt, 'Singleplayer']);
+        $games = $st->fetchAll();
+        if (!$games) {
+            state_set($pdo, STATE_KEY_RATING, (string)(int)(microtime(true) * 1000));
+            break;
+        }
+
+        $gids = array_column($games, 'game_id');
+        $in = implode(',', array_fill(0, count($gids), '?'));
+        $rs = $pdo->prepare("SELECT r.game_id, r.public_id, r.won FROM tfh_g_roster r
+            WHERE r.game_id IN ($in) AND r.public_id IS NOT NULL");
+        $rs->execute($gids);
+        $rosterByGame = [];
+        foreach ($rs->fetchAll() as $row) $rosterByGame[$row['game_id']][] = $row;
+
+        $stateCache = ['ffa' => [], 'team' => [], 'ranked' => []];
+        foreach ($games as $g) {
+            $seenChk->execute([$g['game_id']]);
+            if ($seenChk->fetchColumn()) continue; // déjà notée (limite de lot sur même horodatage)
+            $board = rating_board((string)($g['ranked_type'] ?? 'unranked'), $g['player_teams']);
+            $parts = $rosterByGame[$g['game_id']] ?? [];
+            if (count($parts) < 2) continue;
+            foreach ($parts as $p) {
+                $pid = (string)$p['public_id'];
+                if (isset($stateCache[$board][$pid])) continue;
+                $selState->execute([$board, $pid]);
+                $row = $selState->fetch();
+                $stateCache[$board][$pid] = $row === false
+                    ? ['mu' => 0.0, 'phi' => 350.0 / Glicko2::SCALE, 'games' => 0, 'wins' => 0, 'peak' => 1500.0, 'peak_at' => null, 'last_at' => null, 'dirty' => false]
+                    : ['mu' => Glicko2::toMu((float)$row['rating']), 'phi' => Glicko2::toPhi((float)$row['rd']),
+                       'games' => (int)$row['games'], 'wins' => (int)$row['wins'], 'peak' => (float)$row['peak'],
+                       'peak_at' => $row['peak_at'], 'last_at' => $row['last_at'], 'dirty' => false];
+            }
+            foreach ($parts as $i => $pa) {
+                $pidA = (string)$pa['public_id'];
+                $vs = [];
+                foreach ($parts as $j => $pb) {
+                    if ($i === $j) continue;
+                    $pidB = (string)$pb['public_id'];
+                    $s = ((int)$pa['won'] === 1) ? 1.0 : (((int)$pb['won'] === 1) ? 0.0 : 0.5);
+                    $vs[] = [$stateCache[$board][$pidB]['mu'], $stateCache[$board][$pidB]['phi'], $s];
+                }
+                if (!$vs) continue;
+                $sa = &$stateCache[$board][$pidA];
+                [$newMu, $newPhi] = Glicko2::rate($sa['mu'], $sa['phi'], $vs);
+                $sa['mu'] = $newMu; $sa['phi'] = $newPhi;
+                $sa['games']++;
+                if ((int)$pa['won'] === 1) $sa['wins']++;
+                $rNow = Glicko2::toR($newMu);
+                if ($rNow > $sa['peak']) { $sa['peak'] = $rNow; $sa['peak_at'] = (string)$g['started_at']; }
+                $sa['last_at'] = (string)$g['started_at'];
+                $sa['dirty'] = true;
+                unset($sa);
+                $histIns->execute([$pidA, $board, $g['game_id'], (string)$g['started_at'], $rNow, Glicko2::toRd($newPhi)]);
+                $pRated++;
+            }
+            $gRated++;
+        }
+
+        // écriture des états modifiés (une fois par lot)
+        foreach ($stateCache as $_board => $playersStates) {
+            foreach ($playersStates as $pid => $s) {
+                if (empty($s['dirty'])) continue;
+                $upState->execute([
+                    $pid, $_board, Glicko2::toR($s['mu']), Glicko2::toRd($s['phi']),
+                    $s['games'], $s['wins'], $s['peak'], $s['peak_at'], $s['last_at'],
+                ]);
+            }
+        }
+
+        $lastGame = $games[count($games) - 1];
+        $cursor = (int)round(((float)$lastGame['start_s']) * 1000);
+        state_set($pdo, STATE_KEY_RATING, (string)$cursor);
+        if (count($games) < $batchGames) {
+            // plus rien à traiter pour l'instant → curseur à maintenant
+            state_set($pdo, STATE_KEY_RATING, (string)(int)(microtime(true) * 1000));
+            break;
+        }
+    }
+    if ($gRated > 0) log_line("[rating] $gRated partie(s) notée(s) ($pRated mises à jour joueurs)");
+}
+
 /* ─────────────────────────── Commandes spéciales ─────────────────────────── */
 
 if ($argStatus) {
@@ -698,6 +1343,15 @@ if ($argStatus) {
         (SELECT COUNT(*) FROM tfh_g_roster) AS roster,
         (SELECT COUNT(*) FROM tfh_g_players) AS players,
         (SELECT COUNT(*) FROM tfh_g_games WHERE speedrun_category IS NOT NULL) AS speedruns')->fetch();
+    $v5 = $pdo->query('SELECT
+        (SELECT COUNT(*) FROM tfh_g_games WHERE v5_done = 0) AS enrich_left,
+        (SELECT COUNT(*) FROM tfh_g_games WHERE turns_done = 0) AS turns_left,
+        (SELECT COUNT(*) FROM tfh_g_turns) AS turns_ok,
+        (SELECT COUNT(*) FROM tfh_g_clans) AS clans,
+        (SELECT COUNT(*) FROM tfh_g_cosmetics) AS cosmetics,
+        (SELECT COUNT(*) FROM tfh_g_cosmetic_wearers) AS wearers,
+        (SELECT COUNT(*) FROM tfh_g_ratings) AS rated_players,
+        (SELECT COUNT(*) FROM tfh_g_games WHERE v5_done = 1) AS v5_games')->fetch();
     $oldest = $pdo->query('SELECT MIN(started_at) AS o FROM tfh_g_games')->fetchColumn();
     $newest = $pdo->query('SELECT MAX(started_at) AS n FROM tfh_g_games')->fetchColumn();
     echo json_encode([
@@ -714,6 +1368,17 @@ if ($argStatus) {
         'detail_rate_per_s' => (float)state_get($pdo, 'of_rate_cur', '3'),
         'http_429_total' => (int)state_get($pdo, 'of_429_total', '0'),
         'http_err_total' => (int)state_get($pdo, 'of_err_total', '0'),
+        'v5' => [
+            'enrich_remaining' => (int)$v5['enrich_left'],
+            'enriched_games' => (int)$v5['v5_games'],
+            'turns_remaining' => (int)$v5['turns_left'],
+            'turns_stored' => (int)$v5['turns_ok'],
+            'clans' => (int)$v5['clans'],
+            'cosmetics_catalog' => (int)$v5['cosmetics'],
+            'cosmetic_wearers' => (int)$v5['wearers'],
+            'rated_players' => (int)$v5['rated_players'],
+            'rating_cursor_ms' => state_get($pdo, STATE_KEY_RATING),
+        ],
     ], JSON_PRETTY_PRINT) . "\n";
     exit(0);
 }
@@ -740,8 +1405,11 @@ $unameCache = [];
 $totalIngested = 0;
 
 // v3 : débit détail AIMD — repris de l'état du tick précédent
-$OF_RATE_MAX = max(1.0, (float)$cfg['detail_rate_max_per_s']);
-$OF_RATE = max(0.5, min($OF_RATE_MAX, (float)state_get($pdo, 'of_rate_cur', (string)$cfg['detail_rate_start_per_s'])));
+// v5 : plancher dur 6 req/s (le plafond officiel ~25 req/s a été révélé par
+// evan [OF] sur Discord : "it's about 250/10 seconds") ; plafond dur 20 req/s.
+$OF_RATE_MAX = min(20.0, max(6.0, (float)$cfg['detail_rate_max_per_s']));
+$rateStart5 = min($OF_RATE_MAX, max(3.0, (float)$cfg['detail_rate_start_per_s']));
+$OF_RATE = max(1.0, min($OF_RATE_MAX, (float)state_get($pdo, 'of_rate_cur', (string)$rateStart5)));
 
 // 1) Purge quotidienne des joueurs supprimés (tombstone)
 $lastDel = (int)state_get($pdo, STATE_KEY_DELETER, '0');
@@ -878,6 +1546,22 @@ while (microtime(true) < $deadline && $cursor - $windowMs >= GAMES_EPOCH_MS - 36
 }
 if ($windowsDone > 0 && $cursor <= GAMES_EPOCH_MS + 3600 * 1000) {
     log_line('[backfill] ✅ epoch publicID atteinte');
+}
+
+// 4) v5 — Catalogue officiel des cosmétiques (throttlé 6 h)
+catalog_phase($pdo, $cfg);
+
+// 5) v5 — Enrichissement des anciennes parties (cosmétiques, clans, config, stats)
+[$enrDone, $enrLeft] = enrich_phase($pdo, $cfg, $deadline, $unameCache);
+if ($enrDone > 0) log_line("[enrich] $enrDone partie(s) enrichie(s) — restantes : $enrLeft");
+
+// 6) v5 — Rating Glicko-2 (3 boards, curseur chronologique)
+if (microtime(true) < $deadline) rating_phase($pdo, $cfg, $deadline);
+
+// 7) v5 — Replays turn-by-turn (gzip, plafonné par tick)
+if (microtime(true) < $deadline) {
+    $tn = turns_phase($pdo, $cfg, $deadline);
+    if ($tn > 0) log_line("[turns] $tn replay(s) stocké(s)");
 }
 
 // Résumé + persistance des stats HTTP (visibilité rate limits)
