@@ -1361,6 +1361,10 @@ function rating_phase(PDO $pdo, array $cfg, float $deadline): void {
                        'games' => (int)$row['games'], 'wins' => (int)$row['wins'], 'peak' => (float)$row['peak'],
                        'peak_at' => $row['peak_at'], 'last_at' => $row['last_at'], 'dirty' => false];
             }
+            // v5.9 : curseur sauvegardé PAR PARTIE (un lot peut dépasser le
+            // budget → sans sauvegarde incrémentale, rating restait à 0).
+            $_gMs = (int)round(((float)$g['start_s']) * 1000);
+            if ($_gMs > $cursor) { $cursor = $_gMs; state_set($pdo, STATE_KEY_RATING, (string)$cursor); }
             foreach ($parts as $i => $pa) {
                 $pidA = (string)$pa['public_id'];
                 $vs = [];
