@@ -531,7 +531,7 @@ function of_get(string $url, int $retries = 4): ?array {
  *   - 404             → null PERMANENT (partie disparue), la page peut avancer
  *   - 429/5xx/réseau  → retryé 2× dans le tick (attente 3 s puis 6 s), sinon transitoire
  */
-function of_details_multi(array $gameIds, int $concurrency, bool $turns = false): array {
+function of_details_multi(array $gameIds, int $concurrency, bool $turns = false, float $deadline = 0.0): array {
     global $OF_ACCESS, $OF_PACE_LAST;
     $out = [];
     $gone = []; // 404 permanents
@@ -541,6 +541,14 @@ function of_details_multi(array $gameIds, int $concurrency, bool $turns = false)
         $queue = $pending;
         $pending = [];
         while ($queue) {
+            // v5.5 : un batch au-delà de la deadline devient transitoire →
+            // repris au prochain tick (le fetch d'un lot ne doit jamais
+            // déborder du budget : c'est ce qui bloquait la phase enrich).
+            if ($deadline > 0 && microtime(true) >= $deadline && $round === 0) {
+                $pending = $queue;
+                $queue = [];
+                break;
+            }
             $batch = array_splice($queue, 0, max(1, $concurrency));
             of_pace(count($batch));
             $mh = curl_multi_init();
@@ -1074,12 +1082,12 @@ function enrich_game(PDO $pdo, string $gameId, array $detail, array &$unameCache
 /** Phase d'enrichissement : re-détaille les parties antérieures à la v5. Retour [faites, restantes]. */
 function enrich_phase(PDO $pdo, array $cfg, float $deadline, array &$unameCache): array {
     phase_mark($pdo, 'enrich');
-    $batch = min(1500, max(10, (int)($cfg['enrich_max_games_per_tick'] ?? 400)));
+    $batch = min(1500, max(10, (int)($cfg['enrich_max_games_per_tick'] ?? 150)));
     $st = $pdo->prepare('SELECT game_id FROM tfh_g_games WHERE v5_done = 0 ORDER BY started_at DESC LIMIT ' . $batch);
     $st->execute();
     $ids = $st->fetchAll(PDO::FETCH_COLUMN);
     if (!$ids) return [0, 0];
-    [$details, $tfail, $gone] = of_details_multi($ids, (int)$cfg['detail_concurrency']);
+    [$details, $tfail, $gone] = of_details_multi($ids, (int)$cfg['detail_concurrency'], false, $deadline);
     if ($gone) {
         $mark = $pdo->prepare('UPDATE tfh_g_games SET v5_done = 2 WHERE game_id = ?'); // disparues → abandon définitif
         foreach ($gone as $gid) $mark->execute([$gid]);
@@ -1469,9 +1477,11 @@ $totalIngested = 0;
 // v3 : débit détail AIMD — repris de l'état du tick précédent
 // v5 : plancher dur 6 req/s (le plafond officiel ~25 req/s a été révélé par
 // evan [OF] sur Discord : "it's about 250/10 seconds") ; plafond dur 20 req/s.
+// v5.5 : départ FRAIS au débit de départ à chaque tick — l'ancien état collant
+// (2 req/s) ne remontait jamais car le bloc final ne s'exécutait plus.
 $OF_RATE_MAX = min(20.0, max(6.0, (float)$cfg['detail_rate_max_per_s']));
 $rateStart5 = min($OF_RATE_MAX, max(3.0, (float)$cfg['detail_rate_start_per_s']));
-$OF_RATE = max(1.0, min($OF_RATE_MAX, (float)state_get($pdo, 'of_rate_cur', (string)$rateStart5)));
+$OF_RATE = $rateStart5;
 
 // 1) Purge quotidienne des joueurs supprimés (tombstone)
 $lastDel = (int)state_get($pdo, STATE_KEY_DELETER, '0');
