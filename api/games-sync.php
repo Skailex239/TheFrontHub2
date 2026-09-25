@@ -963,7 +963,7 @@ function scan_range(PDO $pdo, int $startMs, int $endMs, array $cfg, float $deadl
         }
         foreach (array_chunk($todo, $chunkSize) as $chunk) {
             if (microtime(true) >= $deadline) return [$ingested, $seen, false];
-            [$details, $tfail] = of_details_multi($chunk, (int)$cfg['detail_concurrency']);
+            [$details, $tfail] = of_details_multi($chunk, (int)$cfg['detail_concurrency'], false, $deadline);
             foreach ($chunk as $gid) {
                 $d = $details[$gid] ?? null;
                 if ($d === null) continue;
