@@ -120,15 +120,15 @@ $cfg = array_merge([
     'list_limit'          => 1000,
     'list_max_offset'     => 40000,   // garde-fou pagination
     'hard_delete'         => false,   // purge réelle des joueurs supprimés ?
-    'detail_rate_start_per_s' => 4.0,   // v5.6 : départ 4 req/s (prudent), AIMD remonte jusqu'au plafond
-    'detail_rate_max_per_s'   => 10.0,  // v5 : plafond AIMD (40 % du plafond officiel ; 429 → /2 auto)
+    'detail_rate_start_per_s' => 2.0,   // v5.7 : retour au profil éprouvé 2 req/s — le plafond officiel (~25 req/s) ne s'applique PAS à notre IP mutualisée (429 mesurés dès 4 req/s)
+    'detail_rate_max_per_s'   => 2.0,   // v5.7 : plafond AIMD 2 req/s (empirique, stable depuis v4.2 : 0 erreur sur 130k+ requêtes)
     'turns_enabled'            => true, // v5 : stockage des replays (turn-by-turn gzip)
-    'turns_max_games_per_tick' => 30,   // v5 : replays max par tick
+    'turns_max_games_per_tick' => 10,   // v5.7 : 10/tick au régime 2 req/s
     'turns_max_bytes_per_tick' => 83886080, // v5 : 80 Mo gz max par tick
     'enrich_max_games_per_tick'=> 400,  // v5 : anciennes parties enrichies par tick
     'catalog_refresh_hours'    => 6,    // v5 : rafraîchissement catalogue cosmétiques
     'rating_seconds_per_tick'  => 60,   // v5 : budget Glicko-2 par tick
-    'rating_games_per_tick'    => 800,  // v5.1 : lots courts (budget vérifié en cours de lot)
+    'rating_games_per_tick'    => 300,  // v5.7 : lots courts au régime 2 req/s
 ], is_array($secrets['games'] ?? null) ? $secrets['games'] : []);
 
 /* Types de parties scannés (liste blanche API). Singleplayer EXCLU par
@@ -470,7 +470,7 @@ function of_on_429(): void {
     $OF_STATS['r429']++;
     $OF_OK_RUN = 0;
     $OF_RATE = max($OF_RATE_MIN, $OF_RATE / 2);
-    sleep(4);
+    sleep(2);
 }
 
 /** Succès détail : remontée AIMD rapide (+20 % tous les 100 succès, plafonnée).
@@ -1479,13 +1479,12 @@ if ($argSince !== '') {
 $unameCache = [];
 $totalIngested = 0;
 
-// v3 : débit détail AIMD — repris de l'état du tick précédent
-// v5 : plancher dur 6 req/s (le plafond officiel ~25 req/s a été révélé par
-// evan [OF] sur Discord : "it's about 250/10 seconds") ; plafond dur 20 req/s.
-// v5.5 : départ FRAIS au débit de départ à chaque tick — l'ancien état collant
-// (2 req/s) ne remontait jamais car le bloc final ne s'exécutait plus.
-$OF_RATE_MAX = min(20.0, max(6.0, (float)$cfg['detail_rate_max_per_s']));
-$rateStart5 = min($OF_RATE_MAX, max(3.0, (float)$cfg['detail_rate_start_per_s']));
+// v3 : débit détail AIMD — départ frais à chaque tick.
+// v5.7 : CONSTAT MESURÉ — le plafond officiel (~250 req/10 s, evan [OF]) ne
+// s'applique pas à notre IP mutualisée : 429 dès 4 req/s (22:04, mesuré).
+// On revient au profil éprouvé 2 req/s (v4.2 : 0 erreur sur 130k+ requêtes).
+$OF_RATE_MAX = min(10.0, max(0.5, (float)$cfg['detail_rate_max_per_s']));
+$rateStart5 = min($OF_RATE_MAX, max(0.5, (float)$cfg['detail_rate_start_per_s']));
 $OF_RATE = $rateStart5;
 
 // 1) Purge quotidienne des joueurs supprimés (tombstone)
