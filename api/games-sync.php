@@ -544,7 +544,7 @@ function of_details_multi(array $gameIds, int $concurrency, bool $turns = false,
             // v5.5 : un batch au-delà de la deadline devient transitoire →
             // repris au prochain tick (le fetch d'un lot ne doit jamais
             // déborder du budget : c'est ce qui bloquait la phase enrich).
-            if ($deadline > 0 && microtime(true) >= $deadline && $round === 0) {
+            if ($deadline > 0 && microtime(true) >= $deadline) {
                 $pending = $queue;
                 $queue = [];
                 break;
