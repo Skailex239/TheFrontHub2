@@ -108,7 +108,17 @@ Toutes les réponses : `{ok:true,…}` / `{ok:false,error}` — cache 45-600 s.
 | `?route=game&id=X` | Détail d'une partie + roster complet (publicId par joueur) |
 | `?route=speedruns&category=normal\|compact&map=&sort=duration\|date&window=30d` | Records speedrun (offset 32 s appliqué à l'ingestion) |
 | `?route=profile&publicId=X` | Pré-profil : alias, stats par mode, top cartes, meilleurs speedruns, dernières parties |
+| `?route=profile&publicId=X&refresh=1` | Idem + fetch on-demand du profil officiel (cooldown 10 min) |
 | `?route=search&q=` | Recherche joueur sur tous les alias connus |
+| `?route=maps&category=` | Cartes + compteur de runs (filtre du front) |
+| `?route=status` | Compteurs globaux (admin) |
+| `?route=leaderboard&board=ffa\|team\|ranked` | Classement Glicko-2 interne (v5) |
+| `?route=clans&window=all\|week\|Nd&sort=wins\|official` | Ladder des clans (agrégats roster + bloc `official` weightedWins API) |
+| `?route=clan&tag=UN` | Détail d'un clan (membres, parties récentes, bloc `official`) |
+| `?route=ladder` | **Ladder ranked OFFICIEL** (top 100 1v1 + 2v2 : elo, peakElo, W/L) |
+| `?route=ladder&historyOf=PUBLICID` | Courbe ELO quotidienne d'un joueur du ladder |
+| `?route=cosmetics...` / `?route=cosmetic...` | Catalogue cosmétiques + porteurs (v5) |
+| `?route=replay&id=` | Replay turn-by-turn stocké en base (v5) |
 | `?route=maps&category=` | Cartes + compteur de runs (filtre du front) |
 | `?route=status` | Compteurs globaux (admin) |
 
@@ -118,6 +128,29 @@ Exemples :
 curl "https://thefronthub.com/api/games-api.php?route=speedruns&map=Italy&limit=5"
 curl "https://thefronthub.com/api/games-api.php?route=profile&publicId=syWkxQyM"
 ```
+
+## v5.11 — API officielles OpenFront (clans, classé, profils)
+
+Le cron synchronise en plus, chaque tick, les 3 API officielles restantes :
+
+| Source | Table(s) | Rythme |
+|---|---|---|
+| `/leaderboard/ranked?page=1..2` (top 100 1v1/2v2) | `tfh_g_ladder` (snapshot) + `tfh_g_ladder_history` (1 ligne/joueur/jour) | 30 min |
+| `/public/clans/leaderboard` (top 100 weightedWins ~90 j) | colonnes `lb_*` de `tfh_g_clans` | 1 h |
+| `/public/player/:id` (stats de compte complètes) | `tfh_g_profiles` (arbre stats JSON, username, createdAt) | budget 45 s/tick (~90 profils), priorité joueurs récents, refresh 14 j |
+
+Notes :
+- Les profils officiels couvrent **Private/Singleplayer** et l'historique
+  antérieur à notre ingestion — c'est la même source que ofstats.
+- 404 sur `/public/player/:id` = compte supprimé → `not_found=1` + tombstone
+  joueur (même signal que le poll `recently-deleted`).
+- `/public/clan/:tag` et `/public/clan/:tag/sessions` sont limités à **1 jour
+  par requête** côté API → pas de lifetime officiel ; nos agrégats roster
+  (`tfh_g_clans.participations/wins`) comblent ça depuis l'epoch.
+- Le fetch des routes « officielles » réessaie automatiquement avec des
+  en-têtes navigateur si Cloudflare renvoie 403 (même contournement que le
+  catalogue, v5.10c).
+- Suivi : `--status` (bloc `v511`) et `route=status` (bloc `v511`).
 
 ## Volumes & quota
 
