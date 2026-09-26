@@ -73,6 +73,7 @@ rsync -a --delete \
   --exclude='_upload.php' \
   --exclude='_deploy.php' \
   --exclude='_archives' \
+  --exclude='games-sync.log' \
   --include='/data/' \
   --include='/data/**' \
   --include='/atlas-data/maps_data.json' \

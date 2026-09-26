@@ -717,7 +717,10 @@ function agg_clan(PDO $pdo, ?string $tag, string $at, int $won): void {
         VALUES (?,?,?,?,?)
         ON DUPLICATE KEY UPDATE last_seen = VALUES(last_seen),
             participations = participations + 1, wins = wins + VALUES(wins)')
-        ->execute([$tag, $at, $at, $won]);
+        /* v5.10b FIX HY093 : 5 placeholders mais 4 paramètres — il manquait le
+         * "1" de participations. Chaque partie contenant au moins un joueur
+         * clané échouait ENTIEREMENT (rollback game+roster+players) depuis v5.0. */
+        ->execute([$tag, $at, $at, 1, $won]);
 }
 
 /** Aggrège le port d'un cosmétique par un joueur. */
@@ -1197,8 +1200,10 @@ function catalog_phase(PDO $pdo, array $cfg): void {
     $hours = max(1, (int)($cfg['catalog_refresh_hours'] ?? 6));
     $last = (int)state_get($pdo, 'catalog_refreshed_at', '0');
     if (time() - $last < $hours * 3600) return;
-    $d = of_get(OF_API_BASE . '/cosmetics.json');
-    if (!is_array($d)) { log_line('[catalog] catalogue indisponible cette fois'); return; }
+    /* v5.10b : on logue le status HTTP réel — avant, l'échec était muet
+     * (impossible de distinguer 403 Cloudflare / timeout / JSON invalide). */
+    [$catStatus, $d] = of_request(OF_API_BASE . '/cosmetics.json', 45);
+    if (!is_array($d)) { log_line("[catalog] catalogue indisponible cette fois (HTTP $catStatus)"); return; }
     $now = gmdate('Y-m-d H:i:s');
     $st = $pdo->prepare('INSERT INTO tfh_g_cosmetics
         (category, name, display_name, rarity, price_hard, price_cents, artist, url, affiliate_code, raw_json, first_seen, last_seen)
