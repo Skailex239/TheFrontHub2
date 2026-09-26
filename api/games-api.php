@@ -474,6 +474,10 @@ case 'status': {
             'detailRatePerS' => isset($state['of_rate_cur']) ? round((float)$state['of_rate_cur'], 2) : null,
             'total429' => isset($state['of_429_total']) ? (int)$state['of_429_total'] : null,
             'totalErr' => isset($state['of_err_total']) ? (int)$state['of_err_total'] : null,
+            /* v5.10 : diagnostic clé OpenFront — true = la clé est bien chargée
+             * dans les secrets prod et envoyée par le cron. La valeur de la clé
+             * n'est JAMAIS exposée ici. */
+            'ofAccessSet' => isset($secrets) && is_array($secrets) && (string)($secrets['openfront_access'] ?? '') !== '',
         ],
         'v5' => [
             'enrichRemaining' => (int)$v5['enrich_left'],

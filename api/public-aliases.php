@@ -30,13 +30,21 @@ function of_fetch_game_username(string $publicId): ?string
     if (!function_exists('curl_init')) {
         return null; // pas de cURL : on restera sur le pseudo hub seul
     }
+    /* v5.10 : on envoie la clé OpenFront comme le cron (x-skailex-access).
+     * Sans elle, ces appels passent dans le quota anonyme strict. */
+    global $secrets;
+    $headers = ['Accept: application/json'];
+    $ofKey = (string) ($secrets['openfront_access'] ?? '');
+    if ($ofKey !== '') {
+        $headers[] = 'x-skailex-access: ' . $ofKey;
+    }
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CONNECTTIMEOUT => 3,
         CURLOPT_TIMEOUT        => 5,
         CURLOPT_USERAGENT      => 'TheFrontHub/1.0 (+https://thefronthub.com)',
-        CURLOPT_HTTPHEADER     => ['Accept: application/json'],
+        CURLOPT_HTTPHEADER     => $headers,
     ]);
     $body = curl_exec($ch);
     $err  = curl_error($ch);
@@ -125,7 +133,7 @@ $aliases = array_map(
 
 json_out([
     'ok'      => true,
-    'v'       => 3, // marqueur debug déploiement
+    'v'       => 4, // marqueur debug déploiement
     'aliases' => $aliases,
     'count'   => count($aliases),
 ]);
