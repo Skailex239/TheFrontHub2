@@ -52,6 +52,24 @@ declare(strict_types=1);
  *       historique par partie (tfh_g_ratings + tfh_g_rating_history).
  *     • CATALOGUE cosmétiques : snapshot api /cosmetics.json toutes les 6 h.
  *
+ *   v5.11 (2026-09-26) — « API OFFICIELLES » (clans, classé, profils) :
+ *     • LADDER RANKED OFFICIEL : /leaderboard/ranked (pages 1-2 = top 100 par
+ *       board 1v1/2v2) — elo, peakElo, W/L, accountUsername + public_id.
+ *       Snapshot tfh_g_ladder remplacé à chaque refresh (throttle 30 min) +
+ *       historique quotidien tfh_g_ladder_history (courbes d'ELO type ofstats).
+ *     • LEADERBOARD CLANS OFFICIEL : /public/clans/leaderboard (top 100 par
+ *       weightedWins, fenêtre glissante ~90 j, demi-vie 30 j) → colonnes lb_*
+ *       de tfh_g_clans (complète notre agrégation roster). Throttle 1 h.
+ *     • PROFILS OFFICIELS : /public/player/:id par joueur — username du
+ *       compte, createdAt, arbre de stats complet (type→mode→difficulté,
+ *       y compris Private/Singleplayer, hors de portée de nos rosters).
+ *       Table tfh_g_profiles, budget réservé EN TÊTE de tick (défaut 45 s ≈
+ *       90 profils/tick) pour ne pas être affamé par le backfill ; priorité
+ *       joueurs vus récemment ; 404 = tombstone (compte supprimé).
+ *     NB : /public/clan/:tag (+ /sessions) est limité à 1 jour par requête
+ *     côté API — pas de stats de clan lifetime officielles exploitables ;
+ *     nos agrégats roster (tfh_g_clans) comblent ça depuis l'epoch.
+ *
  * Commandes CLI :
  *   (sans argument)        tick normal (budget TICK_BUDGET)
  *   --backfill=N           session backfill prolongée de N secondes
@@ -130,6 +148,12 @@ $cfg = array_merge([
     'catalog_refresh_hours'    => 6,    // v5 : rafraîchissement catalogue cosmétiques
     'rating_seconds_per_tick'  => 60,   // v5 : budget Glicko-2 par tick
     'rating_games_per_tick'    => 300,  // v5.7 : lots courts au régime 2 req/s
+    /* v5.11 — API officielles (ladder ranked, clans LB, profils joueurs) */
+    'ladder_refresh_min'       => 30,   // ladder ranked officiel (2 req, top 100 1v1+2v2)
+    'clanslb_refresh_min'      => 60,   // leaderboard clans officiel (1 req, weightedWins)
+    'profile_seconds_per_tick' => 45,   // budget réservé aux profils officiels (tête de tick)
+    'profiles_max_per_tick'    => 90,   // plafond de fetch /public/player/:id par tick
+    'profile_refresh_days'     => 14,   // re-sync d'un profil officiel plus vieux que N jours
 ], is_array($secrets['games'] ?? null) ? $secrets['games'] : []);
 
 /* Types de parties scannés (liste blanche API). Singleplayer EXCLU par
@@ -390,6 +414,66 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_rating_history (
     INDEX idx_grh_game (game_id),
     INDEX idx_grh_board (board, started_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+/* ─────────────── v5.11 : API officielles (ladder, clans LB, profils) ─────────────── */
+
+/* Ladder ranked OFFICIEL (/leaderboard/ranked, top 100 par board 1v1/2v2).
+ * Snapshot courant : remplacé intégralement à chaque refresh. NB : « rank »
+ * est un mot réservé MySQL 8 → colonne rank_pos. */
+$pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_ladder (
+    board            VARCHAR(4)      NOT NULL,
+    rank_pos         INT UNSIGNED    NOT NULL DEFAULT 0,
+    public_id        VARCHAR(16)     NOT NULL,
+    username         VARCHAR(64)     NULL,
+    account_username VARCHAR(64)     NULL,
+    elo              INT             NOT NULL DEFAULT 0,
+    peak_elo         INT             NOT NULL DEFAULT 0,
+    wins             INT UNSIGNED    NOT NULL DEFAULT 0,
+    losses           INT UNSIGNED    NOT NULL DEFAULT 0,
+    total            INT UNSIGNED    NOT NULL DEFAULT 0,
+    fetched_at       DATETIME        NOT NULL,
+    PRIMARY KEY (board, public_id),
+    INDEX idx_gladder_rank (board, rank_pos)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+/* Historique ELO officiel (1 ligne max par joueur/board/jour) — courbes de
+ * progression type ofstats « rating race ». Croissance bornée : 200 lignes/j. */
+$pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_ladder_history (
+    board      VARCHAR(4)      NOT NULL,
+    public_id  VARCHAR(16)     NOT NULL,
+    day        DATE            NOT NULL,
+    rank_pos   INT UNSIGNED    NOT NULL DEFAULT 0,
+    elo        INT             NOT NULL DEFAULT 0,
+    peak_elo   INT             NOT NULL DEFAULT 0,
+    PRIMARY KEY (board, public_id, day),
+    INDEX idx_glh_pid (public_id, board, day)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+/* Profils officiels /public/player/:id — username du compte, date de création
+ * et arbre de stats complet (type→mode→difficulté→métriques). not_found = 1
+ * quand l'API renvoie 404 (compte supprimé — même signal que le poll
+ * recently-deleted). stats_json ~2-15 Ko/joueur. */
+$pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_profiles (
+    public_id  VARCHAR(16)     NOT NULL PRIMARY KEY,
+    username   VARCHAR(64)     NULL,
+    created_at DATETIME        NULL,
+    fetched_at DATETIME        NOT NULL,
+    not_found  TINYINT(1)      NOT NULL DEFAULT 0,
+    stats_json MEDIUMTEXT      NULL,
+    INDEX idx_gprof_fetched (fetched_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+/* Colonnes « officielles » du leaderboard clans (weightedWins, fenêtre ~90 j).
+ * Complètent participations/wins calculés depuis nos rosters. */
+tfh_add_col($pdo, 'tfh_g_clans', 'lb_games',           "`lb_games` INT UNSIGNED NULL");
+tfh_add_col($pdo, 'tfh_g_clans', 'lb_wins',            "`lb_wins` INT UNSIGNED NULL");
+tfh_add_col($pdo, 'tfh_g_clans', 'lb_losses',          "`lb_losses` INT UNSIGNED NULL");
+tfh_add_col($pdo, 'tfh_g_clans', 'lb_player_sessions', "`lb_player_sessions` INT UNSIGNED NULL");
+tfh_add_col($pdo, 'tfh_g_clans', 'lb_weighted_wins',   "`lb_weighted_wins` DOUBLE NULL");
+tfh_add_col($pdo, 'tfh_g_clans', 'lb_weighted_losses', "`lb_weighted_losses` DOUBLE NULL");
+tfh_add_col($pdo, 'tfh_g_clans', 'lb_wl_ratio',        "`lb_wl_ratio` DOUBLE NULL");
+tfh_add_col($pdo, 'tfh_g_clans', 'lb_fetched_at',      "`lb_fetched_at` DATETIME NULL");
+tfh_add_idx($pdo, 'tfh_g_clans', 'idx_gclans_lb',      "`idx_gclans_lb` (`lb_weighted_wins`)");
 
 /* ─────────────────────────── Helpers ─────────────────────────── */
 
@@ -1279,6 +1363,247 @@ function catalog_phase(PDO $pdo, array $cfg): void {
     log_line("[catalog] $n cosmétique(s) synchronisé(s) — source $src");
 }
 
+/* ─────────────────────────── v5.11 : API officielles ─────────────────────────── */
+
+/* GET avec en-têtes navigateur — contourne le WAF Cloudflare (règle UA) qui
+ * 403-ise certaines routes pour les UA inconnus (même mécanique que le
+ * catalogue v5.10c). Retour [status, data|null]. */
+function of_fetch_browser(string $url, int $timeout = 25): array {
+    global $OF_STATS;
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT        => $timeout,
+        CURLOPT_ENCODING       => '',
+        CURLOPT_HTTPHEADER     => [
+            'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+            'Accept: application/json, text/plain, */*',
+            'Accept-Language: en-US,en;q=0.9',
+            'Referer: https://openfront.io/',
+        ],
+    ]);
+    $body   = curl_exec($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+    if ($status === 200 && is_string($body)) {
+        $OF_STATS['ok']++;
+        $d = json_decode($body, true);
+        return [200, is_array($d) ? $d : null];
+    }
+    $OF_STATS['err']++;
+    return [$status, null];
+}
+
+/** of_request d'abord ; sur 403 (WAF UA), retry en-têtes navigateur. [status, data|null] */
+function of_fetch_resilient(string $url, int $timeout = 25): array {
+    [$st, $d] = of_request($url, $timeout, 2);
+    if ($st === 200) return [$st, $d];
+    if ($st === 403) return of_fetch_browser($url, $timeout);
+    return [$st, $d];
+}
+
+/**
+ * Phase 8 — Ladder ranked OFFICIEL (/leaderboard/ranked, pages 1-2 = top 100
+ * par board 1v1/2v2). Snapshot remplacé intégralement + 1 ligne d'historique
+ * par joueur/board/jour (courbes d'ELO type ofstats). Throttle 30 min, 2 req.
+ */
+function ladder_phase(PDO $pdo, array $cfg): void {
+    phase_mark($pdo, 'ladder');
+    $mins = max(5, (int)($cfg['ladder_refresh_min'] ?? 30));
+    $last = (int)state_get($pdo, 'ladder_refreshed_at', '0');
+    if (time() - $last < $mins * 60) return;
+    $pages = [];
+    for ($p = 1; $p <= 2; $p++) {
+        [$st, $d] = of_fetch_resilient(OF_API_BASE . '/leaderboard/ranked?page=' . $p);
+        if ($st !== 200 || !is_array($d)) {
+            log_line("[ladder] HTTP $st (page $p) — réessayé au prochain tick");
+            return;
+        }
+        $pages[] = $d;
+    }
+    $now   = gmdate('Y-m-d H:i:s');
+    $today = gmdate('Y-m-d');
+    $pdo->beginTransaction();
+    try {
+        $pdo->exec('DELETE FROM tfh_g_ladder');
+        $ins  = $pdo->prepare('INSERT INTO tfh_g_ladder
+            (board, rank_pos, public_id, username, account_username, elo, peak_elo, wins, losses, total, fetched_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)');
+        $hist = $pdo->prepare('INSERT INTO tfh_g_ladder_history (board, public_id, day, rank_pos, elo, peak_elo)
+            VALUES (?,?,?,?,?,?)
+            ON DUPLICATE KEY UPDATE rank_pos = VALUES(rank_pos), elo = VALUES(elo), peak_elo = VALUES(peak_elo)');
+        $n = 0;
+        foreach ($pages as $d) {
+            foreach (['1v1', '2v2'] as $board) {
+                $rows = $d[$board] ?? null;
+                if (!is_array($rows)) continue;
+                foreach ($rows as $r) {
+                    if (!is_array($r)) continue;
+                    $pid = (string)($r['public_id'] ?? '');
+                    if ($pid === '') continue;
+                    $elo  = (int)($r['elo'] ?? 0);
+                    $peak = (int)($r['peakElo'] ?? 0);
+                    $rank = (int)($r['rank'] ?? 0);
+                    $ins->execute([
+                        $board, $rank, $pid,
+                        cut((string)($r['username'] ?? ''), 64),
+                        cut((string)($r['accountUsername'] ?? ''), 64),
+                        $elo, $peak,
+                        (int)($r['wins'] ?? 0), (int)($r['losses'] ?? 0), (int)($r['total'] ?? 0),
+                        $now,
+                    ]);
+                    $hist->execute([$board, $pid, $today, $rank, $elo, $peak]);
+                    $n++;
+                }
+            }
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+    state_set($pdo, 'ladder_refreshed_at', (string)time());
+    log_line("[ladder] $n entrée(s) officielle(s) (1v1+2v2, top 100) synchronisée(s)");
+}
+
+/**
+ * Phase 9 — Leaderboard des clans OFFICIEL (/public/clans/leaderboard, top 100
+ * par weightedWins, fenêtre glissante ~90 j, demi-vie 30 j). Les colonnes lb_*
+ * enrichissent notre agrégation roster (participations/wins depuis l'epoch).
+ * Throttle 1 h, 1 req. NB : /public/clan/:tag est limité à 1 jour/requête
+ * côté API → pas de lifetime officiel exploitable, nos agrégats comblent ça.
+ */
+function clans_lb_phase(PDO $pdo, array $cfg): void {
+    phase_mark($pdo, 'clanslb');
+    $mins = max(10, (int)($cfg['clanslb_refresh_min'] ?? 60));
+    $last = (int)state_get($pdo, 'clanslb_refreshed_at', '0');
+    if (time() - $last < $mins * 60) return;
+    [$st, $d] = of_fetch_resilient(OF_API_BASE . '/public/clans/leaderboard');
+    if ($st !== 200 || !is_array($d) || !is_array($d['clans'] ?? null)) {
+        log_line("[clanslb] HTTP $st — réessayé au prochain tick");
+        return;
+    }
+    $now = gmdate('Y-m-d H:i:s');
+    $up  = $pdo->prepare('INSERT INTO tfh_g_clans
+        (clan_tag, first_seen, last_seen, participations, wins,
+         lb_games, lb_wins, lb_losses, lb_player_sessions,
+         lb_weighted_wins, lb_weighted_losses, lb_wl_ratio, lb_fetched_at)
+        VALUES (?,?,?,0,0,?,?,?,?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE
+         lb_games = VALUES(lb_games), lb_wins = VALUES(lb_wins), lb_losses = VALUES(lb_losses),
+         lb_player_sessions = VALUES(lb_player_sessions), lb_weighted_wins = VALUES(lb_weighted_wins),
+         lb_weighted_losses = VALUES(lb_weighted_losses), lb_wl_ratio = VALUES(lb_wl_ratio),
+         lb_fetched_at = VALUES(lb_fetched_at)');
+    $n = 0;
+    foreach ($d['clans'] as $c) {
+        if (!is_array($c)) continue;
+        $tag = (string)($c['clanTag'] ?? '');
+        if ($tag === '') continue;
+        $up->execute([
+            $tag, $now, $now,
+            (int)($c['games'] ?? 0), (int)($c['wins'] ?? 0), (int)($c['losses'] ?? 0),
+            (int)($c['playerSessions'] ?? 0),
+            is_numeric($c['weightedWins'] ?? null)    ? (float)$c['weightedWins']    : null,
+            is_numeric($c['weightedLosses'] ?? null)  ? (float)$c['weightedLosses']  : null,
+            is_numeric($c['weightedWLRatio'] ?? null) ? (float)$c['weightedWLRatio'] : null,
+            $now,
+        ]);
+        $n++;
+    }
+    state_set($pdo, 'clanslb_refreshed_at', (string)time());
+    log_line("[clanslb] $n clan(s) officiel(s) synchronisé(s) (fenêtre " . cut((string)($d['start'] ?? '?'), 10) . ' → ' . cut((string)($d['end'] ?? '?'), 10) . ')');
+}
+
+/**
+ * Phase 10 — Profils officiels /public/player/:id.
+ * Stocke le username du compte, la date de création et l'arbre de stats
+ * complet (type→mode→difficulté, y compris Private/Singleplayer — hors de
+ * portée des rosters). Priorité : joueurs vus récemment sans profil, puis
+ * refresh des profils les plus anciens (> profile_refresh_days). Budget
+ * réservé EN TÊTE de tick (profile_seconds_per_tick) pour ne pas être
+ * affamé par le backfill. Pacing calé sur le débit AIMD global (les 429
+ * partagent le même circuit de rétroaction que les détails de parties).
+ */
+function profiles_phase(PDO $pdo, array $cfg, float $deadline): void {
+    global $OF_RATE;
+    phase_mark($pdo, 'profiles');
+    $budgetS     = max(5.0, (float)($cfg['profile_seconds_per_tick'] ?? 45));
+    $maxN        = max(1, (int)($cfg['profiles_max_per_tick'] ?? 90));
+    $refreshDays = max(1, (int)($cfg['profile_refresh_days'] ?? 14));
+    $stopAt      = min(microtime(true) + $budgetS, $deadline > 0 ? $deadline : microtime(true) + $budgetS);
+
+    /* Candidats 1 : joueurs vivants sans profil officiel (les plus récents d'abord). */
+    $cands = $pdo->prepare('SELECT p.public_id FROM tfh_g_players p
+        LEFT JOIN tfh_g_profiles f ON f.public_id = p.public_id
+        WHERE f.public_id IS NULL AND p.deleted_at IS NULL
+        ORDER BY p.last_seen DESC LIMIT ?');
+    $cands->bindValue(1, $maxN, PDO::PARAM_INT);
+    $cands->execute();
+    $pids = $cands->fetchAll(PDO::FETCH_COLUMN);
+    /* Candidats 2 : refresh des profils les plus anciens (si quota restant). */
+    if (count($pids) < $maxN) {
+        $stale = $pdo->prepare('SELECT f.public_id FROM tfh_g_profiles f
+            JOIN tfh_g_players p ON p.public_id = f.public_id
+            WHERE p.deleted_at IS NULL AND f.not_found = 0
+              AND f.fetched_at < DATE_SUB(NOW(), INTERVAL ? DAY)
+            ORDER BY f.fetched_at ASC LIMIT ?');
+        $stale->bindValue(1, $refreshDays, PDO::PARAM_INT);
+        $stale->bindValue(2, $maxN - count($pids), PDO::PARAM_INT);
+        $stale->execute();
+        foreach ($stale->fetchAll(PDO::FETCH_COLUMN) as $sp) $pids[] = $sp;
+    }
+    if (!$pids) return;
+
+    $now  = gmdate('Y-m-d H:i:s');
+    $up   = $pdo->prepare('INSERT INTO tfh_g_profiles (public_id, username, created_at, fetched_at, not_found, stats_json)
+        VALUES (?,?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE username = VALUES(username), created_at = VALUES(created_at),
+            fetched_at = VALUES(fetched_at), not_found = VALUES(not_found), stats_json = VALUES(stats_json)');
+    $tomb = $pdo->prepare('UPDATE tfh_g_players SET deleted_at = COALESCE(deleted_at, NOW()) WHERE public_id = ?');
+
+    $ok = 0; $nf = 0; $err = 0; $lastReq = 0.0;
+    foreach ($pids as $pid) {
+        if (microtime(true) >= $stopAt) break;
+        /* pacing local calé sur le débit AIMD courant (partagé avec les détails) */
+        if ($lastReq > 0) {
+            $wait = $lastReq + (1.0 / max(0.5, $OF_RATE)) - microtime(true);
+            if ($wait > 0) usleep((int)($wait * 1e6));
+        }
+        $lastReq = microtime(true);
+        [$st, $d] = of_request(OF_API_BASE . '/public/player/' . rawurlencode((string)$pid), 15, 1);
+        if ($st === 200 && is_array($d)) {
+            $createdAt = null;
+            if (!empty($d['createdAt']) && ($t = strtotime((string)$d['createdAt'])) !== false) $createdAt = gmdate('Y-m-d H:i:s', $t);
+            $stats = $d['stats'] ?? null;
+            $up->execute([
+                (string)$pid,
+                isset($d['username']) && is_string($d['username']) ? cut($d['username'], 64) : null,
+                $createdAt, $now, 0,
+                $stats === null ? null : json_encode($stats, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+            ]);
+            $ok++;
+        } elseif ($st === 404) {
+            /* 404 = compte supprimé : tombstone + marquage joueur (même signal
+             * que /public/players/recently-deleted). */
+            $up->execute([(string)$pid, null, null, $now, 1, null]);
+            $tomb->execute([(string)$pid]);
+            $nf++;
+        } else {
+            $err++;
+            if ($err >= 10) { log_line('[profiles] 10 erreurs consécutives — reprise au prochain tick'); break; }
+        }
+    }
+    if ($ok + $nf > 0) {
+        state_set($pdo, 'profiles_fetched_total', (string)((int)state_get($pdo, 'profiles_fetched_total', '0') + $ok + $nf));
+        $leftQ = $pdo->query('SELECT COUNT(*) FROM tfh_g_players p
+            LEFT JOIN tfh_g_profiles f ON f.public_id = p.public_id
+            WHERE f.public_id IS NULL AND p.deleted_at IS NULL');
+        $left = (int)$leftQ->fetchColumn();
+        log_line("[profiles] $ok profil(s) stocké(s), $nf introuvable(s), $err erreur(s) — sans profil restant : $left");
+    }
+}
+
 /** Glicko-2 (Glickman) — unités internes μ/φ, échelle 173.7178. */
 final class Glicko2 {
     const TAU = 0.5;
@@ -1471,6 +1796,15 @@ if ($argStatus) {
         (SELECT COUNT(*) FROM tfh_g_cosmetic_wearers) AS wearers,
         (SELECT COUNT(*) FROM tfh_g_ratings) AS rated_players,
         (SELECT COUNT(*) FROM tfh_g_games WHERE v5_done = 1) AS v5_games')->fetch();
+    /* v5.11 — compteurs API officielles */
+    $v511 = $pdo->query('SELECT
+        (SELECT COUNT(*) FROM tfh_g_ladder) AS ladder_rows,
+        (SELECT MAX(fetched_at) FROM tfh_g_ladder) AS ladder_at,
+        (SELECT COUNT(*) FROM tfh_g_ladder_history) AS ladder_hist,
+        (SELECT COUNT(*) FROM tfh_g_profiles) AS profiles,
+        (SELECT COUNT(*) FROM tfh_g_profiles WHERE not_found = 1) AS profiles_gone,
+        (SELECT COUNT(*) FROM tfh_g_clans WHERE lb_fetched_at IS NOT NULL) AS clans_official,
+        (SELECT MAX(lb_fetched_at) FROM tfh_g_clans) AS clans_official_at')->fetch();
     $oldest = $pdo->query('SELECT MIN(started_at) AS o FROM tfh_g_games')->fetchColumn();
     $newest = $pdo->query('SELECT MAX(started_at) AS n FROM tfh_g_games')->fetchColumn();
     echo json_encode([
@@ -1497,6 +1831,16 @@ if ($argStatus) {
             'cosmetic_wearers' => (int)$v5['wearers'],
             'rated_players' => (int)$v5['rated_players'],
             'rating_cursor_ms' => state_get($pdo, STATE_KEY_RATING),
+        ],
+        'v511' => [
+            'ladder_rows' => (int)$v511['ladder_rows'],
+            'ladder_fetched_at' => $v511['ladder_at'],
+            'ladder_history_rows' => (int)$v511['ladder_hist'],
+            'profiles' => (int)$v511['profiles'],
+            'profiles_gone' => (int)$v511['profiles_gone'],
+            'profiles_total_fetched' => (int)state_get($pdo, 'profiles_fetched_total', '0'),
+            'clans_official' => (int)$v511['clans_official'],
+            'clans_official_at' => $v511['clans_official_at'],
         ],
     ], JSON_PRETTY_PRINT) . "\n";
     exit(0);
@@ -1554,6 +1898,15 @@ if (time() - $lastDel > 86400) {
         log_line("[deletions] $n joueur(s) supprimé(s) traité(s)");
     }
 }
+
+// 1b) v5.11 — API OFFICIELLES (tranche réservée en tête de tick) :
+//     ladder ranked (2 req, throttle 30 min), leaderboard clans (1 req,
+//     throttle 1 h), profils joueurs /public/player/:id (budget dédié
+//     profile_seconds_per_tick). En tête de tick pour ne pas être affamées
+//     par le backfill ; leurs 429 partagent le circuit AIMD global.
+try { if (microtime(true) < $deadline) ladder_phase($pdo, $cfg); } catch (Throwable $e) { log_line('[ladder] ⚠️ ' . cut($e->getMessage(), 140)); }
+try { if (microtime(true) < $deadline) clans_lb_phase($pdo, $cfg); } catch (Throwable $e) { log_line('[clanslb] ⚠️ ' . cut($e->getMessage(), 140)); }
+try { if (microtime(true) < $deadline) profiles_phase($pdo, $cfg, $deadline); } catch (Throwable $e) { log_line('[profiles] ⚠️ ' . cut($e->getMessage(), 140)); }
 
 // 2) Scan récent (depuis le dernier état, chevauchement inclus) — tous les types
 phase_mark($pdo, 'recent');

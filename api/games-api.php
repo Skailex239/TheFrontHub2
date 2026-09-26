@@ -39,6 +39,12 @@ require __DIR__ . '/config.php';
 $V5_READY = true;
 try { $pdo->query('SELECT 1 FROM tfh_g_ratings LIMIT 1'); } catch (Throwable $e) { $V5_READY = false; }
 
+/* v5.11 : tables API officielles (ladder ranked, profils joueurs, colonnes
+ * lb_* clans) — créées par le prochain tick games-sync.php ; dégradation
+ * propre des routes concernées tant qu'elles n'existent pas. */
+$V511_READY = true;
+try { $pdo->query('SELECT 1 FROM tfh_g_ladder LIMIT 1'); } catch (Throwable $e) { $V511_READY = false; }
+
 /* ── Headers communs : JSON + cache court + CORS GET ── */
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, OPTIONS');
@@ -321,6 +327,74 @@ case 'profile': {
     }
     }
 
+    /* v5.11 : profil OFFICIEL /public/player/:id — username du compte, date de
+     * création et arbre de stats complet (type→mode→difficulté, incluant
+     * Private/Singleplayer, que nos rosters ne captent pas).
+     * &refresh=1 : fetch on-demand (1 requête max/appel, cooldown 10 min). */
+    $official = null;
+    if ($V511_READY) {
+        $sp = $pdo->prepare('SELECT username, created_at, fetched_at, not_found, stats_json FROM tfh_g_profiles WHERE public_id = ?');
+        $sp->execute([$pid]);
+        $pr = $sp->fetch();
+        if ($pr !== false && (int)$pr['not_found'] === 0) {
+            $official = [
+                'username'  => $pr['username'] !== null ? (string)$pr['username'] : null,
+                'createdAt' => $pr['created_at'] !== null ? (int)strtotime((string)$pr['created_at']) : null,
+                'fetchedAt' => (int)strtotime((string)$pr['fetched_at']),
+            ];
+            $sj = $pr['stats_json'] !== null ? json_decode((string)$pr['stats_json'], true) : null;
+            if (is_array($sj)) $official['stats'] = $sj;
+        }
+        $stale = $pr === false
+            || ((int)$pr['not_found'] === 0 && (time() - (int)strtotime((string)$pr['fetched_at'])) > 600);
+        if (isset($_GET['refresh']) && $stale) {
+            $ofKey = (string)($secrets['openfront_access'] ?? '');
+            $ch = curl_init('https://api.openfront.io/public/player/' . rawurlencode($pid));
+            $hdrs = ['Accept: application/json'];
+            if ($ofKey !== '') $hdrs[] = 'x-skailex-access: ' . $ofKey;
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_CONNECTTIMEOUT => 5,
+                CURLOPT_TIMEOUT        => 12,
+                CURLOPT_HTTPHEADER     => $hdrs,
+                CURLOPT_ENCODING       => '',
+            ]);
+            $body = curl_exec($ch);
+            $stt  = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            curl_close($ch);
+            $now2 = gmdate('Y-m-d H:i:s');
+            if ($stt === 404) {
+                $up = $pdo->prepare('INSERT INTO tfh_g_profiles (public_id, username, created_at, fetched_at, not_found)
+                    VALUES (?, NULL, NULL, ?, 1)
+                    ON DUPLICATE KEY UPDATE fetched_at = VALUES(fetched_at), not_found = 1');
+                $up->execute([$pid, $now2]);
+            } elseif ($stt === 200 && is_string($body)) {
+                $d = json_decode($body, true);
+                if (is_array($d)) {
+                    $createdAt = null;
+                    if (!empty($d['createdAt']) && ($tc = strtotime((string)$d['createdAt'])) !== false) $createdAt = gmdate('Y-m-d H:i:s', $tc);
+                    $statsJson = isset($d['stats']) && is_array($d['stats'])
+                        ? json_encode($d['stats'], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : null;
+                    $up = $pdo->prepare('INSERT INTO tfh_g_profiles (public_id, username, created_at, fetched_at, not_found, stats_json)
+                        VALUES (?,?,?,?,0,?)
+                        ON DUPLICATE KEY UPDATE username = VALUES(username), created_at = VALUES(created_at),
+                            fetched_at = VALUES(fetched_at), not_found = 0, stats_json = VALUES(stats_json)');
+                    $up->execute([
+                        $pid,
+                        isset($d['username']) && is_string($d['username']) ? mb_substr($d['username'], 0, 64) : null,
+                        $createdAt, $now2, $statsJson,
+                    ]);
+                    $official = [
+                        'username'  => isset($d['username']) && is_string($d['username']) ? (string)$d['username'] : null,
+                        'createdAt' => $createdAt !== null ? (int)strtotime($createdAt) : null,
+                        'fetchedAt' => (int)strtotime($now2),
+                    ];
+                    if (isset($d['stats']) && is_array($d['stats'])) $official['stats'] = $d['stats'];
+                }
+            }
+        }
+    }
+
     json_out([
         'ok' => true,
         'player' => [
@@ -337,6 +411,7 @@ case 'profile': {
         'ratings' => $ratings,
         'cosmetics' => $cosmetics,
         'clans' => $clans,
+        'official' => $official,
         'stats' => [
             'byMode' => $byMode,
             'byMap' => $byMap,
@@ -445,7 +520,7 @@ case 'status': {
         (SELECT COUNT(*) FROM tfh_g_games WHERE speedrun_category IS NOT NULL) AS speedruns,
         (SELECT MAX(started_at) FROM tfh_g_games) AS newest')->fetch();
     $st = $pdo->query("SELECT skey, svalue FROM tfh_g_state WHERE skey IN
-        ('backfill_cursor_ms','recent_end_ms','of_rate_cur','of_429_total','of_err_total','rating_cursor_ms','v5_phase','v5_phase_at')");
+        ('backfill_cursor_ms','recent_end_ms','of_rate_cur','of_429_total','of_err_total','rating_cursor_ms','v5_phase','v5_phase_at','ladder_refreshed_at','clanslb_refreshed_at','profiles_fetched_total')");
     $state = [];
     foreach ($st->fetchAll() as $row) $state[$row['skey']] = $row['svalue'];
     $cursorMs = $state['backfill_cursor_ms'] ?? null;
@@ -461,6 +536,16 @@ case 'status': {
         (SELECT COUNT(*) FROM tfh_g_cosmetics) AS cosmetics,
         (SELECT COUNT(*) FROM tfh_g_cosmetic_wearers) AS wearers,
         (SELECT COUNT(*) FROM tfh_g_ratings) AS rated_players')->fetch();
+    }
+    /* v5.11 : compteurs API officielles */
+    $v511 = ['ladder_rows' => 0, 'ladder_hist' => 0, 'profiles' => 0, 'profiles_gone' => 0, 'clans_official' => 0];
+    if ($V511_READY) {
+    $v511 = $pdo->query('SELECT
+        (SELECT COUNT(*) FROM tfh_g_ladder) AS ladder_rows,
+        (SELECT COUNT(*) FROM tfh_g_ladder_history) AS ladder_hist,
+        (SELECT COUNT(*) FROM tfh_g_profiles) AS profiles,
+        (SELECT COUNT(*) FROM tfh_g_profiles WHERE not_found = 1) AS profiles_gone,
+        (SELECT COUNT(*) FROM tfh_g_clans WHERE lb_fetched_at IS NOT NULL) AS clans_official')->fetch();
     }
     json_out([
         'ok' => true,
@@ -487,6 +572,16 @@ case 'status': {
             'cosmeticsCatalog' => (int)$v5['cosmetics'],
             'cosmeticWearers' => (int)$v5['wearers'],
             'ratedPlayers' => (int)$v5['rated_players'],
+        ],
+        'v511' => [
+            'ladderRows' => (int)$v511['ladder_rows'],
+            'ladderHistoryRows' => (int)$v511['ladder_hist'],
+            'ladderFetchedAt' => isset($state['ladder_refreshed_at']) ? (int)$state['ladder_refreshed_at'] : null,
+            'clansOfficial' => (int)$v511['clans_official'],
+            'clansOfficialAt' => isset($state['clanslb_refreshed_at']) ? (int)$state['clanslb_refreshed_at'] : null,
+            'profilesOfficial' => (int)$v511['profiles'],
+            'profilesGone' => (int)$v511['profiles_gone'],
+            'profilesFetchedTotal' => isset($state['profiles_fetched_total']) ? (int)$state['profiles_fetched_total'] : 0,
         ],
         'ratingCursor' => $ratingMs !== null ? gmdate('Y-m-d H:i', (int)round(((int)$ratingMs) / 1000)) : null,
         'v5Phase' => $state['v5_phase'] ?? null,
@@ -524,10 +619,60 @@ case 'leaderboard': {
     gout(['ok' => true, 'board' => $board, 'entries' => $entries]);
 }
 
+/* ── v5.11 : Ladder ranked OFFICIEL (ELO, top 100 1v1/2v2) ─── */
+case 'ladder': {
+    header('Cache-Control: public, max-age=300');
+    /* Courbe ELO d'un joueur (historique quotidien du ladder officiel) */
+    $histOf = (string)($_GET['historyOf'] ?? '');
+    if ($histOf !== '') {
+        if (!preg_match('/^[A-Za-z0-9]{6,16}$/', $histOf)) gfail(400, 'bad_public_id');
+        $hist = [];
+        if ($V511_READY) {
+            $sh = $pdo->prepare("SELECT board, rank_pos, elo, peak_elo, DATE_FORMAT(day, '%Y-%m-%d') AS d
+                FROM tfh_g_ladder_history WHERE public_id = ? ORDER BY board, day ASC LIMIT 730");
+            $sh->execute([$histOf]);
+            foreach ($sh->fetchAll() as $r) {
+                $hist[] = [
+                    'board' => (string)$r['board'], 'day' => (string)$r['d'],
+                    'rank' => (int)$r['rank_pos'], 'elo' => (int)$r['elo'], 'peakElo' => (int)$r['peak_elo'],
+                ];
+            }
+        }
+        gout(['ok' => true, 'publicId' => $histOf, 'history' => $hist]);
+    }
+    $board = (string)($_GET['board'] ?? 'all');
+    if (!in_array($board, ['all', '1v1', '2v2'], true)) gfail(400, 'bad_board');
+    $boards = $board === 'all' ? ['1v1', '2v2'] : [$board];
+    $out = [];
+    $fetchedAt = null;
+    foreach ($boards as $b) {
+        $rows = [];
+        if ($V511_READY) {
+            $st = $pdo->prepare('SELECT rank_pos, public_id, username, account_username, elo, peak_elo, wins, losses, total, fetched_at
+                FROM tfh_g_ladder WHERE board = ? ORDER BY rank_pos ASC LIMIT 100');
+            $st->execute([$b]);
+            foreach ($st->fetchAll() as $r) {
+                $rows[] = [
+                    'rank' => (int)$r['rank_pos'], 'publicId' => (string)$r['public_id'],
+                    'username' => $r['username'] !== null ? (string)$r['username'] : null,
+                    'accountUsername' => $r['account_username'] !== null ? (string)$r['account_username'] : null,
+                    'elo' => (int)$r['elo'], 'peakElo' => (int)$r['peak_elo'],
+                    'wins' => (int)$r['wins'], 'losses' => (int)$r['losses'], 'total' => (int)$r['total'],
+                ];
+                if ($fetchedAt === null || (string)$r['fetched_at'] > $fetchedAt) $fetchedAt = (string)$r['fetched_at'];
+            }
+        }
+        $out[$b] = $rows;
+    }
+    gout(['ok' => true, 'boards' => $out, 'fetchedAt' => $fetchedAt]);
+}
+
 /* ── v5 : Ladder des clans ──────────────────────────────────────────── */
 case 'clans': {
     header('Cache-Control: public, max-age=300');
     $window = (string)($_GET['window'] ?? 'all');
+    /* v5.11 : sort=official trie sur les weightedWins officiels (si dispo) */
+    $sort = (string)($_GET['sort'] ?? 'wins');
     $where = ''; $args = [];
     if (preg_match('/^(\d+)d$/', $window, $mm)) {
         $where = ' AND g.started_at >= DATE_SUB(NOW(), INTERVAL ? DAY)';
@@ -535,11 +680,24 @@ case 'clans': {
     } elseif ($window === 'week') {
         $where = ' AND g.started_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)';
     }
+    /* v5.11 : jointure tfh_g_clans pour les chiffres officiels (weightedWins,
+     * fenêtre glissante ~90 j). Si les colonnes n'existent pas encore (juste
+     * après déploiement), on retombe sur la requête historique. */
+    $lbCols = "'' AS lb_dummy";
+    if ($V511_READY) $lbCols = "MAX(c.lb_games) AS lb_games, MAX(c.lb_wins) AS lb_wins, MAX(c.lb_losses) AS lb_losses,
+            MAX(c.lb_player_sessions) AS lb_player_sessions, MAX(c.lb_weighted_wins) AS lb_weighted_wins,
+            MAX(c.lb_weighted_losses) AS lb_weighted_losses, MAX(c.lb_wl_ratio) AS lb_wl_ratio";
+    $join = $V511_READY ? 'LEFT JOIN tfh_g_clans c ON c.clan_tag = r.clan_tag' : '';
+    $order = ($sort === 'official' && $V511_READY)
+        ? 'lb_weighted_wins IS NULL ASC, lb_weighted_wins DESC'
+        : 'wins DESC, participations DESC';
     $st = $pdo->prepare("SELECT r.clan_tag, COUNT(*) AS participations, SUM(r.won) AS wins,
-            COUNT(DISTINCT r.public_id) AS members
+            COUNT(DISTINCT r.public_id) AS members,
+            $lbCols
         FROM tfh_g_roster r JOIN tfh_g_games g ON g.game_id = r.game_id
+        $join
         WHERE r.clan_tag IS NOT NULL $where
-        GROUP BY r.clan_tag ORDER BY wins DESC, participations DESC LIMIT ? OFFSET ?");
+        GROUP BY r.clan_tag ORDER BY $order LIMIT ? OFFSET ?");
     foreach ($args as $i2 => $a) $st->bindValue($i2 + 1, $a);
     $st->bindValue(count($args) + 1, $limit, PDO::PARAM_INT);
     $st->bindValue(count($args) + 2, $offset, PDO::PARAM_INT);
@@ -548,14 +706,24 @@ case 'clans': {
     $i = $offset;
     foreach ($st->fetchAll() as $x) {
         $i++;
-        $clans[] = [
+        $row = [
             'rank' => $i, 'tag' => (string)$x['clan_tag'],
             'participations' => (int)$x['participations'], 'wins' => (int)$x['wins'],
             'members' => (int)$x['members'],
             'winRate' => (int)$x['participations'] > 0 ? round((int)$x['wins'] / (int)$x['participations'], 4) : null,
         ];
+        if ($V511_READY) {
+            $row['official'] = ($x['lb_weighted_wins'] ?? null) === null ? null : [
+                'games' => (int)$x['lb_games'], 'wins' => (int)$x['lb_wins'], 'losses' => (int)$x['lb_losses'],
+                'playerSessions' => (int)$x['lb_player_sessions'],
+                'weightedWins' => round((float)$x['lb_weighted_wins'], 2),
+                'weightedLosses' => $x['lb_weighted_losses'] !== null ? round((float)$x['lb_weighted_losses'], 2) : null,
+                'weightedWLRatio' => $x['lb_wl_ratio'] !== null ? round((float)$x['lb_wl_ratio'], 2) : null,
+            ];
+        }
+        $clans[] = $row;
     }
-    gout(['ok' => true, 'window' => $window, 'clans' => $clans]);
+    gout(['ok' => true, 'window' => $window, 'sort' => $sort, 'clans' => $clans]);
 }
 
 /* ── v5 : Détail d'un clan ──────────────────────────────────────────── */
@@ -593,9 +761,28 @@ case 'clan': {
         FROM tfh_g_roster r WHERE r.clan_tag = ?');
     $tot->execute([$tag]);
     $t = $tot->fetch();
+    /* v5.11 : bloc officiel (leaderboard clans, weightedWins ~90 j) si dispo */
+    $official = null;
+    if ($V511_READY) {
+        $so = $pdo->prepare('SELECT lb_games, lb_wins, lb_losses, lb_player_sessions,
+                lb_weighted_wins, lb_weighted_losses, lb_wl_ratio, lb_fetched_at
+            FROM tfh_g_clans WHERE clan_tag = ? AND lb_fetched_at IS NOT NULL');
+        $so->execute([$tag]);
+        if (($or = $so->fetch()) !== false) {
+            $official = [
+                'games' => (int)$or['lb_games'], 'wins' => (int)$or['lb_wins'], 'losses' => (int)$or['lb_losses'],
+                'playerSessions' => (int)$or['lb_player_sessions'],
+                'weightedWins' => $or['lb_weighted_wins'] !== null ? round((float)$or['lb_weighted_wins'], 2) : null,
+                'weightedLosses' => $or['lb_weighted_losses'] !== null ? round((float)$or['lb_weighted_losses'], 2) : null,
+                'weightedWLRatio' => $or['lb_wl_ratio'] !== null ? round((float)$or['lb_wl_ratio'], 2) : null,
+                'fetchedAt' => (int)strtotime((string)$or['lb_fetched_at']),
+            ];
+        }
+    }
     gout([
         'ok' => true, 'tag' => $tag,
         'participations' => (int)$t['games'], 'wins' => (int)$t['wins'],
+        'official' => $official,
         'members' => $members, 'recentGames' => $recentGames,
     ]);
 }
