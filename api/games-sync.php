@@ -68,6 +68,7 @@ declare(strict_types=1);
  *
  *   NB : l'ancienne clé "min_players" (v1) est ignorée — la nouvelle clé
  *   "min_players_to_keep" la remplace (défaut 1).
+ */
 
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
@@ -1200,10 +1201,44 @@ function catalog_phase(PDO $pdo, array $cfg): void {
     $hours = max(1, (int)($cfg['catalog_refresh_hours'] ?? 6));
     $last = (int)state_get($pdo, 'catalog_refreshed_at', '0');
     if (time() - $last < $hours * 3600) return;
-    /* v5.10b : on logue le status HTTP réel — avant, l'échec était muet
-     * (impossible de distinguer 403 Cloudflare / timeout / JSON invalide). */
-    [$catStatus, $d] = of_request(OF_API_BASE . '/cosmetics.json', 45);
-    if (!is_array($d)) { log_line("[catalog] catalogue indisponible cette fois (HTTP $catStatus)"); return; }
+
+    /* v5.10c : Cloudflare renvoie 403 sur /cosmetics.json pour les IP datacenter
+     * (observé depuis o2switch alors que /public/games passe — règle WAF sur le
+     * fichier statique). Deux sources en cascade :
+     *   1) fetch direct avec en-têtes navigateur (contourne les règles UA) ;
+     *   2) seed local data/cosmetics-seed.json (snapshot complet du 2026-09-26,
+     *      base64 des patterns retiré : ~244 Ko).
+     * Dans les deux cas on pose catalog_refreshed_at : plus de retry chaque tick
+     * contre un 403 (4 err/tick à chaque fois avant). */
+    $d = null; $src = ''; $httpSt = 0;
+    $ch = curl_init(OF_API_BASE . '/cosmetics.json');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT        => 30,
+        CURLOPT_ENCODING       => '',
+        CURLOPT_HTTPHEADER     => [
+            'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+            'Accept: application/json, text/plain, */*',
+            'Accept-Language: en-US,en;q=0.9',
+            'Referer: https://openfront.io/',
+        ],
+    ]);
+    $body = curl_exec($ch);
+    $httpSt = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+    if ($httpSt === 200 && is_string($body) && $body !== '') {
+        $dec = json_decode($body, true);
+        if (is_array($dec)) { $d = $dec; $src = 'api'; }
+    }
+    if ($d === null) {
+        $seed = @file_get_contents(__DIR__ . '/../data/cosmetics-seed.json');
+        if (is_string($seed) && $seed !== '') {
+            $dec = json_decode($seed, true);
+            if (is_array($dec)) { $d = $dec; $src = "seed locale (HTTP $httpSt)"; }
+        }
+    }
+    if ($d === null) { log_line("[catalog] catalogue indisponible (HTTP $httpSt) et seed absent/invalide"); return; }
     $now = gmdate('Y-m-d H:i:s');
     $st = $pdo->prepare('INSERT INTO tfh_g_cosmetics
         (category, name, display_name, rarity, price_hard, price_cents, artist, url, affiliate_code, raw_json, first_seen, last_seen)
@@ -1241,7 +1276,7 @@ function catalog_phase(PDO $pdo, array $cfg): void {
         }
     }
     state_set($pdo, 'catalog_refreshed_at', (string)time());
-    log_line("[catalog] $n cosmétique(s) synchronisé(s)");
+    log_line("[catalog] $n cosmétique(s) synchronisé(s) — source $src");
 }
 
 /** Glicko-2 (Glickman) — unités internes μ/φ, échelle 173.7178. */
