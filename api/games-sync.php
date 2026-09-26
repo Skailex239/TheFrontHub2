@@ -1404,23 +1404,50 @@ function of_fetch_resilient(string $url, int $timeout = 25): array {
 }
 
 /**
- * Phase 8 — Ladder ranked OFFICIEL (/leaderboard/ranked, pages 1-2 = top 100
- * par board 1v1/2v2). Snapshot remplacé intégralement + 1 ligne d'historique
- * par joueur/board/jour (courbes d'ELO type ofstats). Throttle 30 min, 2 req.
+ * Phase 8 — Ladder ranked OFFICIEL (top 100 par board 1v1/2v2).
+ * Deux sources, la première dispo gagne :
+ *   1) MIROIR LOCAL ../ranked.json — publié par le pipeline GitHub Actions
+ *      (sync-ranked.js → release data-latest → pull-data o2switch, ~5 min de
+ *      fraîcheur). Même forme que l'API : {"1v1":[...], "2v2":[...]}.
+ *      Utilisé EN PREMIER : Cloudflare 403-ise /leaderboard/ranked depuis
+ *      l'IP datacenter o2switch (clé ou pas, UA navigateur ou pas — constat
+ *      v5.11), alors que le miroir arrive déjà tout frais sur le disque.
+ *   2) API OFFICIELLE /leaderboard/ranked?page=1..2 — fallback si le miroir
+ *      est absent/trop vieux (ex. run Actions cassé).
+ * Snapshot remplacé intégralement + 1 ligne d'historique par joueur/board/jour
+ * (courbes d'ELO type ofstats). Throttle 30 min.
  */
 function ladder_phase(PDO $pdo, array $cfg): void {
     phase_mark($pdo, 'ladder');
     $mins = max(5, (int)($cfg['ladder_refresh_min'] ?? 30));
     $last = (int)state_get($pdo, 'ladder_refreshed_at', '0');
     if (time() - $last < $mins * 60) return;
-    $pages = [];
-    for ($p = 1; $p <= 2; $p++) {
-        [$st, $d] = of_fetch_resilient(OF_API_BASE . '/leaderboard/ranked?page=' . $p);
-        if ($st !== 200 || !is_array($d)) {
-            log_line("[ladder] HTTP $st (page $p) — réessayé au prochain tick");
-            return;
+    $boards = null; $src = '';
+    /* Source 1 : miroir local (fraîcheur < 24 h exigée). */
+    $mirror = __DIR__ . '/../ranked.json';
+    if (is_readable($mirror)) {
+        $age = time() - (int)filemtime($mirror);
+        if ($age < 86400) {
+            $dec = json_decode((string)file_get_contents($mirror), true);
+            if (is_array($dec) && (is_array($dec['1v1'] ?? null) || is_array($dec['2v2'] ?? null))) {
+                $boards = [$dec];
+                $src = 'miroir local ranked.json (âge ' . $age . ' s)';
+            }
         }
-        $pages[] = $d;
+    }
+    /* Source 2 : API officielle (2 req, pages 1-2 = top 100/board). */
+    if (!$boards) {
+        $pages = [];
+        for ($p = 1; $p <= 2; $p++) {
+            [$st, $d] = of_fetch_resilient(OF_API_BASE . '/leaderboard/ranked?page=' . $p);
+            if ($st !== 200 || !is_array($d)) { $pages = []; break; }
+            $pages[] = $d;
+        }
+        if ($pages) { $boards = $pages; $src = 'api'; }
+    }
+    if (!$boards) {
+        log_line('[ladder] miroir absent/périmé et API KO (Cloudflare 403 depuis o2switch) — réessayé au prochain tick');
+        return;
     }
     $now   = gmdate('Y-m-d H:i:s');
     $today = gmdate('Y-m-d');
@@ -1434,7 +1461,7 @@ function ladder_phase(PDO $pdo, array $cfg): void {
             VALUES (?,?,?,?,?,?)
             ON DUPLICATE KEY UPDATE rank_pos = VALUES(rank_pos), elo = VALUES(elo), peak_elo = VALUES(peak_elo)');
         $n = 0;
-        foreach ($pages as $d) {
+        foreach ($boards as $d) {
             foreach (['1v1', '2v2'] as $board) {
                 $rows = $d[$board] ?? null;
                 if (!is_array($rows)) continue;
@@ -1464,7 +1491,7 @@ function ladder_phase(PDO $pdo, array $cfg): void {
         throw $e;
     }
     state_set($pdo, 'ladder_refreshed_at', (string)time());
-    log_line("[ladder] $n entrée(s) officielle(s) (1v1+2v2, top 100) synchronisée(s)");
+    log_line("[ladder] $n entrée(s) officielle(s) (1v1+2v2, top 100) synchronisée(s) — source $src");
 }
 
 /**
