@@ -149,5 +149,102 @@ else
   log "avertissement : games-export indisponible (php ou script manquant)"
 fi
 
+# ── 6) DÉPLOIEMENT DEV (branche dev → dev.thefronthub.com) ─────────────
+# Environnement de pré-production : la branche `dev` est déployée vers le
+# sous-domaine dev.thefronthub.com (créé UNE FOIS dans cPanel, document root
+# /home2/mask6607/dev.thefronthub.com). Zéro cron supplémentaire : ce script
+# gère les deux cibles à chaque tick.
+#   - Même base MySQL (le front lit la même data que la prod).
+#   - Mêmes secrets (~/.tfs_secrets, hors webroot, chargés par api/config.php).
+#   - Les JSON de sync (ranked.json, lobby_state.json, runs_public…) sont des
+#     SYMLINKS vers le webroot prod : toujours à jour, zéro duplication.
+#     (--exclude protège aussi ces symlinks du --delete rsync.)
+#   - Si la branche dev n'existe pas sur origin : étape ignorée, prod intacte.
+#   - dev est noindex (robots.txt Disallow + en-tête X-Robots-Tag).
+DEV_SRC="/home2/mask6607/thefronthub-dev"
+DEV_DEST="/home2/mask6607/dev.thefronthub.com"
+DEV_URL="https://github.com/Skailex239/TheFrontHub2.git"
+
+if git ls-remote --heads origin dev 2>/dev/null | grep -q "refs/heads/dev"; then
+  log "── deploiement DEV (branche dev) ──"
+  if [ ! -d "$DEV_SRC/.git" ]; then
+    git clone --branch dev --single-branch "$DEV_URL" "$DEV_SRC" >> "$LOG" 2>&1 \
+      || log "avertissement : clone dev a echoue"
+  fi
+  if [ -d "$DEV_SRC/.git" ]; then
+    cd "$DEV_SRC" \
+      && git fetch origin dev >> "$LOG" 2>&1 \
+      && git reset --hard origin/dev >> "$LOG" 2>&1 \
+      || log "avertissement : maj git dev a echoue"
+    DEVCOMMIT="$(git -C "$DEV_SRC" rev-parse --short HEAD 2>/dev/null || echo '?')"
+    mkdir -p "$DEV_DEST"
+    rsync -a --delete \
+      --exclude='.git' \
+      --exclude='/.htaccess' \
+      --exclude='_upload.php' \
+      --exclude='_deploy.php' \
+      --exclude='_archives' \
+      --exclude='games-sync.log' \
+      --include='/data/' \
+      --include='/data/**' \
+      --include='/atlas-data/maps_data.json' \
+      --exclude='*.json' \
+      --exclude='*.json.gz' \
+      --exclude='player-data' \
+      --exclude='player-stats' \
+      --exclude='src' \
+      --exclude='tests' \
+      --exclude='scripts' \
+      --exclude='.github' \
+      --exclude='.trae' \
+      --exclude='.windsurf' \
+      --exclude='.zscripts' \
+      --exclude='prisma' \
+      --exclude='db' \
+      --exclude='examples' \
+      --exclude='mini-services' \
+      --exclude='cloudflare-worker' \
+      --exclude='agent-ctx' \
+      --exclude='worklog.md' \
+      --exclude='GUIDE_*.md' \
+      --exclude='STAGING.md' \
+      --exclude='public' \
+      --exclude='node_modules' \
+      --exclude='package.json' \
+      --exclude='package-lock.json' \
+      --exclude='bun.lock' \
+      --exclude='tsconfig.json' \
+      --exclude='next.config.ts' \
+      --exclude='tailwind.config.ts' \
+      --exclude='postcss.config.mjs' \
+      --exclude='eslint.config.mjs' \
+      --exclude='pull-data.sh' \
+      --exclude='deploy.sh' \
+      ./ "$DEV_DEST/" >> "$LOG" 2>&1 || log "avertissement : rsync dev a echoue"
+    # .htaccess : la version du repo est sûre pour dev (redirection https://%{HTTP_HOST},
+    # aucun domaine codé en dur) + noindex pour ne pas indexer la pré-production.
+    if [ -f "$DEV_SRC/.htaccess" ]; then
+      cp "$DEV_SRC/.htaccess" "$DEV_DEST/.htaccess" 2>/dev/null \
+        || log "avertissement : cp htaccess dev"
+      if ! grep -q "X-Robots-Tag" "$DEV_DEST/.htaccess" 2>/dev/null; then
+        printf '\n# DEV : pre-production jamais indexee\n<IfModule mod_headers.c>\n  Header set X-Robots-Tag "noindex, nofollow"\n</IfModule>\n' >> "$DEV_DEST/.htaccess"
+      fi
+    fi
+    # robots.txt dev : interdire tout crawl
+    printf 'User-agent: *\nDisallow: /\n' > "$DEV_DEST/robots.txt" 2>/dev/null
+    # JSON de sync : symlinks vers le webroot prod (toujours a jour)
+    for f in "$DEST"/*.json "$DEST"/*.json.gz; do
+      [ -e "$f" ] || continue
+      ln -sfn "$f" "$DEV_DEST/$(basename "$f")" 2>/dev/null
+    done
+    for d in player-data player-stats; do
+      [ -d "$DEST/$d" ] && ln -sfn "$DEST/$d" "$DEV_DEST/$d" 2>/dev/null
+    done
+    log "DEV OK -> commit $DEVCOMMIT"
+  fi
+else
+  log "pas de branche dev sur origin — etape DEV ignoree"
+fi
+
 log "SUCCES deploiement $COMMIT"
 echo "SUCCES deploiement $COMMIT (details : $LOG)"
