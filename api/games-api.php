@@ -929,14 +929,16 @@ case 'ffaboard': {
         }
         gout(['ok' => true, 'publicId' => $histOf, 'history' => $history]);
     }
-    $st = $pdo->prepare('SELECT rank_pos, public_id, wins, losses, total, wlr, fetched_at
-        FROM tfh_g_lb_ffa ORDER BY rank_pos ASC LIMIT ?');
+    $st = $pdo->prepare('SELECT f.rank_pos, f.public_id, f.wins, f.losses, f.total, f.wlr, p.last_username
+        FROM tfh_g_lb_ffa f LEFT JOIN tfh_g_players p ON p.public_id = f.public_id
+        ORDER BY f.rank_pos ASC LIMIT ?');
     $st->bindValue(1, min(1000, $limit), PDO::PARAM_INT);
     $st->execute();
     $entries = [];
     foreach ($st->fetchAll() as $r) {
         $entries[] = [
             'rank' => (int)$r['rank_pos'], 'publicId' => (string)$r['public_id'],
+            'username' => ($r['last_username'] ?? null) !== null ? (string)$r['last_username'] : null,
             'wins' => (int)$r['wins'], 'losses' => (int)$r['losses'], 'total' => (int)$r['total'],
             'wlr' => $r['wlr'] !== null ? round((float)$r['wlr'], 2) : null,
         ];
