@@ -2225,8 +2225,8 @@ function updateURL(){
   const activeTab=document.querySelector('.tab-btn.active');
   if(activeTab){
     // Resolve tab name from button ID (robust against other nav tabs)
-    const tabName = activeTab.id === 'tab-btn-ranked' ? 'ranked'
-                  : activeTab.id === 'tab-btn-maps' ? 'maps' : null;
+    const tabNames = { 'tab-btn-ranked':'ranked', 'tab-btn-maps':'maps', 'tab-btn-ffa':'ffa', 'tab-btn-tribes':'tribes', 'tab-btn-news':'news', 'tab-btn-live':'live' };
+    const tabName = tabNames[activeTab.id] || null;
     if(tabName) p.set('tab',tabName);
   }
   if(activeMap) p.set('map',activeMap);
@@ -2395,9 +2395,9 @@ loadData().then(()=>{
     return;
   }
   if (tabParam) {
-    // Map tab name → button ID (more robust than index-based lookup which
-    // breaks when nav has other tabs like dashboard/tournois/profile).
-    const tabBtnId = tabParam === 'ranked' ? 'tab-btn-ranked' : 'tab-btn-maps';
+    // Map tab name → button ID (robust against other nav tabs)
+    const tabBtnMap = { ranked:'tab-btn-ranked', maps:'tab-btn-maps', ffa:'tab-btn-ffa', tribes:'tab-btn-tribes', news:'tab-btn-news', live:'tab-btn-live' };
+    const tabBtnId = tabBtnMap[tabParam] || 'tab-btn-maps';
     const btn = document.getElementById(tabBtnId);
     if (btn) switchTab(tabParam, btn);
   }
