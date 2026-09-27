@@ -87,7 +87,7 @@ async function mirrorClanSessions() {
     .slice()
     .sort((a, b) => (b.weightedWins ?? 0) - (a.weightedWins ?? 0))
     .slice(0, 50)
-    .map((c) => String(c.tag || "").toUpperCase())
+    .map((c) => String(c.clanTag || c.tag || "").toUpperCase())
     .filter(Boolean);
   if (!tags.length) throw new Error("clansess: aucun clan dans le leaderboard");
 
