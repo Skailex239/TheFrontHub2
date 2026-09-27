@@ -95,7 +95,11 @@
 
   function render(clan, cs) {
     var root = document.getElementById('gp-root');
-    var total = clan.total || {};
+    /* totaux : route=clan expose participations/wins à plat (fallback total.* par sûreté) */
+    var total = {
+      games: (clan.participations != null) ? clan.participations : ((clan.total && clan.total.games != null) ? clan.total.games : null),
+      wins: (clan.wins != null) ? clan.wins : ((clan.total && clan.total.wins != null) ? clan.total.wins : null)
+    };
     var off = clan.official || null;
     var members = clan.members || [];
     var games = clan.recentGames || [];
