@@ -214,7 +214,11 @@
     <!-- Topbar -->
     <header class="topbar">
       <div>
-        <h1 id="topbar-title" data-i18n="nav.maps">Speedruns</h1>
+        <!-- ⚠️ PAS de data-i18n ici : ce titre est géré dynamiquement par
+             switchTab() selon l'onglet actif. Une liaison i18n statique
+             (nav.maps) ferait revenir le titre à « Speedruns » à chaque
+             ré-application i18n, même sur les onglets FFA/Tribus/News/Live. -->
+        <h1 id="topbar-title">Speedruns</h1>
         <p id="topbar-subtitle" data-i18n="home.topbar_subtitle">OpenFront Leaderboard</p>
       </div>
       <div class="topbar-right" style="overflow:hidden;max-width:300px;display:flex;align-items:center;gap:10px">
