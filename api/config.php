@@ -32,6 +32,11 @@ if (is_string($home) && $home !== '') {
 /* Chemin relatif au webroot : api -> thefronthub.com -> public_html -> home */
 $secretPaths[] = dirname(__DIR__, 3) . '/.tfs_secrets/tfh-secrets.json';
 
+/* Chemin relatif au webroot dev : api -> dev.thefronthub.com -> home
+   (le sous-domaine dev est 2 niveaux sous le home, pas 3 ; sur prod ce
+   chemin ne pointe vers rien et reste sans effet) */
+$secretPaths[] = dirname(__DIR__, 2) . '/.tfs_secrets/tfh-secrets.json';
+
 $secrets = null;
 foreach ($secretPaths as $path) {
     if (is_readable($path)) {
