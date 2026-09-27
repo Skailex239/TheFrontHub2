@@ -1,0 +1,114 @@
+// i18n-dict-runs.js — Traductions de la page runs.html (FR / EN)
+// Chargé AVANT i18n.min.js ; fusionné par i18n.js via window.__TFH_I18N_PARTIALS__.
+// Convention : une clé par chaîne traduisible ; {param} pour les variables.
+window.__TFH_I18N_PARTIALS__ = window.__TFH_I18N_PARTIALS__ || {};
+window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr || {}, {
+  /* ── Éléments partagés (sidebar / footer communs aux pages) ── */
+  "runs.skip_link": "Aller au contenu principal",
+  "runs.logo_aria": "Aller au tableau de bord",
+  "runs.nav_aria": "Navigation principale",
+  "theme.title": "Changer de thème",
+  "theme.aria": "Basculer thème clair/sombre",
+  "auth.login": "Connexion",
+  "footer.not_affiliated": "TheFrontHub. Non affilié à OpenFront.io.",
+  "footer.made_with_pre": "Fait avec",
+  "footer.made_with_suf": "par la communauté",
+
+  /* ── Topbar ── */
+  "runs.topbar_title": "Top runs",
+  "runs.topbar_subtitle": "Les meilleures parties OpenFront, toutes cartes confondues",
+  "runs.loading": "Chargement…",
+  "runs.src_era": "Nouvelle ère — DB pré-profils, records depuis le 10 sept 2026",
+  "runs.src_era_backfill": "Nouvelle ère — DB connectée, backfill en cours",
+  "runs.era_backfill": "Nouveau départ des speedruns : la base est connectée, le backfill historique est en cours — les records vont apparaître ici au fur et à mesure.",
+  "runs.src_offline": "API momentanément indisponible — nouvelle ère uniquement",
+  "runs.era_offline": "Nouvelle ère des speedruns (records depuis le 10 sept 2026) — l'API est momentanément indisponible, réessaie dans un instant. Les anciens records pré-publicID ne s'affichent plus.",
+  "runs.searching": "Recherche des meilleurs runs…",
+
+  /* ── Contrôles ── */
+  "runs.window_label": "Fenêtre (jours)",
+  "runs.limit_label": "Limite",
+  "runs.refresh": "Actualiser",
+  "runs.category_label": "Catégorie",
+  "runs.cat_normal": "Normal (400 bots)",
+  "runs.cat_compact": "Compact (100 bots)",
+  "runs.map_label": "Carte",
+  "runs.map_all": "Toutes les cartes",
+  "runs.sort_label": "Classement",
+  "runs.sort_duration": "Meilleurs temps",
+  "runs.sort_date": "Récentes d'abord",
+
+  /* ── Tableau ── */
+  "runs.col_player": "Joueur",
+  "runs.col_map": "Carte",
+  "runs.col_time": "Temps",
+  "runs.col_difficulty": "Difficulté",
+  "runs.col_players": "Joueurs",
+  "runs.col_date": "Date",
+
+  /* ── États / erreurs / meta ── */
+  "runs.none_found": "Aucun run trouvé dans les {days} derniers jours.",
+  "runs.meta_window": "Fenêtre: {days} jours • limite: {limit}",
+  "runs.gen_meta": "Top {top} sur {total} runs ({days}j) • Total: {all} • {ms}ms",
+  "runs.gen_meta_v2": "Top {top} sur {total} runs ({days}j) • {ms}ms",
+  "runs.src_file": "fichier statique (API non déployée)",
+  "runs.total": "Total: {n}",
+  "runs.err_file": "Impossible de charger runs.json",
+  "runs.error_title": "Erreur",
+  "runs.ingame_title": "En jeu : {name}",
+});
+window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en || {}, {
+  /* ── Shared elements (sidebar / footer) ── */
+  "runs.skip_link": "Skip to main content",
+  "runs.logo_aria": "Go to the dashboard",
+  "runs.nav_aria": "Main navigation",
+  "theme.title": "Switch theme",
+  "theme.aria": "Toggle light/dark theme",
+  "auth.login": "Sign in",
+  "footer.not_affiliated": "TheFrontHub. Not affiliated with OpenFront.io.",
+  "footer.made_with_pre": "Made with",
+  "footer.made_with_suf": "by the community",
+
+  /* ── Topbar ── */
+  "runs.topbar_title": "Top runs",
+  "runs.topbar_subtitle": "The best OpenFront games across all maps",
+  "runs.loading": "Loading…",
+  "runs.src_era": "New era — pre-profile DB, records since Sep 10, 2026",
+  "runs.src_era_backfill": "New era — DB connected, backfill in progress",
+  "runs.era_backfill": "Speedrun fresh start: the database is connected and the historical backfill is running — records will appear here as it progresses.",
+  "runs.src_offline": "API temporarily unavailable — new era only",
+  "runs.era_offline": "New speedrun era (records since Sep 10, 2026) — the API is temporarily unavailable, please retry in a moment. Old pre-publicID records are no longer shown.",
+  "runs.searching": "Searching for the best runs…",
+
+  /* ── Controls ── */
+  "runs.window_label": "Window (days)",
+  "runs.limit_label": "Limit",
+  "runs.refresh": "Refresh",
+  "runs.category_label": "Category",
+  "runs.cat_normal": "Normal (400 bots)",
+  "runs.cat_compact": "Compact (100 bots)",
+  "runs.map_label": "Map",
+  "runs.map_all": "All maps",
+  "runs.sort_label": "Ranking",
+  "runs.sort_duration": "Best times",
+  "runs.sort_date": "Most recent",
+
+  /* ── Table ── */
+  "runs.col_player": "Player",
+  "runs.col_map": "Map",
+  "runs.col_time": "Time",
+  "runs.col_difficulty": "Difficulty",
+  "runs.col_players": "Players",
+  "runs.col_date": "Date",
+
+  /* ── States / errors / meta ── */
+  "runs.none_found": "No runs found in the last {days} days.",
+  "runs.meta_window": "Window: {days} days • limit: {limit}",
+  "runs.gen_meta": "Top {top} of {total} runs ({days}d) • Total: {all} • {ms}ms",
+  "runs.gen_meta_v2": "Top {top} of {total} runs ({days}d) • {ms}ms",
+  "runs.src_file": "static file (API not deployed yet)",
+  "runs.total": "Total: {n}",
+  "runs.err_file": "Failed to load runs.json",
+  "runs.error_title": "Error",
+  "runs.ingame_title": "In game: {name}",
+});

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TheFrontHub — Atlas</title>
+<meta name="description" content="Atlas interactif des cartes OpenFront — géographie, statistiques et stratégies.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Orbitron:wght@900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="icon" type="image/png" href="favicon-32x32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="favicon-180x180.png">
+<link rel="stylesheet" href="styles.css?v=34">
+<link rel="stylesheet" href="auth.css?v=17">
+<link rel="stylesheet" href="toast.css">
+<link rel="stylesheet" href="animations.css?v=6">
+<link rel="stylesheet" href="atlas.css?v=7">
+<style>.skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}</style>
+<script type="module" src="icons.js?v=2"></script>
+</head>
+<body>
+<a href="#atlas-content" class="skip-link">Aller au contenu principal</a>
+<div class="loading-bar-track"><div class="loading-bar-fill" id="loading-bar"></div></div>
+
+<div class="page-wrap" style="min-height:100vh;display:flex;flex-direction:column">
+<div class="app" style="flex:1;display:flex;min-width:0">
+
+  <aside class="sidebar">
+    <div class="logo" onclick="logoClickAnim(event)" role="link" aria-label="Aller au tableau de bord" tabindex="0">
+      <img src="TheFrontHub Logo Text.png" alt="TheFrontHub" loading="eager">
+    </div>
+    <nav role="tablist">
+      <a class="nav-item tab-btn" id="tab-btn-dashboard" href="dashboard.html" role="tab" aria-selected="false" tabindex="0"><i data-icon="home"></i> Tableau de bord</a>
+      <a class="nav-item tab-btn" id="tab-btn-maps" href="index.html" role="tab" aria-selected="false" tabindex="0"><i data-icon="trophy"></i> Speedruns</a>
+      <a class="nav-item tab-btn" id="tab-btn-ranked" href="index.html?tab=ranked" role="tab" aria-selected="false" tabindex="0"><i data-icon="swords"></i> Classé</a>
+      <a class="nav-item tab-btn" id="tab-btn-lobby" href="lobby.html" role="tab" aria-selected="false" tabindex="0"><i data-icon="bolt"></i> Lobby</a>
+      <a class="nav-item tab-btn active" id="tab-btn-atlas" role="tab" aria-selected="true" tabindex="0"><i data-icon="map"></i> Atlas</a>
+      <a class="nav-item tab-btn" id="tab-btn-tournois" href="tournois.html" role="tab" aria-selected="false" tabindex="0"><i data-icon="medal"></i> Tournois</a>
+      <a class="nav-item tab-btn" id="tab-btn-profile" href="profile.html" role="tab" aria-selected="false" tabindex="0"><i data-icon="user"></i> Mon Profil</a>
+    </nav>
+    <div class="sidebar-profile">
+      <div class="auth-zone" id="auth-zone">
+        <button class="login-btn login-btn-sidebar" onclick="toggleAuthModal()" id="login-btn-main">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <span>Connexion</span>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="content" id="atlas-content">
+    <header class="topbar">
+      <div>
+        <h1 id="topbar-title">Atlas</h1>
+        <p id="topbar-subtitle">Cartes interactives OpenFront — géographie, stats et stratégies</p>
+      </div>
+    </header>
+
+    <div id="atlas-view" class="atlas-view">
+      <div class="atlas-loading"><div class="spinner"></div><p>Chargement des cartes…</p></div>
+    </div>
+
+    <footer class="atlas-footer">
+      <span>TheFrontHub · Atlas · Données fournies par <a href="https://github.com/hfichter/openfront-atlas" target="_blank" rel="noopener" style="color:var(--orange)">OpenFront Atlas</a> (Public Domain)</span>
+    </footer>
+  </main>
+</div>
+</div>
+
+<div id="toast-container"></div>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-array@3/dist/d3-array.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-geo@3/dist/d3-geo.min.js"></script>
+<script type="module" src="atlas.js?v=10"></script>
+<script src="lenis.js?v=2"></script>
+<script src="animations.js?v=13"></script>
+<script src="toast.js"></script>
+</body>
+</html>
