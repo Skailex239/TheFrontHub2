@@ -63,7 +63,7 @@
 
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=92" as="style">
-<link rel="preload" href="dist/app.min.js?v=33" as="script" crossorigin>
+<link rel="preload" href="dist/app.min.js?v=35" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=9" as="script" crossorigin>
 <link rel="preload" href="runs_public.json.gz" as="fetch" crossorigin>
 
@@ -85,7 +85,7 @@
 <!-- i18n : dict de page (synchrone, avant i18n.js) + moteur + sélecteur de langue -->
 <script src="dist/i18n-dict-home.min.js?v=3"></script>
 <script src="dist/i18n-dict-widgets.min.js?v=3"></script>
-<script src="dist/i18n.min.js?v=6" defer></script>
+<script src="dist/i18n.min.js?v=7" defer></script>
 <script src="dist/lang-switcher.min.js?v=2" defer></script>
 
 <!-- cookies.js v5 : GA4 + tag AdSense (sert le bandeau CMP Google) + réouverture consentement -->
@@ -115,6 +115,18 @@
       </a>
       <a class="nav-item tab-btn" id="tab-btn-ranked" href="index.html?tab=ranked" onclick="event.preventDefault();switchTab('ranked',this);document.getElementById('topbar-title').textContent=(window.t?window.t('nav.ranked'):'Classé')">
         <i data-icon="ladder"></i> <span data-i18n="nav.ranked">Classé</span>
+      </a>
+      <a class="nav-item tab-btn" id="tab-btn-ffa" href="index.html?tab=ffa" onclick="event.preventDefault();switchTab('ffa',this);document.getElementById('topbar-title').textContent=(window.t?window.t('nav.ffa')||'Classement FFA':'Classement FFA')">
+        <i data-icon="crown"></i> <span data-i18n="nav.ffa">Classement FFA</span>
+      </a>
+      <a class="nav-item tab-btn" id="tab-btn-tribes" href="index.html?tab=tribes" onclick="event.preventDefault();switchTab('tribes',this);document.getElementById('topbar-title').textContent=(window.t?window.t('nav.tribes')||'Tribus':'Tribus')">
+        <i data-icon="users"></i> <span data-i18n="nav.tribes">Tribus</span>
+      </a>
+      <a class="nav-item tab-btn" id="tab-btn-news" href="index.html?tab=news" onclick="event.preventDefault();switchTab('news',this);document.getElementById('topbar-title').textContent=(window.t?window.t('nav.news')||'News':'News')">
+        <i data-icon="globe"></i> <span data-i18n="nav.news">News</span>
+      </a>
+      <a class="nav-item tab-btn" id="tab-btn-live" href="index.html?tab=live" onclick="event.preventDefault();switchTab('live',this);document.getElementById('topbar-title').textContent=(window.t?window.t('nav.live')||'Streams Live':'Streams Live')">
+        <i data-icon="fire"></i> <span data-i18n="nav.live">Live</span>
       </a>
       <a class="nav-item tab-btn" id="tab-btn-lobby" href="lobby.html">
         <i data-icon="bolt"></i> <span data-i18n="nav.lobby">Lobby</span>
@@ -470,6 +482,46 @@
       </div>
     </div>
 
+    <div class="tab-content" id="tab-ffa" role="tabpanel">
+      <div class="table-container">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap">
+          <h3 style="margin:0;font-size:15px;letter-spacing:.4px">👑 CLASSEMENT FFA OFFICIEL — WINS / LOSSES</h3>
+          <button id="ffa-refresh" onclick="loadFFABoard(true)" style="border:1px solid var(--border);background:transparent;color:var(--text,var(--fg));border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px">Actualiser</button>
+        </div>
+        <div id="ffa-body"><div class="loading" style="padding:24px;text-align:center;color:var(--text3,var(--muted))">Chargement…</div></div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-tribes" role="tabpanel">
+      <div class="table-container">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap">
+          <h3 style="margin:0;font-size:15px;letter-spacing:.4px">🫂 TRIBUS — REACH &amp; BOOSTS</h3>
+          <button id="tribes-refresh" onclick="loadTribes(true)" style="border:1px solid var(--border);background:transparent;color:var(--text,var(--fg));border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px">Actualiser</button>
+        </div>
+        <div id="tribes-body"><div class="loading" style="padding:24px;text-align:center;color:var(--text3,var(--muted))">Chargement…</div></div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-news" role="tabpanel">
+      <div class="table-container">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap">
+          <h3 style="margin:0;font-size:15px;letter-spacing:.4px">📰 NEWS OFFICIELLES OPENFRONT</h3>
+          <button id="news-refresh" onclick="loadNews(true)" style="border:1px solid var(--border);background:transparent;color:var(--text,var(--fg));border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px">Actualiser</button>
+        </div>
+        <div id="news-body"><div class="loading" style="padding:24px;text-align:center;color:var(--text3,var(--muted))">Chargement…</div></div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-live" role="tabpanel">
+      <div class="table-container">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap">
+          <h3 style="margin:0;font-size:15px;letter-spacing:.4px">🔴 STREAMS OPENFRONT EN DIRECT</h3>
+          <button id="live-refresh" onclick="loadStreams(true)" style="border:1px solid var(--border);background:transparent;color:var(--text,var(--fg));border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px">Actualiser</button>
+        </div>
+        <div id="live-body"><div class="loading" style="padding:24px;text-align:center;color:var(--text3,var(--muted))">Chargement…</div></div>
+      </div>
+    </div>
+
 
 
   </main>
@@ -599,7 +651,7 @@
 <script src="dist/lenis.min.js?v=7"></script>
 <script src="dist/animations.min.js?v=2" defer></script>
 <script type="module" src="banners.js?v=4"></script>
-<script src="dist/app.min.js?v=33" type="module"></script>
+<script src="dist/app.min.js?v=35" type="module"></script>
 
 <script>
   // Register Service Worker for offline support + Stale-While-Revalidate caching

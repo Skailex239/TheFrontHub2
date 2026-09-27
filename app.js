@@ -2072,14 +2072,122 @@ function closeModal(e){
   if(!e||e.target.id==="player-modal")document.getElementById("player-modal").classList.remove("active");
   updateURL();
 }
+/* ─── v5.13 : onglets Hub — Classement FFA / Tribus / News / Live ─────── */
+const hubCache = { ffa: null, tribes: null, news: null, live: null };
+function hubEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function hubDate(v){
+  if(v==null||v==='') return '—';
+  const n=Number(v);
+  const d = (Number.isFinite(n)&&n>1e9) ? new Date(n*1000) : new Date(v);
+  return isNaN(d.getTime()) ? String(v) : d.toLocaleString('fr-FR',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+}
+async function hubFetch(route){
+  const r = await fetch('/api/games-api.php?route='+route+'&limit=100');
+  const j = await r.json();
+  if(!j || !j.ok) throw new Error((j&&j.error)||'api_error');
+  return j;
+}
+function hubLoading(id){ const el=document.getElementById(id); if(el) el.innerHTML='<div class="loading" style="padding:24px;text-align:center;color:var(--text3,var(--muted))">Chargement…</div>'; }
+function hubError(id){ const el=document.getElementById(id); if(el) el.innerHTML='<div class="loading" style="padding:24px;text-align:center;color:#ef4444">⚠️ Erreur de chargement — réessaie plus tard.</div>'; }
+function profLink(name,pid){ return 'profile.html?player='+encodeURIComponent(name||'')+(pid?'&publicId='+encodeURIComponent(pid):''); }
+
+async function loadFFABoard(force){
+  const body=document.getElementById('ffa-body'); if(!body) return;
+  if(hubCache.ffa && !force){ body.innerHTML=hubCache.ffa; return; }
+  hubLoading('ffa-body');
+  try{
+    const j=await hubFetch('ffaboard');
+    const rows=(j.entries||[]).map(e=>'<tr>'+
+      '<td style="padding:8px 12px;border-bottom:1px solid var(--border);font-weight:800;width:60px">#'+hubEsc(e.rank)+'</td>'+
+      '<td style="padding:8px 12px;border-bottom:1px solid var(--border)"><a href="'+profLink(e.username,e.publicId)+'" style="color:inherit;text-decoration:none;font-weight:600">'+hubEsc(e.username||e.publicId)+'</a></td>'+
+      '<td style="padding:8px 12px;border-bottom:1px solid var(--border);color:#10b981;font-weight:700">'+hubEsc(e.wins)+'</td>'+
+      '<td style="padding:8px 12px;border-bottom:1px solid var(--border);color:#ef4444">'+hubEsc(e.losses)+'</td>'+
+      '<td style="padding:8px 12px;border-bottom:1px solid var(--border)">'+hubEsc(e.total)+'</td>'+
+      '<td style="padding:8px 12px;border-bottom:1px solid var(--border);font-weight:700">'+hubEsc(e.wlr!=null?e.wlr:'—')+'</td></tr>').join('');
+    body.innerHTML='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr>'+
+      ['RANG','JOUEUR','VICTOIRES','DÉFAITES','TOTAL','W/L'].map(h=>'<th style="text-align:left;padding:8px 12px;border-bottom:2px solid var(--border);font-size:11px;letter-spacing:.5px;color:var(--text3,var(--muted))">'+h+'</th>').join('')+
+      '</tr></thead><tbody>'+rows+'</tbody></table></div>'+
+      '<div style="padding:10px 18px;color:var(--text3,var(--muted));font-size:12px">Source : leaderboard officiel OpenFront (FFA) · MAJ '+hubDate(j.fetchedAt)+'</div>';
+    hubCache.ffa=body.innerHTML;
+  }catch(e){ hubError('ffa-body'); }
+}
+
+async function loadTribes(force){
+  const body=document.getElementById('tribes-body'); if(!body) return;
+  if(hubCache.tribes && !force){ body.innerHTML=hubCache.tribes; return; }
+  hubLoading('tribes-body');
+  try{
+    const j=await hubFetch('tribes');
+    const fmtN=n=>Number(n||0).toLocaleString('fr-FR');
+    const rows=(j.tribes||[]).map(t=>'<tr>'+
+      '<td style="padding:8px 12px;border-bottom:1px solid var(--border);font-weight:800;width:60px">#'+hubEsc(t.rank)+'</td>'+
+      '<td style="padding:8px 12px;border-bottom:1px solid var(--border);font-weight:700">'+hubEsc(t.name)+'</td>'+
+      '<td style="padding:8px 12px;border-bottom:1px solid var(--border)">'+fmtN(t.playerReach)+'</td>'+
+      '<td style="padding:8px 12px;border-bottom:1px solid var(--border)">'+fmtN(t.gamesAppeared)+'</td>'+
+      '<td style="padding:8px 12px;border-bottom:1px solid var(--border)">'+hubEsc(t.activeBoosts)+'</td>'+
+      '<td style="padding:8px 12px;border-bottom:1px solid var(--border)">'+(t.ownerPublicId?'<a href="'+profLink(t.ownerUsername,t.ownerPublicId)+'" style="color:inherit;text-decoration:none;font-weight:600">'+hubEsc(t.ownerUsername||t.ownerPublicId)+'</a>':'—')+'</td></tr>').join('');
+    body.innerHTML='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr>'+
+      ['RANG','TRIBU','PLAYER REACH','PARTIES','BOOSTS ACTIFS','PROPRIÉTAIRE'].map(h=>'<th style="text-align:left;padding:8px 12px;border-bottom:2px solid var(--border);font-size:11px;letter-spacing:.5px;color:var(--text3,var(--muted))">'+h+'</th>').join('')+
+      '</tr></thead><tbody>'+rows+'</tbody></table></div>'+
+      '<div style="padding:10px 18px;color:var(--text3,var(--muted));font-size:12px">Source : leaderboard officiel OpenFront (tribus) · MAJ '+hubDate(j.fetchedAt)+'</div>';
+    hubCache.tribes=body.innerHTML;
+  }catch(e){ hubError('tribes-body'); }
+}
+
+async function loadNews(force){
+  const body=document.getElementById('news-body'); if(!body) return;
+  if(hubCache.news && !force){ body.innerHTML=hubCache.news; return; }
+  hubLoading('news-body');
+  try{
+    const j=await hubFetch('news');
+    const cards=(j.items||[]).map(n=>'<div style="border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:10px">'+
+      '<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center"><b style="font-size:15px">'+hubEsc(n.title||'Annonce')+'</b>'+
+      (n.platforms&&n.platforms.length?'<span style="font-size:11px;color:var(--text3,var(--muted));border:1px solid var(--border);border-radius:999px;padding:2px 10px">'+hubEsc(n.platforms.join(' · '))+'</span>':'')+'</div>'+
+      (n.description?'<p style="margin:8px 0 0;color:var(--text3,var(--muted));font-size:13.5px;white-space:pre-wrap">'+hubEsc(n.description)+'</p>':'')+
+      '<div style="margin-top:8px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><span style="color:var(--text3,var(--muted));font-size:12px">#'+hubEsc(n.id)+' · vue du '+hubDate(n.firstSeen)+'</span>'+
+      (n.url?'<a href="'+hubEsc(n.url)+'" target="_blank" rel="noopener" style="color:var(--orange);font-size:13px;font-weight:600">Voir →</a>':'')+'</div></div>').join('');
+    body.innerHTML=(cards||'<div style="padding:24px;text-align:center;color:var(--text3,var(--muted))">Aucune news pour le moment.</div>');
+    hubCache.news=body.innerHTML;
+  }catch(e){ hubError('news-body'); }
+}
+
+async function loadStreams(force){
+  const body=document.getElementById('live-body'); if(!body) return;
+  if(hubCache.live && !force){ body.innerHTML=hubCache.live; return; }
+  hubLoading('live-body');
+  try{
+    const j=await hubFetch('streams');
+    const cards=(j.live||[]).map(s=>'<a href="'+hubEsc(s.url||'#')+'" target="_blank" rel="noopener" style="display:flex;gap:12px;align-items:center;border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px;text-decoration:none;color:inherit">'+
+      (s.avatarUrl?'<img src="'+hubEsc(s.avatarUrl)+'" alt="" loading="lazy" style="width:44px;height:44px;border-radius:50%;object-fit:cover">':'<span style="width:44px;height:44px;border-radius:50%;background:var(--border);display:inline-block"></span>')+
+      '<span style="flex:1;min-width:0"><b style="display:block;font-size:14px">'+hubEsc(s.displayName||s.channel)+'</b>'+
+      '<span style="display:block;color:var(--text3,var(--muted));font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+hubEsc(s.title||'')+'</span></span>'+
+      '<span style="font-size:12px;font-weight:700;color:#ef4444">🔴 '+hubEsc(s.viewers)+'</span></a>').join('');
+    body.innerHTML=(cards||'<div style="padding:24px;text-align:center;color:var(--text3,var(--muted))">Aucun stream live actuellement. 📺</div>')+
+      '<div style="padding:4px 2px;color:var(--text3,var(--muted));font-size:12px">Source : streams.json officiel OpenFront · rafraîchi toutes les 10 min</div>';
+    hubCache.live=body.innerHTML;
+  }catch(e){ hubError('live-body'); }
+}
+window.loadFFABoard = loadFFABoard;
+window.loadTribes = loadTribes;
+window.loadNews = loadNews;
+window.loadStreams = loadStreams;
+
 function switchTab(name,btn){
   // Update topbar title based on tab
   const topbarTitle = document.getElementById('topbar-title');
   if (topbarTitle) {
     if (name === 'ranked') topbarTitle.textContent = T('nav.ranked', 'Classé');
     else if (name === 'maps') topbarTitle.textContent = T('nav.maps', 'Speedruns');
+    else if (name === 'ffa') topbarTitle.textContent = T('nav.ffa', 'Classement FFA');
+    else if (name === 'tribes') topbarTitle.textContent = T('nav.tribes', 'Tribus');
+    else if (name === 'news') topbarTitle.textContent = T('nav.news', 'News');
+    else if (name === 'live') topbarTitle.textContent = T('nav.live', 'Streams Live');
   }
   if (name === 'ranked') loadRankedLeaderboard(true);
+  if (name === 'ffa') loadFFABoard();
+  if (name === 'tribes') loadTribes();
+  if (name === 'news') loadNews();
+  if (name === 'live') loadStreams();
   document.querySelectorAll('.tab-btn').forEach(b=>{b.classList.remove('active');b.removeAttribute('aria-current');});
   
   // Toggle FFA-specific elements visibility
@@ -2117,8 +2225,8 @@ function updateURL(){
   const activeTab=document.querySelector('.tab-btn.active');
   if(activeTab){
     // Resolve tab name from button ID (robust against other nav tabs)
-    const tabName = activeTab.id === 'tab-btn-ranked' ? 'ranked'
-                  : activeTab.id === 'tab-btn-maps' ? 'maps' : null;
+    const tabNames = { 'tab-btn-ranked':'ranked', 'tab-btn-maps':'maps', 'tab-btn-ffa':'ffa', 'tab-btn-tribes':'tribes', 'tab-btn-news':'news', 'tab-btn-live':'live' };
+    const tabName = tabNames[activeTab.id] || null;
     if(tabName) p.set('tab',tabName);
   }
   if(activeMap) p.set('map',activeMap);
@@ -2287,9 +2395,9 @@ loadData().then(()=>{
     return;
   }
   if (tabParam) {
-    // Map tab name → button ID (more robust than index-based lookup which
-    // breaks when nav has other tabs like dashboard/tournois/profile).
-    const tabBtnId = tabParam === 'ranked' ? 'tab-btn-ranked' : 'tab-btn-maps';
+    // Map tab name → button ID (robust against other nav tabs)
+    const tabBtnMap = { ranked:'tab-btn-ranked', maps:'tab-btn-maps', ffa:'tab-btn-ffa', tribes:'tab-btn-tribes', news:'tab-btn-news', live:'tab-btn-live' };
+    const tabBtnId = tabBtnMap[tabParam] || 'tab-btn-maps';
     const btn = document.getElementById(tabBtnId);
     if (btn) switchTab(tabParam, btn);
   }
