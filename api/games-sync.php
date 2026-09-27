@@ -463,6 +463,80 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_profiles (
     INDEX idx_gprof_fetched (fetched_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+/* ── v5.12 — nouveaux flux API officielles ──
+ * Board FFA officiel (/leaderboard/public/ffa), ladder des tribus
+ * (/leaderboard/tribes), news (/news.json), streams live (/streams.json),
+ * sessions de clans (/public/clan/:tag/sessions). Tout est additif. */
+$pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_lb_ffa (
+    rank_pos   INT UNSIGNED    NOT NULL PRIMARY KEY,
+    public_id  VARCHAR(16)     NOT NULL,
+    wins       INT UNSIGNED    NOT NULL DEFAULT 0,
+    losses     INT UNSIGNED    NOT NULL DEFAULT 0,
+    total      INT UNSIGNED    NOT NULL DEFAULT 0,
+    wlr        DOUBLE          NULL,
+    fetched_at DATETIME        NOT NULL,
+    INDEX idx_glbffa_pid (public_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+$pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_lb_ffa_history (
+    day        DATE            NOT NULL,
+    public_id  VARCHAR(16)     NOT NULL,
+    rank_pos   INT UNSIGNED    NOT NULL,
+    wins       INT UNSIGNED    NOT NULL DEFAULT 0,
+    losses     INT UNSIGNED    NOT NULL DEFAULT 0,
+    total      INT UNSIGNED    NOT NULL DEFAULT 0,
+    wlr        DOUBLE          NULL,
+    PRIMARY KEY (day, public_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+$pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_tribes (
+    rank_pos       INT UNSIGNED    NOT NULL PRIMARY KEY,
+    name           VARCHAR(64)     NOT NULL,
+    games_appeared INT UNSIGNED    NOT NULL DEFAULT 0,
+    player_reach   INT UNSIGNED    NOT NULL DEFAULT 0,
+    owner_public_id VARCHAR(16)    NULL,
+    owner_username VARCHAR(64)     NULL,
+    active_boosts  INT UNSIGNED    NOT NULL DEFAULT 0,
+    window_days    INT UNSIGNED    NOT NULL DEFAULT 30,
+    fetched_at     DATETIME        NOT NULL,
+    INDEX idx_gtribes_owner (owner_public_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+$pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_news (
+    news_id     VARCHAR(24)     NOT NULL PRIMARY KEY,
+    title       VARCHAR(200)    NULL,
+    description TEXT            NULL,
+    url         VARCHAR(300)    NULL,
+    type        VARCHAR(24)     NULL,
+    platforms_json VARCHAR(120) NULL,
+    first_seen  DATETIME        NOT NULL,
+    last_seen   DATETIME        NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+$pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_streams (
+    channel       VARCHAR(64)     NOT NULL PRIMARY KEY,
+    platform      VARCHAR(16)     NOT NULL,
+    display_name  VARCHAR(64)     NULL,
+    title         VARCHAR(200)    NULL,
+    viewers       INT UNSIGNED    NOT NULL DEFAULT 0,
+    avatar_url    VARCHAR(300)    NULL,
+    url           VARCHAR(300)    NULL,
+    started_at    DATETIME        NULL,
+    first_seen_at DATETIME        NOT NULL,
+    last_seen_at  DATETIME        NOT NULL,
+    INDEX idx_gstreams_viewers (viewers)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+$pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_clan_sessions (
+    clan_tag           VARCHAR(16)     NOT NULL,
+    game_id            VARCHAR(16)     NOT NULL,
+    game_start         DATETIME        NOT NULL,
+    clan_player_count  INT UNSIGNED    NOT NULL DEFAULT 0,
+    has_won            TINYINT(1)      NOT NULL DEFAULT 0,
+    num_teams          INT UNSIGNED    NULL,
+    player_teams       VARCHAR(32)     NULL,
+    total_player_count INT UNSIGNED    NULL,
+    score              DOUBLE          NULL,
+    fetched_at         DATETIME        NOT NULL,
+    PRIMARY KEY (clan_tag, game_id),
+    INDEX idx_gcless_tag_start (clan_tag, game_start)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
 /* Colonnes « officielles » du leaderboard clans (weightedWins, fenêtre ~90 j).
  * Complètent participations/wins calculés depuis nos rosters. */
 tfh_add_col($pdo, 'tfh_g_clans', 'lb_games',           "`lb_games` INT UNSIGNED NULL");
@@ -1806,6 +1880,243 @@ function rating_phase(PDO $pdo, array $cfg, float $deadline): void {
     if ($gRated > 0) log_line("[rating] $gRated partie(s) notée(s) ($pRated mises à jour joueurs)");
 }
 
+/* ─────────────────── v5.12 — nouveaux flux API officielles ─────────────────── */
+
+/* ISO8601 ("2026-09-27T06:59:33.978Z") → DATETIME MySQL "2026-09-27 06:59:33". */
+function iso_to_dt(string $iso): string {
+    return substr($iso, 0, 10) . ' ' . substr($iso, 11, 8);
+}
+
+/* Phase 10 — Board FFA OFFICIEL (/leaderboard/public/ffa, tri par wins).
+ * Snapshot remplacé (top 1000) + 1 ligne d'historique/joueur/jour (courbes).
+ * Throttle 6 h, 1 req. 403 Cloudflare possible depuis o2switch → retenté. */
+function ffa_board_phase(PDO $pdo, array $cfg): void {
+    phase_mark($pdo, 'ffaboard');
+    $mins = max(30, (int)($cfg['ffaboard_refresh_min'] ?? 360));
+    $last = (int)state_get($pdo, 'ffaboard_refreshed_at', '0');
+    if (time() - $last < $mins * 60) return;
+    [$st, $d] = of_fetch_resilient(OF_API_BASE . '/leaderboard/public/ffa');
+    if ($st !== 200 || !is_array($d)) { log_line("[ffaboard] HTTP $st — retenté au prochain tick"); return; }
+    $now = gmdate('Y-m-d H:i:s'); $today = gmdate('Y-m-d');
+    $pdo->beginTransaction();
+    try {
+        $pdo->exec('DELETE FROM tfh_g_lb_ffa');
+        $ins  = $pdo->prepare('INSERT INTO tfh_g_lb_ffa (rank_pos, public_id, wins, losses, total, wlr, fetched_at) VALUES (?,?,?,?,?,?,?)');
+        $hist = $pdo->prepare('INSERT INTO tfh_g_lb_ffa_history (day, public_id, rank_pos, wins, losses, total, wlr)
+            VALUES (?,?,?,?,?,?,?)
+            ON DUPLICATE KEY UPDATE rank_pos = VALUES(rank_pos), wins = VALUES(wins), losses = VALUES(losses),
+                total = VALUES(total), wlr = VALUES(wlr)');
+        $n = 0;
+        foreach ($d as $i => $r) {
+            if (!is_array($r)) continue;
+            $pid = (string)($r['public_id'] ?? '');
+            if ($pid === '' || $n >= 1000) continue;
+            $n++;
+            $wins = (int)($r['wins'] ?? 0); $losses = (int)($r['losses'] ?? 0); $total = (int)($r['total'] ?? 0);
+            $wlr = isset($r['wlr']) && is_numeric($r['wlr']) ? (float)$r['wlr'] : null;
+            $ins->execute([$n, $pid, $wins, $losses, $total, $wlr, $now]);
+            $hist->execute([$today, $pid, $n, $wins, $losses, $total, $wlr]);
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+    state_set($pdo, 'ffaboard_refreshed_at', (string)time());
+    log_line("[ffaboard] $n entrée(s) officielle(s) FFA synchronisée(s)");
+}
+
+/* Phase 11 — Ladder des TRIBUS (/leaderboard/tribes, fenêtre 30 j).
+ * Noms de tribus achetés : reach, propriétaire, boosts actifs. Snapshot.
+ * Throttle 6 h, 1 req. */
+function tribes_phase(PDO $pdo, array $cfg): void {
+    phase_mark($pdo, 'tribes');
+    $mins = max(30, (int)($cfg['tribes_refresh_min'] ?? 360));
+    $last = (int)state_get($pdo, 'tribes_refreshed_at', '0');
+    if (time() - $last < $mins * 60) return;
+    [$st, $d] = of_fetch_resilient(OF_API_BASE . '/leaderboard/tribes');
+    if ($st !== 200 || !is_array($d) || !is_array($d['tribes'] ?? null)) { log_line("[tribes] HTTP $st — retenté au prochain tick"); return; }
+    $now = gmdate('Y-m-d H:i:s');
+    $pdo->beginTransaction();
+    try {
+        $pdo->exec('DELETE FROM tfh_g_tribes');
+        $ins = $pdo->prepare('INSERT INTO tfh_g_tribes
+            (rank_pos, name, games_appeared, player_reach, owner_public_id, owner_username, active_boosts, window_days, fetched_at)
+            VALUES (?,?,?,?,?,?,?,?,?)');
+        $n = 0;
+        foreach ($d['tribes'] as $r) {
+            if (!is_array($r)) continue;
+            $name = trim((string)($r['name'] ?? ''));
+            if ($name === '' || $n >= 500) continue;
+            $n++;
+            $ins->execute([
+                (int)($r['rank'] ?? $n),
+                cut($name, 64),
+                (int)($r['gamesAppeared'] ?? 0),
+                (int)($r['playerReach'] ?? 0),
+                ($r['ownerPublicId'] ?? null) !== null ? cut((string)$r['ownerPublicId'], 16) : null,
+                ($r['ownerUsername'] ?? null) !== null ? cut((string)$r['ownerUsername'], 64) : null,
+                (int)($r['activeBoosts'] ?? 0),
+                (int)($d['windowDays'] ?? 30),
+                $now,
+            ]);
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+    state_set($pdo, 'tribes_refreshed_at', (string)time());
+    log_line("[tribes] $n tribu(s) officielle(s) synchronisée(s)");
+}
+
+/* Phase 12 — News officielles (/news.json). Upsert par id, throttle 6 h, 1 req. */
+function news_phase(PDO $pdo, array $cfg): void {
+    phase_mark($pdo, 'news');
+    $mins = max(30, (int)($cfg['news_refresh_min'] ?? 360));
+    $last = (int)state_get($pdo, 'news_refreshed_at', '0');
+    if (time() - $last < $mins * 60) return;
+    [$st, $d] = of_fetch_resilient(OF_API_BASE . '/news.json');
+    if ($st !== 200 || !is_array($d)) { log_line("[news] HTTP $st — retenté au prochain tick"); return; }
+    $now = gmdate('Y-m-d H:i:s');
+    $up = $pdo->prepare('INSERT INTO tfh_g_news (news_id, title, description, url, type, platforms_json, first_seen, last_seen)
+        VALUES (?,?,?,?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE title = VALUES(title), description = VALUES(description), url = VALUES(url),
+            type = VALUES(type), platforms_json = VALUES(platforms_json), last_seen = VALUES(last_seen)');
+    $n = 0;
+    foreach ($d as $item) {
+        if (!is_array($item)) continue;
+        $id = (string)($item['id'] ?? '');
+        if ($id === '') continue;
+        $plats = is_array($item['platforms'] ?? null) ? implode(',', array_slice($item['platforms'], 0, 6)) : '';
+        $up->execute([
+            cut($id, 24),
+            isset($item['title']) ? cut((string)$item['title'], 200) : null,
+            isset($item['description']) ? cut_txt((string)$item['description'], 4000) : null,
+            isset($item['url']) ? cut((string)$item['url'], 300) : null,
+            isset($item['type']) ? cut((string)$item['type'], 24) : null,
+            cut($plats, 120),
+            $now, $now,
+        ]);
+        $n++;
+    }
+    state_set($pdo, 'news_refreshed_at', (string)time());
+    log_line("[news] $n annonce(s) synchronisée(s)");
+}
+
+/* Phase 13 — Streams live (/streams.json, Twitch…). Upsert par canal + purge > 7 j.
+ * Throttle 30 min, 1 req. */
+function streams_phase(PDO $pdo, array $cfg): void {
+    phase_mark($pdo, 'streams');
+    $mins = max(10, (int)($cfg['streams_refresh_min'] ?? 30));
+    $last = (int)state_get($pdo, 'streams_refreshed_at', '0');
+    if (time() - $last < $mins * 60) return;
+    [$st, $d] = of_fetch_resilient(OF_API_BASE . '/streams.json');
+    if ($st !== 200 || !is_array($d)) { log_line("[streams] HTTP $st — retenté au prochain tick"); return; }
+    $now = gmdate('Y-m-d H:i:s');
+    $up = $pdo->prepare('INSERT INTO tfh_g_streams
+        (channel, platform, display_name, title, viewers, avatar_url, url, started_at, first_seen_at, last_seen_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE platform = VALUES(platform), display_name = VALUES(display_name), title = VALUES(title),
+            viewers = VALUES(viewers), avatar_url = VALUES(avatar_url), url = VALUES(url),
+            started_at = VALUES(started_at), last_seen_at = VALUES(last_seen_at)');
+    $n = 0;
+    foreach (['live', 'featured'] as $bucket) {
+        $rows = is_array($d[$bucket] ?? null) ? $d[$bucket] : [];
+        foreach ($rows as $s) {
+            if (!is_array($s)) continue;
+            $ch = trim((string)($s['channel'] ?? ''));
+            if ($ch === '' || $n >= 200) continue;
+            $started = isset($s['startedAt']) && is_string($s['startedAt']) && strlen($s['startedAt']) >= 19
+                ? iso_to_dt($s['startedAt']) : null;
+            $up->execute([
+                cut($ch, 64),
+                cut((string)($s['platform'] ?? 'twitch'), 16),
+                isset($s['displayName']) ? cut((string)$s['displayName'], 64) : null,
+                isset($s['title']) ? cut((string)$s['title'], 200) : null,
+                (int)($s['viewers'] ?? 0),
+                isset($s['avatarUrl']) ? cut((string)$s['avatarUrl'], 300) : null,
+                isset($s['url']) ? cut((string)$s['url'], 300) : null,
+                $started,
+                $now, $now,
+            ]);
+            $n++;
+        }
+    }
+    $pdo->exec('DELETE FROM tfh_g_streams WHERE last_seen_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)');
+    state_set($pdo, 'streams_refreshed_at', (string)time());
+    log_line("[streams] $n stream(s) live synchronisé(s)");
+}
+
+/* Phase 14 — Sessions de clans (/public/clan/:tag/sessions).
+ * Top 50 clans officiels (weightedWins), fenêtre glissante ≤ 23 h depuis le
+ * dernier passage COMPLET, pagination limit=100 (max 8 pages/clan), INSERT
+ * IGNORE. Curseur clansess_idx : un cycle interrompu par le budget reprend au
+ * prochain tick (throttle 10 min en cours de cycle, 6 h quand complet) — le
+ * backfill n'est jamais affamé. Purge au-delà de 60 jours. */
+function clan_sessions_phase(PDO $pdo, array $cfg, float $deadline): void {
+    phase_mark($pdo, 'clansess');
+    $idx = (int)state_get($pdo, 'clansess_idx', '0');
+    $mins = max(10, $idx > 0 ? 10 : (int)($cfg['clansess_refresh_min'] ?? 360));
+    $last = (int)state_get($pdo, 'clansess_refreshed_at', '0');
+    if (time() - $last < $mins * 60) return;
+    $top = $pdo->query('SELECT clan_tag FROM tfh_g_clans WHERE lb_fetched_at IS NOT NULL
+        ORDER BY lb_weighted_wins DESC LIMIT 50')->fetchAll(PDO::FETCH_COLUMN);
+    if (!$top) { log_line('[clansess] aucun clan officiel encore synchronisé — retenté au prochain tick'); return; }
+    /* Fenêtre : depuis le dernier passage (avec 1 h de chevauchement), plafonnée à 23 h. */
+    $startTs = (int)state_get($pdo, 'clansess_last_start', (string)(time() - 6 * 3600));
+    $startTs = min($startTs - 3600, time() - 600);
+    if (time() - $startTs > 23 * 3600) $startTs = time() - 23 * 3600;
+    $start = gmdate('Y-m-d\\TH:00:00\\Z', $startTs);
+    $end   = gmdate('Y-m-d\\TH:00:00\\Z', time());
+    $now = gmdate('Y-m-d H:i:s');
+    $ins = $pdo->prepare('INSERT IGNORE INTO tfh_g_clan_sessions
+        (clan_tag, game_id, game_start, clan_player_count, has_won, num_teams, player_teams, total_player_count, score, fetched_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?)');
+    $total = 0;
+    for ($i = $idx; $i < count($top); $i++) {
+        if (microtime(true) >= $deadline) {
+            /* Cycle incomplet : reprise à ce clan au prochain tick. */
+            state_set($pdo, 'clansess_idx', (string)$i);
+            log_line("[clansess] cycle interrompu au clan " . ($i + 1) . '/' . count($top) . " ($total session(s)) — reprise au prochain tick");
+            return;
+        }
+        $tag = $top[$i];
+        for ($page = 1; $page <= 8; $page++) {
+            [$st, $d] = of_fetch_resilient(OF_API_BASE . '/public/clan/' . rawurlencode($tag) . '/sessions?start=' . $start . '&end=' . $end . '&page=' . $page . '&limit=100');
+            if ($st !== 200 || !is_array($d) || !is_array($d['results'] ?? null)) break;
+            $rows = $d['results'];
+            foreach ($rows as $s) {
+                if (!is_array($s)) continue;
+                $gid = (string)($s['gameId'] ?? '');
+                $gStart = (string)($s['gameStart'] ?? '');
+                if ($gid === '' || strlen($gStart) < 19) continue;
+                $ins->execute([
+                    $tag, $gid, iso_to_dt($gStart),
+                    (int)($s['clanPlayerCount'] ?? 0),
+                    !empty($s['hasWon']) ? 1 : 0,
+                    isset($s['numTeams']) && is_numeric($s['numTeams']) ? (int)$s['numTeams'] : null,
+                    isset($s['playerTeams']) ? cut((string)$s['playerTeams'], 32) : null,
+                    isset($s['totalPlayerCount']) && is_numeric($s['totalPlayerCount']) ? (int)$s['totalPlayerCount'] : null,
+                    isset($s['score']) && is_numeric($s['score']) ? (float)$s['score'] : null,
+                    $now,
+                ]);
+                $total++;
+            }
+            if (count($rows) < 100) break;
+        }
+    }
+    /* Cycle complet : fenêtre ancrée à maintenant, throttle repasse à 6 h. */
+    state_set($pdo, 'clansess_idx', '0');
+    state_set($pdo, 'clansess_last_start', (string)(time() - 600));
+    state_set($pdo, 'clansess_refreshed_at', (string)time());
+    /* Purge : 1 fois par jour environ (si la minute courante est 37). */
+    if ((int)gmdate('i') === 37) {
+        $pdo->exec('DELETE FROM tfh_g_clan_sessions WHERE game_start < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 60 DAY)');
+    }
+    log_line("[clansess] $total session(s) pour " . count($top) . ' clan(s) — fenêtre ' . $start . ' → ' . $end);
+}
+
 /* ─────────────────────────── Commandes spéciales ─────────────────────────── */
 
 if ($argStatus) {
@@ -1832,6 +2143,14 @@ if ($argStatus) {
         (SELECT COUNT(*) FROM tfh_g_profiles WHERE not_found = 1) AS profiles_gone,
         (SELECT COUNT(*) FROM tfh_g_clans WHERE lb_fetched_at IS NOT NULL) AS clans_official,
         (SELECT MAX(lb_fetched_at) FROM tfh_g_clans) AS clans_official_at')->fetch();
+    /* v5.12 — nouveaux flux */
+    $v512 = $pdo->query('SELECT
+        (SELECT COUNT(*) FROM tfh_g_lb_ffa) AS ffa_rows,
+        (SELECT COUNT(*) FROM tfh_g_lb_ffa_history) AS ffa_hist,
+        (SELECT COUNT(*) FROM tfh_g_tribes) AS tribes,
+        (SELECT COUNT(*) FROM tfh_g_news) AS news,
+        (SELECT COUNT(*) FROM tfh_g_streams WHERE last_seen_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 2 HOUR)) AS streams_live,
+        (SELECT COUNT(*) FROM tfh_g_clan_sessions) AS clan_sessions')->fetch();
     $oldest = $pdo->query('SELECT MIN(started_at) AS o FROM tfh_g_games')->fetchColumn();
     $newest = $pdo->query('SELECT MAX(started_at) AS n FROM tfh_g_games')->fetchColumn();
     echo json_encode([
@@ -1868,6 +2187,14 @@ if ($argStatus) {
             'profiles_total_fetched' => (int)state_get($pdo, 'profiles_fetched_total', '0'),
             'clans_official' => (int)$v511['clans_official'],
             'clans_official_at' => $v511['clans_official_at'],
+        ],
+        'v512' => [
+            'ffa_board_rows' => (int)$v512['ffa_rows'],
+            'ffa_board_history' => (int)$v512['ffa_hist'],
+            'tribes' => (int)$v512['tribes'],
+            'news' => (int)$v512['news'],
+            'streams_live' => (int)$v512['streams_live'],
+            'clan_sessions' => (int)$v512['clan_sessions'],
         ],
     ], JSON_PRETTY_PRINT) . "\n";
     exit(0);
@@ -1933,6 +2260,12 @@ if (time() - $lastDel > 86400) {
 //     par le backfill ; leurs 429 partagent le circuit AIMD global.
 try { if (microtime(true) < $deadline) ladder_phase($pdo, $cfg); } catch (Throwable $e) { log_line('[ladder] ⚠️ ' . cut($e->getMessage(), 140)); }
 try { if (microtime(true) < $deadline) clans_lb_phase($pdo, $cfg); } catch (Throwable $e) { log_line('[clanslb] ⚠️ ' . cut($e->getMessage(), 140)); }
+// v5.12 — nouveaux flux officielles (tous throttlés, additifs, non bloquants)
+try { if (microtime(true) < $deadline) ffa_board_phase($pdo, $cfg); } catch (Throwable $e) { log_line('[ffaboard] ⚠️ ' . cut($e->getMessage(), 140)); }
+try { if (microtime(true) < $deadline) tribes_phase($pdo, $cfg); } catch (Throwable $e) { log_line('[tribes] ⚠️ ' . cut($e->getMessage(), 140)); }
+try { if (microtime(true) < $deadline) news_phase($pdo, $cfg); } catch (Throwable $e) { log_line('[news] ⚠️ ' . cut($e->getMessage(), 140)); }
+try { if (microtime(true) < $deadline) streams_phase($pdo, $cfg); } catch (Throwable $e) { log_line('[streams] ⚠️ ' . cut($e->getMessage(), 140)); }
+try { if (microtime(true) < $deadline) clan_sessions_phase($pdo, $cfg, $deadline); } catch (Throwable $e) { log_line('[clansess] ⚠️ ' . cut($e->getMessage(), 140)); }
 try { if (microtime(true) < $deadline) profiles_phase($pdo, $cfg, $deadline); } catch (Throwable $e) { log_line('[profiles] ⚠️ ' . cut($e->getMessage(), 140)); }
 
 // 2) Scan récent (depuis le dernier état, chevauchement inclus) — tous les types

@@ -44,6 +44,9 @@ try { $pdo->query('SELECT 1 FROM tfh_g_ratings LIMIT 1'); } catch (Throwable $e)
  * propre des routes concernées tant qu'elles n'existent pas. */
 $V511_READY = true;
 try { $pdo->query('SELECT 1 FROM tfh_g_ladder LIMIT 1'); } catch (Throwable $e) { $V511_READY = false; }
+/* v5.12 — nouveaux flux (board FFA, tribus, news, streams, sessions clans) */
+$V512_READY = true;
+try { $pdo->query('SELECT 1 FROM tfh_g_lb_ffa LIMIT 1'); } catch (Throwable $e) { $V512_READY = false; }
 
 /* ── Headers communs : JSON + cache court + CORS GET ── */
 header('Access-Control-Allow-Origin: *');
@@ -547,6 +550,16 @@ case 'status': {
         (SELECT COUNT(*) FROM tfh_g_profiles WHERE not_found = 1) AS profiles_gone,
         (SELECT COUNT(*) FROM tfh_g_clans WHERE lb_fetched_at IS NOT NULL) AS clans_official')->fetch();
     }
+    /* v5.12 : nouveaux flux */
+    $v512 = ['ffa_rows' => 0, 'tribes' => 0, 'news' => 0, 'streams_live' => 0, 'clan_sessions' => 0];
+    if ($V512_READY) {
+    $v512 = $pdo->query('SELECT
+        (SELECT COUNT(*) FROM tfh_g_lb_ffa) AS ffa_rows,
+        (SELECT COUNT(*) FROM tfh_g_tribes) AS tribes,
+        (SELECT COUNT(*) FROM tfh_g_news) AS news,
+        (SELECT COUNT(*) FROM tfh_g_streams WHERE last_seen_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 2 HOUR)) AS streams_live,
+        (SELECT COUNT(*) FROM tfh_g_clan_sessions) AS clan_sessions')->fetch();
+    }
     json_out([
         'ok' => true,
         'games' => (int)$cnt['games'],
@@ -582,6 +595,13 @@ case 'status': {
             'profilesOfficial' => (int)$v511['profiles'],
             'profilesGone' => (int)$v511['profiles_gone'],
             'profilesFetchedTotal' => isset($state['profiles_fetched_total']) ? (int)$state['profiles_fetched_total'] : 0,
+        ],
+        'v512' => [
+            'ffaBoardRows' => (int)$v512['ffa_rows'],
+            'tribes' => (int)$v512['tribes'],
+            'news' => (int)$v512['news'],
+            'streamsLive' => (int)$v512['streams_live'],
+            'clanSessions' => (int)$v512['clan_sessions'],
         ],
         'ratingCursor' => $ratingMs !== null ? gmdate('Y-m-d H:i', (int)round(((int)$ratingMs) / 1000)) : null,
         'v5Phase' => $state['v5_phase'] ?? null,
@@ -889,7 +909,171 @@ case 'replay': {
     exit;
 }
 
-/* ── v5 : diagnostic — dernières lignes du log de sync ────────────────── */
+/* ── v5.12 : Board FFA officiel (+ historique par joueur) ─────────────── */
+case 'ffaboard': {
+    header('Cache-Control: public, max-age=300');
+    if (!$V512_READY) gfail(503, 'v512_not_ready');
+    $histOf = (string)($_GET['historyOf'] ?? '');
+    if ($histOf !== '') {
+        if (!preg_match('/^[A-Za-z0-9]{6,16}$/', $histOf)) gfail(400, 'bad_public_id');
+        $h = $pdo->prepare("SELECT DATE_FORMAT(day, '%Y-%m-%d') AS d, rank_pos, wins, losses, total, wlr
+            FROM tfh_g_lb_ffa_history WHERE public_id = ? ORDER BY day ASC LIMIT 400");
+        $h->execute([$histOf]);
+        $history = [];
+        foreach ($h->fetchAll() as $r) {
+            $history[] = [
+                'day' => (string)$r['d'], 'rank' => (int)$r['rank_pos'],
+                'wins' => (int)$r['wins'], 'losses' => (int)$r['losses'],
+                'total' => (int)$r['total'], 'wlr' => $r['wlr'] !== null ? round((float)$r['wlr'], 2) : null,
+            ];
+        }
+        gout(['ok' => true, 'publicId' => $histOf, 'history' => $history]);
+    }
+    $st = $pdo->prepare('SELECT rank_pos, public_id, wins, losses, total, wlr, fetched_at
+        FROM tfh_g_lb_ffa ORDER BY rank_pos ASC LIMIT ?');
+    $st->bindValue(1, min(1000, $limit), PDO::PARAM_INT);
+    $st->execute();
+    $entries = [];
+    foreach ($st->fetchAll() as $r) {
+        $entries[] = [
+            'rank' => (int)$r['rank_pos'], 'publicId' => (string)$r['public_id'],
+            'wins' => (int)$r['wins'], 'losses' => (int)$r['losses'], 'total' => (int)$r['total'],
+            'wlr' => $r['wlr'] !== null ? round((float)$r['wlr'], 2) : null,
+        ];
+    }
+    $fetchedAt = $pdo->query('SELECT MAX(fetched_at) FROM tfh_g_lb_ffa')->fetchColumn();
+    gout(['ok' => true, 'entries' => $entries, 'fetchedAt' => $fetchedAt ?: null]);
+}
+
+/* ── v5.12 : Ladder des tribus (noms achetés, reach, boosts) ──────────── */
+case 'tribes': {
+    header('Cache-Control: public, max-age=600');
+    if (!$V512_READY) gfail(503, 'v512_not_ready');
+    $st = $pdo->prepare('SELECT rank_pos, name, games_appeared, player_reach, owner_public_id, owner_username,
+        active_boosts, window_days, fetched_at FROM tfh_g_tribes ORDER BY rank_pos ASC LIMIT ?');
+    $st->bindValue(1, min(500, $limit), PDO::PARAM_INT);
+    $st->execute();
+    $tribes = [];
+    foreach ($st->fetchAll() as $r) {
+        $tribes[] = [
+            'rank' => (int)$r['rank_pos'], 'name' => (string)$r['name'],
+            'gamesAppeared' => (int)$r['games_appeared'], 'playerReach' => (int)$r['player_reach'],
+            'ownerPublicId' => $r['owner_public_id'] !== null ? (string)$r['owner_public_id'] : null,
+            'ownerUsername' => $r['owner_username'] !== null ? (string)$r['owner_username'] : null,
+            'activeBoosts' => (int)$r['active_boosts'],
+        ];
+    }
+    $fetchedAt = $pdo->query('SELECT MAX(fetched_at) FROM tfh_g_tribes')->fetchColumn();
+    gout(['ok' => true, 'tribes' => $tribes, 'fetchedAt' => $fetchedAt ?: null]);
+}
+
+/* ── v5.12 : News officielles OpenFront ───────────────────────────────── */
+case 'news': {
+    header('Cache-Control: public, max-age=600');
+    if (!$V512_READY) gfail(503, 'v512_not_ready');
+    $st = $pdo->prepare('SELECT news_id, title, description, url, type, platforms_json, first_seen, last_seen
+        FROM tfh_g_news ORDER BY CAST(news_id AS UNSIGNED) DESC LIMIT ?');
+    $st->bindValue(1, min(100, $limit), PDO::PARAM_INT);
+    $st->execute();
+    $items = [];
+    foreach ($st->fetchAll() as $r) {
+        $items[] = [
+            'id' => (string)$r['news_id'],
+            'title' => $r['title'] !== null ? (string)$r['title'] : null,
+            'description' => $r['description'] !== null ? (string)$r['description'] : null,
+            'url' => $r['url'] !== null ? (string)$r['url'] : null,
+            'type' => $r['type'] !== null ? (string)$r['type'] : null,
+            'platforms' => $r['platforms_json'] ? array_values(array_filter(explode(',', (string)$r['platforms_json']))) : [],
+            'firstSeen' => $r['first_seen'], 'lastSeen' => $r['last_seen'],
+        ];
+    }
+    gout(['ok' => true, 'items' => $items]);
+}
+
+/* ── v5.12 : Streams live (Twitch…) ───────────────────────────── */
+case 'streams': {
+    header('Cache-Control: public, max-age=120');
+    if (!$V512_READY) gfail(503, 'v512_not_ready');
+    $st = $pdo->prepare('SELECT channel, platform, display_name, title, viewers, avatar_url, url, started_at,
+            first_seen_at, last_seen_at
+        FROM tfh_g_streams WHERE last_seen_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 2 HOUR)
+        ORDER BY viewers DESC LIMIT ?');
+    $st->bindValue(1, min(200, $limit), PDO::PARAM_INT);
+    $st->execute();
+    $live = [];
+    foreach ($st->fetchAll() as $r) {
+        $live[] = [
+            'platform' => (string)$r['platform'], 'channel' => (string)$r['channel'],
+            'displayName' => $r['display_name'] !== null ? (string)$r['display_name'] : null,
+            'title' => $r['title'] !== null ? (string)$r['title'] : null,
+            'viewers' => (int)$r['viewers'],
+            'avatarUrl' => $r['avatar_url'] !== null ? (string)$r['avatar_url'] : null,
+            'url' => $r['url'] !== null ? (string)$r['url'] : null,
+            'startedAt' => $r['started_at'],
+        ];
+    }
+    gout(['ok' => true, 'live' => $live]);
+}
+
+/* ── v5.12 : Sessions d'un clan (hist. récente + agrégats quotidiens) ─── */
+case 'clansessions': {
+    header('Cache-Control: public, max-age=300');
+    if (!$V512_READY) gfail(503, 'v512_not_ready');
+    $tag = strtoupper(trim((string)($_GET['tag'] ?? '')));
+    if (!preg_match('/^[A-Z0-9]{1,10}$/', $tag)) gfail(400, 'bad_tag');
+    $recent = $pdo->prepare('SELECT game_id, game_start, clan_player_count, has_won, num_teams, player_teams,
+            total_player_count, score
+        FROM tfh_g_clan_sessions WHERE clan_tag = ? ORDER BY game_start DESC LIMIT ?');
+    $recent->bindValue(1, $tag);
+    $recent->bindValue(2, min(200, $limit), PDO::PARAM_INT);
+    $recent->execute();
+    $sessions = [];
+    foreach ($recent->fetchAll() as $r) {
+        $sessions[] = [
+            'gameId' => (string)$r['game_id'], 'gameStart' => (string)$r['game_start'],
+            'clanPlayerCount' => (int)$r['clan_player_count'], 'hasWon' => (bool)$r['has_won'],
+            'numTeams' => $r['num_teams'] !== null ? (int)$r['num_teams'] : null,
+            'playerTeams' => $r['player_teams'] !== null ? (string)$r['player_teams'] : null,
+            'totalPlayerCount' => $r['total_player_count'] !== null ? (int)$r['total_player_count'] : null,
+            'score' => $r['score'] !== null ? round((float)$r['score'], 2) : null,
+        ];
+    }
+    $agg = $pdo->prepare("SELECT DATE_FORMAT(game_start, '%Y-%m-%d') AS d, COUNT(*) AS games,
+            SUM(has_won) AS wins, ROUND(AVG(score), 3) AS avg_score, MAX(clan_player_count) AS max_players
+        FROM tfh_g_clan_sessions WHERE clan_tag = ? AND game_start >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)
+        GROUP BY d ORDER BY d ASC LIMIT 31");
+    $agg->execute([$tag]);
+    $daily = [];
+    foreach ($agg->fetchAll() as $r) {
+        $daily[] = [
+            'day' => (string)$r['d'], 'games' => (int)$r['games'], 'wins' => (int)$r['wins'],
+            'avgScore' => $r['avg_score'] !== null ? (float)$r['avg_score'] : null,
+            'maxPlayers' => (int)$r['max_players'],
+        ];
+    }
+    gout(['ok' => true, 'tag' => $tag, 'sessions' => $sessions, 'daily' => $daily]);
+}
+
+/* ── v5.12 : Cosmétiques portés par un joueur (proxy d'inventaire) ────── */
+case 'playercosmetics': {
+    header('Cache-Control: public, max-age=300');
+    $pid = (string)($_GET['publicId'] ?? '');
+    if (!preg_match('/^[A-Za-z0-9]{6,16}$/', $pid)) gfail(400, 'bad_public_id');
+    $st = $pdo->prepare('SELECT category, name, times_worn, first_worn, last_worn
+        FROM tfh_g_cosmetic_wearers WHERE public_id = ? ORDER BY times_worn DESC, last_worn DESC LIMIT 200');
+    $st->execute([$pid]);
+    $worn = [];
+    foreach ($st->fetchAll() as $r) {
+        $worn[] = [
+            'category' => (string)$r['category'], 'name' => (string)$r['name'],
+            'timesWorn' => (int)$r['times_worn'], 'firstWorn' => (string)$r['first_worn'],
+            'lastWorn' => (string)$r['last_worn'],
+        ];
+    }
+    gout(['ok' => true, 'publicId' => $pid, 'worn' => $worn]);
+}
+
+/* ── v5.12 : diagnostic — dernières lignes du log de sync ────────────────── */
 case 'synclog': {
     $f = __DIR__ . '/games-sync.log';
     $lines = [];

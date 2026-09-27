@@ -119,8 +119,14 @@ Toutes les réponses : `{ok:true,…}` / `{ok:false,error}` — cache 45-600 s.
 | `?route=ladder&historyOf=PUBLICID` | Courbe ELO quotidienne d'un joueur du ladder |
 | `?route=cosmetics...` / `?route=cosmetic...` | Catalogue cosmétiques + porteurs (v5) |
 | `?route=replay&id=` | Replay turn-by-turn stocké en base (v5) |
+| `?route=ffaboard` / `?route=ffaboard&historyOf=PUBLICID` | **Board FFA OFFICIEL** (wins/wlr API) + courbe quotidienne (v5.12) |
+| `?route=tribes` | **Ladder des tribus** : reach, propriétaire, boosts actifs (v5.12) |
+| `?route=news` | Annonces officielles OpenFront (`/news.json`) (v5.12) |
+| `?route=streams` | Streams live OpenFront + viewers (`/streams.json`) (v5.12) |
+| `?route=clansessions&tag=UN` | Sessions d'un clan officiel : parties récentes + agrégats quotidiens 30 j (v5.12) |
+| `?route=playercosmetics&publicId=X` | Tous les cosmétiques portés par un joueur (proxy inventaire, v5.12) |
 | `?route=maps&category=` | Cartes + compteur de runs (filtre du front) |
-| `?route=status` | Compteurs globaux (admin) |
+| `?route=status` | Compteurs globaux (admin, bloc `v512` inclus) |
 
 Exemples :
 
