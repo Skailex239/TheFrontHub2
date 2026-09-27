@@ -1887,6 +1887,45 @@ function iso_to_dt(string $iso): string {
     return substr($iso, 0, 10) . ' ' . substr($iso, 11, 8);
 }
 
+/* ── v5.12b — Miroirs GitHub (contournement WAF) ──
+ * Constat prod : Cloudflare 403-ise plusieurs routes officielles depuis l'IP
+ * o2switch (leaderboard/public/ffa, leaderboard/tribes, news.json,
+ * streams.json, clan/:tag/sessions) même avec la clé + en-têtes navigateur.
+ * Le job Actions « sync-mirrors » (IP Azure tolérées) publie des assets
+ * of_*.json sur la release data-latest ; on les lit ici en HTTP direct
+ * (GitHub est joignable depuis o2switch — pull-data.sh le prouve), avec un
+ * cache local en /tmp pour absorber les pépins transitifs. */
+function tfh_fetch_mirror(string $name, int $maxAgeS = 3600): ?array {
+    $cache = sys_get_temp_dir() . '/tfh-mirror-' . $name;
+    if (is_readable($cache) && time() - (int)filemtime($cache) < $maxAgeS) {
+        $d = json_decode((string)file_get_contents($cache), true);
+        if (is_array($d)) return $d;
+    }
+    $url = 'https://github.com/Skailex239/TheFrontHub2/releases/download/data-latest/' . rawurlencode($name);
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT        => 30,
+        CURLOPT_ENCODING       => '',
+        CURLOPT_USERAGENT      => 'TheFrontHub-Sync/1.0 (+https://thefronthub.com)',
+    ]);
+    $body = curl_exec($ch);
+    $st = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+    if ($st === 200 && is_string($body) && $body !== '') {
+        $d = json_decode($body, true);
+        if (is_array($d)) { @file_put_contents($cache, $body); return $d; }
+    }
+    /* GitHub KO : mieux vaut un miroir périmé que rien (l'ingestion est idempotente). */
+    if (is_readable($cache)) {
+        $d = json_decode((string)file_get_contents($cache), true);
+        if (is_array($d)) return $d;
+    }
+    return null;
+}
+
 /* Phase 10 — Board FFA OFFICIEL (/leaderboard/public/ffa, tri par wins).
  * Snapshot remplacé (top 1000) + 1 ligne d'historique/joueur/jour (courbes).
  * Throttle 6 h, 1 req. 403 Cloudflare possible depuis o2switch → retenté. */
@@ -1895,8 +1934,15 @@ function ffa_board_phase(PDO $pdo, array $cfg): void {
     $mins = max(30, (int)($cfg['ffaboard_refresh_min'] ?? 360));
     $last = (int)state_get($pdo, 'ffaboard_refreshed_at', '0');
     if (time() - $last < $mins * 60) return;
-    [$st, $d] = of_fetch_resilient(OF_API_BASE . '/leaderboard/public/ffa');
-    if ($st !== 200 || !is_array($d)) { log_line("[ffaboard] HTTP $st — retenté au prochain tick"); return; }
+    /* Source 1 : miroir GitHub (WAF 403 depuis o2switch sur cette route). */
+    $d = tfh_fetch_mirror('of_ffa.json');
+    $src = 'miroir GitHub';
+    /* Source 2 : API directe (repli si miroir absent/périmé). */
+    if ($d === null) {
+        [$st, $d] = of_fetch_resilient(OF_API_BASE . '/leaderboard/public/ffa');
+        $src = 'api';
+        if ($st !== 200 || !is_array($d)) { log_line("[ffaboard] HTTP $st (miroir KO aussi) — retenté au prochain tick"); return; }
+    }
     $now = gmdate('Y-m-d H:i:s'); $today = gmdate('Y-m-d');
     $pdo->beginTransaction();
     try {
@@ -1923,7 +1969,7 @@ function ffa_board_phase(PDO $pdo, array $cfg): void {
         throw $e;
     }
     state_set($pdo, 'ffaboard_refreshed_at', (string)time());
-    log_line("[ffaboard] $n entrée(s) officielle(s) FFA synchronisée(s)");
+    log_line("[ffaboard] $n entrée(s) officielle(s) FFA synchronisée(s) — source $src");
 }
 
 /* Phase 11 — Ladder des TRIBUS (/leaderboard/tribes, fenêtre 30 j).
@@ -1934,8 +1980,14 @@ function tribes_phase(PDO $pdo, array $cfg): void {
     $mins = max(30, (int)($cfg['tribes_refresh_min'] ?? 360));
     $last = (int)state_get($pdo, 'tribes_refreshed_at', '0');
     if (time() - $last < $mins * 60) return;
-    [$st, $d] = of_fetch_resilient(OF_API_BASE . '/leaderboard/tribes');
-    if ($st !== 200 || !is_array($d) || !is_array($d['tribes'] ?? null)) { log_line("[tribes] HTTP $st — retenté au prochain tick"); return; }
+    /* Source 1 : miroir GitHub. Source 2 : API directe. */
+    $d = tfh_fetch_mirror('of_tribes.json');
+    $src = 'miroir GitHub';
+    if ($d === null) {
+        [$st, $d] = of_fetch_resilient(OF_API_BASE . '/leaderboard/tribes');
+        $src = 'api';
+        if ($st !== 200 || !is_array($d) || !is_array($d['tribes'] ?? null)) { log_line("[tribes] HTTP $st (miroir KO aussi) — retenté au prochain tick"); return; }
+    }
     $now = gmdate('Y-m-d H:i:s');
     $pdo->beginTransaction();
     try {
@@ -1967,7 +2019,7 @@ function tribes_phase(PDO $pdo, array $cfg): void {
         throw $e;
     }
     state_set($pdo, 'tribes_refreshed_at', (string)time());
-    log_line("[tribes] $n tribu(s) officielle(s) synchronisée(s)");
+    log_line("[tribes] $n tribu(s) officielle(s) synchronisée(s) — source $src");
 }
 
 /* Phase 12 — News officielles (/news.json). Upsert par id, throttle 6 h, 1 req. */
@@ -1976,8 +2028,14 @@ function news_phase(PDO $pdo, array $cfg): void {
     $mins = max(30, (int)($cfg['news_refresh_min'] ?? 360));
     $last = (int)state_get($pdo, 'news_refreshed_at', '0');
     if (time() - $last < $mins * 60) return;
-    [$st, $d] = of_fetch_resilient(OF_API_BASE . '/news.json');
-    if ($st !== 200 || !is_array($d)) { log_line("[news] HTTP $st — retenté au prochain tick"); return; }
+    /* Source 1 : miroir GitHub. Source 2 : API directe. */
+    $d = tfh_fetch_mirror('of_news.json');
+    $src = 'miroir GitHub';
+    if ($d === null) {
+        [$st, $d] = of_fetch_resilient(OF_API_BASE . '/news.json');
+        $src = 'api';
+        if ($st !== 200 || !is_array($d)) { log_line("[news] HTTP $st (miroir KO aussi) — retenté au prochain tick"); return; }
+    }
     $now = gmdate('Y-m-d H:i:s');
     $up = $pdo->prepare('INSERT INTO tfh_g_news (news_id, title, description, url, type, platforms_json, first_seen, last_seen)
         VALUES (?,?,?,?,?,?,?,?)
@@ -2001,7 +2059,7 @@ function news_phase(PDO $pdo, array $cfg): void {
         $n++;
     }
     state_set($pdo, 'news_refreshed_at', (string)time());
-    log_line("[news] $n annonce(s) synchronisée(s)");
+    log_line("[news] $n annonce(s) synchronisée(s) — source $src");
 }
 
 /* Phase 13 — Streams live (/streams.json, Twitch…). Upsert par canal + purge > 7 j.
@@ -2011,8 +2069,14 @@ function streams_phase(PDO $pdo, array $cfg): void {
     $mins = max(10, (int)($cfg['streams_refresh_min'] ?? 30));
     $last = (int)state_get($pdo, 'streams_refreshed_at', '0');
     if (time() - $last < $mins * 60) return;
-    [$st, $d] = of_fetch_resilient(OF_API_BASE . '/streams.json');
-    if ($st !== 200 || !is_array($d)) { log_line("[streams] HTTP $st — retenté au prochain tick"); return; }
+    /* Source 1 : miroir GitHub (frais de 3 h max — flux « live »). Source 2 : API. */
+    $d = tfh_fetch_mirror('of_streams.json', 1200);
+    $src = 'miroir GitHub';
+    if ($d === null) {
+        [$st, $d] = of_fetch_resilient(OF_API_BASE . '/streams.json');
+        $src = 'api';
+        if ($st !== 200 || !is_array($d)) { log_line("[streams] HTTP $st (miroir KO aussi) — retenté au prochain tick"); return; }
+    }
     $now = gmdate('Y-m-d H:i:s');
     $up = $pdo->prepare('INSERT INTO tfh_g_streams
         (channel, platform, display_name, title, viewers, avatar_url, url, started_at, first_seen_at, last_seen_at)
@@ -2045,7 +2109,7 @@ function streams_phase(PDO $pdo, array $cfg): void {
     }
     $pdo->exec('DELETE FROM tfh_g_streams WHERE last_seen_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)');
     state_set($pdo, 'streams_refreshed_at', (string)time());
-    log_line("[streams] $n stream(s) live synchronisé(s)");
+    log_line("[streams] $n stream(s) live synchronisé(s) — source $src");
 }
 
 /* Phase 14 — Sessions de clans (/public/clan/:tag/sessions).
@@ -2056,6 +2120,52 @@ function streams_phase(PDO $pdo, array $cfg): void {
  * backfill n'est jamais affamé. Purge au-delà de 60 jours. */
 function clan_sessions_phase(PDO $pdo, array $cfg, float $deadline): void {
     phase_mark($pdo, 'clansess');
+    /* Source 1 : miroir GitHub — ingéré dès qu'une version PLUS RÉCENTE sort
+     * (~toutes les 8-10 min, sans throttle) : le job Actions avance sa fenêtre
+     * à chaque run, il faut donc tout ingérer au fil de l'eau pour zéro trou.
+     * INSERT IGNORE absorbe le chevauchement de 1 h de la fenêtre Actions. */
+    $mirror = tfh_fetch_mirror('of_clansessions.json', 300);
+    if (is_array($mirror) && is_array($mirror['clans'] ?? null) && isset($mirror['fetchedAt'])
+        && strcmp((string)$mirror['fetchedAt'], (string)state_get($pdo, 'clansess_mirror_at', '')) > 0) {
+        $now = gmdate('Y-m-d H:i:s');
+        $ins = $pdo->prepare('INSERT IGNORE INTO tfh_g_clan_sessions
+            (clan_tag, game_id, game_start, clan_player_count, has_won, num_teams, player_teams, total_player_count, score, fetched_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?)');
+        $total = 0;
+        foreach ($mirror['clans'] as $tag => $sessions) {
+            if (!is_array($sessions)) continue;
+            $tagU = strtoupper(cut((string)$tag, 16));
+            if ($tagU === '') continue;
+            foreach ($sessions as $s) {
+                if (!is_array($s)) continue;
+                $gid = (string)($s['gameId'] ?? '');
+                $gStart = (string)($s['gameStart'] ?? '');
+                if ($gid === '' || strlen($gStart) < 19) continue;
+                $ins->execute([
+                    $tagU, $gid, iso_to_dt($gStart),
+                    (int)($s['clanPlayerCount'] ?? 0),
+                    !empty($s['hasWon']) ? 1 : 0,
+                    isset($s['numTeams']) && is_numeric($s['numTeams']) ? (int)$s['numTeams'] : null,
+                    isset($s['playerTeams']) ? cut((string)$s['playerTeams'], 32) : null,
+                    isset($s['totalPlayerCount']) && is_numeric($s['totalPlayerCount']) ? (int)$s['totalPlayerCount'] : null,
+                    isset($s['score']) && is_numeric($s['score']) ? (float)$s['score'] : null,
+                    $now,
+                ]);
+                $total++;
+            }
+        }
+        state_set($pdo, 'clansess_mirror_at', (string)$mirror['fetchedAt']);
+        state_set($pdo, 'clansess_idx', '0');
+        state_set($pdo, 'clansess_refreshed_at', (string)time());
+        /* Purge : 1 fois par jour environ (si la minute courante est 37). */
+        if ((int)gmdate('i') === 37) {
+            $pdo->exec('DELETE FROM tfh_g_clan_sessions WHERE game_start < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 60 DAY)');
+        }
+        log_line("[clansess] $total session(s) via miroir GitHub (" . count($mirror['clans']) . ' clan(s), fenêtre '
+            . cut((string)($mirror['start'] ?? '?'), 24) . ' → ' . cut((string)($mirror['end'] ?? '?'), 24) . ')');
+        return;
+    }
+    /* Source 2 : API directe (repli si miroir absent/périmé) — curseur repreneur. */
     $idx = (int)state_get($pdo, 'clansess_idx', '0');
     $mins = max(10, $idx > 0 ? 10 : (int)($cfg['clansess_refresh_min'] ?? 360));
     $last = (int)state_get($pdo, 'clansess_refreshed_at', '0');

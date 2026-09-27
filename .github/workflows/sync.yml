@@ -151,6 +151,35 @@ jobs:
           chmod +x scripts/data-release.sh
           ./scripts/data-release.sh push ranked.json ranked.json.gz ranked_history.json.gz ranked_2v2_history.json.gz
 
+  # v5.12b — Miroirs des flux API bloqués par le WAF Cloudflare depuis l'IP
+  # o2switch (403 : /leaderboard/public/ffa, /leaderboard/tribes, /news.json,
+  # /streams.json, /public/clan/:tag/sessions). Même pattern que sync-ranked :
+  # fetch depuis les IP Azure (tolérées) → assets release data-latest →
+  # api/games-sync.php les lit directement (HTTP GitHub) et les stocke en base.
+  sync-mirrors:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1, ref: main }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm init -y --silent && node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+      - name: État fenêtre clans depuis la release
+        run: |
+          chmod +x scripts/data-release.sh
+          ./scripts/data-release.sh pull of_clansess_state.json || true
+      - run: node scripts/sync-mirrors.js || echo "::warning::sync-mirrors a échoué — rattrapé au prochain cycle"
+        env:
+          OPENFRONT_SKAILEX_ACCESS: ${{ secrets.OPENFRONT_SKAILEX_ACCESS }}
+      - name: Publier les miroirs (release data-latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          chmod +x scripts/data-release.sh
+          ./scripts/data-release.sh push of_ffa.json of_tribes.json of_news.json of_streams.json of_clansessions.json of_clansess_state.json
+
   sync-dashboard:
     needs: [sync-ranked]
     runs-on: ubuntu-latest
