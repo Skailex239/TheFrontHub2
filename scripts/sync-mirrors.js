@@ -96,7 +96,7 @@ async function mirrorClanSessions() {
   for (const tag of tags) {
     const sessions = [];
     for (let page = 1; page <= 8; page++) {
-      const url = `${API_BASE}/public/clan/${encodeURIComponent(tag)}/sessions?start=${startIso}&end=${endIso}&page=${page}&limit=100`;
+      const url = `${API_BASE}/public/clan/${encodeURIComponent(tag)}/sessions?start=${startIso}&end=${endIso}&page=${page}&limit=50`;
       let rows = null;
       for (let attempt = 1; attempt <= 3; attempt++) {
         try { rows = (await fetchJson(url))?.results ?? null; break; }
@@ -107,7 +107,7 @@ async function mirrorClanSessions() {
       }
       if (!Array.isArray(rows)) break;
       sessions.push(...rows);
-      if (rows.length < 100) break;
+      if (rows.length < 50) break;
       await sleep(300); // pacing gentil côté API
     }
     clans[tag] = sessions;

@@ -2193,7 +2193,7 @@ function clan_sessions_phase(PDO $pdo, array $cfg, float $deadline): void {
         }
         $tag = $top[$i];
         for ($page = 1; $page <= 8; $page++) {
-            [$st, $d] = of_fetch_resilient(OF_API_BASE . '/public/clan/' . rawurlencode($tag) . '/sessions?start=' . $start . '&end=' . $end . '&page=' . $page . '&limit=100');
+            [$st, $d] = of_fetch_resilient(OF_API_BASE . '/public/clan/' . rawurlencode($tag) . '/sessions?start=' . $start . '&end=' . $end . '&page=' . $page . '&limit=50');
             if ($st !== 200 || !is_array($d) || !is_array($d['results'] ?? null)) break;
             $rows = $d['results'];
             foreach ($rows as $s) {
@@ -2213,7 +2213,7 @@ function clan_sessions_phase(PDO $pdo, array $cfg, float $deadline): void {
                 ]);
                 $total++;
             }
-            if (count($rows) < 100) break;
+            if (count($rows) < 50) break;
         }
     }
     /* Cycle complet : fenêtre ancrée à maintenant, throttle repasse à 6 h. */
