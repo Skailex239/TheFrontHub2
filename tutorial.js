@@ -129,7 +129,8 @@ function findTarget(selector) {
   if (!selector) return null;
   const selectors = selector.split(',').map(s => s.trim());
   for (const sel of selectors) {
-    const el = document.querySelector(sel);
+    let el = null;
+    try { el = document.querySelector(sel); } catch (err) { el = null; }
     if (el && el.offsetParent !== null) {
       return el;
     }
@@ -312,7 +313,21 @@ function createTutorialElements() {
   document.body.appendChild(_tooltip);
 
   // Click sur l'overlay = skip
-  _overlay.addEventListener('click', skipTutorial);
+  _overlay.addEventListener('click', (e) => {
+    // Skip + transfert du clic à l'élément réellement visé. Sans ce transfert,
+    // le premier clic de l'utilisateur (ex: une catégorie de la sidebar) est
+    // avalé par l'overlay : le tuto se ferme mais RIEN ne se passe, ce qui
+    // donne l'impression d'une navigation cassée (« mauvaises catégories »).
+    skipTutorial();
+    try {
+      const x = e.clientX, y = e.clientY;
+      if (!x && !y) return; // clic clavier/synthétique sans coordonnées
+      const el = document.elementFromPoint(x, y);
+      if (!el) return;
+      const hit = el.closest ? el.closest('a, button, select, input, label') : null;
+      if (hit && typeof hit.click === 'function') hit.click();
+    } catch (err) { /* ne jamais casser la fermeture du tuto */ }
+  });
 
   // Repositionner au resize / scroll
   window.addEventListener('resize', () => {
