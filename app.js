@@ -2380,6 +2380,18 @@ updateCurrentMode();
 updateSubtitle();
 
 redirectToProfileIfRequested();
+// Deep-link ?tab= : bascule d'onglet IMMÉDIATE, avant le chargement des
+// données. Auparavant le switch était dans loadData().then() : sur réseau
+// lent (mobile) ou si une étape échouait, l'utilisateur restait plusieurs
+// secondes — voire définitivement — sur la mauvaise catégorie. Les onglets
+// Hub chargent leurs propres données (lazy) : rien n'oblige à attendre.
+if (tabParam && tabParam !== 'profile') {
+  const tabBtnMap = { ranked:'tab-btn-ranked', maps:'tab-btn-maps', ffa:'tab-btn-ffa', tribes:'tab-btn-tribes', news:'tab-btn-news', live:'tab-btn-live' };
+  const btnEarly = document.getElementById(tabBtnMap[tabParam] || 'tab-btn-maps');
+  if (btnEarly) {
+    try { switchTab(tabParam, btnEarly); } catch (e) { console.warn('[tfh] switchTab deep-link:', e); }
+  }
+}
 loadData().then(()=>{
   loadVipPlayers(); // Charger les joueurs VIP en parallèle
   loadPublicAliases(); // Charger les aliases publics pour fusion visible par tous
@@ -2391,17 +2403,6 @@ loadData().then(()=>{
     loadRankedLeaderboard(false).catch(() => {});
   }
   if(mapParam)selectMap(mapParam);
-  if (tabParam === 'profile') {
-    window.location.replace('profile.html');
-    return;
-  }
-  if (tabParam) {
-    // Map tab name → button ID (robust against other nav tabs)
-    const tabBtnMap = { ranked:'tab-btn-ranked', maps:'tab-btn-maps', ffa:'tab-btn-ffa', tribes:'tab-btn-tribes', news:'tab-btn-news', live:'tab-btn-live' };
-    const tabBtnId = tabBtnMap[tabParam] || 'tab-btn-maps';
-    const btn = document.getElementById(tabBtnId);
-    if (btn) switchTab(tabParam, btn);
-  }
   // Pre-fill player search if ?player= is in URL (deep-linking)
   if (playerParam) {
     const searchInput = document.getElementById('player-search');
