@@ -2190,15 +2190,16 @@ function switchTab(name,btn){
   if (name === 'live') loadStreams();
   document.querySelectorAll('.tab-btn').forEach(b=>{b.classList.remove('active');b.removeAttribute('aria-current');});
   
-  // Toggle FFA-specific elements visibility
+  // Toggle FFA-specific elements visibility (masqués aussi sur les onglets Hub)
+  const hubTab = ['ffa', 'tribes', 'news', 'live'].includes(name);
   const serverInfo = document.querySelector('.server-info');
   const ffaStatsGrid = document.getElementById('ffa-stats-grid');
   const rankedStatsGrid = document.getElementById('ranked-stats-grid');
   const topbarSubtitle = document.getElementById('topbar-subtitle');
-  if (serverInfo) serverInfo.style.display = name === 'ranked' ? 'none' : '';
-  if (ffaStatsGrid) ffaStatsGrid.style.display = name === 'ranked' ? 'none' : '';
+  if (serverInfo) serverInfo.style.display = (name === 'ranked' || hubTab) ? 'none' : '';
+  if (ffaStatsGrid) ffaStatsGrid.style.display = (name === 'ranked' || hubTab) ? 'none' : '';
   if (rankedStatsGrid) rankedStatsGrid.style.display = name === 'ranked' ? 'grid' : 'none';
-  if (topbarSubtitle) topbarSubtitle.style.display = name === 'ranked' ? 'none' : '';
+  if (topbarSubtitle) topbarSubtitle.style.display = (name === 'ranked' || hubTab) ? 'none' : '';
   
   const currentActive = document.querySelector('.tab-content.active');
   if (currentActive) {
