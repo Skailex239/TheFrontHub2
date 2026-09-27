@@ -441,6 +441,11 @@ let currentLanguage = localStorage.getItem('openfront_lang') || 'fr';
 Object.assign(translations.fr, {
   "nav.dashboard": "Tableau de bord",
   "nav.ranked": "Classé",
+  "nav.maps": "Speedruns",
+  "nav.ffa": "Classement FFA",
+  "nav.tribes": "Tribus",
+  "nav.news": "News",
+  "nav.live": "Live",
   "nav.lobby": "Lobby",
   "nav.atlas": "Atlas",
   "nav.tournaments": "Tournois",
@@ -478,6 +483,11 @@ Object.assign(translations.fr, {
 Object.assign(translations.en, {
   "nav.dashboard": "Dashboard",
   "nav.ranked": "Ranked",
+  "nav.maps": "Speedruns",
+  "nav.ffa": "FFA Leaderboard",
+  "nav.tribes": "Tribes",
+  "nav.news": "News",
+  "nav.live": "Live",
   "nav.lobby": "Lobby",
   "nav.atlas": "Atlas",
   "nav.tournaments": "Tournaments",
@@ -583,13 +593,18 @@ function t(key, params = {}) {
 function updateDOMTranslations() {
   document.querySelectorAll('[data-i18n]').forEach(el => {
     const key = el.getAttribute('data-i18n');
+    const val = t(key);
+    // Garde-fou : si la traduction manque, t() renvoie la clé elle-même.
+    // Dans ce cas on CONSERVE le texte d'origine du HTML (jamais de clé
+    // brute affichée comme « nav.ffa » à l'utilisateur).
+    if (val == null || val === key) return;
     if (el.tagName === 'INPUT' && el.hasAttribute('placeholder')) {
-      el.placeholder = t(key);
+      el.placeholder = val;
     } else if (el.children.length === 0) {
-      el.textContent = t(key);
+      el.textContent = val;
     } else {
       // Fallback basique (préserve les icônes enfant via data-i18n-html idéalement)
-      el.innerHTML = t(key);
+      el.innerHTML = val;
     }
   });
   document.querySelectorAll('[data-i18n-html]').forEach(el => {
