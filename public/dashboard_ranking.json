@@ -1,0 +1,3323 @@
+{
+  "updatedAt": "2026-08-11T16:06:49.979Z",
+  "gamesScanned": 165,
+  "sources": {
+    "rankedCount": 164,
+    "connectedCount": 6,
+    "total": 165
+  },
+  "global": {
+    "from": null,
+    "to": "2026-08-11T16:06:49.980Z",
+    "gamesScanned": 165,
+    "players": [
+      {
+        "publicId": "UWetOwlW",
+        "username": "Skailex on YT",
+        "clan": null,
+        "ffaCasualWins": 490,
+        "ffaRankedWins": 369,
+        "teamCasualWins": 327,
+        "teamRankedWins": 117,
+        "points": 7021
+      },
+      {
+        "publicId": "hWNuSrnS",
+        "username": "Nvr_Kn",
+        "clan": null,
+        "ffaCasualWins": 248,
+        "ffaRankedWins": 1355,
+        "teamCasualWins": 151,
+        "teamRankedWins": 104,
+        "points": 4694
+      },
+      {
+        "publicId": "u0u81Hll",
+        "username": "Anto",
+        "clan": null,
+        "ffaCasualWins": 364,
+        "ffaRankedWins": 336,
+        "teamCasualWins": 42,
+        "teamRankedWins": 29,
+        "points": 4215
+      },
+      {
+        "publicId": "tqMGOI2Q",
+        "username": "Zwiper",
+        "clan": null,
+        "ffaCasualWins": 238,
+        "ffaRankedWins": 168,
+        "teamCasualWins": 257,
+        "teamRankedWins": 11,
+        "points": 3844
+      },
+      {
+        "publicId": "Ajp51M2d",
+        "username": "EyesOfRuby.1498",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 1404,
+        "teamCasualWins": 0,
+        "teamRankedWins": 35,
+        "points": 1439
+      },
+      {
+        "publicId": "cRbwVUdp",
+        "username": "ProfessorSployer.9847",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 1035,
+        "teamCasualWins": 0,
+        "teamRankedWins": 99,
+        "points": 1134
+      },
+      {
+        "publicId": "CpomD1Nt",
+        "username": "Samraan.9216",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 782,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 782
+      },
+      {
+        "publicId": "FBXvYHZ8",
+        "username": "ImSoBad.8240",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 672,
+        "teamCasualWins": 0,
+        "teamRankedWins": 69,
+        "points": 741
+      },
+      {
+        "publicId": "wdTUQwfq",
+        "username": "7oYo7.8163",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 665,
+        "teamCasualWins": 0,
+        "teamRankedWins": 48,
+        "points": 713
+      },
+      {
+        "publicId": "fKjMQ07q",
+        "username": "fKjMQ07q",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 633,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 633
+      },
+      {
+        "publicId": "ct2S5kEX",
+        "username": "Fibs4785.6952",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 610,
+        "teamCasualWins": 0,
+        "teamRankedWins": 16,
+        "points": 626
+      },
+      {
+        "publicId": "hFaZs30i",
+        "username": "smsfun.8062",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 613,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 613
+      },
+      {
+        "publicId": "wrzYZEVn",
+        "username": "wrzYZEVn",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 497,
+        "teamCasualWins": 0,
+        "teamRankedWins": 18,
+        "points": 515
+      },
+      {
+        "publicId": "fyQoftrK",
+        "username": "fyQoftrK",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 505,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 505
+      },
+      {
+        "publicId": "bEprFTOW",
+        "username": "bEprFTOW",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 449,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 449
+      },
+      {
+        "publicId": "FK3dn8ez",
+        "username": "Milki.4467",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 378,
+        "teamCasualWins": 0,
+        "teamRankedWins": 52,
+        "points": 430
+      },
+      {
+        "publicId": "A7x0szx9",
+        "username": "Mortality.7537",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 415,
+        "teamCasualWins": 0,
+        "teamRankedWins": 14,
+        "points": 429
+      },
+      {
+        "publicId": "HqyukEj5",
+        "username": "HqyukEj5",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 412,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 412
+      },
+      {
+        "publicId": "oCOTVIG9",
+        "username": "Bane.7227",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 310,
+        "teamCasualWins": 0,
+        "teamRankedWins": 84,
+        "points": 394
+      },
+      {
+        "publicId": "B5qzdA0y",
+        "username": "DougyJr",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 333,
+        "teamCasualWins": 0,
+        "teamRankedWins": 47,
+        "points": 380
+      },
+      {
+        "publicId": "SGGpDXiT",
+        "username": "Gandy.2542",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 367,
+        "teamCasualWins": 0,
+        "teamRankedWins": 9,
+        "points": 376
+      },
+      {
+        "publicId": "7FxG7bSU",
+        "username": "Zorbit.8324",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 301,
+        "teamCasualWins": 0,
+        "teamRankedWins": 70,
+        "points": 371
+      },
+      {
+        "publicId": "Wh1T7VkU",
+        "username": "Royaume Du Rex.5906",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 342,
+        "teamCasualWins": 0,
+        "teamRankedWins": 28,
+        "points": 370
+      },
+      {
+        "publicId": "EFqhVYJW",
+        "username": "YellowBiscuit",
+        "clan": null,
+        "ffaCasualWins": 14,
+        "ffaRankedWins": 117,
+        "teamCasualWins": 18,
+        "teamRankedWins": 1,
+        "points": 348
+      },
+      {
+        "publicId": "Q93X0qis",
+        "username": "VarXard.9236",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 218,
+        "teamCasualWins": 0,
+        "teamRankedWins": 107,
+        "points": 325
+      },
+      {
+        "publicId": "P7XZZSk6",
+        "username": "P7XZZSk6",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 325,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 325
+      },
+      {
+        "publicId": "zZ5zoZzQ",
+        "username": "NIKAS.1400",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 315,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 315
+      },
+      {
+        "publicId": "TYSIT7UO",
+        "username": "TYSIT7UO",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 307,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 307
+      },
+      {
+        "publicId": "8gNPUMcK",
+        "username": "8gNPUMcK",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 290,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 290
+      },
+      {
+        "publicId": "VZWEjtqV",
+        "username": "VZWEjtqV",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 278,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 278
+      },
+      {
+        "publicId": "3VjegYOZ",
+        "username": "3VjegYOZ",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 277,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 277
+      },
+      {
+        "publicId": "qNZMiEyR",
+        "username": "Zilka.4393",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 169,
+        "teamCasualWins": 0,
+        "teamRankedWins": 106,
+        "points": 275
+      },
+      {
+        "publicId": "dAG8d3CL",
+        "username": "deshack.6268",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 257,
+        "teamCasualWins": 0,
+        "teamRankedWins": 18,
+        "points": 275
+      },
+      {
+        "publicId": "TPcfzlh1",
+        "username": "TPcfzlh1",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 272,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 272
+      },
+      {
+        "publicId": "wI879hZz",
+        "username": "HulKiora.8629",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 255,
+        "teamCasualWins": 0,
+        "teamRankedWins": 7,
+        "points": 262
+      },
+      {
+        "publicId": "7BaSl1Hr",
+        "username": "7BaSl1Hr",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 262,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 262
+      },
+      {
+        "publicId": "v5BbDFnF",
+        "username": "v5BbDFnF",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 260,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 260
+      },
+      {
+        "publicId": "GaUJ4V0X",
+        "username": "Revenflok.8023",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 225,
+        "teamCasualWins": 0,
+        "teamRankedWins": 33,
+        "points": 258
+      },
+      {
+        "publicId": "TnLNa9Db",
+        "username": "Kris.4248",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 193,
+        "teamCasualWins": 0,
+        "teamRankedWins": 56,
+        "points": 249
+      },
+      {
+        "publicId": "9Bbux7ke",
+        "username": "Kolibril",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 244,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 244
+      },
+      {
+        "publicId": "bzwipzrg",
+        "username": "soothxng.1964",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 228,
+        "teamCasualWins": 0,
+        "teamRankedWins": 13,
+        "points": 241
+      },
+      {
+        "publicId": "lkTjuHFZ",
+        "username": "lkTjuHFZ",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 237,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 237
+      },
+      {
+        "publicId": "F7hWtWLS",
+        "username": "F7hWtWLS",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 233,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 233
+      },
+      {
+        "publicId": "CxjNBZlc",
+        "username": "CxjNBZlc",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 226,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 226
+      },
+      {
+        "publicId": "SBU206vb",
+        "username": "SBU206vb",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 224,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 224
+      },
+      {
+        "publicId": "9xhGr7Kc",
+        "username": "Elin.0270",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 181,
+        "teamCasualWins": 0,
+        "teamRankedWins": 42,
+        "points": 223
+      },
+      {
+        "publicId": "Too6ceIW",
+        "username": "France.6714",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 194,
+        "teamCasualWins": 0,
+        "teamRankedWins": 28,
+        "points": 222
+      },
+      {
+        "publicId": "t1nUp9zM",
+        "username": "Pyrrha.5566",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 148,
+        "teamCasualWins": 0,
+        "teamRankedWins": 73,
+        "points": 221
+      },
+      {
+        "publicId": "y4zaID7x",
+        "username": "Nwy07_.4782",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 150,
+        "teamCasualWins": 0,
+        "teamRankedWins": 67,
+        "points": 217
+      },
+      {
+        "publicId": "ji5LH0gm",
+        "username": "ji5LH0gm",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 209,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 209
+      },
+      {
+        "publicId": "ZfA1Esmt",
+        "username": "ZfA1Esmt",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 208,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 208
+      },
+      {
+        "publicId": "GPamIlQR",
+        "username": "One_skif.3565",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 198,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 198
+      },
+      {
+        "publicId": "imAGxfTl",
+        "username": "vari",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 184,
+        "teamCasualWins": 0,
+        "teamRankedWins": 11,
+        "points": 195
+      },
+      {
+        "publicId": "lc4dP1Xv",
+        "username": "lc4dP1Xv",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 193,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 193
+      },
+      {
+        "publicId": "tCPqPlao",
+        "username": "Noob.4738",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 170,
+        "teamCasualWins": 0,
+        "teamRankedWins": 10,
+        "points": 180
+      },
+      {
+        "publicId": "BGxgJIeU",
+        "username": "BGxgJIeU",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 174,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 174
+      },
+      {
+        "publicId": "zCNA4ddx",
+        "username": "Galod.5875",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 169,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 169
+      },
+      {
+        "publicId": "iabTejk6",
+        "username": "Restart",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 138,
+        "teamCasualWins": 0,
+        "teamRankedWins": 28,
+        "points": 166
+      },
+      {
+        "publicId": "TRkhApIC",
+        "username": "TRkhApIC",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 161,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 161
+      },
+      {
+        "publicId": "Pg26t2IR",
+        "username": "Pg26t2IR",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 152,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 152
+      },
+      {
+        "publicId": "1tZwM07g",
+        "username": "1tZwM07g",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 151,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 151
+      },
+      {
+        "publicId": "OJmKmWyk",
+        "username": "OJmKmWyk",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 150,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 150
+      },
+      {
+        "publicId": "R0wAr3sr",
+        "username": "Lolz.4908",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 150,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 150
+      },
+      {
+        "publicId": "iqPpA3at",
+        "username": "iqPpA3at",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 147,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 147
+      },
+      {
+        "publicId": "3HgLok0I",
+        "username": "GVM.2051",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 145,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 145
+      },
+      {
+        "publicId": "1kvfZzVt",
+        "username": "1kvfZzVt",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 145,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 145
+      },
+      {
+        "publicId": "tL7sL15E",
+        "username": "tL7sL15E",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 144,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 144
+      },
+      {
+        "publicId": "VZwBEGTN",
+        "username": "VZwBEGTN",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 143,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 143
+      },
+      {
+        "publicId": "sFR7TRhM",
+        "username": "sFR7TRhM",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 136,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 136
+      },
+      {
+        "publicId": "nO7ZbBpM",
+        "username": "moo.1969",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 136,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 136
+      },
+      {
+        "publicId": "tbpit0gj",
+        "username": "PIERRECHARTIERX2007.0598",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 131,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 131
+      },
+      {
+        "publicId": "N6jzJUhw",
+        "username": "UN Sparkles.1521",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 92,
+        "teamCasualWins": 0,
+        "teamRankedWins": 38,
+        "points": 130
+      },
+      {
+        "publicId": "8DMf1PWS",
+        "username": "Ziyad.7640",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 66,
+        "teamCasualWins": 0,
+        "teamRankedWins": 60,
+        "points": 126
+      },
+      {
+        "publicId": "S7Or4TjK",
+        "username": "imperium romanum.1668",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 115,
+        "teamCasualWins": 0,
+        "teamRankedWins": 9,
+        "points": 124
+      },
+      {
+        "publicId": "pLXDUmUt",
+        "username": "pLXDUmUt",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 123,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 123
+      },
+      {
+        "publicId": "nAZMfTr8",
+        "username": "ryy.5305",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 112,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 112
+      },
+      {
+        "publicId": "cBQ6lfbC",
+        "username": "John",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 92,
+        "teamCasualWins": 0,
+        "teamRankedWins": 14,
+        "points": 106
+      },
+      {
+        "publicId": "zzM5pyvN",
+        "username": "zzM5pyvN",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 106,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 106
+      },
+      {
+        "publicId": "GPgeMPV7",
+        "username": "CMi.2150",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 103,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 103
+      },
+      {
+        "publicId": "gcYqHbO2",
+        "username": "gcYqHbO2",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 103,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 103
+      },
+      {
+        "publicId": "dKNRYyVu",
+        "username": "PlanetaryRealignment",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 102,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 102
+      },
+      {
+        "publicId": "eCX6vkqJ",
+        "username": "EagleEye on YT",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 101,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 101
+      },
+      {
+        "publicId": "uVs4IhR9",
+        "username": "uVs4IhR9",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 95,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 95
+      },
+      {
+        "publicId": "voILRMRf",
+        "username": "voILRMRf",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 95,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 95
+      },
+      {
+        "publicId": "edFs3uR3",
+        "username": "edFs3uR3",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 89,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 89
+      },
+      {
+        "publicId": "8XtYOuc2",
+        "username": "Moka",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 71,
+        "teamCasualWins": 0,
+        "teamRankedWins": 17,
+        "points": 88
+      },
+      {
+        "publicId": "COLlNy6T",
+        "username": "COLlNy6T",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 85,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 85
+      },
+      {
+        "publicId": "TYYNdQFk",
+        "username": "TYYNdQFk",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 84,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 84
+      },
+      {
+        "publicId": "Rx9BJsAS",
+        "username": "Sylvan.1405",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 84,
+        "points": 84
+      },
+      {
+        "publicId": "Y8pOfyCA",
+        "username": "pregnar.4929",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 82,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 82
+      },
+      {
+        "publicId": "JecS57vm",
+        "username": "JecS57vm",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 81,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 81
+      },
+      {
+        "publicId": "EaKo3zJk",
+        "username": "1m2o.0466",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 77,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 77
+      },
+      {
+        "publicId": "u7qsbOja",
+        "username": "TeNa.4053",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 75,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 75
+      },
+      {
+        "publicId": "0hV7VLFu",
+        "username": "0hV7VLFu",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 71,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 71
+      },
+      {
+        "publicId": "lo73G87P",
+        "username": "lo73G87P",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 70,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 70
+      },
+      {
+        "publicId": "wIMw8VlJ",
+        "username": "Missouri.6063",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 68,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 68
+      },
+      {
+        "publicId": "PXxEI2id",
+        "username": "PXxEI2id",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 66,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 66
+      },
+      {
+        "publicId": "7dSOV1b6",
+        "username": "7dSOV1b6",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 61,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 61
+      },
+      {
+        "publicId": "WyofC4t8",
+        "username": "bananaJC.9671",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 60,
+        "points": 60
+      },
+      {
+        "publicId": "dC2YzdlO",
+        "username": "dC2YzdlO",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 59,
+        "points": 59
+      },
+      {
+        "publicId": "FXx41BE7",
+        "username": "FXx41BE7",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 58,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 58
+      },
+      {
+        "publicId": "3RWJ1EDe",
+        "username": "3RWJ1EDe",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 55,
+        "points": 55
+      },
+      {
+        "publicId": "uJSIR9n9",
+        "username": "noah2610.3223",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 46,
+        "points": 46
+      },
+      {
+        "publicId": "5RfzU503",
+        "username": "5RfzU503",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 45,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 45
+      },
+      {
+        "publicId": "tfvGyX7E",
+        "username": "tfvGyX7E",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 44,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 44
+      },
+      {
+        "publicId": "fXNE7kwI",
+        "username": "Jojco.6249",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 40,
+        "points": 40
+      },
+      {
+        "publicId": "59fDSVJW",
+        "username": "DioxFrost.7067",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 39,
+        "points": 39
+      },
+      {
+        "publicId": "CR4uDCXB",
+        "username": "Odyrion.0441",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 36,
+        "points": 36
+      },
+      {
+        "publicId": "ccCIWk2Z",
+        "username": "ccCIWk2Z",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 34,
+        "points": 34
+      },
+      {
+        "publicId": "ZwBOHoJp",
+        "username": "Ozhcar.1545",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 30,
+        "points": 30
+      },
+      {
+        "publicId": "SY171t7w",
+        "username": "SPoS.9594",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 30,
+        "points": 30
+      },
+      {
+        "publicId": "VYuKrlN4",
+        "username": "judom",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 28,
+        "points": 28
+      },
+      {
+        "publicId": "gqxCEue3",
+        "username": "gqxCEue3",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 28,
+        "points": 28
+      },
+      {
+        "publicId": "vmtgisQN",
+        "username": "KennOmonn.6167",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 28,
+        "points": 28
+      },
+      {
+        "publicId": "gt5M6g0V",
+        "username": "Sonn.3645",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 27,
+        "points": 27
+      },
+      {
+        "publicId": "8CqaErVw",
+        "username": "Flooo",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 26,
+        "points": 26
+      },
+      {
+        "publicId": "bkqRCNpT",
+        "username": "koloss.8475",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 26,
+        "points": 26
+      },
+      {
+        "publicId": "ohzgGIhn",
+        "username": "ohzgGIhn",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 25,
+        "points": 25
+      },
+      {
+        "publicId": "eWXId1rb",
+        "username": "Calos.0391",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 24,
+        "points": 24
+      },
+      {
+        "publicId": "CIGpEYSw",
+        "username": "moncius.0540",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 23,
+        "points": 23
+      },
+      {
+        "publicId": "MAxrCpAe",
+        "username": "iamlewis",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 23,
+        "points": 23
+      },
+      {
+        "publicId": "u0KvFnZI",
+        "username": "u0KvFnZI",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 22,
+        "points": 22
+      },
+      {
+        "publicId": "SVtxzbGp",
+        "username": "Shimbino.3853",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 21,
+        "points": 21
+      },
+      {
+        "publicId": "v0W5l5uD",
+        "username": "v0W5l5uD",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 20,
+        "points": 20
+      },
+      {
+        "publicId": "fbMLxLwN",
+        "username": "fbMLxLwN",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 20,
+        "points": 20
+      },
+      {
+        "publicId": "kABBbcSQ",
+        "username": "Tony Troops",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 20,
+        "points": 20
+      },
+      {
+        "publicId": "xjsh5rgf",
+        "username": "Raccoon.4288",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 19,
+        "points": 19
+      },
+      {
+        "publicId": "pPXLna2O",
+        "username": "pPXLna2O",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 19,
+        "points": 19
+      },
+      {
+        "publicId": "g4dn5JJx",
+        "username": "Purvik.9763",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 18,
+        "points": 18
+      },
+      {
+        "publicId": "ogJE5bqm",
+        "username": "Jean Luc Melenchon.0843",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 17,
+        "points": 17
+      },
+      {
+        "publicId": "yKcRxkqh",
+        "username": "Nuk3.5873",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 16,
+        "points": 16
+      },
+      {
+        "publicId": "kD6Lacy5",
+        "username": "kD6Lacy5",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 16,
+        "points": 16
+      },
+      {
+        "publicId": "Uqd46eiJ",
+        "username": "Uqd46eiJ",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 16,
+        "points": 16
+      },
+      {
+        "publicId": "vrTivtCP",
+        "username": "veni.0275",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 16,
+        "points": 16
+      },
+      {
+        "publicId": "kTUHmJQy",
+        "username": "CN ONE.2636",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 15,
+        "points": 15
+      },
+      {
+        "publicId": "YABEeLTl",
+        "username": "TradingEmpire.0321",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 15,
+        "points": 15
+      },
+      {
+        "publicId": "XpYRA2Az",
+        "username": "XpYRA2Az",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 15,
+        "points": 15
+      },
+      {
+        "publicId": "1ADpKExw",
+        "username": "1ADpKExw",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 15,
+        "points": 15
+      },
+      {
+        "publicId": "6bmUqDG2",
+        "username": "Hermann8888.1778",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 15,
+        "points": 15
+      },
+      {
+        "publicId": "NbKwuzaf",
+        "username": "Xev ramen.4256",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 14,
+        "points": 14
+      },
+      {
+        "publicId": "LKkHCRwU",
+        "username": "LKkHCRwU",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 14,
+        "points": 14
+      },
+      {
+        "publicId": "ZtVzBzbV",
+        "username": "Gl0uGl0u.0598",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 14,
+        "points": 14
+      },
+      {
+        "publicId": "SlYKyy8b",
+        "username": "SlYKyy8b",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 13,
+        "points": 13
+      },
+      {
+        "publicId": "kuDssCA0",
+        "username": "john_pn.0625",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 12,
+        "points": 12
+      },
+      {
+        "publicId": "fk6h1mNg",
+        "username": "St0rm.6211",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 12,
+        "points": 12
+      },
+      {
+        "publicId": "HH5B7GkD",
+        "username": "Fatoumata.2716",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 12,
+        "points": 12
+      },
+      {
+        "publicId": "tAmEOzEO",
+        "username": "tAmEOzEO",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 12,
+        "points": 12
+      },
+      {
+        "publicId": "SJ2KOAbE",
+        "username": "aki.2807",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 11,
+        "points": 11
+      },
+      {
+        "publicId": "bx8ZfgO7",
+        "username": "Crusader.3255",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 11,
+        "points": 11
+      },
+      {
+        "publicId": "tV3YgU4e",
+        "username": "tV3YgU4e",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 11,
+        "points": 11
+      },
+      {
+        "publicId": "nTajqyhX",
+        "username": "Globi.4474",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 10,
+        "points": 10
+      },
+      {
+        "publicId": "zD4Hfe5z",
+        "username": "ALPHA.7797",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 10,
+        "points": 10
+      },
+      {
+        "publicId": "CesQ9ncU",
+        "username": "CesQ9ncU",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 10,
+        "points": 10
+      },
+      {
+        "publicId": "U1SFuUd9",
+        "username": "kingdom.8135",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 10,
+        "points": 10
+      },
+      {
+        "publicId": "vGWG7DTN",
+        "username": "vGWG7DTN",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 10,
+        "points": 10
+      },
+      {
+        "publicId": "r1tUhHBK",
+        "username": "r1tUhHBK",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 9,
+        "points": 9
+      },
+      {
+        "publicId": "gyt2iuKu",
+        "username": "cortec.8512",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 9,
+        "points": 9
+      },
+      {
+        "publicId": "mJkxrwnl",
+        "username": "A Wet Sandwich.1657",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 9,
+        "points": 9
+      },
+      {
+        "publicId": "eYno203C",
+        "username": "ELmango.2448",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 9,
+        "points": 9
+      },
+      {
+        "publicId": "tKMFsmVC",
+        "username": "tKMFsmVC",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 9,
+        "points": 9
+      },
+      {
+        "publicId": "XZROPj2m",
+        "username": "XZROPj2m",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 9,
+        "points": 9
+      },
+      {
+        "publicId": "W330I0XM",
+        "username": "W330I0XM",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 9,
+        "points": 9
+      },
+      {
+        "publicId": "JBT8713s",
+        "username": "JBT8713s",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 8,
+        "points": 8
+      },
+      {
+        "publicId": "pJ3obEj0",
+        "username": "pJ3obEj0",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 7,
+        "points": 7
+      },
+      {
+        "publicId": "irooe5968",
+        "username": "Skailex",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      }
+    ]
+  },
+  "weekly": {
+    "from": "2026-08-04T16:06:49.979Z",
+    "to": "2026-08-11T16:06:49.980Z",
+    "gamesScanned": 5,
+    "players": [
+      {
+        "publicId": "u0u81Hll",
+        "username": "Anto",
+        "clan": null,
+        "ffaCasualWins": 2,
+        "ffaRankedWins": 1,
+        "teamCasualWins": 0,
+        "teamRankedWins": 3,
+        "points": 24
+      },
+      {
+        "publicId": "hWNuSrnS",
+        "username": "Nvr_Kn",
+        "clan": null,
+        "ffaCasualWins": 1,
+        "ffaRankedWins": 2,
+        "teamCasualWins": 0,
+        "teamRankedWins": 4,
+        "points": 16
+      },
+      {
+        "publicId": "UWetOwlW",
+        "username": "Skailex on YT",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 1,
+        "teamRankedWins": 6,
+        "points": 11
+      },
+      {
+        "publicId": "tqMGOI2Q",
+        "username": "Zwiper",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 11,
+        "points": 11
+      },
+      {
+        "publicId": "EFqhVYJW",
+        "username": "YellowBiscuit",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 1,
+        "points": 1
+      },
+      {
+        "publicId": "Ajp51M2d",
+        "username": "EyesOfRuby.1498",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "cRbwVUdp",
+        "username": "ProfessorSployer.9847",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "CpomD1Nt",
+        "username": "Samraan.9216",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "FBXvYHZ8",
+        "username": "ImSoBad.8240",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "wdTUQwfq",
+        "username": "7oYo7.8163",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "fKjMQ07q",
+        "username": "fKjMQ07q",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "ct2S5kEX",
+        "username": "Fibs4785.6952",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "hFaZs30i",
+        "username": "smsfun.8062",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "wrzYZEVn",
+        "username": "wrzYZEVn",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "fyQoftrK",
+        "username": "fyQoftrK",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "bEprFTOW",
+        "username": "bEprFTOW",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "FK3dn8ez",
+        "username": "Milki.4467",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "A7x0szx9",
+        "username": "Mortality.7537",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "HqyukEj5",
+        "username": "HqyukEj5",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "oCOTVIG9",
+        "username": "Bane.7227",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "B5qzdA0y",
+        "username": "DougyJr",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "SGGpDXiT",
+        "username": "Gandy.2542",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "7FxG7bSU",
+        "username": "Zorbit.8324",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "Wh1T7VkU",
+        "username": "Royaume Du Rex.5906",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "Q93X0qis",
+        "username": "VarXard.9236",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "P7XZZSk6",
+        "username": "P7XZZSk6",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "zZ5zoZzQ",
+        "username": "NIKAS.1400",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "TYSIT7UO",
+        "username": "TYSIT7UO",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "8gNPUMcK",
+        "username": "8gNPUMcK",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "VZWEjtqV",
+        "username": "VZWEjtqV",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "3VjegYOZ",
+        "username": "3VjegYOZ",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "qNZMiEyR",
+        "username": "Zilka.4393",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "dAG8d3CL",
+        "username": "deshack.6268",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "TPcfzlh1",
+        "username": "TPcfzlh1",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "wI879hZz",
+        "username": "HulKiora.8629",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "7BaSl1Hr",
+        "username": "7BaSl1Hr",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "v5BbDFnF",
+        "username": "v5BbDFnF",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "GaUJ4V0X",
+        "username": "Revenflok.8023",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "TnLNa9Db",
+        "username": "Kris.4248",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "9Bbux7ke",
+        "username": "Kolibril",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "bzwipzrg",
+        "username": "soothxng.1964",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "lkTjuHFZ",
+        "username": "lkTjuHFZ",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "F7hWtWLS",
+        "username": "F7hWtWLS",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "CxjNBZlc",
+        "username": "CxjNBZlc",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "SBU206vb",
+        "username": "SBU206vb",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "9xhGr7Kc",
+        "username": "Elin.0270",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "Too6ceIW",
+        "username": "France.6714",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "t1nUp9zM",
+        "username": "Pyrrha.5566",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "y4zaID7x",
+        "username": "Nwy07_.4782",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "ji5LH0gm",
+        "username": "ji5LH0gm",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "ZfA1Esmt",
+        "username": "ZfA1Esmt",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "GPamIlQR",
+        "username": "One_skif.3565",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "imAGxfTl",
+        "username": "vari",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "lc4dP1Xv",
+        "username": "lc4dP1Xv",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "tCPqPlao",
+        "username": "Noob.4738",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "BGxgJIeU",
+        "username": "BGxgJIeU",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "zCNA4ddx",
+        "username": "Galod.5875",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "iabTejk6",
+        "username": "Restart",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "TRkhApIC",
+        "username": "TRkhApIC",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "Pg26t2IR",
+        "username": "Pg26t2IR",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "1tZwM07g",
+        "username": "1tZwM07g",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "OJmKmWyk",
+        "username": "OJmKmWyk",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "R0wAr3sr",
+        "username": "Lolz.4908",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "iqPpA3at",
+        "username": "iqPpA3at",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "3HgLok0I",
+        "username": "GVM.2051",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "1kvfZzVt",
+        "username": "1kvfZzVt",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "tL7sL15E",
+        "username": "tL7sL15E",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "VZwBEGTN",
+        "username": "VZwBEGTN",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "sFR7TRhM",
+        "username": "sFR7TRhM",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "nO7ZbBpM",
+        "username": "moo.1969",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "tbpit0gj",
+        "username": "PIERRECHARTIERX2007.0598",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "N6jzJUhw",
+        "username": "UN Sparkles.1521",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "8DMf1PWS",
+        "username": "Ziyad.7640",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "S7Or4TjK",
+        "username": "imperium romanum.1668",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "pLXDUmUt",
+        "username": "pLXDUmUt",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "nAZMfTr8",
+        "username": "ryy.5305",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "cBQ6lfbC",
+        "username": "John",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "zzM5pyvN",
+        "username": "zzM5pyvN",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "GPgeMPV7",
+        "username": "CMi.2150",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "gcYqHbO2",
+        "username": "gcYqHbO2",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "dKNRYyVu",
+        "username": "PlanetaryRealignment",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "eCX6vkqJ",
+        "username": "EagleEye on YT",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "uVs4IhR9",
+        "username": "uVs4IhR9",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "voILRMRf",
+        "username": "voILRMRf",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "edFs3uR3",
+        "username": "edFs3uR3",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "8XtYOuc2",
+        "username": "Moka",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "COLlNy6T",
+        "username": "COLlNy6T",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "TYYNdQFk",
+        "username": "TYYNdQFk",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "Rx9BJsAS",
+        "username": "Sylvan.1405",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "Y8pOfyCA",
+        "username": "pregnar.4929",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "JecS57vm",
+        "username": "JecS57vm",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "EaKo3zJk",
+        "username": "1m2o.0466",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "u7qsbOja",
+        "username": "TeNa.4053",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "0hV7VLFu",
+        "username": "0hV7VLFu",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "lo73G87P",
+        "username": "lo73G87P",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "wIMw8VlJ",
+        "username": "Missouri.6063",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "PXxEI2id",
+        "username": "PXxEI2id",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "7dSOV1b6",
+        "username": "7dSOV1b6",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "WyofC4t8",
+        "username": "bananaJC.9671",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "dC2YzdlO",
+        "username": "dC2YzdlO",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "FXx41BE7",
+        "username": "FXx41BE7",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "3RWJ1EDe",
+        "username": "3RWJ1EDe",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "uJSIR9n9",
+        "username": "noah2610.3223",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "5RfzU503",
+        "username": "5RfzU503",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "tfvGyX7E",
+        "username": "tfvGyX7E",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "fXNE7kwI",
+        "username": "Jojco.6249",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "59fDSVJW",
+        "username": "DioxFrost.7067",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "CR4uDCXB",
+        "username": "Odyrion.0441",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "ccCIWk2Z",
+        "username": "ccCIWk2Z",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "ZwBOHoJp",
+        "username": "Ozhcar.1545",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "SY171t7w",
+        "username": "SPoS.9594",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "VYuKrlN4",
+        "username": "judom",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "gqxCEue3",
+        "username": "gqxCEue3",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "vmtgisQN",
+        "username": "KennOmonn.6167",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "gt5M6g0V",
+        "username": "Sonn.3645",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "8CqaErVw",
+        "username": "Flooo",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "bkqRCNpT",
+        "username": "koloss.8475",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "ohzgGIhn",
+        "username": "ohzgGIhn",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "eWXId1rb",
+        "username": "Calos.0391",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "CIGpEYSw",
+        "username": "moncius.0540",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "MAxrCpAe",
+        "username": "iamlewis",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "u0KvFnZI",
+        "username": "u0KvFnZI",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "SVtxzbGp",
+        "username": "Shimbino.3853",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "v0W5l5uD",
+        "username": "v0W5l5uD",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "fbMLxLwN",
+        "username": "fbMLxLwN",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "kABBbcSQ",
+        "username": "Tony Troops",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "xjsh5rgf",
+        "username": "Raccoon.4288",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "pPXLna2O",
+        "username": "pPXLna2O",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "g4dn5JJx",
+        "username": "Purvik.9763",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "ogJE5bqm",
+        "username": "Jean Luc Melenchon.0843",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "yKcRxkqh",
+        "username": "Nuk3.5873",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "kD6Lacy5",
+        "username": "kD6Lacy5",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "Uqd46eiJ",
+        "username": "Uqd46eiJ",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "vrTivtCP",
+        "username": "veni.0275",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "kTUHmJQy",
+        "username": "CN ONE.2636",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "YABEeLTl",
+        "username": "TradingEmpire.0321",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "XpYRA2Az",
+        "username": "XpYRA2Az",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "1ADpKExw",
+        "username": "1ADpKExw",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "6bmUqDG2",
+        "username": "Hermann8888.1778",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "NbKwuzaf",
+        "username": "Xev ramen.4256",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "LKkHCRwU",
+        "username": "LKkHCRwU",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "ZtVzBzbV",
+        "username": "Gl0uGl0u.0598",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "SlYKyy8b",
+        "username": "SlYKyy8b",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "kuDssCA0",
+        "username": "john_pn.0625",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "fk6h1mNg",
+        "username": "St0rm.6211",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "HH5B7GkD",
+        "username": "Fatoumata.2716",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "tAmEOzEO",
+        "username": "tAmEOzEO",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "SJ2KOAbE",
+        "username": "aki.2807",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "bx8ZfgO7",
+        "username": "Crusader.3255",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "tV3YgU4e",
+        "username": "tV3YgU4e",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "nTajqyhX",
+        "username": "Globi.4474",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "zD4Hfe5z",
+        "username": "ALPHA.7797",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "CesQ9ncU",
+        "username": "CesQ9ncU",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "U1SFuUd9",
+        "username": "kingdom.8135",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "vGWG7DTN",
+        "username": "vGWG7DTN",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "r1tUhHBK",
+        "username": "r1tUhHBK",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "gyt2iuKu",
+        "username": "cortec.8512",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "mJkxrwnl",
+        "username": "A Wet Sandwich.1657",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "eYno203C",
+        "username": "ELmango.2448",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "tKMFsmVC",
+        "username": "tKMFsmVC",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "XZROPj2m",
+        "username": "XZROPj2m",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "W330I0XM",
+        "username": "W330I0XM",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "JBT8713s",
+        "username": "JBT8713s",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "pJ3obEj0",
+        "username": "pJ3obEj0",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      },
+      {
+        "publicId": "irooe5968",
+        "username": "Skailex",
+        "clan": null,
+        "ffaCasualWins": 0,
+        "ffaRankedWins": 0,
+        "teamCasualWins": 0,
+        "teamRankedWins": 0,
+        "points": 0
+      }
+    ]
+  }
+}
