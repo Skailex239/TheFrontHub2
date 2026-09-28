@@ -1263,6 +1263,20 @@ a.pfsr-replay:hover{background:var(--accent);color:#fff;border-color:var(--accen
 }
 .pf-sc-img{max-width:40px;max-height:40px;object-fit:contain}
 .pf-sc-banner{image-rendering:pixelated;border-radius:3px}
+/* v5.15 — motifs OpenFront décodés sur canvas (vitrine + avatar héros) */
+.pf-sc-canvas{
+  width:40px;height:40px;display:block;
+  image-rendering:pixelated;border-radius:5px;
+  box-shadow:0 0 0 1px rgba(255,255,255,.12) inset;
+}
+.pf-sc-avatar-pattern{
+  width:100%;height:100%;border-radius:inherit;
+  box-shadow:none;
+}
+.pf2-sync-sample{
+  color:var(--amber, #ffb84d);
+  background:rgba(255, 184, 77, .08); border-color:rgba(255, 184, 77, .28);
+}
 .pf-sc-emoji{font-size:20px;line-height:1;display:flex;align-items:center;justify-content:center}
 .pf-sc-skin-preview{font-size:19px;font-weight:800;line-height:1}
 .pf-sc-body{min-width:0;flex:1}

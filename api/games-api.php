@@ -76,6 +76,75 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
     gout(['ok' => true]);
 }
 
+/* ── v5.15 — Motifs (patterns) OpenFront : bitmaps pour rendu canvas ──
+ * Le catalogue officiel (api.openfront.io/cosmetics.json) porte, pour chaque
+ * motif, un champ `pattern` = bitmap base64url (cf. PatternDecoder.ts côté
+ * OpenFrontIO). Le site stocke le catalogue en BDD SANS ce base64 (volume) ;
+ * ce helper le recharge à la demande avec un cache fichier 24 h HORS webroot
+ * (~/.tfs_cache — même philosophie que les secrets). Échec réseau = tableau
+ * vide : la vitrine retombe proprement sur l'icône de catégorie (comportement
+ * d'avant la v5.15), la route ne doit JAMAIS échouer pour un motif. */
+function tfh_patterns_map(): array
+{
+    static $map = null;
+    if ($map !== null) return $map;
+    $map = [];
+
+    $cacheDir = (getenv('HOME') ?: sys_get_temp_dir()) . '/.tfs_cache';
+    if (!is_dir($cacheDir)) { @mkdir($cacheDir, 0700, true); }
+    $cacheFile = $cacheDir . '/tfh-of-patterns.json';
+    $ttl = 24 * 3600;
+
+    if (is_readable($cacheFile)) {
+        $dec = json_decode((string) @file_get_contents($cacheFile), true);
+        if (is_array($dec) && isset($dec['fetched_at']) && (time() - (int) $dec['fetched_at']) < $ttl
+            && isset($dec['patterns']) && is_array($dec['patterns'])) {
+            $map = $dec['patterns'];
+            return $map;
+        }
+    }
+
+    $ch = curl_init('https://api.openfront.io/cosmetics.json');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 4,
+        CURLOPT_TIMEOUT        => 15,
+        CURLOPT_ENCODING       => '',
+        CURLOPT_HTTPHEADER     => [
+            'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+            'Accept: application/json, text/plain, */*',
+            'Accept-Language: en-US,en;q=0.9',
+            'Referer: https://openfront.io/',
+        ],
+    ]);
+    $body   = curl_exec($ch);
+    $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+
+    if ($status === 200 && is_string($body) && $body !== '') {
+        $dec = json_decode($body, true);
+        if (is_array($dec) && isset($dec['patterns']) && is_array($dec['patterns'])) {
+            foreach ($dec['patterns'] as $name => $item) {
+                if (is_string($name) && is_array($item) && isset($item['pattern']) && is_string($item['pattern'])) {
+                    // garde-fou volume : le schéma OpenFront limite patternData à 1403 chars
+                    if (strlen($item['pattern']) <= 1500) {
+                        $map[$name] = $item['pattern'];
+                    }
+                }
+            }
+        }
+    }
+
+    if ($map !== []) {
+        @file_put_contents(
+            $cacheFile,
+            json_encode(['fetched_at' => time(), 'patterns' => $map], JSON_UNESCAPED_SLASHES),
+            LOCK_EX
+        );
+    }
+    return $map;
+}
+
 $route = (string)($_GET['route'] ?? '');
 $limit = max(1, min(200, (int)($_GET['limit'] ?? 30)));
 $offset = max(0, min(100000, (int)($_GET['offset'] ?? 0)));
@@ -319,8 +388,11 @@ case 'profile': {
         FROM tfh_g_cosmetic_wearers w LEFT JOIN tfh_g_cosmetics c ON c.category = w.category AND c.name = w.name
         WHERE w.public_id = ? ORDER BY w.times_worn DESC LIMIT 60');
     $cw->execute([$pid]);
+    /* v5.15 : bitmaps des motifs (une seule lecture du cache catalogue pour la
+     * boucle — jamais d'appel réseau par cosmétique). */
+    $patternsMap = [];
     foreach ($cw->fetchAll() as $x) {
-        $cosmetics[] = [
+        $item = [
             'category' => (string)$x['category'], 'name' => (string)$x['name'],
             'displayName' => $x['display_name'] !== null ? (string)$x['display_name'] : null,
             'timesWorn' => (int)$x['times_worn'],
@@ -330,6 +402,11 @@ case 'profile': {
             'priceHard' => $x['price_hard'] !== null ? (int)$x['price_hard'] : null,
             'url' => $x['url'] !== null ? (string)$x['url'] : null,
         ];
+        if ($item['category'] === 'pattern') {
+            if ($patternsMap === []) { $patternsMap = tfh_patterns_map(); }
+            $item['patternData'] = $patternsMap[$item['name']] ?? null;
+        }
+        $cosmetics[] = $item;
     }
 
     /* v5.14 — Vitrine cosmétiques TheFrontHub : skins/bannières possédés et
