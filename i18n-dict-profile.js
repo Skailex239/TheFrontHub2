@@ -295,6 +295,23 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   "pf.rights_tail": "TheFrontHub. Non affilié à OpenFront.io.",
   "pf.made_with_prefix": "Fait avec",
   "pf.made_with_suffix": "par la communauté",
+  // ── v5.13 — Profil revendiqué (badge vérifié, bio, map, liens) ──
+  "pf.verified_tip": "Joueur vérifié — cette personne est vérifiée (identité prouvée en jeu)",
+  "pf.fav_map": "Map préférée",
+  "pf.edit_profile": "Modifier le profil",
+  "pf.edit_lock": "Tu ne peux modifier que ton propre profil.",
+  "pf.edit_modal_title": "Modifier mon profil",
+  "pf.bio_ph": "Parle de toi : style de jeu, team, pays…",
+  "pf.favmap_ph": "Ex : Italy, Europe, Half Earth…",
+  "pf.edit_note": "Ces informations s'affichent publiquement sur ton profil. Ton profil doit être revendiqué (Public ID vérifié) pour les modifier.",
+  "pf.claim_hint_title": "Ce profil n'est pas encore revendiqué.",
+  "pf.claim_hint_text": "C'est ton pseudo ? Connecte-toi, lie ton Public ID et joue une partie avec le code de vérification pour débloquer le badge vérifié, la bio, la map préférée et tes liens réseaux.",
+  "pf.claim_hint_btn": "Revendiquer ce profil",
+  "pf.profile_updated": "Profil mis à jour !",
+  "pf.save_fail": "Impossible d'enregistrer. Réessaie.",
+  "pf.bad_link": "Un des liens est invalide.",
+  "pf.not_claimed": "Revendique d'abord ton profil (Public ID + vérification en jeu).",
+
 });
 
 window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en || {}, {
@@ -585,4 +602,21 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
   "pf.rights_tail": "TheFrontHub. Not affiliated with OpenFront.io.",
   "pf.made_with_prefix": "Made with",
   "pf.made_with_suffix": "by the community",
+  // ── v5.13 — Claimed profile (verified badge, bio, map, links) ──
+  "pf.verified_tip": "Verified player — this person is verified (identity proven in game)",
+  "pf.fav_map": "Favorite map",
+  "pf.edit_profile": "Edit profile",
+  "pf.edit_lock": "You can only edit your own profile.",
+  "pf.edit_modal_title": "Edit my profile",
+  "pf.bio_ph": "About you: playstyle, team, country…",
+  "pf.favmap_ph": "E.g.: Italy, Europe, Half Earth…",
+  "pf.edit_note": "This information is publicly displayed on your profile. Your profile must be claimed (verified Public ID) to edit it.",
+  "pf.claim_hint_title": "This profile is not claimed yet.",
+  "pf.claim_hint_text": "Is this your nickname? Sign in, link your Public ID and play one game with the verification code to unlock the verified badge, bio, favorite map and social links.",
+  "pf.claim_hint_btn": "Claim this profile",
+  "pf.profile_updated": "Profile updated!",
+  "pf.save_fail": "Could not save. Try again.",
+  "pf.bad_link": "One of the links is invalid.",
+  "pf.not_claimed": "Claim your profile first (Public ID + in-game verification).",
+
 });

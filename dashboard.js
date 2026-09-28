@@ -113,6 +113,13 @@ let _searchQuery = "";         // recherche joueur (lowercase, trim) — "" = pa
 // Sert aux flèches ↑/↓ : rang actuel vs rang FINAL de la semaine dernière.
 // Vide si les données de sync ne sont pas encore à jour → pas de flèches (graceful).
 let _prevWeekly = new Map();
+// v5.13 — Top de la semaine « TOUS les joueurs » : source = BDD du site
+// (route=weekly, pré-calculé par le cron à chaque tick). Pagination serveur
+// (« Afficher plus ») + recherche API côté serveur. Fallback gracieux vers
+// l'ancienne vue _mergedViews.weekly si l'API est indisponible.
+let _weeklyApi = { rows: [], total: 0, loaded: 0, weekStart: 0, meRow: null, ready: false, loading: false, error: null };
+let _weeklySearchSeq = 0;      // anti-course : seule la dernière requête compte
+let _weeklySearchDebounce = null;
 let currentUser = null;     // { name, publicId, avatar, uid, email }
 let _ownershipCode = null;
 let _ownershipPublicId = null;
@@ -885,6 +892,8 @@ function render() {
   }
 
   // ── Barre de recherche : filtre les 2 panneaux en direct ──
+  // v5.13 : le panel hebdo (API) recherche CÔTÉ SERVEUR (tous les joueurs,
+  // paginé) → debounce 350 ms ; le panel global garde le filtre client.
   const searchInput = document.getElementById("dash-search-input");
   const searchClear = document.getElementById("dash-search-clear");
   if (searchInput) {
@@ -892,6 +901,8 @@ function render() {
       _searchQuery = searchInput.value.trim().toLowerCase().slice(0, 40);
       if (searchClear) searchClear.hidden = _searchQuery.length === 0;
       updateLists();
+      if (_weeklySearchDebounce) clearTimeout(_weeklySearchDebounce);
+      _weeklySearchDebounce = setTimeout(() => fetchWeeklyPage({ reset: true }), 350);
     });
     searchInput.addEventListener("keydown", (e) => {
       if (e.key === "Escape") { clearSearch(); searchInput.blur(); }
@@ -901,6 +912,7 @@ function render() {
     searchClear.addEventListener("click", () => {
       clearSearch();
       searchInput?.focus();
+      fetchWeeklyPage({ reset: true });
     });
   }
 
@@ -910,6 +922,8 @@ function render() {
       if (!btn.dataset.filter || btn.dataset.filter === _pointFilter) return;
       _pointFilter = btn.dataset.filter;
       // Rebuild complet : points recalculés + tri + corps des panneaux
+      // v5.13 : le panel hebdo API est re-trié côté serveur selon le mode.
+      fetchWeeklyPage({ reset: true });
       mergeAndRender();
     });
   });
@@ -1019,8 +1033,13 @@ function renderRanking(topN, opts = {}) {
     const puBadge = opts.weekly && p.rank === 1 && _pointFilter === "all"
       ? weeklyPlutoniumBadge()
       : "";
-    const nameHtml = `<span class="dash-player-name${skinClass}"${pfbAttr}${hubName && p.username && hubName !== p.username ? ` title="${escapeHtml(T("dash.ingame", "En jeu : {n}").replace("{n}", p.username))}"` : ""}>${escapeHtml(name)}</span>`;
-    const nameLine = (meChip || puBadge)
+    // v5.13 — badge « vérifié » (les lignes API portent publicId → direct) ;
+    // infobulle native : la liste est scrollable → bulle CSS rognée.
+    const vBadge = (p.publicId && typeof window.TFHVerified === "object" && window.TFHVerified.isVerifiedPid(p.publicId))
+      ? window.TFHVerified.badgeHtml(p.publicId, { native: true })
+      : "";
+    const nameHtml = `<span class="dash-player-name${skinClass}"${pfbAttr}${hubName && p.username && hubName !== p.username ? ` title="${escapeHtml(T("dash.ingame", "En jeu : {n}").replace("{n}", p.username))}"` : ""}>${escapeHtml(name)}</span>${vBadge}`;
+    const nameLine = (meChip || puBadge || vBadge)
       ? `<span class="dash-player-line">${nameHtml}${meChip}${puBadge}</span>`
       : nameHtml;
 
@@ -1118,6 +1137,86 @@ function panelBodyHtml(fullView, shown, me, weekly) {
   return list + meRow;
 }
 
+/* ═══ v5.13 — Panel hebdo « TOUS les joueurs » (API route=weekly) ═══
+ * Données pré-calculées côté serveur (tfh_g_weekly, mis à jour à chaque
+ * tick du cron) : la liste contient TOUS les joueurs de la semaine avec
+ * des victoires, paginée par 50 (« Afficher plus ») et searchable côté
+ * serveur. Fallback : si l'API n'est pas prête, l'ancienne vue
+ * (_mergedViews.weekly) reste affichée — zéro régression. */
+async function fetchWeeklyPage({ reset = false } = {}) {
+  if (_weeklyApi.loading) return;
+  _weeklyApi.loading = true;
+  const seq = ++_weeklySearchSeq;
+  const offset = reset ? 0 : _weeklyApi.loaded;
+  const mePid = currentUser?.publicId || "";
+  try {
+    const url = `/api/games-api.php?route=weekly&mode=${encodeURIComponent(_pointFilter)}&limit=50&offset=${offset}`
+      + (_searchQuery ? `&q=${encodeURIComponent(_searchQuery)}` : "")
+      + (mePid ? `&me=${encodeURIComponent(mePid)}` : "");
+    const res = await fetch(url, { cache: "no-store" });
+    const j = await res.json();
+    if (seq !== _weeklySearchSeq) return; // une frappe plus récente a supplanté cette requête
+    if (j && j.ok) {
+      const rows = Array.isArray(j.players) ? j.players : [];
+      _weeklyApi.rows = reset ? rows : _weeklyApi.rows.concat(rows);
+      _weeklyApi.total = j.total || 0;
+      _weeklyApi.weekStart = j.weekStart || 0;
+      _weeklyApi.meRow = j.me || null;
+      _weeklyApi.loaded = offset + rows.length;
+      _weeklyApi.ready = true;
+      _weeklyApi.error = null;
+    } else {
+      _weeklyApi.error = (j && j.error) || "weekly_error";
+      if (reset) _weeklyApi.ready = false;
+    }
+  } catch (e) {
+    _weeklyApi.error = String(e?.message || e);
+    if (reset) _weeklyApi.ready = false;
+  } finally {
+    _weeklyApi.loading = false;
+    if (seq === _weeklySearchSeq) updateLists();
+  }
+}
+
+/** Corps du panel hebdo depuis l'API (tous les joueurs, paginé). */
+function weeklyApiBodyHtml(searching) {
+  const mePid = currentUser?.publicId || null;
+  const rows = _weeklyApi.rows.map((r) => ({
+    rank: r.rank,
+    publicId: r.publicId,
+    username: r.username,
+    ffaCasualWins: r.ffaCasualWins,
+    ffaRankedWins: r.ffaRankedWins,
+    teamCasualWins: r.teamCasualWins,
+    teamRankedWins: r.teamRankedWins,
+    points: r.points,
+  }));
+  // Tendance : prevRank renvoyé par l'API (null = pas classé la semaine
+  // dernière → chip « NEW », même contrat que computePrevWeeklyRanks).
+  const prevRanks = new Map();
+  rows.forEach((r, i) => {
+    const pr = _weeklyApi.rows[i]?.prevRank;
+    if (pr != null) prevRanks.set(r.publicId, pr);
+  });
+  let html = renderRanking(rows, { weekly: true, mePid, prevRanks, searching });
+  // Ligne TOI épinglée : rank réel renvoyé par l'API même au-delà du 50ᵉ.
+  const me = _weeklyApi.meRow;
+  if (me && !searching && me.rank != null && rows.every((r) => r.publicId !== me.publicId)) {
+    html += mePinnedRowHtml({
+      rank: me.rank,
+      publicId: me.publicId,
+      username: me.hubName || me.username || me.publicId,
+      points: me.points,
+    });
+  }
+  // Pagination « Afficher plus » (hors recherche : la recherche est déjà
+  // bornée côté serveur, et on affiche le total dans le sous-titre).
+  if (!_weeklyApi.loading && _weeklyApi.loaded < _weeklyApi.total) {
+    html += `<button type="button" class="dash-more-btn" id="dash-weekly-more">${T("dash.weekly_more", "Afficher plus de joueurs")}<span class="dash-more-count">${_weeklyApi.loaded}/${_weeklyApi.total}</span></button>`;
+  }
+  return html;
+}
+
 /* ── Re-rend UNIQUEMENT les corps des 2 panneaux ──
  *   Appelé à chaque frappe dans la recherche / après login (ligne TOI) :
  *   la toolbar n'est pas reconstruite → le focus de la saisie est préservé. */
@@ -1135,6 +1234,37 @@ function updateLists() {
     const body = document.getElementById(bodyId);
     if (!body) return;
     const mePid = currentUser?.publicId || null;
+    /* v5.13 — panel hebdo : quand l'API « tous les joueurs » est prête,
+     * on affiche SES données (paginées) au lieu de la vue fusionnée locale. */
+    if (weekly && _weeklyApi.ready) {
+      body.innerHTML = weeklyApiBodyHtml(searching);
+      if (window.hydrateIcons) window.hydrateIcons(body);
+      if (window.TFHBanners && typeof window.TFHBanners.decorate === "function") {
+        window.TFHBanners.decorate(body);
+      }
+      const moreBtn = body.querySelector("#dash-weekly-more");
+      if (moreBtn) {
+        moreBtn.addEventListener("click", () => {
+          moreBtn.disabled = true;
+          moreBtn.textContent = T("dash.weekly_loading", "Chargement…");
+          fetchWeeklyPage();
+        });
+      }
+      const sub2 = document.getElementById(subId);
+      if (sub2) {
+        if (searching) {
+          sub2.textContent = T("dash.results_for", "{n} résultat{s} pour « {q} »")
+            .replace("{n}", _weeklyApi.total)
+            .replace("{s}", _weeklyApi.total > 1 ? "s" : "")
+            .replace("{q}", _searchQuery);
+        } else {
+          sub2.textContent = T("dash.sub_weekly", "Depuis le {date} · {n} joueurs actifs")
+            .replace("{date}", formatFrenchDate(_weeklyApi.weekStart || getWeekStartMs(Date.now())))
+            .replace("{n}", _weeklyApi.total);
+        }
+      }
+      return;
+    }
     const me = mePid ? fullView.find((p) => p.publicId === mePid) : null;
     const { shown, total } = computeShown(fullView);
     body.innerHTML = panelBodyHtml(fullView, shown, me, weekly);
@@ -1230,6 +1360,7 @@ onAuthStateChanged(auth, async (user) => {
     updateAuthUI(null);
     // Retrait de la ligne TOI après déconnexion
     refreshMeRows();
+    fetchWeeklyPage({ reset: true }); // v5.13 : purge la ligne TOI de l'API
     return;
   }
   currentUser = { uid: user.uid, avatar: user.photoURL, email: user.email };
@@ -1249,6 +1380,8 @@ onAuthStateChanged(auth, async (user) => {
     updateAuthUI(currentUser);
     // Ligne TOI : re-rend les listes si les données sont déjà affichées
     refreshMeRows();
+    // v5.13 — re-fetch hebdo avec me=publicId (ligne TOI au-delà du top 50)
+    fetchWeeklyPage({ reset: true });
   } else {
     // Premier login sans profil : on affiche le badge + ouvre le setup modal
     currentUser.name = user.displayName || T("dash.default_player", "Joueur");
@@ -1586,6 +1719,8 @@ document.addEventListener("click", (e) => {
       console.log("[dashboard] ✅ Rendu instantané depuis scores pré-calculés");
       // Skins VIP en arrière-plan : re-render quand ils arrivent (non bloquant)
       loadVipSkins().then(() => { if (_vipSkins.size > 0) mergeAndRender(); }).catch(() => {});
+      // v5.13 — top hebdo « tous les joueurs » (API, paginé)
+      fetchWeeklyPage({ reset: true });
       return;
     }
 
@@ -1611,6 +1746,10 @@ document.addEventListener("click", (e) => {
     } else {
       _liveFetchDone = true;
     }
+
+    // v5.13 — top hebdo « tous les joueurs » (API, paginé) — les deux chemins
+    // d'init passent ici ou par le return ci-dessus.
+    fetchWeeklyPage({ reset: true });
   } catch (e) {
     console.error("[dashboard] init failed:", e);
     view.innerHTML = `<div class="dash-empty-state"><div class="dash-empty-icon"><i data-icon="warning"></i></div><h3>${T("dash.error_title", "Erreur")}</h3><p>${escapeHtml(e.message || T("dash.error_generic", "Chargement impossible."))}</p></div>`;

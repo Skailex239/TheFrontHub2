@@ -58,6 +58,20 @@ const ICONS = {
   lifebuoy: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.6"/><path d="M5.7 5.7l3.7 3.7M18.3 5.7l-3.7 3.7M18.3 18.3l-3.7-3.7M5.7 18.3l3.7-3.7"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
   snowflake: '<path d="M12 2v20M2 12h20M5 5l14 14M19 5L5 19"/>',
+
+  /* ── v5.13 — Badge « joueur vérifié » + réseaux sociaux ── */
+  // Sceau scallopé + coche : badge de vérification (profil revendiqué).
+  badgeCheck: '<path d="M12 2.2l2.3 1.9 3-.3.9 2.9 2.6 1.5-1 2.9 1 2.9-2.6 1.5-.9 2.9-3-.3-2.3 1.9-2.3-1.9-3 .3-.9-2.9L3.2 14l1-2.9-1-2.9 2.6-1.5.9-2.9 3 .3z"/><path d="M8.6 12l2.4 2.4 4.4-4.9"/>',
+  // X (Twitter) — glyphe plein (marque).
+  xSocial: '<path d="M17.2 3.5h2.9l-6.4 7.3 7.5 9.7h-5.9l-4.6-6-5.3 6H2.5l6.9-7.8L2.2 3.5h6l4.1 5.5 4.9-5.5z" fill="currentColor" stroke="none"/>',
+  // YouTube — rectangle arrondi + triangle de lecture.
+  youtube: '<rect x="2.8" y="5.5" width="18.4" height="13" rx="3.5"/><path d="M10.2 9.3v5.4l4.8-2.7z" fill="currentColor" stroke="none"/>',
+  // Twitch — silhouette + deux yeux.
+  twitch: '<path d="M4.3 4L4 16.2h3.9V21l4.5-4.8h3.4L20 12V4H4.3z"/><line x1="10.3" y1="7.8" x2="10.3" y2="11.8"/><line x1="14.6" y1="7.8" x2="14.6" y2="11.8"/>',
+  // Discord — visage arrondi + deux yeux pleins.
+  discord: '<path d="M8.6 5.6C9.7 5.2 10.8 5 12 5s2.3.2 3.4.6c2 2.5 3 5.4 2.8 8.7-1.5 1.3-3 2.2-4.5 2.6l-1-1.9c.6-.2 1.1-.5 1.6-.9-2.2.9-4.6.9-6.8 0 .5.4 1 .7 1.6.9l-1 1.9c-1.5-.4-3-1.3-4.5-2.6-.2-3.3.8-6.2 2.8-8.7z"/><circle cx="9.6" cy="11.2" r="1.15" fill="currentColor" stroke="none"/><circle cx="14.4" cy="11.2" r="1.15" fill="currentColor" stroke="none"/>',
+  // Site web / lien générique (globe déjà présent — celui-ci est un maillon).
+  chain: '<path d="M10.5 13.5a4 4 0 005.7 0l3-3a4 4 0 10-5.7-5.7l-1.2 1.2"/><path d="M13.5 10.5a4 4 0 00-5.7 0l-3 3a4 4 0 105.7 5.7l1.2-1.2"/>',
 };
 
 /**

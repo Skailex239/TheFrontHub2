@@ -96,7 +96,12 @@ function mapUserDoc(me) {
     username: me.username,
     publicId: me.publicId,
     email: me.email || null,
-    verified: !!me.publicId,
+    /* v5.13 — badge vérifié = preuve serveur (verified_at), pas juste le lien */
+    verified: !!me.verified,
+    verifiedAt: me.verifiedAt || null,
+    bio: me.bio || null,
+    favMap: me.favMap || null,
+    links: me.links || null,
     createdAt: me.createdAt,
     updatedAt: me.lastLoginAt || me.createdAt,
     openFrontSessions: me.openFrontSessions || null,
@@ -277,10 +282,15 @@ async function setDoc(ref, data, _opts) {
     if (data && data.username !== undefined) payload.username = data.username;
     if (data && data.publicId !== undefined && data.publicId !== null) payload.publicId = data.publicId;
     if (data && Array.isArray(data.openFrontSessions)) payload.openFrontSessions = data.openFrontSessions;
-    await apiPost("/api/profile.php", payload);
+    /* v5.13 — le code du défi accompagne la liaison : le serveur vérifie la
+     * propriété en scannant les parties récentes (badge « vérifié »). */
+    if (data && typeof data.verifyCode === "string" && data.verifyCode.trim() !== "") {
+      payload.verifyCode = data.verifyCode.trim().toUpperCase();
+    }
+    const saved = await apiPost("/api/profile.php", payload);
     // Rafraîchit l'état local (le profil vient de changer)
     fetchMe().catch(() => {});
-    return;
+    return saved;
   }
 
   /* public-aliases/{uid} → pont alias (l'API met à jour la table dédiée) */
@@ -392,6 +402,12 @@ function onSnapshot(ref, callback, errCallback) {
             username: a.username,
             publicId: a.publicId,
             aliases: a.aliases && a.aliases.length ? a.aliases : (a.username ? [a.username] : []),
+            /* v5.13 — badge vérifié + extras profil (transparents pour le
+             * code existant, consommés par window.TFHVerified via app.js) */
+            verified: !!a.verified,
+            bio: a.bio || null,
+            favMap: a.favMap || null,
+            links: a.links || null,
           })
         );
         callback(makeQuerySnapshot(docs));

@@ -7,7 +7,7 @@
   <title>TheFrontHub — Partie</title>
   <meta name="description" content="Détail d'une partie OpenFront : roster complet, clans, vainqueur et configuration.">
   <link rel="icon" type="image/png" href="favicon-32x32.png">
-  <link rel="stylesheet" href="styles.css?v=92">
+  <link rel="stylesheet" href="styles.css?v=93">
   <style>
     :root { --gp-radius: 14px; }
     body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; margin: 0; }
@@ -86,6 +86,14 @@
   var profUrl = function (name, pid) {
     return 'profile.html?player=' + encodeURIComponent(name || '') + (pid ? '&publicId=' + encodeURIComponent(pid) : '');
   };
+  /* v5.13 — badge « joueur vérifié » (données route=game ; bulle CSS de
+   * styles.css — la page roster n'est pas en overflow contraint). */
+  var vBadge = function (p) {
+    if (!p || !p.verified || !p.publicId) return '';
+    var tip = 'Joueur vérifié — cette personne est vérifiée (identité prouvée en jeu)';
+    return '<span class="tfh-vbadge" data-tip="' + esc(tip) + '" title="' + esc(tip) + '" tabindex="0" role="img" aria-label="' + esc(tip) + '">' +
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tfh-vbadge-ic" aria-hidden="true"><path d="M12 2.2l2.3 1.9 3-.3.9 2.9 2.6 1.5-1 2.9 1 2.9-2.6 1.5-.9 2.9-3-.3-2.3 1.9-2.3-1.9-3 .3-.9-2.9L3.2 14l1-2.9-1-2.9 2.6-1.5.9-2.9 3 .3z"/><path d="M8.6 12l2.4 2.4 4.4-4.9"/></svg></span>';
+  };
 
   function pickStats(st) {
     if (!st || typeof st !== 'object') return [];
@@ -131,7 +139,7 @@
       var st = pickStats(p.stats);
       var stHtml = st.length ? st.map(function (x) { return '<b>' + esc(x[1]) + '</b> ' + esc(x[0]); }).join(' · ') : '—';
       return '<tr class="' + (p.won ? 'winner' : '') + '">' +
-        '<td>' + cosImgs(p.cosmetics) + '<a class="gp-player" href="' + profUrl(p.username, p.publicId) + '">' + esc(p.username) + '</a></td>' +
+        '<td>' + cosImgs(p.cosmetics) + '<a class="gp-player" href="' + profUrl(p.username, p.publicId) + '">' + esc(p.username) + '</a>' + vBadge(p) + '</td>' +
         '<td>' + (p.clanTag ? '<a class="gp-clan" href="clan.html?tag=' + encodeURIComponent(p.clanTag) + '">[' + esc(p.clanTag) + ']</a>' : '—') + '</td>' +
         '<td>' + (p.teamIndex != null ? '<span class="gp-team t' + (p.teamIndex % 4) + '">Équipe ' + (p.teamIndex + 1) + '</span>' : '<span class="gp-team">FFA</span>') + '</td>' +
         '<td>' + (p.won ? '<span class="gp-badge win">Vainqueur</span>' : '<span style="color:var(--muted)">—</span>') + '</td>' +
@@ -157,7 +165,7 @@
           (g.hasReplay ? '<span class="gp-badge">Replay dispo</span>' : '') +
         '</div>' +
         '<p class="gp-sub">Partie du ' + esc(fmtDate(g.startedAt)) + ' · ID <code>' + esc(g.id) + '</code>' +
-          (winRow ? ' · Vainqueur : <a class="gp-player" href="' + profUrl(winRow.username, winRow.publicId) + '">' + esc(winRow.username) + '</a>' : (winner.username ? ' · Vainqueur : <a class="gp-player" href="' + profUrl(winner.username, winner.publicId) + '">' + esc(winner.username) + '</a>' : '')) +
+          (winRow ? ' · Vainqueur : <a class="gp-player" href="' + profUrl(winRow.username, winRow.publicId) + '">' + esc(winRow.username) + '</a>' + vBadge(winRow) : (winner.username ? ' · Vainqueur : <a class="gp-player" href="' + profUrl(winner.username, winner.publicId) + '">' + esc(winner.username) + '</a>' + vBadge(winner) : '')) +
         '</p>' +
         '<div class="gp-stats">' +
           '<div class="gp-stat"><b>' + esc(String(g.numPlayers ?? '—')) + '</b><span>Joueurs</span></div>' +

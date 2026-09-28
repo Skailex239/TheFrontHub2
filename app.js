@@ -359,6 +359,32 @@ function pfbAttrFor(username) {
   const pid = pfbPidFor(username);
   return pid ? ` data-pfb-pid="${esc(pid)}"` : "";
 }
+
+/* v5.13 — Badge « joueur vérifié » d'un pseudo (registre global verified.js,
+ * infobulle native : les listes du hub sont scrollables → bulles rognées). */
+function vBadgeName(username) {
+  try {
+    return (window.TFHVerified && typeof window.TFHVerified.badgeForName === "function")
+      ? window.TFHVerified.badgeForName(username, { native: true })
+      : "";
+  } catch (e) { return ""; }
+}
+
+/* v5.13 — Badge « joueur vérifié » : pont pour les autres scripts
+ * (runs.js, preprofile.js, game.html…) via window.TFHVerified.badgeForName().
+ * opts natifs : les listes scrollables utilisent l'infobulle native (title). */
+if (typeof window.__tfhResolvePid !== "function") {
+  window.__tfhResolvePid = pfbPidFor;
+}
+if (window.TFHVerified) {
+  window.TFHVerified.onChange(() => {
+    if (_rawRuns.length > 0) debouncedRender();
+    if (window._rankedPlayers) {
+      renderRankedTable(window._rankedPlayers);
+      renderMyRank(window._rankedPlayers);
+    }
+  });
+}
 /** Décore les [data-pfb-pid] d'un conteneur (no-op si banners.js absent). */
 function decorateBanners(root) {
   if (window.TFHBanners && typeof window.TFHBanners.decorate === "function") {
@@ -513,6 +539,26 @@ function loadPublicAliases() {
       // déjà rendus (speedruns / global / HOF) sans re-render complet.
       if (pidBridgeChanged) {
         decorateBanners(document);
+      }
+      // v5.13 — Badge « joueur vérifié » + extras profil (bio/map/liens) :
+      // on alimente le registre global partagé (verified.js) avec la même
+      // réponse d'API, puis on re-rend pour faire apparaître les badges.
+      if (window.TFHVerified) {
+        const vRows = [];
+        snap.forEach((docSnap) => {
+          const d = docSnap.data();
+          if (d && (d.publicId || d.username)) {
+            vRows.push({
+              publicId: d.publicId,
+              username: d.username,
+              verified: !!d.verified,
+              bio: d.bio,
+              favMap: d.favMap,
+              links: d.links,
+            });
+          }
+        });
+        window.TFHVerified.setFromAliases(vRows);
       }
       publicAliasesLoaded = true;
     }, (error) => {
@@ -1768,7 +1814,7 @@ function renderLeaderboard(d){
     // Affichage : pseudo hub (profil TheFrontHub) sinon pseudo en jeu.
     const parts=String(r.player||'').split(' + ').map(s=>s.trim()).filter(Boolean);
     const nameHtml=parts.map(n=>
-      '<span class="run-player-name'+skinClassFor(n)+'"'+pfbAttrFor(n)+' onclick="event.stopPropagation();openPlayerProfile('+jsq(n)+')" title="'+esc(runTitleFor(r,n))+'">'+esc(displayNameFor(n))+'</span>'
+      '<span class="run-player-name'+skinClassFor(n)+'"'+pfbAttrFor(n)+' onclick="event.stopPropagation();openPlayerProfile('+jsq(n)+')" title="'+esc(runTitleFor(r,n))+'">'+esc(displayNameFor(n))+'</span>'+vBadgeName(n)
     ).join('<span class="run-team-sep">+</span>');
 
     // GG Button Logic
@@ -1891,7 +1937,7 @@ function renderFeed(){
     // affichage du pseudo hub (profil TheFrontHub) sinon pseudo en jeu
     const parts=String(r.player||'').split(' + ').map(s=>s.trim()).filter(Boolean);
     const nameHtml=parts.map(n=>
-      '<span class="run-player-name'+skinClassFor(n)+'"'+pfbAttrFor(n)+' onclick="event.stopPropagation();openPlayerProfile('+jsq(n)+')" title="'+esc(runTitleFor(r,n))+'">'+esc(displayNameFor(n))+'</span>'
+      '<span class="run-player-name'+skinClassFor(n)+'"'+pfbAttrFor(n)+' onclick="event.stopPropagation();openPlayerProfile('+jsq(n)+')" title="'+esc(runTitleFor(r,n))+'">'+esc(displayNameFor(n))+'</span>'+vBadgeName(n)
     ).join('<span class="run-team-sep">+</span>');
     return '<div class="feed-item" data-pfb-row style="cursor:pointer" onclick="showPlayer('+jsq(r.player)+')"><div class="feed-rank">'+(i+1)+'</div><div class="feed-info"><div class="feed-player">'+nameHtml+isNew+rankBadge+'</div><div class="feed-map">'+getMapDisplayName(r.map)+' · '+timeAgo(r.timestamp)+'</div></div><div class="feed-time">'+formatTime(r.duration_s)+'</div><a class="feed-replay" href="'+getRunUrl(r)+'" target="_blank" title="'+T("home.watch_replay","Voir le replay")+'">&#9654;</a></div>';
   }).join("");
@@ -1922,7 +1968,7 @@ function renderGlobal(){
       // Solo : ligne entière → profil.
       const parts=String(p.player||'').split(' + ').map(s=>s.trim()).filter(Boolean);
       const playerInner=parts.map(n=>
-        '<span class="global-player'+skinClassFor(n)+'"'+pfbAttrFor(n)+' onclick="event.stopPropagation();showPlayer('+jsq(n)+')" title="'+esc(n)+'">'+esc(displayNameFor(n))+'</span>'
+        '<span class="global-player'+skinClassFor(n)+'"'+pfbAttrFor(n)+' onclick="event.stopPropagation();showPlayer('+jsq(n)+')" title="'+esc(n)+'">'+esc(displayNameFor(n))+'</span>'+vBadgeName(n)
       ).join('<span class="run-team-sep">+</span>');
       return '<tr class="'+isMeClass+'" data-pfb-row style="cursor:pointer" onclick="showPlayer('+jsq(p.player)+')"><td class="global-rank '+rc+'">'+(i+1)+'</td><td class="global-player-cell">'+playerInner+'</td><td class="global-points">'+p.points+'</td><td class="global-wins">'+p.wins+'</td></tr>';
     }).join("")+'</tbody></table>';
@@ -1937,7 +1983,7 @@ function renderHof(){
     // clic sur la carte → pancarte (modal stats, gérée par showPlayer).
     const parts=String(p.player||'').split(' + ').map(s=>s.trim()).filter(Boolean);
     const nameHtml=parts.map(n=>
-      '<span class="hof-player-name'+skinClassFor(n)+'"'+pfbAttrFor(n)+' onclick="event.stopPropagation();showPlayer('+jsq(n)+')" title="'+esc(n)+'">'+esc(displayNameFor(n))+'</span>'
+      '<span class="hof-player-name'+skinClassFor(n)+'"'+pfbAttrFor(n)+' onclick="event.stopPropagation();showPlayer('+jsq(n)+')" title="'+esc(n)+'">'+esc(displayNameFor(n))+'</span>'+vBadgeName(n)
     ).join('<span class="run-team-sep">+</span>');
     return '<div class="hof-card hof-'+(i+1)+'" data-pfb-row><div class="hof-name'+skinClassFor(p.player)+'" onclick="showPlayer('+jsq(p.player)+')">'+nameHtml+'</div><div class="hof-rank" style="color:'+rank.color+'">'+rank.name+'</div><div class="hof-pts">'+p.points+' pts</div><div class="hof-detail">'+p.golds+' '+T("compare.gold","1er")+' · '+p.silvers+' '+T("compare.silver","2e")+' · '+p.bronzes+' '+T("compare.bronze","3e")+'</div></div>';
   }).join("");
@@ -1966,7 +2012,7 @@ function renderCompare(){
     {label:window.t("compare.avg_time"),v1:formatTime(Math.round(p1.totalTime/p1.wins)),v2:formatTime(Math.round(p2.totalTime/p2.wins))},
     {label:window.t("compare.max_streak"),v1:p1.maxStreak,v2:p2.maxStreak}
   ];
-  c.innerHTML='<table class="global-table"><thead><tr><th></th><th class="global-player" onclick="showPlayer('+jsq(p1.player)+')" title="'+esc(p1.player)+'">'+esc(displayNameFor(p1.player))+'</th><th class="global-player" onclick="showPlayer('+jsq(p2.player)+')" title="'+esc(p2.player)+'">'+esc(displayNameFor(p2.player))+'</th></tr></thead><tbody>'+
+  c.innerHTML='<table class="global-table"><thead><tr><th></th><th class="global-player" onclick="showPlayer('+jsq(p1.player)+')" title="'+esc(p1.player)+'">'+esc(displayNameFor(p1.player))+vBadgeName(p1.player)+'</th><th class="global-player" onclick="showPlayer('+jsq(p2.player)+')" title="'+esc(p2.player)+'">'+esc(displayNameFor(p2.player))+vBadgeName(p2.player)+'</th></tr></thead><tbody>'+
     rows.map(r=>'<tr><td class="compare-label">'+r.label+'</td><td class="compare-val">'+r.v1+'</td><td class="compare-val">'+r.v2+'</td></tr>').join("")+
     '</tbody></table>';
 }

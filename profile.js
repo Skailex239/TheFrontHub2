@@ -404,10 +404,42 @@ function renderPublicProfile(username, publicId) {
   const verifiedEl = document.getElementById("profile-verified");
   if (verifiedEl) verifiedEl.hidden = true;
 
+  // v5.13 — extras profil masqués en attendant la réponse API
+  renderProfileExtras(null);
+  const editBtn = document.getElementById("profile-edit-btn");
+  if (editBtn) editBtn.hidden = true;
+  const claimHint = document.getElementById("claim-hint-banner");
+  if (claimHint) claimHint.style.display = "none";
+
   // Éditeur de pseudo + carte cosmétiques : réservés au PROPRE profil.
   // setEditingAllowed(false) masque le crayon, referme l'éditeur et purge
   // la carte codes — aucune action d'édition possible sur un profil public.
   setEditingAllowed(false);
+
+  // v5.13 — Données serveur du profil consulté (verified + bio/map/liens) :
+  // une seule requête GET (cache 60 s) peint tout le bloc identité.
+  if (publicId) {
+    fetch("/api/games-api.php?route=profile&publicId=" + encodeURIComponent(publicId), { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!j || !j.ok) return;
+        if (viewingPublicId !== publicId) return; // l'utilisateur a changé de profil entre-temps
+        if (window.TFHVerified && j.verified) window.TFHVerified.markVerified(publicId);
+        const vEl = document.getElementById("profile-verified");
+        if (vEl) {
+          vEl.title = T("pf.verified_tip", "Joueur vérifié — cette personne est vérifiée (identité prouvée en jeu)");
+          vEl.hidden = !j.verified;
+        }
+        const hint = document.getElementById("claim-hint-banner");
+        if (hint) hint.style.display = j.verified ? "none" : "flex";
+        renderProfileExtras(j.profile || null);
+      })
+      .catch(() => {});
+  } else {
+    // Profil « speedrun » sans publicId : pas de compte lié → encart revendication
+    const hint = document.getElementById("claim-hint-banner");
+    if (hint) hint.style.display = "flex";
+  }
 
   // Date d'arrivée : masquée sur un profil public (donnée non chargée)
   const joinedEl = document.getElementById("profile-joined-text");
@@ -659,9 +691,23 @@ function renderHero(user, profile) {
     pidBtn.style.display = profile.publicId ? "" : "none";
   }
 
-  // Badge « vérifié » (donnée Firestore : profile.verified)
+  // Badge « vérifié » (v5.13 : preuve serveur — profile.verified = verified_at posé
+  // par la vérification du défi en jeu côté serveur). Info-bulle explicite.
   const verifiedEl = document.getElementById("profile-verified");
-  if (verifiedEl) verifiedEl.hidden = !profile.verified;
+  if (verifiedEl) {
+    const tip = T("pf.verified_tip", "Joueur vérifié — cette personne est vérifiée (identité prouvée en jeu)");
+    verifiedEl.title = tip;
+    verifiedEl.hidden = !profile.verified;
+  }
+
+  // v5.13 — Bio / map préférée / liens réseaux + bouton d'édition
+  renderProfileExtras({
+    bio: profile.bio,
+    favMap: profile.favMap,
+    links: profile.links,
+  });
+  const editBtn = document.getElementById("profile-edit-btn");
+  if (editBtn) editBtn.hidden = !profile.verified;
 
   // Éditeur de pseudo : SEULEMENT si le profil affiché est celui du compte
   // connecté (connecté + publicId lié). Tout autre cas reste verrouillé.
@@ -704,6 +750,203 @@ function renderHero(user, profile) {
   // bannière active du profil affiché, clair/sombre re-rendus par banners.js).
   applyBannerToCard(document.querySelector(".pf2-id"), profile.publicId);
 }
+
+/* ═════════════════════════════════════════════════════════════════════════
+   v5.13 — PROFIL REVENDIQUÉ : bio, map préférée, liens réseaux
+   Rendu du bloc identité (propre profil = données du compte ; profil public
+   = réponse route=profile). Édition via la modale #profile-edit-modal.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/** Icônes réseaux : window.icon (icons.js) ou repli autonome minimal. */
+function linkIcon(name) {
+  try {
+    if (typeof window !== "undefined" && typeof window.icon === "function") {
+      return window.icon(name, { size: 14 });
+    }
+  } catch (e) { /* ignore */ }
+  return "";
+}
+
+/** URL cliquable d'un champ réseau (tolère handle, @pseudo ou lien complet). */
+function linkHref(net, raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  if (/^https?:\/\//i.test(v)) return v;
+  const clean = v.replace(/^@/, "");
+  if (net === "x") return "https://x.com/" + encodeURIComponent(clean);
+  if (net === "youtube") return "https://youtube.com/" + encodeURIComponent(v.startsWith("@") ? v : clean);
+  if (net === "twitch") return "https://twitch.tv/" + encodeURIComponent(clean);
+  return null; // discord : pseudo/invitation affiché sans lien automatique
+}
+
+/**
+ * Peint bio / map préférée / liens dans la carte identité.
+ * @param {{bio?:string|null, favMap?:string|null, links?:object|null}|null} extras
+ */
+function renderProfileExtras(extras) {
+  const bioEl = document.getElementById("profile-bio");
+  const mapEl = document.getElementById("profile-favmap");
+  const linksEl = document.getElementById("profile-links");
+
+  const bio = extras?.bio ? String(extras.bio) : "";
+  if (bioEl) {
+    if (bio) {
+      bioEl.textContent = bio;
+      bioEl.hidden = false;
+    } else {
+      bioEl.textContent = "";
+      bioEl.hidden = true;
+    }
+  }
+
+  const fm = extras?.favMap ? String(extras.favMap) : "";
+  if (mapEl) {
+    if (fm) {
+      const thumb = mapThumbUrl(fm);
+      mapEl.innerHTML =
+        '<span class="pf2-id-favmap-label">' + esc(T("pf.fav_map", "Map préférée")) + "</span>" +
+        (thumb ? '<img class="pf2-id-favmap-thumb" src="' + esc(thumb) + '" alt="" width="26" height="26" loading="lazy">' : "") +
+        "<b>" + esc(fm) + "</b>";
+      mapEl.hidden = false;
+    } else {
+      mapEl.innerHTML = "";
+      mapEl.hidden = true;
+    }
+  }
+
+  if (linksEl) {
+    const links = extras?.links || {};
+    const items = [];
+    const push = (net, iconName, label) => {
+      const raw = links[net];
+      if (!raw) return;
+      const href = linkHref(net, raw);
+      items.push(
+        href
+          ? '<a class="pf2-id-link" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer" title="' + esc(label + " : " + raw) + '">' + linkIcon(iconName) + "<span>" + esc(raw) + "</span></a>"
+          : '<span class="pf2-id-link pf2-id-link-plain" title="' + esc(label + " : " + raw) + '">' + linkIcon(iconName) + "<span>" + esc(raw) + "</span></span>"
+      );
+    };
+    push("x", "xSocial", "X");
+    push("youtube", "youtube", "YouTube");
+    push("twitch", "twitch", "Twitch");
+    push("discord", "discord", "Discord");
+    linksEl.innerHTML = items.join("");
+    linksEl.hidden = items.length === 0;
+  }
+}
+
+/* ── Modale d'édition (propre profil revendiqué uniquement) ── */
+
+window.openProfileEditor = function () {
+  if (!editingAllowed || viewingPublicId) {
+    showToast(T("pf.edit_lock", "Tu ne peux modifier que ton propre profil."), "warning");
+    return;
+  }
+  if (!currentProfile || !currentProfile.publicId) {
+    showToast(T("pf.link_pid_first", "Lie d'abord ton Public ID OpenFront avant de personnaliser ton profil."), "warning");
+    return;
+  }
+  const modal = document.getElementById("profile-edit-modal");
+  if (!modal) return;
+  const bio = currentProfile.bio || "";
+  const bioEl = document.getElementById("pem-bio");
+  const cnt = document.getElementById("pem-bio-count");
+  if (bioEl) bioEl.value = bio;
+  if (cnt) cnt.textContent = bio.length + "/400";
+  const fm = document.getElementById("pem-favmap");
+  if (fm) fm.value = currentProfile.favMap || "";
+  const links = currentProfile.links || {};
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ""; };
+  set("pem-link-x", links.x);
+  set("pem-link-youtube", links.youtube);
+  set("pem-link-twitch", links.twitch);
+  set("pem-link-discord", links.discord);
+  // Datalist des cartes : noms connus + cartes les plus jouées du joueur
+  const dl = document.getElementById("pem-map-list");
+  if (dl) {
+    const names = new Set(Object.keys(MAP_SLUGS).map((s) => s.charAt(0).toUpperCase() + s.slice(1)));
+    if (currentProfile.favMap) names.add(currentProfile.favMap);
+    dl.innerHTML = Array.from(names).sort().map((n) => '<option value="' + esc(n) + '">').join("");
+  }
+  modal.hidden = false;
+  document.body.style.overflow = "hidden";
+};
+
+window.closeProfileEditor = function () {
+  const modal = document.getElementById("profile-edit-modal");
+  if (modal) modal.hidden = true;
+  document.body.style.overflow = "";
+};
+
+window.saveProfileDetails = async function () {
+  const btn = document.getElementById("pem-save");
+  const original = btn?.textContent || "";
+  if (btn) { btn.disabled = true; btn.textContent = T("pf.saving", "Enregistrement…"); }
+  try {
+    const payload = {
+      action: "details",
+      bio: document.getElementById("pem-bio")?.value ?? "",
+      favMap: document.getElementById("pem-favmap")?.value ?? "",
+      links: {
+        x: document.getElementById("pem-link-x")?.value ?? "",
+        youtube: document.getElementById("pem-link-youtube")?.value ?? "",
+        twitch: document.getElementById("pem-link-twitch")?.value ?? "",
+        discord: document.getElementById("pem-link-discord")?.value ?? "",
+      },
+    };
+    const res = await fetch("/api/profile.php", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) {
+      if (j?.error === "not_claimed") {
+        showToast(T("pf.not_claimed", "Revendique d'abord ton profil (Public ID + vérification en jeu)."), "warning");
+      } else if (j?.error === "invalid_link") {
+        showToast(T("pf.bad_link", "Un des liens est invalide."), "error");
+      } else {
+        showToast(j?.message || T("pf.save_fail", "Impossible d'enregistrer. Réessaie."), "error");
+      }
+      return;
+    }
+    // Mise à jour locale + re-rendu immédiat
+    const p = j.profile || {};
+    currentProfile = { ...(currentProfile || {}), bio: p.bio ?? null, favMap: p.favMap ?? null, links: p.links ?? {} };
+    renderProfileExtras({
+      bio: currentProfile.bio,
+      favMap: currentProfile.favMap,
+      links: currentProfile.links,
+    });
+    window.closeProfileEditor();
+    showToast(T("pf.profile_updated", "Profil mis à jour !"), "success");
+  } catch (e) {
+    console.error("[profile] saveProfileDetails:", e);
+    showToast(T("pf.save_fail", "Impossible d'enregistrer. Réessaie."), "error");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = original; }
+  }
+};
+
+// Compteur de caractères de la bio (feedback live)
+document.addEventListener("input", (e) => {
+  if (e.target && e.target.id === "pem-bio") {
+    const cnt = document.getElementById("pem-bio-count");
+    if (cnt) cnt.textContent = (e.target.value || "").length + "/400";
+  }
+});
+// Fermeture de la modale : clic sur le fond + touche Escape
+document.addEventListener("click", (e) => {
+  if (e.target && e.target.id === "profile-edit-modal") window.closeProfileEditor();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    const modal = document.getElementById("profile-edit-modal");
+    if (modal && !modal.hidden) window.closeProfileEditor();
+  }
+});
 
 /** Copie le Public ID dans le presse-papiers (chip de la carte identité). */
 window.copyPublicId = function (btn) {
@@ -1418,8 +1661,26 @@ window.confirmOwnershipVerification = async () => {
       if (btn) { btn.disabled = false; btn.textContent = original; }
       return;
     }
-    // Verified → save to Firestore
-    await saveUserProfile(_ownershipUsername, _ownershipPublicId);
+    // Verified → save to Firestore (v5.13 : le code part au serveur, qui
+    // revérifie lui-même la propriété avant de poser le badge définitif)
+    await saveUserProfile(_ownershipUsername, _ownershipPublicId, _ownershipCode);
+    // Vérification serveur immédiate (si l'inline du save n'a pas suffi —
+    // ex : API OpenFront lente à cet instant). Non bloquant : en cas d'échec
+    // l'utilisateur garde son profil lié et pourra revérifier plus tard.
+    try {
+      const res = await fetch("/api/profile.php", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verify", publicId: _ownershipPublicId, code: _ownershipCode }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok && j.ok) {
+        if (currentProfile) currentProfile.verified = true;
+      } else if (j?.error && j.error !== "verify_failed") {
+        console.warn("[ownership] Server verify soft-fail:", j.error);
+      }
+    } catch (e) { /* non bloquant */ }
     // Liaison réussie → le défi persistant n'a plus de raison d'exister.
     clearOwnershipChallenge();
   } catch (e) {
@@ -1447,10 +1708,13 @@ window.cancelOwnershipVerification = () => {
   if (s2) s2.style.display = "none";
 };
 
-async function saveUserProfile(username, publicId) {
+async function saveUserProfile(username, publicId, verifyCode) {
   if (!currentUser) throw new Error("No authenticated user");
   try {
     const existing = currentProfile || {};
+    /* v5.13 — le code du défi accompagne la liaison : le serveur scanne
+     * lui-même les parties récentes du publicId (source de vérité du badge
+     * « vérifié »). verified reste affiché côté client pour la réactivité. */
     await setDoc(doc(db, "users", currentUser.uid), {
       username,
       publicId,
@@ -1459,6 +1723,7 @@ async function saveUserProfile(username, publicId) {
       verifiedAt: new Date().toISOString(),
       createdAt: existing.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      ...(verifyCode ? { verifyCode } : {}),
     }, { merge: true });
 
     currentProfile = { ...(currentProfile || {}), username, publicId, verified: true };

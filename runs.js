@@ -328,7 +328,10 @@ function renderRunRow(idx, run) {
   var titleAttr = shownName !== playerName ? ' title="' + escapeHtml(TP("runs.ingame_title", { name: playerName }, "En jeu : " + playerName)) + '"' : '';
   var pidAttr = pidForRun ? ' data-pid="' + escapeHtml(String(pidForRun)) + '" data-pfb-pid="' + escapeHtml(String(pidForRun)) + '"' : '';
   var clickJs = "handlePlayerClick('" + escapeHtml(playerName).replace(/'/g, "\\'") + "'," + (pidForRun ? "'" + String(pidForRun).replace(/[^A-Za-z0-9_-]/g, '') + "'" : "null") + ");return false";
-  tdPlayer.innerHTML = '<a' + skinAttr + pidAttr + ' data-player="' + escapeHtml(playerName) + '" href="#" onclick="' + clickJs + '"' + titleAttr + ' style="cursor:pointer;text-decoration:none">' + escapeHtml(shownName) + '</a>';
+  // v5.13 — badge « joueur vérifié » (infobulle native : liste scrollable)
+  var vBadge = (pidForRun && typeof window.TFHVerified === 'object' && window.TFHVerified.isVerifiedPid(pidForRun))
+    ? window.TFHVerified.badgeHtml(pidForRun, { native: true }) : '';
+  tdPlayer.innerHTML = '<a' + skinAttr + pidAttr + ' data-player="' + escapeHtml(playerName) + '" href="#" onclick="' + clickJs + '"' + titleAttr + ' style="cursor:pointer;text-decoration:none">' + escapeHtml(shownName) + '</a>' + vBadge;
 
   const tdMap = document.createElement('td');
   tdMap.innerHTML = escapeHtml(mapDisplayName(run.map));

@@ -132,6 +132,13 @@
     const hub = hubNameFor(pid);
     const displayName = hub || p.lastUsername || pid;
 
+    // v5.13 — badge « joueur vérifié » dans le panneau (donnée serveur)
+    if (data.verified && typeof window.TFHVerified === 'object') {
+      window.TFHVerified.markVerified(pid);
+    }
+    const vBadge = (data.verified && typeof window.TFHVerified === 'object')
+      ? window.TFHVerified.badgeHtml(pid) : '';
+
     // ── Compteurs ──
     const games = p.gamesCount || 0;
     const wins = p.winsCount || 0;
@@ -168,11 +175,13 @@
     }).join('') || '<div class="pp-sub">Aucun speedrun validé</div>';
 
     // ── Dernières parties ──
+    // v5.13 « tout est relié » : les parties pointent vers la page partie du
+    // site (roster complet, vainqueur, replay) au lieu de quitter le site.
     const recentRows = recent.slice(0, 15).map(function (g) {
       const sr = g.speedrun ? ' <span class="pp-cat ' + esc(g.speedrun.category) + '">' + esc(g.speedrun.category) + '</span>' : '';
       return '<tr>' +
         '<td>' + fmtDateTime(g.startedAt) + '</td>' +
-        '<td><a class="pp-link" href="https://openfront.io/game/' + esc(g.id) + '" target="_blank" rel="noopener">' + esc(g.map || '—') + '</a>' + sr + '</td>' +
+        '<td><a class="pp-link" href="game.html?id=' + encodeURIComponent(g.id) + '">' + esc(g.map || '—') + '</a>' + sr + '</td>' +
         '<td>' + esc(modeLabel(g.mode, g.rankedType)) + '</td>' +
         '<td>' + resultBadge(g.won) + '</td>' +
         '<td class="pp-col-players">' + (g.numPlayers != null ? g.numPlayers : '—') + '</td>' +
@@ -181,7 +190,7 @@
 
     const html = CSS +
       '<section id="preprofile-section" class="pp-panel" aria-label="Historique TheFrontHub">' +
-      '<div class="pp-head"><span class="pp-title">Historique TheFrontHub</span>' +
+      '<div class="pp-head"><span class="pp-title">Historique TheFrontHub' + vBadge + '</span>' +
       '<span class="pp-sub">Pré-profil ' + esc(pid) + ' • toutes les parties publiques archivées depuis sept. 2025</span></div>' +
       '<div class="pp-chips">' +
       '<span class="pp-chip"><b>' + esc(displayName) + '</b></span>' +

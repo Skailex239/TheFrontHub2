@@ -16,6 +16,8 @@ declare(strict_types=1);
 
 define('TFH_API', true);
 require __DIR__ . '/config.php';
+require_once __DIR__ . '/profile-schema.php';
+tfh_profile_ensure_schema($pdo);
 
 rate_limit($pdo, 'aliases:' . client_ip(), 60, 60);
 
@@ -64,10 +66,18 @@ function of_fetch_game_username(string $publicId): ?string
     return ($u !== '') ? $u : null;
 }
 
-$hasGameCol = true; // la colonne game_username existe-t-elle ? (SQL pas encore passe => false)
+$hasGameCol = true; // la colonne game_username existe-t-elle ? (SQL pas encore passé => false)
 try {
+    /* v5.13 — jointure tfh_users pour le badge « vérifié » + extras profil
+     * (bio, map préférée, liens réseaux). LEFT JOIN : un alias orphelin
+     * (compte supprimé) reste listé, simplement non vérifié. */
     $rows = $pdo->query(
-        'SELECT user_id, username, public_id, game_username FROM tfh_public_aliases ORDER BY updated_at DESC LIMIT 1000'
+        'SELECT pa.user_id, pa.username, pa.public_id, pa.game_username,
+                u.bio, u.fav_map, u.link_x, u.link_youtube, u.link_twitch, u.link_discord,
+                u.verified_at
+         FROM tfh_public_aliases pa
+         LEFT JOIN tfh_users u ON u.id = pa.user_id
+         ORDER BY pa.updated_at DESC LIMIT 1000'
     )->fetchAll();
 } catch (PDOException $e) {
     if ((string) $e->getCode() !== '42S22') { // 42S22 = colonne game_username absente
@@ -76,7 +86,12 @@ try {
     error_log('[tfh-api] public-aliases: colonne game_username absente, fallback sans pseudo en jeu');
     $hasGameCol = false;
     $rows = $pdo->query(
-        'SELECT user_id, username, public_id, NULL AS game_username FROM tfh_public_aliases ORDER BY updated_at DESC LIMIT 1000'
+        'SELECT pa.user_id, pa.username, pa.public_id, NULL AS game_username,
+                u.bio, u.fav_map, u.link_x, u.link_youtube, u.link_twitch, u.link_discord,
+                u.verified_at
+         FROM tfh_public_aliases pa
+         LEFT JOIN tfh_users u ON u.id = pa.user_id
+         ORDER BY pa.updated_at DESC LIMIT 1000'
     )->fetchAll();
 }
 
@@ -114,18 +129,30 @@ if ($toFetch) {
 
 $aliases = array_map(
     static function (array $r): array {
-        // aliases = tous les noms connus (en jeu + hub), dedupliques
+        // aliases = tous les noms connus (en jeu + hub), dédupliqués
         $all = [];
         foreach ([$r['game_username'] ?? null, $r['username']] as $n) {
             if (is_string($n) && $n !== '' && !in_array($n, $all, true)) {
                 $all[] = $n;
             }
         }
+        /* v5.13 — badge « vérifié » (verified_at posé par la vérification
+         * serveur du défi en jeu) + extras profil publics. */
+        $isVerified = !empty($r['public_id']) && !empty($r['verified_at']);
         return [
             'uid'      => (string) $r['user_id'],
             'username' => $r['username'],
             'publicId' => $r['public_id'],
             'aliases'  => $all,
+            'verified' => $isVerified,
+            'bio'      => ($r['bio'] ?? null) !== null ? (string) $r['bio'] : null,
+            'favMap'   => ($r['fav_map'] ?? null) !== null ? (string) $r['fav_map'] : null,
+            'links'    => [
+                'x'       => ($r['link_x'] ?? null) !== null ? (string) $r['link_x'] : null,
+                'youtube' => ($r['link_youtube'] ?? null) !== null ? (string) $r['link_youtube'] : null,
+                'twitch'  => ($r['link_twitch'] ?? null) !== null ? (string) $r['link_twitch'] : null,
+                'discord' => ($r['link_discord'] ?? null) !== null ? (string) $r['link_discord'] : null,
+            ],
         ];
     },
     $rows
@@ -133,7 +160,7 @@ $aliases = array_map(
 
 json_out([
     'ok'      => true,
-    'v'       => 4, // marqueur debug déploiement
+    'v'       => 5, // marqueur debug déploiement (v5.13 : verified + extras profil)
     'aliases' => $aliases,
     'count'   => count($aliases),
 ]);
