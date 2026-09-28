@@ -11,6 +11,13 @@ declare(strict_types=1);
  *  - "verify"           : VERIFICATION SERVEUR du defi de propriete — scanne
  *    les parties recentes du publicId et cherche le code. Seule source de
  *    verite pour le badge « joueur vérifié » (verified_at).
+ *  - "link_token"       : LIAISON INSTANTANEE par Identity Token OpenFront —
+ *    le joueur génère un token sur openfront.io (Paramètres du compte →
+ *    « Lier à un site tiers » → thefronthub.com) et le colle ici. On le
+ *    valide auprès de l'API officielle (POST /public/identity_token/validate,
+ *    audience = thefronthub.com) : la réponse donne le publicId, le token EST
+ *    la preuve de propriété (JWT EdDSA signé par OpenFront, TTL 10 min, aud
+ *    verrouillé au site). Liaison du Public ID + badge « vérifié » immédiats.
  *  - "details"          : edition du profil complet (bio, map préférée,
  *    liens réseaux) — débloqué une fois le profil revendiqué.
  *
@@ -129,6 +136,143 @@ function tfh_own_verify_ok(array $user, string $code): void
 }
 
 $action = trim((string) ($in['action'] ?? 'save'));
+
+/* ═══════════════ Liaison instantanée par Identity Token OpenFront ══════════
+ * Audience enregistrée côté OpenFront (admin-managed) : thefronthub.com.
+ * Le joueur choisit ce site dans le menu « Lier à un site tiers » d'OpenFront ;
+ * le token généré (JWT EdDSA, TTL 10 min, aud=thefronthub.com) ne prouve
+ * rien d'autre que « je contrôle ce publicId » — il ne permet PAS de se
+ * connecter à OpenFront et ne fuit aucune donnée d'identité. */
+const TFH_IDENTITY_AUDIENCE = 'thefronthub.com';
+
+function tfh_validate_identity_token(string $token): array
+{
+    if (strlen($token) < 20 || strlen($token) > 4000) {
+        return [false, 'bad_token', null];
+    }
+    if (!function_exists('curl_init')) {
+        return [false, 'api_unavailable', null];
+    }
+    $ch = curl_init('https://api.openfront.io/public/identity_token/validate');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => json_encode([
+            'token'    => $token,
+            'audience' => TFH_IDENTITY_AUDIENCE,
+        ]),
+        CURLOPT_CONNECTTIMEOUT => 4,
+        CURLOPT_TIMEOUT        => 10,
+        CURLOPT_USERAGENT      => 'TheFrontHub/1.0 (+https://thefronthub.com)',
+        CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'Accept: application/json'],
+    ]);
+    $body = curl_exec($ch);
+    $st   = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+    if ($st === 200 && is_string($body) && $body !== '') {
+        $j   = json_decode($body, true);
+        $pid = is_array($j) ? (string) ($j['publicId'] ?? '') : '';
+        if (preg_match('/^[A-Za-z0-9_-]{3,64}$/', $pid)) {
+            return [true, '', $pid];
+        }
+        return [false, 'bad_response', null];
+    }
+    if ($st === 400 || $st === 401 || $st === 403 || $st === 404) {
+        return [false, 'token_invalid', null];
+    }
+    return [false, 'api_unavailable', null];
+}
+
+/* ═══════════════ Action : link_token (liaison + badge instantanés) ═════════ */
+if ($action === 'link_token') {
+    rate_limit($pdo, 'linktok:' . (int) $user['id'] . ':' . client_ip(), 12, 3600);
+
+    $token = trim((string) ($in['token'] ?? ''));
+    if ($token === '') {
+        fail(400, 'token_missing', 'Colle le token généré sur OpenFront (Paramètres du compte → Lier à un site tiers).');
+    }
+
+    [$tokOk, $why, $tokenPid] = tfh_validate_identity_token($token);
+    if (!$tokOk) {
+        $msg = match ($why) {
+            'token_invalid'   => 'Token invalide, expiré (valable 10 min) ou généré pour un autre site. Sur openfront.io : Paramètres du compte → Lier à un site tiers → thefronthub.com → Générer, puis colle le nouveau token.',
+            'bad_token'       => 'Format de token invalide.',
+            'bad_response'    => 'Réponse inattendue de l’API OpenFront — réessaie dans un instant.',
+            default           => 'API OpenFront momentanément indisponible — réessaie dans quelques minutes.',
+        };
+        fail(400, $why === 'api_unavailable' ? 'link_retry' : ($why === 'token_invalid' ? 'token_invalid' : 'link_failed'), $msg);
+    }
+
+    /* publicId immuable : un compte déjà lié doit prouver le MÊME compte. */
+    $existingPid = (string) ($user['public_id'] ?? '');
+    if ($existingPid !== '' && $tokenPid !== $existingPid) {
+        fail(409, 'public_id_locked', 'Ton compte est déjà lié au Public ID ' . $existingPid . ' — il est immuable.');
+    }
+    /* Un publicId ne peut être lié qu'à un seul compte (contrôles serveur). */
+    $st = $pdo->prepare('SELECT id FROM tfh_users WHERE public_id = ? AND id <> ? LIMIT 1');
+    $st->execute([$tokenPid, $user['id']]);
+    if ($st->fetch()) {
+        fail(409, 'public_id_taken', 'Ce Public ID est deja lie a un autre compte.');
+    }
+    $st = $pdo->prepare('SELECT user_id FROM tfh_public_aliases WHERE public_id = ? AND user_id <> ? LIMIT 1');
+    $st->execute([$tokenPid, $user['id']]);
+    if ($st->fetch()) {
+        fail(409, 'public_id_taken', 'Ce Public ID est deja lie a un autre compte.');
+    }
+
+    $username = (string) ($user['username'] ?? ('user' . $user['id']));
+    try {
+        $pdo->beginTransaction();
+        /* Le token EST la preuve de propriété : liaison + verified_at d'un coup. */
+        $pdo->prepare('UPDATE tfh_users SET public_id = ?, verified_at = NOW(), own_code = NULL, own_code_expires = NULL WHERE id = ?')
+            ->execute([$tokenPid, $user['id']]);
+        try {
+            $pdo->prepare(
+                'INSERT INTO tfh_public_aliases (user_id, username, public_id)
+                 VALUES (?, ?, ?)
+                 ON DUPLICATE KEY UPDATE public_id = VALUES(public_id),
+                   game_username = IF(public_id <> VALUES(public_id), NULL, game_username)'
+            )->execute([$user['id'], $username, $tokenPid]);
+        } catch (PDOException $e) {
+            if ((string) $e->getCode() !== '42S22') { // colonne game_username absente (SQL pas encore passé)
+                throw $e;
+            }
+            $pdo->prepare(
+                'INSERT INTO tfh_public_aliases (user_id, username, public_id)
+                 VALUES (?, ?, ?)
+                 ON DUPLICATE KEY UPDATE public_id = VALUES(public_id)'
+            )->execute([$user['id'], $username, $tokenPid]);
+        }
+        $pdo->prepare(
+            'INSERT INTO tfh_public_rewards (public_id, user_id, username, activated)
+             VALUES (?, ?, ?, 0)
+             ON DUPLICATE KEY UPDATE username = VALUES(username), user_id = VALUES(user_id)'
+        )->execute([$tokenPid, $user['id'], $username]);
+        $pdo->commit();
+    } catch (PDOException $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        if ((int) $e->getCode() === 23000) {
+            fail(409, 'already_taken', 'Ce pseudo ou cet identifiant public est deja utilise.');
+        }
+        error_log('[tfh-api] profile link_token: ' . $e->getMessage());
+        fail(500, 'db_error', 'Erreur inattendue, reessaie.');
+    }
+
+    $st = $pdo->prepare('SELECT UNIX_TIMESTAMP(verified_at) AS v FROM tfh_users WHERE id = ?');
+    $st->execute([(int) $user['id']]);
+    $vts = $st->fetchColumn();
+
+    json_out([
+        'ok'          => true,
+        'linked'      => true,
+        'publicId'    => $tokenPid,
+        'verified'    => $vts !== false && $vts !== null,
+        'verifiedNow' => true,
+        'verifiedAt'  => $vts !== false && $vts !== null ? (int) $vts : null,
+    ]);
+}
 
 /* ═══════════════ Action : verify (badge « vérifié » serveur) ═══════════════ */
 if ($action === 'verify') {

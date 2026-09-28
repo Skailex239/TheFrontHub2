@@ -433,6 +433,8 @@ function renderPublicProfile(username, publicId) {
         const hint = document.getElementById("claim-hint-banner");
         if (hint) hint.style.display = j.verified ? "none" : "flex";
         renderProfileExtras(j.profile || null);
+        // v5.14 — Vitrine cosmétiques depuis la réponse déjà chargée (0 requête en plus)
+        renderShowcaseFromData(j);
       })
       .catch(() => {});
   } else {
@@ -706,6 +708,8 @@ function renderHero(user, profile) {
     favMap: profile.favMap,
     links: profile.links,
   });
+  // v5.14 — Vitrine cosmétiques du profil propre (fetch dédié, guard anti-course)
+  if (profile.publicId) void loadShowcase(profile.publicId);
   const editBtn = document.getElementById("profile-edit-btn");
   if (editBtn) editBtn.hidden = !profile.verified;
 
@@ -833,6 +837,222 @@ function renderProfileExtras(extras) {
     push("discord", "discord", "Discord");
     linksEl.innerHTML = items.join("");
     linksEl.hidden = items.length === 0;
+  }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════
+   v5.14 — VITRINE COSMÉTIQUES
+   Deux sources reliées au profil :
+   1. Cosmétiques OpenFront portés EN JEU (collectés par le cron du site ;
+      route=profile → cosmetics[] : motifs, couronnes, drapeaux, effets…
+      avec la rareté du catalogue officiel + le nombre de parties portés).
+   2. Cosmétiques TheFrontHub (skins texte animés, bannières pixel art,
+      statut VIP — route=profile → hubCosmetics).
+   Rendu sur le profil PROPRE (fetch dédié) et sur les profils PUBLICS
+   (réponse déjà chargée — zéro requête supplémentaire).
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const SHOWCASE_CAT_ICON = {
+  pattern: "🎨", crown: "👑", flag: "🏴", skin: "👕",
+  effect: "✨", emblem: "🛡️", palette: "🌈", pack: "📦",
+};
+const SHOWCASE_RARITY_COLORS = {
+  common: "#6B7280", uncommon: "#0d9488", rare: "#2563eb",
+  epic: "#9333ea", legendary: "#d97706", mythic: "#dc2626",
+};
+
+let _showcaseSeq = 0; // garde anti-course (changement de profil rapide)
+
+const SHOWCASE_KNOWN_RARITIES = new Set(["common", "uncommon", "rare", "epic", "legendary", "mythic"]);
+
+function showcaseRarityChip(rarity) {
+  const r = String(rarity || "").toLowerCase();
+  if (!r) return ""; // rareté inconnue (ex : drapeaux) → pas de chip
+  if (!SHOWCASE_KNOWN_RARITIES.has(r)) {
+    // Rareté inédite du catalogue → libellé capitalisé brut (jamais la clé i18n)
+    const color = "#6B7280";
+    return '<span class="pf-sc-rarity" style="color:' + esc(color) +
+      ';background:' + esc(color) + '1f;border-color:' + esc(color) + '44">' +
+      esc(r.charAt(0).toUpperCase() + r.slice(1)) + "</span>";
+  }
+  const label = T(
+    "pf.showcase_rarity_" + r,
+    r.charAt(0).toUpperCase() + r.slice(1)
+  );
+  const color = SHOWCASE_RARITY_COLORS[r] || "#6B7280";
+  return '<span class="pf-sc-rarity" style="color:' + esc(color) +
+    ';background:' + esc(color) + '1f;border-color:' + esc(color) + '44">' +
+    esc(label) + "</span>";
+}
+
+const SHOWCASE_KNOWN_CATS = new Set(["pattern", "crown", "flag", "skin", "effect", "emblem", "palette", "pack"]);
+
+function showcaseCatLabel(cat) {
+  const c = String(cat || "").toLowerCase();
+  if (!c) return "";
+  if (!SHOWCASE_KNOWN_CATS.has(c)) return c.charAt(0).toUpperCase() + c.slice(1);
+  return T("pf.showcase_cat_" + c, c.charAt(0).toUpperCase() + c.slice(1));
+}
+
+/** Carte d'un cosmétique OpenFront porté en jeu.
+ * Trois cas réels observés dans les données :
+ *  - c.url renseignée (couronnes, skins) → image CDN ;
+ *  - c.name EST l'URL CDN (drapeaux portés) → image depuis le nom,
+ *    libellé dérivé du segment final (cc_youtube_ → YouTube) ;
+ *  - sinon (motifs procéduraux, effets) → icône de catégorie. */
+function showcaseCosVisual(c) {
+  let url = c.url ? String(c.url) : "";
+  let label = c.displayName || c.name;
+  if (!url && /^https?:\/\//i.test(String(c.name || ""))) {
+    url = encodeURI(String(c.name));
+    try {
+      const seg = String(c.name).split("/").filter(Boolean).pop() || "";
+      let tail = seg.replace(/^cc_/, "").replace(/_+$/, "").replace(/_+/g, " ").trim();
+      if (tail) {
+        label = tail.charAt(0).toUpperCase() + tail.slice(1);
+      } else {
+        label = "";
+      }
+    } catch (e) { /* label resté = name */ }
+  }
+  return { url, label };
+}
+
+function showcaseWornCard(c) {
+  const { url, label } = showcaseCosVisual(c);
+  const name = label || showcaseCatLabel(c.category);
+  const icon = SHOWCASE_CAT_ICON[String(c.category || "").toLowerCase()] || "🧩";
+  const img = url
+    ? '<img class="pf-sc-img" src="' + esc(url) + '" alt="" width="40" height="40" loading="lazy" ' +
+      'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">' +
+      '<span class="pf-sc-emoji" style="display:none">' + icon + "</span>"
+    : '<span class="pf-sc-emoji">' + icon + "</span>";
+  return (
+    '<article class="pf-sc-card">' +
+      '<div class="pf-sc-thumb">' + img + "</div>" +
+      '<div class="pf-sc-body">' +
+        '<div class="pf-sc-name" title="' + esc(name) + '">' + esc(name) + "</div>" +
+        '<div class="pf-sc-meta">' + showcaseRarityChip(c.rarity) + "</div>" +
+        '<div class="pf-sc-sub">' + esc(showcaseCatLabel(c.category)) +
+          " · " + esc(T("pf.showcase_worn", "porté ×{n}", { n: c.timesWorn })) + "</div>" +
+      "</div>" +
+    "</article>"
+  );
+}
+
+/** Cartes des cosmétiques TheFrontHub (VIP, skins animés, bannières pixel art). */
+function showcaseHubCards(hub) {
+  const cards = [];
+  if (hub?.vipActive && hub?.vipType) {
+    cards.push(
+      '<article class="pf-sc-card pf-sc-vip">' +
+        '<div class="pf-sc-thumb"><span class="pf-sc-emoji">👑</span></div>' +
+        '<div class="pf-sc-body">' +
+          '<div class="pf-sc-name">' + esc(String(hub.vipType).toUpperCase()) + "</div>" +
+          '<div class="pf-sc-meta">' +
+            '<span class="pf-sc-rarity" style="color:#d97706;background:#d977061f;border-color:#d9770644">' +
+              esc(T("pf.showcase_vip", "Statut VIP")) + "</span>" +
+          "</div>" +
+          '<div class="pf-sc-sub">' + esc(T("pf.showcase_hub", "TheFrontHub")) + "</div>" +
+        "</div>" +
+      "</article>"
+    );
+  }
+  const ownedSkins = Array.isArray(hub?.ownedSkins) ? hub.ownedSkins : [];
+  for (const s of ownedSkins) {
+    const skin = getSkin(s.skinId);
+    if (!skin || skin.id === DEFAULT_SKIN_ID) continue; // Standard ≠ cosmétique
+    const active = !!s.active || s.skinId === hub.activeSkinId;
+    cards.push(
+      '<article class="pf-sc-card' + (active ? " pf-sc-active" : "") + '">' +
+        '<div class="pf-sc-thumb"><span class="pf-sc-skin-preview ' + skin.cssClass + '">Aa</span></div>' +
+        '<div class="pf-sc-body">' +
+          '<div class="pf-sc-name">' + esc(skin.name) + "</div>" +
+          '<div class="pf-sc-meta">' + showcaseRarityChip(skin.rarity) +
+            (active ? '<span class="pf-sc-on">' + esc(T("pf.showcase_active", "Actif")) + "</span>" : "") + "</div>" +
+          '<div class="pf-sc-sub">' + esc(T("pf.showcase_hub_skin", "Skin TheFrontHub")) + "</div>" +
+        "</div>" +
+      "</article>"
+    );
+  }
+  const ownedBanners = Array.isArray(hub?.ownedBanners) ? hub.ownedBanners : [];
+  for (const b of ownedBanners) {
+    const banner = getBanner(b.bannerId);
+    if (!banner) continue;
+    const active = !!b.active || b.bannerId === hub.activeBannerId;
+    let thumb;
+    try {
+      const url = renderBannerUrl(banner, currentTheme());
+      thumb = url
+        ? '<img class="pf-sc-img pf-sc-banner" src="' + url + '" alt="" width="40" height="28" loading="lazy">'
+        : '<span class="pf-sc-emoji">🚩</span>';
+    } catch (e) {
+      thumb = '<span class="pf-sc-emoji">🚩</span>';
+    }
+    cards.push(
+      '<article class="pf-sc-card' + (active ? " pf-sc-active" : "") + '">' +
+        '<div class="pf-sc-thumb">' + thumb + "</div>" +
+        '<div class="pf-sc-body">' +
+          '<div class="pf-sc-name">' + esc(banner.name) + "</div>" +
+          '<div class="pf-sc-meta">' + showcaseRarityChip(banner.rarity) +
+            (active ? '<span class="pf-sc-on">' + esc(T("pf.showcase_active", "Actif")) + "</span>" : "") + "</div>" +
+          '<div class="pf-sc-sub">' + esc(T("pf.showcase_hub_banner", "Bannière TheFrontHub")) + "</div>" +
+        "</div>" +
+      "</article>"
+    );
+  }
+  return cards;
+}
+
+/** Peint la vitrine depuis une réponse route=profile (propre ou public). */
+function renderShowcaseFromData(data) {
+  const root = document.getElementById("profile-showcase");
+  if (!root) return;
+  const worn = Array.isArray(data?.cosmetics) ? data.cosmetics : [];
+  const hubCards = showcaseHubCards(data?.hubCosmetics || {});
+  if (!worn.length && !hubCards.length) {
+    root.hidden = true;
+    root.innerHTML = "";
+    return;
+  }
+  const sparkle =
+    '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>';
+  const wornHtml = worn.length
+    ? '<h3 class="pf-sc-title">' +
+      esc(T("pf.showcase_worn_title", "Cosmétiques OpenFront — portés en jeu")) +
+      '</h3><div class="pf-sc-grid">' + worn.map(showcaseWornCard).join("") + "</div>"
+    : "";
+  const hubHtml = hubCards.length
+    ? '<h3 class="pf-sc-title">' +
+      esc(T("pf.showcase_hub_title", "Cosmétiques TheFrontHub")) +
+      '</h3><div class="pf-sc-grid">' + hubCards.join("") + "</div>"
+    : "";
+  root.innerHTML =
+    '<h2 class="pf-sc-heading">' + sparkle +
+      "<span>" + esc(T("pf.showcase_title", "Vitrine cosmétiques")) + "</span></h2>" +
+    wornHtml + hubHtml;
+  root.hidden = false;
+}
+
+/** Charge puis peint la vitrine du profil PROPRE (fetch dédié, garde anti-course). */
+async function loadShowcase(publicId) {
+  const root = document.getElementById("profile-showcase");
+  if (!root || !publicId) return;
+  const seq = ++_showcaseSeq;
+  try {
+    const res = await fetch(
+      "/api/games-api.php?route=profile&publicId=" + encodeURIComponent(publicId) + "&limit=1",
+      { cache: "no-store" }
+    );
+    if (!res.ok) {
+      if (seq === _showcaseSeq) { root.hidden = true; root.innerHTML = ""; }
+      return;
+    }
+    const j = await res.json().catch(() => null);
+    if (!j?.ok || seq !== _showcaseSeq) return;
+    renderShowcaseFromData(j);
+  } catch (e) {
+    if (seq === _showcaseSeq) { root.hidden = true; }
   }
 }
 
@@ -1767,6 +1987,59 @@ async function saveUserProfile(username, publicId, verifyCode) {
     throw e;
   }
 }
+
+/* ═══════ v5.14 — Liaison instantanée par Identity Token OpenFront ═══════
+ * Le joueur génère un token sur openfront.io (Paramètres du compte →
+ * « Lier à un site tiers » → thefronthub.com) et le colle ici. Le serveur
+ * le valide auprès de l'API officielle : liaison du Public ID + badge
+ * « vérifié » immédiats, sans jouer de partie. */
+window.linkWithIdentityToken = async () => {
+  if (!currentUser) {
+    showToast(T("pf.login_required", "Connecte-toi d'abord avec Discord."), "warning");
+    return;
+  }
+  const input = document.getElementById("setup-identity-token");
+  const btn = document.getElementById("link-token-btn");
+  const token = String(input?.value || "").trim();
+  if (!token) {
+    showToast(T("pf.token_required", "Colle d'abord le token généré sur OpenFront."), "error");
+    return;
+  }
+  const original = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = T("pf.token_linking", "Vérification du token…"); }
+  try {
+    const res = await fetch("/api/profile.php", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "link_token", token }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j?.ok) {
+      showToast(
+        j?.message || T("pf.token_failed", "Liaison impossible — régénère un token sur OpenFront et réessaie."),
+        "error"
+      );
+      return;
+    }
+    const chosenUsername =
+      (document.getElementById("setup-username")?.value || "").trim() ||
+      currentProfile?.username ||
+      currentUser.displayName ||
+      (currentUser.email || "").split("@")[0] ||
+      "joueur" + (Date.now() % 10000);
+    // Le serveur a déjà lié + vérifié : on synchronise le pseudo hub + Firestore.
+    await saveUserProfile(chosenUsername, j.publicId, null);
+    if (input) input.value = "";
+    if (window.TFHVerified && j.publicId) window.TFHVerified.markVerified(j.publicId);
+    showToast(T("pf.token_ok", "Compte OpenFront lié et vérifié instantanément !"), "success");
+  } catch (e) {
+    console.error("[profile] linkWithIdentityToken:", e);
+    showToast(T("pf.token_failed", "Liaison impossible — régénère un token sur OpenFront et réessaie."), "error");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = original; }
+  }
+};
 
 /* ── Sidebar / auth modal handlers ── */
 

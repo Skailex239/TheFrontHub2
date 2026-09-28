@@ -312,6 +312,45 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   "pf.bad_link": "Un des liens est invalide.",
   "pf.not_claimed": "Revendique d'abord ton profil (Public ID + vérification en jeu).",
 
+
+  // ── v5.14 — Liaison par Identity Token OpenFront ──
+  "pf.token_label": "⚡ Liaison instantanée — token OpenFront (recommandé)",
+  "pf.token_hint": "1. Sur <b>openfront.io</b> : <b>Paramètres du compte → Lier à un site tiers</b>.<br>2. Choisis <b>thefronthub.com</b> puis clique <b>Générer</b> (token valable 10 min).<br>3. Colle le token ici — ton compte est lié et vérifié immédiatement, sans jouer de partie.",
+  "pf.token_ph": "eyJhbGciOi…",
+  "pf.token_btn": "Lier mon compte",
+  "pf.or_classic": "— ou la méthode classique —",
+  "pf.token_required": "Colle d'abord le token généré sur OpenFront.",
+  "pf.token_linking": "Vérification du token…",
+  "pf.token_ok": "Compte OpenFront lié et vérifié instantanément !",
+  "pf.token_failed": "Liaison impossible — régénère un token sur OpenFront et réessaie.",
+  "pf.login_required": "Connecte-toi d'abord avec Discord.",
+
+  // ── v5.14 — Vitrine cosmétiques ──
+  "pf.showcase_aria": "Vitrine cosmétiques du joueur",
+  "pf.showcase_title": "Vitrine cosmétiques",
+  "pf.showcase_worn_title": "Cosmétiques OpenFront — portés en jeu",
+  "pf.showcase_hub_title": "Cosmétiques TheFrontHub",
+  "pf.showcase_worn": "porté ×{n}",
+  "pf.showcase_active": "Actif",
+  "pf.showcase_vip": "Statut VIP",
+  "pf.showcase_hub": "TheFrontHub",
+  "pf.showcase_hub_skin": "Skin TheFrontHub",
+  "pf.showcase_hub_banner": "Bannière TheFrontHub",
+  "pf.showcase_rarity_common": "Commun",
+  "pf.showcase_rarity_uncommon": "Peu commun",
+  "pf.showcase_rarity_rare": "Rare",
+  "pf.showcase_rarity_epic": "Épique",
+  "pf.showcase_rarity_legendary": "Légendaire",
+  "pf.showcase_rarity_mythic": "Mythique",
+  "pf.showcase_cat_pattern": "Motif",
+  "pf.showcase_cat_crown": "Couronne",
+  "pf.showcase_cat_flag": "Drapeau",
+  "pf.showcase_cat_skin": "Skin",
+  "pf.showcase_cat_effect": "Effet",
+  "pf.showcase_cat_emblem": "Emblème",
+  "pf.showcase_cat_palette": "Palette",
+  "pf.showcase_cat_pack": "Pack",
+
 });
 
 window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en || {}, {
@@ -618,5 +657,44 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
   "pf.save_fail": "Could not save. Try again.",
   "pf.bad_link": "One of the links is invalid.",
   "pf.not_claimed": "Claim your profile first (Public ID + in-game verification).",
+
+
+  // ── v5.14 — OpenFront Identity Token linking ──
+  "pf.token_label": "⚡ Instant linking — OpenFront token (recommended)",
+  "pf.token_hint": "1. On <b>openfront.io</b>: open <b>Account settings → Link to a third-party site</b>.<br>2. Pick <b>thefronthub.com</b> then click <b>Generate</b> (token valid 10 min).<br>3. Paste the token here — your account is linked and verified instantly, no game needed.",
+  "pf.token_ph": "eyJhbGciOi…",
+  "pf.token_btn": "Link my account",
+  "pf.or_classic": "— or the classic method —",
+  "pf.token_required": "Paste the token generated on OpenFront first.",
+  "pf.token_linking": "Verifying token…",
+  "pf.token_ok": "OpenFront account linked and verified instantly!",
+  "pf.token_failed": "Linking failed — generate a new token on OpenFront and try again.",
+  "pf.login_required": "Sign in with Discord first.",
+
+  // ── v5.14 — Cosmetics showcase ──
+  "pf.showcase_aria": "Player cosmetics showcase",
+  "pf.showcase_title": "Cosmetics showcase",
+  "pf.showcase_worn_title": "OpenFront cosmetics — worn in game",
+  "pf.showcase_hub_title": "TheFrontHub cosmetics",
+  "pf.showcase_worn": "worn ×{n}",
+  "pf.showcase_active": "Active",
+  "pf.showcase_vip": "VIP status",
+  "pf.showcase_hub": "TheFrontHub",
+  "pf.showcase_hub_skin": "TheFrontHub skin",
+  "pf.showcase_hub_banner": "TheFrontHub banner",
+  "pf.showcase_rarity_common": "Common",
+  "pf.showcase_rarity_uncommon": "Uncommon",
+  "pf.showcase_rarity_rare": "Rare",
+  "pf.showcase_rarity_epic": "Epic",
+  "pf.showcase_rarity_legendary": "Legendary",
+  "pf.showcase_rarity_mythic": "Mythic",
+  "pf.showcase_cat_pattern": "Pattern",
+  "pf.showcase_cat_crown": "Crown",
+  "pf.showcase_cat_flag": "Flag",
+  "pf.showcase_cat_skin": "Skin",
+  "pf.showcase_cat_effect": "Effect",
+  "pf.showcase_cat_emblem": "Emblem",
+  "pf.showcase_cat_palette": "Palette",
+  "pf.showcase_cat_pack": "Pack",
 
 });
