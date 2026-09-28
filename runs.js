@@ -227,11 +227,41 @@ async function loadConnectedUsernames() {
           }
         }
       });
+      // v5.13 — alimente le registre global des vérifiés + peint les badges
+      // manquants sur les lignes déjà rendues (idempotent, pas de re-render).
+      try {
+        if (typeof window.TFHVerified === 'object') {
+          var vrows = [];
+          snap.forEach(function (docSnap) {
+            var d = docSnap.data();
+            if (d && (d.publicId || d.username)) {
+              vrows.push({ publicId: d.publicId, username: d.username, verified: !!d.verified,
+                           bio: d.bio, favMap: d.favMap, links: d.links });
+            }
+          });
+          window.TFHVerified.setFromAliases(vrows);
+          applyVerifiedToDom();
+        }
+      } catch (e2) { /* silencieux */ }
       applySkinsToDom();
     }, function() {});
   } catch (e) {
     console.warn('[runs] Could not load connected usernames:', e);
   }
+}
+
+/* v5.13 — Peint les badges « vérifié » sur les lignes déjà rendues :
+ * chaque ancre joueur porte data-pid (publicId DB fiable) → on ajoute le
+ * badge juste après le lien s'il est vérifié et pas encore peint. */
+function applyVerifiedToDom() {
+  if (typeof window.TFHVerified !== 'object') return;
+  var anchors = document.querySelectorAll('#rows a[data-pid], #rows a[data-pfb-pid]');
+  anchors.forEach(function (a) {
+    var pid = a.getAttribute('data-pid') || a.getAttribute('data-pfb-pid');
+    if (!pid || !window.TFHVerified.isVerifiedPid(pid)) return;
+    if (a.parentElement && a.parentElement.querySelector('.tfh-vbadge')) return;
+    a.insertAdjacentHTML('afterend', window.TFHVerified.badgeHtml(pid, { native: true }));
+  });
 }
 
 function handlePlayerClick(name, pid) {
