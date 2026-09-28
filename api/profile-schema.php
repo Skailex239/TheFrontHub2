@@ -205,3 +205,105 @@ function tfh_profile_extras(PDO $pdo, string $pid): ?array
         return null;
     }
 }
+
+/**
+ * Recalcul COMPLET du top hebdo (semaine courante + précédente) directement
+ * depuis tfh_g_games/tfh_g_roster. Utilisé par la route API route=weekly en
+ * secours quand la table est encore vide (le cron de prod est celui qui
+ * tourne — dev/prod partagent la même BDD : voir STAGING.md).
+ * Barème identique au dashboard : FFA casual ×10 · FFA classé ×1 ·
+ * Team casual ×5 · Team classé ×1. Frontière : lundi 00h00 Europe/Paris.
+ * Retour : ['2026-09-28' => nbJoueurs, '2026-09-21' => nbJoueurs].
+ */
+function tfh_weekly_recompute(PDO $pdo): array
+{
+    [$curMs] = tfh_week_bounds_ms();
+    $cur = intdiv($curMs, 1000);
+    $weeks = [
+        [$cur, $cur + 7 * 86400],
+        [$cur - 7 * 86400, $cur],
+    ];
+    $out = [];
+
+    $rankOf = static function (array $rows, string $key): array {
+        $sorted = $rows;
+        usort($sorted, static function (array $a, array $b) use ($key): int {
+            return ($b[$key] <=> $a[$key]) ?: strcmp($a['pid'], $b['pid']);
+        });
+        $map = [];
+        foreach ($sorted as $i => $x) {
+            $map[$x['pid']] = $i + 1;
+        }
+        return $map;
+    };
+
+    foreach ($weeks as [$s, $e]) {
+        $weekDate = gmdate('Y-m-d', $s);
+        try {
+            $st = $pdo->prepare(
+                "SELECT r.public_id AS pid,
+                    SUM(CASE WHEN (g.game_mode = 'Team' OR g.ranked_type = '2v2') AND g.ranked_type IN ('1v1','2v2') THEN 1 ELSE 0 END) AS tr,
+                    SUM(CASE WHEN (g.game_mode = 'Team' OR g.ranked_type = '2v2') AND g.ranked_type NOT IN ('1v1','2v2') THEN 1 ELSE 0 END) AS tc,
+                    SUM(CASE WHEN NOT (g.game_mode = 'Team' OR g.ranked_type = '2v2') AND g.ranked_type IN ('1v1','2v2') THEN 1 ELSE 0 END) AS fr,
+                    SUM(CASE WHEN NOT (g.game_mode = 'Team' OR g.ranked_type = '2v2') AND g.ranked_type NOT IN ('1v1','2v2') THEN 1 ELSE 0 END) AS fc
+                 FROM tfh_g_games g
+                 JOIN tfh_g_roster r ON r.game_id = g.game_id
+                 WHERE g.started_at >= FROM_UNIXTIME(?) AND g.started_at < FROM_UNIXTIME(?)
+                   AND g.game_type = 'Public' AND r.won = 1 AND r.public_id IS NOT NULL
+                 GROUP BY r.public_id"
+            );
+            $st->execute([$s, $e]);
+            $rows = $st->fetchAll();
+
+            $list = [];
+            foreach ($rows as $r) {
+                $fc = (int) $r['fc'];
+                $fr = (int) $r['fr'];
+                $tc = (int) $r['tc'];
+                $tr = (int) $r['tr'];
+                $list[] = [
+                    'pid' => (string) $r['pid'],
+                    'fc' => $fc, 'fr' => $fr, 'tc' => $tc, 'tr' => $tr,
+                    'all'  => $fc * 10 + $fr + $tc * 5 + $tr,
+                    'ffa'  => $fc * 10 + $fr,
+                    'team' => $tc * 5 + $tr,
+                ];
+            }
+            usort($list, static function (array $a, array $b): int {
+                return ($b['all'] <=> $a['all']) ?: strcmp($a['pid'], $b['pid']);
+            });
+            $rankFfa  = $rankOf($list, 'ffa');
+            $rankTeam = $rankOf($list, 'team');
+
+            $pdo->beginTransaction();
+            try {
+                $pdo->prepare('DELETE FROM tfh_g_weekly WHERE week_start = ?')->execute([$weekDate]);
+                $ins = $pdo->prepare(
+                    'INSERT INTO tfh_g_weekly
+                        (week_start, public_id, ffa_casual, ffa_ranked, team_casual, team_ranked,
+                         pts_all, pts_ffa, pts_team, rank_all, rank_ffa, rank_team, computed_at)
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,NOW())'
+                );
+                foreach ($list as $i => $x) {
+                    $ins->execute([
+                        $weekDate, $x['pid'], $x['fc'], $x['fr'], $x['tc'], $x['tr'],
+                        $x['all'], $x['ffa'], $x['team'], $i + 1,
+                        $rankFfa[$x['pid']] ?? null, $rankTeam[$x['pid']] ?? null,
+                    ]);
+                }
+                $pdo->commit();
+                $out[$weekDate] = count($list);
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                error_log('[tfh-api] weekly recompute store ' . $weekDate . ': ' . $e->getMessage());
+                $out[$weekDate] = -1;
+            }
+        } catch (Throwable $e) {
+            error_log('[tfh-api] weekly recompute ' . $weekDate . ': ' . $e->getMessage());
+            $out[$weekDate] = -1;
+        }
+    }
+    return $out;
+}
