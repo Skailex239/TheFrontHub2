@@ -602,6 +602,20 @@ case 'weekly': {
         $cnt->execute(array_merge([$prevWeek], $args));
         $total = (int)$cnt->fetchColumn();
 
+        /* v5.13 — table vide ? (cron pas encore passé / première activation)
+         * → recalcul sur place (quelques secondes, ensuite servi depuis la
+         * table ; le cron de prod la rafraîchit toutes les 5 min). Un seul
+         * visiteur paie le coût, les suivants lisent la table remplie. */
+        if ($total === 0 && $q === '' && !isset($_GET['norecompute'])) {
+            try {
+                tfh_weekly_recompute($pdo);
+                $cnt->execute(array_merge([$prevWeek], $args));
+                $total = (int)$cnt->fetchColumn();
+            } catch (Throwable $e) {
+                error_log('[tfh-api] weekly on-demand recompute: ' . $e->getMessage());
+            }
+        }
+
         $st = $pdo->prepare(
             "SELECT w.public_id, w.ffa_casual, w.ffa_ranked, w.team_casual, w.team_ranked,
                     w.pts_all, w.pts_ffa, w.pts_team,
