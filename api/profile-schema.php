@@ -298,11 +298,11 @@ function tfh_weekly_recompute(PDO $pdo): array
                     $pdo->rollBack();
                 }
                 error_log('[tfh-api] weekly recompute store ' . $weekDate . ': ' . $e->getMessage());
-                $out[$weekDate] = -1;
+                $out[$weekDate] = ['error' => $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine()];
             }
         } catch (Throwable $e) {
             error_log('[tfh-api] weekly recompute ' . $weekDate . ': ' . $e->getMessage());
-            $out[$weekDate] = -1;
+            $out[$weekDate] = ['error' => $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine()];
         }
     }
     return $out;
