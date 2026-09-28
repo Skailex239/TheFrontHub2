@@ -315,13 +315,14 @@ case 'profile': {
 
     // v5 : cosmétiques portés (reliés au catalogue)
     $cw = $pdo->prepare('SELECT w.category, w.name, w.times_worn, w.first_worn, w.last_worn,
-            c.rarity, c.price_hard, c.url
+            c.rarity, c.price_hard, c.url, c.display_name
         FROM tfh_g_cosmetic_wearers w LEFT JOIN tfh_g_cosmetics c ON c.category = w.category AND c.name = w.name
         WHERE w.public_id = ? ORDER BY w.times_worn DESC LIMIT 60');
     $cw->execute([$pid]);
     foreach ($cw->fetchAll() as $x) {
         $cosmetics[] = [
             'category' => (string)$x['category'], 'name' => (string)$x['name'],
+            'displayName' => $x['display_name'] !== null ? (string)$x['display_name'] : null,
             'timesWorn' => (int)$x['times_worn'],
             'firstWorn' => (int)strtotime((string)$x['first_worn']),
             'lastWorn' => (int)strtotime((string)$x['last_worn']),
@@ -330,6 +331,40 @@ case 'profile': {
             'url' => $x['url'] !== null ? (string)$x['url'] : null,
         ];
     }
+
+    /* v5.14 — Vitrine cosmétiques TheFrontHub : skins/bannières possédés et
+     * actifs + statut VIP. Tables du SITE (même BDD) — défensif : une table
+     * absente (SQL pas encore passé) ne doit jamais casser la route. */
+    $hubCos = [
+        'activeSkinId' => null, 'ownedSkins' => [],
+        'activeBannerId' => null, 'ownedBanners' => [],
+        'vipType' => null, 'vipActive' => false,
+    ];
+    try {
+        $hs = $pdo->prepare('SELECT skin_id, active FROM tfh_user_skins WHERE public_id = ? ORDER BY redeemed_at DESC LIMIT 100');
+        $hs->execute([$pid]);
+        foreach ($hs->fetchAll() as $r) {
+            $hubCos['ownedSkins'][] = ['skinId' => (string)$r['skin_id'], 'active' => (bool)$r['active']];
+            if ((bool)$r['active']) $hubCos['activeSkinId'] = (string)$r['skin_id'];
+        }
+    } catch (Throwable $e) { /* table absente — vitrine site vide */ }
+    try {
+        $hb = $pdo->prepare('SELECT banner_id, active FROM tfh_user_banners WHERE public_id = ? ORDER BY redeemed_at DESC LIMIT 100');
+        $hb->execute([$pid]);
+        foreach ($hb->fetchAll() as $r) {
+            $hubCos['ownedBanners'][] = ['bannerId' => (string)$r['banner_id'], 'active' => (bool)$r['active']];
+            if ((bool)$r['active']) $hubCos['activeBannerId'] = (string)$r['banner_id'];
+        }
+    } catch (Throwable $e) { /* table absente — vitrine site vide */ }
+    try {
+        $hv = $pdo->prepare('SELECT active_type, activated FROM tfh_public_rewards WHERE public_id = ? ORDER BY updated_at DESC LIMIT 1');
+        $hv->execute([$pid]);
+        $vrow = $hv->fetch();
+        if ($vrow) {
+            $hubCos['vipType'] = $vrow['active_type'] !== null ? (string)$vrow['active_type'] : null;
+            $hubCos['vipActive'] = (bool)$vrow['activated'];
+        }
+    } catch (Throwable $e) { /* table absente — pas de VIP */ }
 
     // v5 : clans portés
     $ct = $pdo->prepare('SELECT r.clan_tag, COUNT(*) AS games, SUM(r.won) AS wins
@@ -447,6 +482,7 @@ case 'profile': {
         'aliases' => $aliases,
         'ratings' => $ratings,
         'cosmetics' => $cosmetics,
+        'hubCosmetics' => $hubCos,
         'clans' => $clans,
         'official' => $official,
         'stats' => [
