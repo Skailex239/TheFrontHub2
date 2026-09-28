@@ -606,13 +606,33 @@ case 'weekly': {
          * → recalcul sur place (quelques secondes, ensuite servi depuis la
          * table ; le cron de prod la rafraîchit toutes les 5 min). Un seul
          * visiteur paie le coût, les suivants lisent la table remplie. */
+        $dbg = null;
         if ($total === 0 && $q === '' && !isset($_GET['norecompute'])) {
+            $dbg = [];
             try {
-                tfh_weekly_recompute($pdo);
+                $dbg['recompute'] = tfh_weekly_recompute($pdo);
+                $curSec = intdiv($curMs, 1000);
+                $p1 = $pdo->prepare('SELECT COUNT(*) FROM tfh_g_games WHERE started_at >= FROM_UNIXTIME(?) AND started_at < FROM_UNIXTIME(?)');
+                $p1->execute([$curSec, $curSec + 7 * 86400]);
+                $dbg['gamesInWindow'] = (int)$p1->fetchColumn();
+                $p2 = $pdo->prepare("SELECT COUNT(*) FROM tfh_g_games g JOIN tfh_g_roster r ON r.game_id = g.game_id
+                    WHERE g.started_at >= FROM_UNIXTIME(?) AND g.started_at < FROM_UNIXTIME(?) AND r.won = 1 AND r.public_id IS NOT NULL");
+                $p2->execute([$curSec, $curSec + 7 * 86400]);
+                $dbg['winnersInWindow'] = (int)$p2->fetchColumn();
+                $p3 = $pdo->prepare("SELECT MIN(started_at) AS mn, MAX(started_at) AS mx FROM tfh_g_games");
+                $p3->execute();
+                $dbg['gamesRange'] = $p3->fetch();
                 $cnt->execute(array_merge([$prevWeek], $args));
                 $total = (int)$cnt->fetchColumn();
             } catch (Throwable $e) {
-                error_log('[tfh-api] weekly on-demand recompute: ' . $e->getMessage());
+                $dbg['error'] = $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine();
+            }
+            if ($total === 0) {
+                json_out([
+                    'ok' => true, 'weekStart' => $curMs, 'mode' => $mode,
+                    'total' => 0, 'offset' => $wOffset, 'limit' => $wLimit,
+                    'me' => null, 'players' => [], 'debug' => $dbg,
+                ]);
             }
         }
 
