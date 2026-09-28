@@ -56,12 +56,44 @@ dev à chaque tick de 5 min. Si la branche n'existe pas, l'étape est ignorée
 
 ## Vérifications post-déploiement dev
 
+⚠️ Depuis la porte d'accès (ci-dessous), la dev exige une session : sans
+cookie, toute page renvoie la page de connexion et l'API renvoie 401.
+
 ```bash
-curl -s "https://dev.thefronthub.com/api/games-api.php?route=status" | head -c 400
+curl -s "https://dev.thefronthub.com/api/games-api.php?route=status" | head -c 200
 curl -sI "https://dev.thefronthub.com/" | head -3
 curl -s "https://dev.thefronthub.com/robots.txt"
 ```
-Attendu : `ok:true` en status, HTTP 200, `Disallow: /`.
+
+Attendu sans session : API → `{"ok":false,"error":"dev_gate"}` (401),
+pages → HTML de connexion (200, no-store), robots.txt → `Disallow: /`.
+Avec session (cookie `tfh_dev_gate`) : `ok:true` en status, pages réelles.
+
+## Porte d'accès dev (gate.php)
+
+La pré-production est **verrouillée par un code** (connu du propriétaire seul).
+
+- **Activation** : uniquement sur `dev.thefronthub.com` (condition
+  `HTTP_HOST` dans `.htaccess` + `api/.htaccess`). La prod `thefronthub.com`
+  reste 100 % publique, même si les fichiers du gate y sont un jour rsyncés :
+  `gate.php` répond 404 hors host dev et les règles rewrite ne s'y appliquent pas.
+- **Connexion** : formulaire `gate.php` → `password_verify` (bcrypt, coût 12)
+  contre `secure/auth-config.php`. Le code en clair n'existe **nulle part**
+  (ni repo, ni HTML, ni JS, ni logs). Session = cookie `tfh_dev_gate` signé
+  HMAC-SHA256 (30 jours, HttpOnly, Secure en https, SameSite=Lax).
+- **Anti force brute** : 5 échecs / 15 min par IP → verrou 5 → 10 → 20 → 40
+  → 60 min (compteurs dans `/tmp/tfh-dev-gate/`, hors webroot).
+- **Couverture** : pages statiques ET `/api/*.php` (inclus par `gate.php`
+  après vérification — aucun fichier API modifié). Jamais servis : `secure/`,
+  dotfiles, `.git`, `config.php`/`helpers.php` de l'API.
+- **Service worker** : la page de connexion désenregistre le SW et purge les
+  caches (un visiteur non authentifié ne peut rien servir depuis le cache).
+- **Changer le code** : générer un nouveau hash
+  `php -r "echo password_hash('NOUVEAU_CODE', PASSWORD_BCRYPT), PHP_EOL;"`,
+  remplacer `'hash'` dans `secure/auth-config.php` et bump `'v'` (purge toutes
+  les sessions).
+- **Désactivation d'urgence (rollback)** : `git push origin <commit-avant>:dev`
+  (re-déploiement ≤ 5 min) — ou retirer le bloc « 1ter. DEV » du `.htaccess`.
 
 ## Rollback
 
