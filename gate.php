@@ -351,6 +351,7 @@ function tfh_render_login(string $next, ?string $error = null, int $lockedFor = 
     background:rgba(255,167,0,.1);border:1px solid rgba(255,167,0,.35);color:#ffb84d;
   }
   .foot{margin-top:20px;text-align:center;color:#5b6272;font-size:11.5px}
+  .hint{margin-top:12px;text-align:center;color:#5b6272;font-size:11px;line-height:1.5}
 </style>
 </head>
 <body>
@@ -372,6 +373,7 @@ function tfh_render_login(string $next, ?string $error = null, int $lockedFor = 
   </form>
   ' . $errorHtml . $lockBlock . '
   <div class="foot">dev.thefronthub.com — accès privé</div>
+  <div class="hint">Si une page « Test de sécurité » (protection o2switch) s\'affiche,<br>laisse-la se terminer puis ressaisis le code.</div>
 </main>
 <script>
 /* Hors accès : aucun service worker ni cache ne doit pouvoir servir le site. */
