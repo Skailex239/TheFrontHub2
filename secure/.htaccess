@@ -1,0 +1,2 @@
+# Config de la porte d'accès : JAMAIS servie en HTTP (incluse par PHP seulement).
+Require all denied

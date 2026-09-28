@@ -20,3 +20,14 @@ Options -Indexes
   Header always set Referrer-Policy "no-referrer"
   Header always set Cache-Control "no-store, max-age=0"
 </IfModule>
+
+# ── DEV : tout /api/ passe par la porte gate.php (racine du site) ────────
+# Condition host → aucun effet sur thefronthub.com (prod).
+# gate.php inclut le script demandé après vérification du cookie d'accès
+# (tous les require de l'API sont en __DIR__ : inclusion transparente).
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{HTTP_HOST} ^dev\.thefronthub\.com$ [NC]
+  RewriteCond %{REQUEST_URI} !^/gate\.php$
+  RewriteRule ^ /gate.php [L]
+</IfModule>
