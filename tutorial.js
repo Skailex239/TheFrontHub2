@@ -60,13 +60,9 @@ const TUTORIAL_STEPS = [
     text: 'Le classement des meilleurs temps sur chaque carte. Clique sur une carte pour voir le top 25.',
     position: 'right',
   },
-  {
-    target: '#tab-btn-ranked, .nav-item[href="index.html?tab=ranked"]',
-    k: 's3',
-    title: '⚔️ Mode Classé',
-    text: 'Le mode compétitif 1v1 avec système d\'ELO. Vois ton rang et ton historique.',
-    position: 'right',
-  },
+  // 2026-09-28 : étape « Mode Classé » retirée — l'onglet Classé (et les
+  // autres catégories Hub) ont été supprimés, la cible #tab-btn-ranked
+  // n'existe plus dans la sidebar.
   {
     target: '#tab-btn-tournois, .nav-item[href="tournois.html"]',
     k: 's4',
