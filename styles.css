@@ -3548,3 +3548,95 @@ html.tfh-ub-open { --tfh-ub-h: 41px; }   /* fallback si le JS n'a pas encore mes
 /* Choix de langue dans les modales/panneaux : boutons un peu plus grands */
 .lang-choice .lang-btn { padding: 5px; }
 .lang-choice .lang-flag { height: 26px; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   v5.13 — Badge « joueur vérifié » + infobulle
+   Un joueur vérifié = profil revendiqué (compte TheFrontHub + Public ID
+   OpenFront lié + preuve de propriété confirmée côté serveur).
+   Utilisé sur TOUTES les pages : leaderboards, speedruns, rosters,
+   recherche, top de la semaine, profils.
+   ═══════════════════════════════════════════════════════════════════ */
+.tfh-vbadge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  vertical-align:-1px;
+  margin-left:4px;
+  color:#EFAF23;
+  cursor:help;
+  position:relative;
+  flex:none;
+}
+.tfh-vbadge .tfh-vbadge-ic{display:block}
+.tfh-vbadge:hover .tfh-vbadge-ic,
+.tfh-vbadge:focus-visible .tfh-vbadge-ic{color:#FFC94D}
+/* Bulle CSS (masquée en mode natif .tfh-vbadge--native → title seul, car
+ * les listes scrollables rognent les bulles positionnées) */
+.tfh-vbadge:not(.tfh-vbadge--native)::after{
+  content:attr(data-tip);
+  position:absolute;
+  bottom:calc(100% + 7px);
+  left:50%;
+  transform:translateX(-50%) translateY(2px);
+  background:#1A1A1E;
+  color:#F4F4F5;
+  padding:7px 11px;
+  border-radius:9px;
+  font-size:11.5px;
+  font-weight:500;
+  line-height:1.35;
+  letter-spacing:.1px;
+  white-space:nowrap;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .14s ease, transform .14s ease;
+  box-shadow:0 6px 20px rgba(0,0,0,.4);
+  border:1px solid rgba(255,255,255,.14);
+  z-index:9999;
+}
+.tfh-vbadge:not(.tfh-vbadge--native)::before{
+  content:"";
+  position:absolute;
+  bottom:calc(100% + 2px);
+  left:50%;
+  transform:translateX(-50%);
+  border:6px solid transparent;
+  border-top-color:#1A1A1E;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .14s ease;
+  z-index:9999;
+}
+.tfh-vbadge:not(.tfh-vbadge--native):hover::after,
+.tfh-vbadge:not(.tfh-vbadge--native):focus-visible::after{
+  opacity:1;
+  transform:translateX(-50%) translateY(0);
+}
+.tfh-vbadge:not(.tfh-vbadge--native):hover::before,
+.tfh-vbadge:not(.tfh-vbadge--native):focus-visible::before{opacity:1}
+/* Variante grand format (héros du profil) */
+.tfh-vbadge.tfh-vbadge-lg{margin-left:6px}
+.tfh-vbadge.tfh-vbadge-lg .tfh-vbadge-ic{width:16px;height:16px}
+
+/* v5.13 — Bouton « Afficher plus de joueurs » (panel hebdo dashboard) */
+.dash-more-btn{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  width:calc(100% - 24px);
+  margin:4px 12px 14px;
+  padding:10px 14px;
+  border-radius:10px;
+  border:1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+  background:color-mix(in srgb, var(--accent) 7%, transparent);
+  color:var(--accent);
+  font-size:13px;
+  font-weight:600;
+  cursor:pointer;
+  transition:background .15s ease, border-color .15s ease, transform .1s ease;
+}
+.dash-more-btn:hover{background:color-mix(in srgb, var(--accent) 14%, transparent);border-color:var(--accent)}
+.dash-more-btn:active{transform:scale(.99)}
+.dash-more-btn:disabled{opacity:.6;cursor:wait}
+.dash-more-count{color:var(--muted);font-weight:500;font-size:12px}

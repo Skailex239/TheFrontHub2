@@ -549,6 +549,31 @@ tfh_add_col($pdo, 'tfh_g_clans', 'lb_wl_ratio',        "`lb_wl_ratio` DOUBLE NUL
 tfh_add_col($pdo, 'tfh_g_clans', 'lb_fetched_at',      "`lb_fetched_at` DATETIME NULL");
 tfh_add_idx($pdo, 'tfh_g_clans', 'idx_gclans_lb',      "`idx_gclans_lb` (`lb_weighted_wins`)");
 
+/* ─────────────── v5.13 — Top joueurs de la semaine (pré-calcul) ───────────────
+ * Table alimentée par weekly_phase() à chaque tick : agrégat des victoires
+ * de la semaine courante + la précédente (barème dashboard : FFA casual ×10,
+ * FFA classé ×1, Team casual ×5, Team classé ×1), avec rangs par mode.
+ * La route API route=weekly (games-api.php) ne fait plus qu'une lecture
+ * paginée → « tous les joueurs » sans requête lourde côté visiteur. */
+$pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_weekly (
+    week_start  DATE                NOT NULL,
+    public_id   VARCHAR(16)         NOT NULL,
+    ffa_casual  INT UNSIGNED        NOT NULL DEFAULT 0,
+    ffa_ranked  INT UNSIGNED        NOT NULL DEFAULT 0,
+    team_casual INT UNSIGNED        NOT NULL DEFAULT 0,
+    team_ranked INT UNSIGNED        NOT NULL DEFAULT 0,
+    pts_all     SMALLINT UNSIGNED   NOT NULL DEFAULT 0,
+    pts_ffa     SMALLINT UNSIGNED   NOT NULL DEFAULT 0,
+    pts_team    SMALLINT UNSIGNED   NOT NULL DEFAULT 0,
+    rank_all    SMALLINT UNSIGNED   NULL,
+    rank_ffa    SMALLINT UNSIGNED   NULL,
+    rank_team   SMALLINT UNSIGNED   NULL,
+    computed_at DATETIME            NOT NULL,
+    PRIMARY KEY (week_start, public_id),
+    INDEX idx_gweekly_rank (week_start, pts_all),
+    INDEX idx_gweekly_pid (public_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
 /* ─────────────────────────── Helpers ─────────────────────────── */
 
 function state_get(PDO $pdo, string $k, ?string $def = null): ?string {
@@ -2227,6 +2252,118 @@ function clan_sessions_phase(PDO $pdo, array $cfg, float $deadline): void {
     log_line("[clansess] $total session(s) pour " . count($top) . ' clan(s) — fenêtre ' . $start . ' → ' . $end);
 }
 
+/* ─────────────── v5.13 — Top joueurs de la semaine ───────────────
+ * Recalcule l'agrégat des victoires (semaine courante + précédente,
+ * frontière lundi 00h00 Europe/Paris — identique à sync-dashboard.js)
+ * dans tfh_g_weekly. 100 % SQL local, aucun appel OpenFront → quelques
+ * secondes max, tolérant aux erreurs (le tick ne doit jamais mourir ici).
+ * Barème identique au dashboard : FFA casual ×10 · FFA classé ×1 ·
+ * Team casual ×5 · Team classé ×1. */
+function weekly_week_bounds(): array {
+    $tz  = new DateTimeZone('Europe/Paris');
+    $now = new DateTime('now', $tz);
+    $dow = (int)$now->format('N');
+    $mon = new DateTime($now->format('Y-m-d') . ' 00:00:00', $tz);
+    if ($dow !== 1) $mon->modify('-' . ($dow - 1) . ' day');
+    $cur = (int)$mon->getTimestamp();
+    return [$cur, $cur - 7 * 86400];
+}
+
+function weekly_compute_week(PDO $pdo, int $startTs, int $endTs): array {
+    $st = $pdo->prepare(
+        "SELECT r.public_id AS pid,
+            SUM(CASE WHEN (g.game_mode = 'Team' OR g.ranked_type = '2v2') AND g.ranked_type IN ('1v1','2v2') THEN 1 ELSE 0 END) AS tr,
+            SUM(CASE WHEN (g.game_mode = 'Team' OR g.ranked_type = '2v2') AND g.ranked_type NOT IN ('1v1','2v2') THEN 1 ELSE 0 END) AS tc,
+            SUM(CASE WHEN NOT (g.game_mode = 'Team' OR g.ranked_type = '2v2') AND g.ranked_type IN ('1v1','2v2') THEN 1 ELSE 0 END) AS fr,
+            SUM(CASE WHEN NOT (g.game_mode = 'Team' OR g.ranked_type = '2v2') AND g.ranked_type NOT IN ('1v1','2v2') THEN 1 ELSE 0 END) AS fc
+         FROM tfh_g_games g
+         JOIN tfh_g_roster r ON r.game_id = g.game_id
+         WHERE g.started_at >= FROM_UNIXTIME(?) AND g.started_at < FROM_UNIXTIME(?)
+           AND g.game_type = 'Public' AND r.won = 1 AND r.public_id IS NOT NULL
+         GROUP BY r.public_id"
+    );
+    $st->execute([$startTs, $endTs]);
+    return $st->fetchAll();
+}
+
+function weekly_store_week(PDO $pdo, string $weekDate, int $startTs, int $endTs): int {
+    $rows = weekly_compute_week($pdo, $startTs, $endTs);
+    if (!$rows) {
+        $pdo->prepare('DELETE FROM tfh_g_weekly WHERE week_start = ?')->execute([$weekDate]);
+        return 0;
+    }
+    // Points + classements par mode (rang = position, ex æquo départagés par public_id)
+    $list = [];
+    foreach ($rows as $r) {
+        $fc = (int)$r['fc']; $fr = (int)$r['fr']; $tc = (int)$r['tc']; $tr = (int)$r['tr'];
+        $list[] = [
+            'pid' => (string)$r['pid'], 'fc' => $fc, 'fr' => $fr, 'tc' => $tc, 'tr' => $tr,
+            'all'  => $fc * 10 + $fr + $tc * 5 + $tr,
+            'ffa'  => $fc * 10 + $fr,
+            'team' => $tc * 5 + $tr,
+        ];
+    }
+    usort($list, static function (array $a, array $b): int {
+        return ($b['all'] <=> $a['all']) ?: strcmp($a['pid'], $b['pid']);
+    });
+    foreach ($list as $i => &$x) $x['rank_all'] = $i + 1;
+    unset($x);
+    /* Rangs par mode : tri sur des COPIES ne remonte pas dans $list (tableaux
+     * PHP copiés par valeur) → on calcule des maps pid → rang puis on assigne. */
+    $rankOf = static function (array $rows, string $key): array {
+        $sorted = $rows;
+        usort($sorted, static function (array $a, array $b) use ($key): int {
+            return ($b[$key] <=> $a[$key]) ?: strcmp($a['pid'], $b['pid']);
+        });
+        $map = [];
+        foreach ($sorted as $i => $x) $map[$x['pid']] = $i + 1;
+        return $map;
+    };
+    $rankFfa  = $rankOf($list, 'ffa');
+    $rankTeam = $rankOf($list, 'team');
+    foreach ($list as &$x) {
+        $x['rank_ffa']  = $rankFfa[$x['pid']] ?? null;
+        $x['rank_team'] = $rankTeam[$x['pid']] ?? null;
+    }
+    unset($x);
+
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare('DELETE FROM tfh_g_weekly WHERE week_start = ?')->execute([$weekDate]);
+        $ins = $pdo->prepare(
+            'INSERT INTO tfh_g_weekly
+                (week_start, public_id, ffa_casual, ffa_ranked, team_casual, team_ranked,
+                 pts_all, pts_ffa, pts_team, rank_all, rank_ffa, rank_team, computed_at)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NOW())'
+        );
+        $n = 0;
+        foreach ($list as $x) {
+            $ins->execute([
+                $weekDate, $x['pid'], $x['fc'], $x['fr'], $x['tc'], $x['tr'],
+                $x['all'], $x['ffa'], $x['team'], $x['rank_all'], $x['rank_ffa'], $x['rank_team'],
+            ]);
+            $n++;
+        }
+        $pdo->commit();
+        return $n;
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+}
+
+function weekly_phase(PDO $pdo): void {
+    [$cur, ] = weekly_week_bounds();
+    $curDate  = gmdate('Y-m-d', $cur);
+    $prevDate = gmdate('Y-m-d', $cur - 7 * 86400);
+    $n1 = weekly_store_week($pdo, $curDate, $cur, $cur + 7 * 86400);
+    $n2 = weekly_store_week($pdo, $prevDate, $cur - 7 * 86400, $cur);
+    // Rétention : 8 semaines glissantes suffisent (tendance + historique court)
+    $pdo->prepare('DELETE FROM tfh_g_weekly WHERE week_start < DATE_SUB(?, INTERVAL 56 DAY)')
+        ->execute([$curDate]);
+    log_line("[weekly] top semaine recalculé : $n1 joueur(s) (courante) / $n2 (précédente)");
+}
+
 /* ─────────────────────────── Commandes spéciales ─────────────────────────── */
 
 if ($argStatus) {
@@ -2514,6 +2651,10 @@ try {
         if ($tn > 0) log_line("[turns] $tn replay(s) stocké(s)");
     }
 } catch (Throwable $e) { log_line('[turns] ⚠️ ' . cut($e->getMessage(), 140)); }
+
+// 8) v5.13 — Top joueurs de la semaine (pré-calcul local, semaine + précédente)
+try { weekly_phase($pdo); } catch (Throwable $e) { log_line('[weekly] ⚠️ ' . cut($e->getMessage(), 140)); }
+
 phase_mark($pdo, 'fin');
 
 // Résumé + persistance des stats HTTP (visibilité rate limits)

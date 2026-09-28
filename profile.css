@@ -1041,3 +1041,148 @@ a.pfsr-replay:hover{background:var(--accent);color:#fff;border-color:var(--accen
 @media (prefers-reduced-motion: reduce) {
   .rw-chip-banner { transition: none; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   v5.13 — Profil revendiqué : bio, map préférée, liens réseaux
+   ═══════════════════════════════════════════════════════════════════ */
+.pf2-id-bio{
+  margin:8px 0 0;
+  font-size:13.5px;
+  line-height:1.5;
+  color:var(--text);
+  opacity:.9;
+  white-space:pre-line;
+  word-break:break-word;
+  max-width:560px;
+}
+.pf2-id-favmap{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  margin-top:9px;
+  padding:5px 11px 5px 6px;
+  border-radius:999px;
+  background:color-mix(in srgb, var(--accent) 9%, transparent);
+  border:1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  font-size:12.5px;
+  color:var(--text);
+}
+.pf2-id-favmap-label{
+  font-size:10.5px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.6px;
+  color:var(--accent);
+}
+.pf2-id-favmap-thumb{width:26px;height:26px;border-radius:6px;object-fit:cover;display:block}
+.pf2-id-favmap b{font-weight:600}
+.pf2-id-links{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-top:9px;
+}
+.pf2-id-link{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:5px 11px;
+  border-radius:999px;
+  font-size:12.5px;
+  color:var(--text);
+  text-decoration:none;
+  background:var(--card,#fff);
+  border:1px solid color-mix(in srgb, currentColor 18%, transparent);
+  transition:border-color .15s ease, transform .12s ease, color .15s ease;
+  max-width:220px;
+}
+.pf2-id-link span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pf2-id-link:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-1px)}
+.pf2-id-link .icon{flex:none}
+
+/* Bouton « Modifier le profil » (actions héros) */
+.pf2-id-editbtn{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:8px 14px;
+  border-radius:10px;
+  border:1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  background:color-mix(in srgb, var(--accent) 8%, transparent);
+  color:var(--accent);
+  font-size:12.5px;
+  font-weight:600;
+  cursor:pointer;
+  transition:background .15s ease, border-color .15s ease;
+}
+.pf2-id-editbtn:hover{background:color-mix(in srgb, var(--accent) 16%, transparent);border-color:var(--accent)}
+
+/* Encart « Ce profil n'est pas encore revendiqué » (vues publiques) */
+.pf-claim-hint{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:12px;
+  margin:14px 0 4px;
+  padding:14px 16px;
+  border-radius:14px;
+  background:color-mix(in srgb, var(--accent) 6%, transparent);
+  border:1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.pf-claim-hint-text{display:flex;flex-direction:column;gap:4px;min-width:0}
+.pf-claim-hint-text b{font-size:13.5px;color:var(--text)}
+.pf-claim-hint-text span{font-size:12.5px;color:var(--muted);line-height:1.45;max-width:640px}
+.pf-claim-hint .pf-primary-btn{flex:none}
+
+/* Modale d'édition du profil */
+.pf-modal-backdrop{
+  position:fixed;inset:0;z-index:10050;
+  background:rgba(0,0,0,.55);
+  backdrop-filter:blur(4px);
+  display:flex;align-items:center;justify-content:center;
+  padding:18px;
+}
+.pf-modal{
+  width:min(520px, 100%);
+  max-height:min(86vh, 720px);
+  overflow-y:auto;
+  background:var(--card,#fff);
+  border:1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-radius:18px;
+  box-shadow:0 24px 70px rgba(0,0,0,.45);
+}
+.pf-modal-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:16px 18px 12px;
+  position:sticky;top:0;background:inherit;z-index:2;
+}
+.pf-modal-head h3{margin:0;font-size:16px}
+.pf-modal-close{
+  background:none;border:none;cursor:pointer;color:var(--muted);
+  font-size:16px;line-height:1;padding:6px;border-radius:8px;
+}
+.pf-modal-close:hover{color:var(--text);background:color-mix(in srgb, currentColor 8%, transparent)}
+.pf-modal-body{padding:2px 18px 6px;display:flex;flex-direction:column;gap:12px}
+.pf-modal-field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.pf-modal-label{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.pf-modal-count{color:var(--accent);text-transform:none;letter-spacing:0}
+.pf-modal-body input,.pf-modal-body textarea{
+  width:100%;
+  padding:10px 12px;
+  border-radius:10px;
+  border:1px solid color-mix(in srgb, currentColor 20%, transparent);
+  background:var(--bg,#fff);
+  color:var(--text);
+  font-size:13.5px;
+  font-family:inherit;
+  resize:vertical;
+}
+.pf-modal-body input:focus,.pf-modal-body textarea:focus{outline:none;border-color:var(--accent)}
+.pf-modal-links{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:520px){.pf-modal-links{grid-template-columns:1fr}}
+.pf-modal-note{margin:2px 0 0;font-size:11.5px;color:var(--muted);line-height:1.45}
+.pf-modal-foot{
+  display:flex;justify-content:flex-end;gap:10px;
+  padding:12px 18px 16px;
+}

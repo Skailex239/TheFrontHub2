@@ -32,6 +32,8 @@ declare(strict_types=1);
 
 define('TFH_API', 1);
 require __DIR__ . '/config.php';
+require_once __DIR__ . '/profile-schema.php';
+tfh_profile_ensure_schema($pdo);
 
 /* v5 : les nouvelles tables (ratings, cosmétiques, replay, clans) sont créées
  * par le prochain tick de games-sync.php. Si elles n'existent pas encore
@@ -158,6 +160,15 @@ case 'game': {
             'cosmetics'  => ($p['cosmetics_json'] ?? null) !== null ? json_decode((string)$p['cosmetics_json'], true) : null,
         ];
     }
+    /* v5.13 — badge « vérifié » par joueur (comptes revendiqués) : les
+     * rosters pointent vers des profils publics reliés. */
+    $vmap = tfh_verified_map($pdo, array_filter(array_map(
+        static fn(array $p): string => (string)($p['publicId'] ?? ''), $players
+    )));
+    foreach ($players as &$pv) {
+        $pv['verified'] = $pv['publicId'] !== null && !empty($vmap[(string)$pv['publicId']]);
+    }
+    unset($pv);
     $out = game_row($r);
     $out['players'] = $players;
     $out['version'] = ($r['version'] ?? null) !== null ? (string)$r['version'] : null;
@@ -398,6 +409,16 @@ case 'profile': {
         }
     }
 
+    /* v5.13 — Profil revendiqué : badge vérifié + bio / map préférée / liens.
+     * La « map préférée » affichée = choix du joueur s'il en a défini un,
+     * sinon sa carte la plus jouée (données du site, byMap[0]). */
+    $extras = tfh_profile_extras($pdo, $pid);
+    $topMapName = ($byMap[0]['map'] ?? null);
+    $favMapShown = $extras['favMap'] ?? null;
+    if ($favMapShown === null && $topMapName !== null) {
+        $favMapShown = $topMapName; // fallback calculé (non éditable)
+    }
+
     json_out([
         'ok' => true,
         'player' => [
@@ -409,6 +430,19 @@ case 'profile': {
             'gamesCount'  => (int)$p['games_count'],
             'winsCount'   => (int)$p['wins_count'],
             'deletedAt'   => $p['deleted_at'],
+        ],
+        'verified' => $extras['verified'] ?? false,
+        'profile' => $extras !== null ? [
+            'bio'        => $extras['bio'],
+            'favMap'     => $favMapShown,
+            'favMapUserSet' => $extras['favMap'] !== null,
+            'links'      => $extras['links'],
+            'alias'      => $extras['alias'],
+            'verifiedAt' => $extras['verifiedAt'],
+        ] : [
+            'bio' => null, 'favMap' => $favMapShown, 'favMapUserSet' => false,
+            'links' => ['x' => null, 'youtube' => null, 'twitch' => null, 'discord' => null],
+            'alias' => null, 'verifiedAt' => null,
         ],
         'aliases' => $aliases,
         'ratings' => $ratings,
@@ -452,6 +486,14 @@ case 'search': {
             'winsCount' => (int)$r['wins_count'],
         ];
     }
+    /* v5.13 — badge « vérifié » dans les résultats de recherche */
+    $vmapS = tfh_verified_map($pdo, array_map(
+        static fn(array $r): string => (string)$r['public_id'], $results
+    ));
+    foreach ($results as &$sr) {
+        $sr['verified'] = !empty($vmapS[$sr['publicId']]);
+    }
+    unset($sr);
 
     // v5 : clans correspondants
     $clans = [];
@@ -480,6 +522,138 @@ case 'search': {
         }
     }
     json_out(['ok' => true, 'results' => $results, 'clans' => $clans, 'games' => $games]);
+}
+
+/* ── Top joueurs de la semaine (TOUS les joueurs, pré-calculé par le cron) ──
+ * Barème identique au dashboard : FFA casual ×10 · FFA classé ×1 ·
+ * Team casual ×5 · Team classé ×1. Données issues de tfh_g_weekly
+ * (agrégat rerécalculé à chaque tick de games-sync.php pour la semaine
+ * courante + la précédente → flèches de tendance incluses).
+ *
+ *   route=weekly &limit=50&offset=0 &mode=all|ffa|team &q= &me=PUBLICID
+ */
+case 'weekly': {
+    header('Cache-Control: public, max-age=60');
+    $mode = (string)($_GET['mode'] ?? 'all');
+    if (!in_array($mode, ['all', 'ffa', 'team'], true)) $mode = 'all';
+    $q = trim((string)($_GET['q'] ?? ''));
+    $me = trim((string)($_GET['me'] ?? ''));
+    $wLimit = max(1, min(200, (int)($_GET['limit'] ?? 50)));
+    $wOffset = max(0, min(100000, (int)($_GET['offset'] ?? 0)));
+
+    [$curMs, $prevMs] = tfh_week_bounds_ms();
+    $week = gmdate('Y-m-d', intdiv($curMs, 1000));
+    $prevWeek = gmdate('Y-m-d', intdiv($prevMs, 1000));
+
+    $ptsKey  = ['all' => 'pts_all',  'ffa' => 'pts_ffa',  'team' => 'pts_team'][$mode];
+    $rankCol = ['all' => 'w.rank_all', 'ffa' => 'w.rank_ffa', 'team' => 'w.rank_team'][$mode];
+    $prevRankCol = ['all' => 'pw.rank_all', 'ffa' => 'pw.rank_ffa', 'team' => 'pw.rank_team'][$mode];
+
+    /* Position « TOI » : envoyée avec la ligne du joueur connecté (rank
+     * déjà stocké par le cron) même s'il est au-delà de la fenêtre paginée. */
+    $meRow = null;
+    if (preg_match('/^[A-Za-z0-9]{6,16}$/', $me)) {
+        try {
+            $stm = $pdo->prepare(
+                "SELECT w.public_id, w.pts_all, w.pts_ffa, w.pts_team, w.{$rankCol} AS rk,
+                        p.last_username, pa.username AS hub_username, u.verified_at
+                 FROM tfh_g_weekly w
+                 LEFT JOIN tfh_g_players p ON p.public_id = w.public_id
+                 LEFT JOIN tfh_public_aliases pa ON pa.public_id = w.public_id
+                 LEFT JOIN tfh_users u ON u.id = pa.user_id
+                 WHERE w.week_start = ? AND w.public_id = ? LIMIT 1"
+            );
+            $stm->execute([$week, $me]);
+            $mrow = $stm->fetch();
+            if ($mrow !== false) {
+                $meRow = [
+                    'publicId' => (string)$mrow['public_id'],
+                    'rank'     => $mrow['rk'] !== null ? (int)$mrow['rk'] : null,
+                    'points'   => (int)$mrow[$ptsKey],
+                    'username' => $mrow['last_username'] !== null ? (string)$mrow['last_username'] : null,
+                    'hubName'  => $mrow['hub_username'] !== null ? (string)$mrow['hub_username'] : null,
+                    'verified' => $mrow['verified_at'] !== null,
+                ];
+            }
+        } catch (Throwable $e) {}
+    }
+
+    $where = 'w.week_start = ?';
+    $args = [$week];
+    /* La table ne contient que les joueurs avec ≥ 1 victoire ; en mode ffa /
+     * team on exclut ceux à 0 pt dans la catégorie (comme le dashboard). */
+    if ($mode === 'ffa')  { $where .= ' AND w.pts_ffa > 0'; }
+    if ($mode === 'team') { $where .= ' AND w.pts_team > 0'; }
+    if ($q !== '') {
+        $qLike = '%' . str_replace(['%', '_'], ['\\%', '\\_'], mb_strtolower($q, 'UTF-8')) . '%';
+        $where .= " AND (LOWER(COALESCE(pa.username, '')) LIKE ? OR LOWER(COALESCE(p.last_username, '')) LIKE ?)";
+        $args[] = $qLike;
+        $args[] = $qLike;
+    }
+
+    try {
+        $sqlBase = "FROM tfh_g_weekly w
+            LEFT JOIN tfh_g_players p ON p.public_id = w.public_id
+            LEFT JOIN tfh_public_aliases pa ON pa.public_id = w.public_id
+            LEFT JOIN tfh_users u ON u.id = pa.user_id
+            LEFT JOIN tfh_g_weekly pw ON pw.week_start = ? AND pw.public_id = w.public_id
+            WHERE $where";
+        $cnt = $pdo->prepare('SELECT COUNT(*) ' . $sqlBase);
+        $cnt->execute(array_merge([$prevWeek], $args));
+        $total = (int)$cnt->fetchColumn();
+
+        $st = $pdo->prepare(
+            "SELECT w.public_id, w.ffa_casual, w.ffa_ranked, w.team_casual, w.team_ranked,
+                    w.pts_all, w.pts_ffa, w.pts_team,
+                    {$rankCol} AS rk, {$prevRankCol} AS prev_rk,
+                    p.last_username, pa.username AS hub_username,
+                    (u.verified_at IS NOT NULL) AS verified
+             $sqlBase
+             ORDER BY {$rankCol} ASC, w.public_id ASC
+             LIMIT ? OFFSET ?"
+        );
+        $allArgs = array_merge([$prevWeek], $args);
+        foreach ($allArgs as $i => $a) $st->bindValue($i + 1, $a);
+        $st->bindValue(count($allArgs) + 1, $wLimit, PDO::PARAM_INT);
+        $st->bindValue(count($allArgs) + 2, $wOffset, PDO::PARAM_INT);
+        $st->execute();
+
+        $players = [];
+        foreach ($st->fetchAll() as $r) {
+            $players[] = [
+                'rank'           => $r['rk'] !== null ? (int)$r['rk'] : $wOffset + count($players) + 1,
+                'publicId'       => (string)$r['public_id'],
+                'username'       => $r['last_username'] !== null ? (string)$r['last_username'] : (string)$r['public_id'],
+                'hubName'        => $r['hub_username'] !== null ? (string)$r['hub_username'] : null,
+                'verified'       => (bool)$r['verified'],
+                'ffaCasualWins'  => (int)$r['ffa_casual'],
+                'ffaRankedWins'  => (int)$r['ffa_ranked'],
+                'teamCasualWins' => (int)$r['team_casual'],
+                'teamRankedWins' => (int)$r['team_ranked'],
+                'points'         => (int)$r[$ptsKey],
+                'prevRank'       => $r['prev_rk'] !== null ? (int)$r['prev_rk'] : null,
+            ];
+        }
+
+        json_out([
+            'ok'        => true,
+            'weekStart' => $curMs,
+            'mode'      => $mode,
+            'total'     => $total,
+            'offset'    => $wOffset,
+            'limit'     => $wLimit,
+            'me'        => $meRow,
+            'players'   => $players,
+        ]);
+    } catch (Throwable $e) {
+        /* Table pas encore créée / premier tick non passé → dégradation propre */
+        error_log('[tfh-api] weekly: ' . $e->getMessage());
+        json_out([
+            'ok' => true, 'weekStart' => $curMs, 'mode' => $mode,
+            'total' => 0, 'offset' => $wOffset, 'limit' => $wLimit,
+            'me' => null, 'players' => [], 'pending' => true,
+        ]);
+    }
 }
 
 /* ── Cartes disponibles (pour les filtres speedruns ou vue globale v5) ───── */
@@ -766,6 +940,14 @@ case 'clan': {
             'games' => (int)$x['games'], 'wins' => (int)$x['wins'],
         ];
     }
+    /* v5.13 — badge « vérifié » sur les membres (profils revendiqués) */
+    $vmapC = tfh_verified_map($pdo, array_map(
+        static fn(array $m): string => $m['publicId'], $members
+    ));
+    foreach ($members as &$mb) {
+        $mb['verified'] = !empty($vmapC[$mb['publicId']]);
+    }
+    unset($mb);
     $gi = $pdo->prepare('SELECT r.game_id FROM tfh_g_roster r JOIN tfh_g_games g ON g.game_id = r.game_id
         WHERE r.clan_tag = ? ORDER BY g.started_at DESC LIMIT 20');
     $gi->execute([$tag]);
