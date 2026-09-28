@@ -33,7 +33,7 @@ import {
 import {
   computePlaytimeStats, extractCareerWins, totalWins, pointsFor,
   formatDurationCompact, formatPct, formatFrenchDate,
-  formatPoints, classifyGame,
+  formatPoints, classifyGame, gameDurationSec,
 } from "./playtime-stats.js?v=1";
 
 /* ── i18n (FR/EN) — moteur commun i18n.js (window.t, dictionnaire de page
@@ -64,6 +64,7 @@ let _ownershipUsername = null;
 let _rankedCache = null;
 let _allGamesCache = null; // toutes les games paginées (pour playtime + map stats)
 let _allGamesLoading = false;
+let _statsRunSeq = 0; // garde anti-course (changement de profil rapide)
 let _mapStatsSortBy = "count";
 let _mapStatsShowAll = false;
 let _rewardCardState = { publicId: null, ownedSkins: [], activeSkinId: null, ownedBanners: [], activeBannerId: null };
@@ -895,13 +896,15 @@ function showcaseCatLabel(cat) {
 }
 
 /** Carte d'un cosmétique OpenFront porté en jeu.
- * Trois cas réels observés dans les données :
+ * Quatre cas réels observés dans les données :
  *  - c.url renseignée (couronnes, skins) → image CDN ;
  *  - c.name EST l'URL CDN (drapeaux portés) → image depuis le nom,
  *    libellé dérivé du segment final (cc_youtube_ → YouTube) ;
- *  - sinon (motifs procéduraux, effets) → icône de catégorie. */
+ *  - c.patternData renseigné (motifs du catalogue, v5.15) → canvas décodé ;
+ *  - sinon (effets, patterns sans données) → icône de catégorie. */
 function showcaseCosVisual(c) {
   let url = c.url ? String(c.url) : "";
+  let patternData = String(c.patternData || "");
   let label = c.displayName || c.name;
   if (!url && /^https?:\/\//i.test(String(c.name || ""))) {
     url = encodeURI(String(c.name));
@@ -915,18 +918,26 @@ function showcaseCosVisual(c) {
       }
     } catch (e) { /* label resté = name */ }
   }
-  return { url, label };
+  return { url, label, patternData };
 }
 
 function showcaseWornCard(c) {
-  const { url, label } = showcaseCosVisual(c);
+  const { url, label, patternData } = showcaseCosVisual(c);
   const name = label || showcaseCatLabel(c.category);
   const icon = SHOWCASE_CAT_ICON[String(c.category || "").toLowerCase()] || "🧩";
-  const img = url
-    ? '<img class="pf-sc-img" src="' + esc(url) + '" alt="" width="40" height="40" loading="lazy" ' +
+  let img;
+  if (patternData) {
+    // Motif OpenFront : bitmap décodé et peint après insertion (paintShowcasePatterns).
+    img = '<canvas class="pf-sc-canvas" width="40" height="40" data-pattern="' + esc(patternData) +
+      '" role="img" aria-label="' + esc(name) + '"></canvas>' +
+      '<span class="pf-sc-emoji" style="display:none">' + icon + "</span>";
+  } else if (url) {
+    img = '<img class="pf-sc-img" src="' + esc(url) + '" alt="" width="40" height="40" loading="lazy" ' +
       'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">' +
-      '<span class="pf-sc-emoji" style="display:none">' + icon + "</span>"
-    : '<span class="pf-sc-emoji">' + icon + "</span>";
+      '<span class="pf-sc-emoji" style="display:none">' + icon + "</span>";
+  } else {
+    img = '<span class="pf-sc-emoji">' + icon + "</span>";
+  }
   return (
     '<article class="pf-sc-card">' +
       '<div class="pf-sc-thumb">' + img + "</div>" +
@@ -938,6 +949,22 @@ function showcaseWornCard(c) {
       "</div>" +
     "</article>"
   );
+}
+
+/** Peint tous les canvas[data-pattern] du conteneur (après injection innerHTML). */
+function paintShowcasePatterns(root) {
+  if (!root) return;
+  root.querySelectorAll("canvas[data-pattern]").forEach((cv) => {
+    const data = cv.getAttribute("data-pattern") || "";
+    if (!data || !paintPatternToCanvas(cv, data, 40)) {
+      // décodage impossible → repli emoji (comme avant la v5.15)
+      cv.remove();
+      const fb = cv.nextElementSibling;
+      if (fb && fb.classList.contains("pf-sc-emoji")) fb.style.display = "flex";
+      return;
+    }
+    cv.removeAttribute("data-pattern");
+  });
 }
 
 /** Cartes des cosmétiques TheFrontHub (VIP, skins animés, bannières pixel art). */
@@ -1032,6 +1059,9 @@ function renderShowcaseFromData(data) {
       "<span>" + esc(T("pf.showcase_title", "Vitrine cosmétiques")) + "</span></h2>" +
     wornHtml + hubHtml;
   root.hidden = false;
+  // v5.15 — peint les motifs (canvas) + emblème du héros (motif le plus récent)
+  paintShowcasePatterns(root);
+  paintAvatarFromCosmetics(worn);
 }
 
 /** Charge puis peint la vitrine du profil PROPRE (fetch dédié, garde anti-course). */
@@ -1279,32 +1309,37 @@ async function loadStats(publicId) {
   // Supprime la rejection non-gérée si on retourne avant (publicId invalide).
   recentGamesPromise.catch(() => {});
 
-  let playerData;
+  let playerData = null;
   try {
     playerData = await fetchOpenFront(`/public/player/${encodeURIComponent(publicId)}`);
   } catch (e) {
     console.error("[profile] OpenFront API error:", e);
     if (e?.isNotFound || e?.status === 404) {
+      // Identifiant invalide : rien à afficher (le dossier pré-calculé ne
+      // correspondra jamais à un joueur inexistant sur l'API).
       showError(
         T("pf.player_not_found", "Joueur introuvable sur l'API OpenFront (publicId : {id}). Vérifie que ton identifiant OpenFront est correct dans tes paramètres de profil.", { id: publicId })
       );
-    } else {
-      showError(T("pf.stats_load_fail", "Impossible de charger les statistiques depuis l'API OpenFront."));
+      setText("stat-alltime-value", "—");
+      setText("stat-alltime-sub", "");
+      return;
     }
-    setText("stat-alltime-value", "—");
-    setText("stat-alltime-sub", "");
-    return;
+    // API OpenFront injoignable (503 « Offline », timeout…) : NON bloquant —
+    // v5.15 le cockpit démarre quand même via le dossier pré-calculé ou le
+    // fallback live (avant : return → profil réduit au nom, même pour les
+    // joueurs suivis dont le fichier player-stats existait).
+    showError(T("pf.stats_load_fail", "Impossible de charger les statistiques depuis l'API OpenFront."));
   }
 
   if (!playerData) {
-    showError(T("pf.api_empty_response", "Réponse vide de l'API OpenFront."));
-    return;
+    setText("stat-alltime-value", "—");
+    setText("stat-alltime-sub", "");
   }
 
   // NOTE: /public/player/{id} no longer returns a `games` array.
   // Recent games come from the separate /games endpoint (recentGamesPromise).
   const games = [];
-  const stats = computeStats(games, playerData.stats || {});
+  const stats = computeStats(games, playerData?.stats || {});
 
   // ── Render reward card + career stats + start games loading IMMEDIATELY ──
   // Don't wait for dashboard_scores, ELO, or recent games — those are secondary.
@@ -1316,8 +1351,10 @@ async function loadStats(publicId) {
   if (isOwnProfile) {
     renderRewardCodeCard(publicId);
   }
-  renderCareerStats(playerData.stats || {}, publicId);
-  loadAllGamesForStats(publicId);
+  // v5.15 : playerData peut être null (API OpenFront injoignable) — le cockpit
+  // doit quand même démarrer (dossier pré-calculé, sinon fallback live).
+  renderCareerStats(playerData?.stats || {}, publicId);
+  loadAllGamesForStats(publicId, playerData);
 
   // ── Week stats from dashboard_scores.json (official data) — non-blocking ──
   (async () => {
@@ -2867,9 +2904,10 @@ function renderCareerStats(statsTree, publicId) {
    ALL GAMES PAGINATION (for playtime + map stats)
    ════════════════════════════════════════════════════════════════ */
 
-async function loadAllGamesForStats(publicId) {
+async function loadAllGamesForStats(publicId, playerData) {
   if (_allGamesLoading) return;
   _allGamesLoading = true;
+  const runSeq = ++_statsRunSeq;
 
   const mount = document.getElementById("career-stats-section");
   if (mount) mount.innerHTML = `<div class="pf2-loading"><div class="pf2-loading-spinner"></div><span>${T("pf.dossier_loading", "Chargement du dossier…")}</span></div>`;
@@ -2881,6 +2919,7 @@ async function loadAllGamesForStats(publicId) {
     if (statsRes.ok) {
       const stats = await statsRes.json();
       if (stats && stats.totalGames != null) {
+        if (runSeq !== _statsRunSeq) { _allGamesLoading = false; return; }
         if (mount) mount.innerHTML = "";
         renderPrecomputedStats(stats, mount);
         _allGamesLoading = false;
@@ -2891,23 +2930,370 @@ async function loadAllGamesForStats(publicId) {
     console.warn("[profile] Could not load pre-computed stats file:", e.message);
   }
 
-  // Fallback: no pre-computed stats available. The CI pipeline generates them
-  // within a few minutes of the first sync. Show a friendly message instead of
-  // duplicating the heavy compute logic client-side (the cockpit relies on
-  // pre-computed fields: level, nextMilestones, sparkline7d, etc.).
+  // ── Fallback v5.15 : calcul LIVE côté navigateur ──
+  // Le dossier pré-calculé n'existe que pour les joueurs suivis par le
+  // pipeline CI (sync-players.json). Pour tout autre joueur on construit
+  // maintenant un dossier de substitution depuis l'API OpenFront :
+  //  - totaux de carrière EXACTS (arbre stats de /public/player/{id}) ;
+  //  - échantillon des ~100 dernières parties (cartes, activité, séries…).
+  // Avant : message « Stats en cours de calcul » mensonger (le dossier ne
+  // serait JAMAIS calculé pour un joueur non suivi) → profil vide = juste
+  // un nom. Désormais chaque profil a un vrai cockpit.
+  try {
+    const live = await buildLiveStatsFromApi(publicId, playerData || null);
+    if (runSeq !== _statsRunSeq) { _allGamesLoading = false; return; }
+    if (live) {
+      if (mount) mount.innerHTML = "";
+      renderPrecomputedStats(live, mount);
+      _allGamesLoading = false;
+      return;
+    }
+  } catch (e) {
+    console.warn("[profile] Live stats fallback failed:", e.message);
+  }
+
+  // Dernier recours : API OpenFront injoignable elle aussi.
+  if (runSeq !== _statsRunSeq) { _allGamesLoading = false; return; }
   if (mount) {
     mount.innerHTML = `
       <div class="pf2-fallback">
         <div class="pf2-fallback-icon">
           <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         </div>
-        <h3>${T("pf.fallback_title", "Stats en cours de calcul")}</h3>
-        <p>${T("pf.fallback_sub", "Notre serveur prépare ton dossier. Recharge la page dans 1-2 minutes.")}</p>
+        <h3>${T("pf.fallback_title", "Stats momentanément indisponibles")}</h3>
+        <p>${T("pf.fallback_sub", "Impossible de contacter le serveur de statistiques. Recharge la page dans quelques instants.")}</p>
         <button type="button" class="pf2-fallback-btn" onclick="location.reload()">${T("pf.reload", "Recharger")}</button>
       </div>
     `;
   }
   _allGamesLoading = false;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   v5.15 — DOSSIER DE SUBSTITUTION (profils NON suivis par le CI)
+   Construit un objet compatible renderPrecomputedStats depuis :
+   1. /public/player/{id}          → arbre de carrière (totaux EXACTS)
+   2. /public/player/{id}/games    → échantillon (~100 parties récentes)
+   ════════════════════════════════════════════════════════════════ */
+
+/** Classification d'une partie API → clé de catégorie du cockpit. */
+function classifyLiveGame(g) {
+  return classifyGame(g); // playtime-stats.js — même logique que le pipeline CI
+}
+
+/**
+ * Agrège l'arbre de carrière OpenFront ({Private,Public,Singleplayer,Ranked})
+ * en totaux exacts par catégorie de cockpit. `recent` est ignoré (fenêtre
+ * courte — déjà inclus dans les feuilles carrière).
+ * Mode FFA/HvN → côté casual ; Team → côté team ; Ranked/1v1 → ffaRanked ;
+ * Ranked/2v2 → teamRanked. Private/Singleplayer comptent en casual.
+ */
+function walkCareerTree(statsTree) {
+  const cats = {
+    ffaCasual: { wins: 0, losses: 0, total: 0 },
+    ffaRanked: { wins: 0, losses: 0, total: 0 },
+    teamCasual: { wins: 0, losses: 0, total: 0 },
+    teamRanked: { wins: 0, losses: 0, total: 0 },
+  };
+  if (!statsTree || typeof statsTree !== "object") return cats;
+  for (const topKey of Object.keys(statsTree)) {
+    if (topKey === "recent") continue; // agrégats fenêtre courte — JAMAIS sommés
+    const top = statsTree[topKey];
+    if (!top || typeof top !== "object") continue;
+    const isRankedTop = topKey === "Ranked";
+    for (const modeKey of Object.keys(top)) {
+      const mode = top[modeKey];
+      if (!mode || typeof mode !== "object") continue;
+      const isTeamMode = modeKey === "Team" || /^\d+v\d+$/i.test(modeKey);
+      for (const diffKey of Object.keys(mode)) {
+        const leaf = mode[diffKey];
+        if (!leaf || typeof leaf !== "object") continue;
+        if (leaf.total == null && leaf.losses == null) continue; // pas une feuille
+        const w = parseInt(leaf.wins, 10) || 0;
+        const l = parseInt(leaf.losses, 10) || (parseInt(leaf.total, 10) || 0) - w;
+        let bucket;
+        if (isRankedTop) bucket = modeKey === "2v2" ? "teamRanked" : "ffaRanked";
+        else bucket = isTeamMode ? "teamCasual" : "ffaCasual";
+        cats[bucket].wins += w;
+        cats[bucket].losses += l;
+        cats[bucket].total += w + l;
+      }
+    }
+  }
+  return cats;
+}
+
+/** Échantillon paginé des dernières parties (cursor API OpenFront).
+ *  Une page en échec interrompt la pagination — on garde ce qui est déjà
+ *  collecté (les totaux carrière, eux, restent exacts via l'arbre). */
+async function fetchGamesSample(publicId, maxPages = 10) {
+  const all = [];
+  let cursor = null;
+  for (let page = 0; page < maxPages; page++) {
+    const url = `/public/player/${encodeURIComponent(publicId)}/games` +
+      (cursor ? `?cursor=${encodeURIComponent(cursor)}` : "");
+    let data;
+    try {
+      data = await fetchOpenFront(url);
+    } catch (e) {
+      if (all.length === 0) throw e; // 1re page KO → l'appelant décidera
+      break; // pages suivantes KO → échantillon partiel suffisant
+    }
+    const results = Array.isArray(data?.results) ? data.results : [];
+    all.push(...results);
+    cursor = data?.nextCursor;
+    if (!cursor || results.length === 0) break;
+  }
+  return all;
+}
+
+/**
+ * Dossier de substitution pour un profil non suivi. Retourne un objet au
+ * format du fichier player-stats (renderPrecomputedStats) marqué
+ * `isSample:true` — totaux de carrière exacts (arbre), détail par carte /
+ * activité / séries issus de l'échantillon récent (annotés comme tels).
+ */
+async function buildLiveStatsFromApi(publicId, playerData) {
+  let tree = playerData?.stats || null;
+  if (!tree) {
+    const data = await fetchOpenFront(`/public/player/${encodeURIComponent(publicId)}`);
+    tree = data?.stats || null;
+  }
+  if (!tree) return null;
+
+  // Échantillon de parties — non bloquant en cas d'échec (totaux restent exacts).
+  let sample = [];
+  try {
+    sample = await fetchGamesSample(publicId, 10);
+  } catch (e) {
+    console.warn("[profile] games sample failed:", e.message);
+  }
+
+  const cats = walkCareerTree(tree);
+  const totalWins = cats.ffaCasual.wins + cats.ffaRanked.wins + cats.teamCasual.wins + cats.teamRanked.wins;
+  const totalGames = cats.ffaCasual.total + cats.ffaRanked.total + cats.teamCasual.total + cats.teamRanked.total;
+  if (totalGames <= 0 && sample.length === 0) return null;
+
+  // Durées + répartition temporelle depuis l'échantillon
+  let sampleSec = 0, sampleCount = 0;
+  const catSec = { ffaCasual: 0, ffaRanked: 0, teamCasual: 0, teamRanked: 0 };
+  const catGames = { ffaCasual: 0, ffaRanked: 0, teamCasual: 0, teamRanked: 0 };
+  const mapAgg = new Map(); // map → {count,wins,losses,sec,lastPlayed}
+  const byWeekday = [0, 0, 0, 0, 0, 0, 0]; // Lun-first (même convention que compute-player-stats)
+  const byDay = new Map(); // JJ/MM/AAAA (Europe/Paris) → parties
+  // Même convention horaire que le pipeline CI (Europe/Paris) pour que les
+  // panneaux activité/sparkline soient identiques entre dossier CI et dossier live.
+  const WD_MAP = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+  let wdFmt, dayFmt;
+  try {
+    wdFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", weekday: "short" });
+    dayFmt = new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", year: "numeric" });
+  } catch (e) {
+    wdFmt = null; dayFmt = null;
+  }
+  let longestSec = 0;
+  for (const g of sample) {
+    const dur = gameDurationSec(g);
+    const cat = classifyLiveGame(g);
+    sampleSec += dur; sampleCount++;
+    catSec[cat] += dur; catGames[cat]++;
+    if (dur > longestSec) longestSec = dur;
+    const mapName = String(g.map || "").trim();
+    if (mapName) {
+      let m = mapAgg.get(mapName);
+      if (!m) { m = { count: 0, wins: 0, losses: 0, sec: 0, lastPlayed: 0 }; mapAgg.set(mapName, m); }
+      m.count++;
+      if (g.result === "victory") m.wins++;
+      else if (g.result === "defeat") m.losses++;
+      m.sec += dur;
+      const ts = g.start ? new Date(g.start).getTime() : 0;
+      if (ts > m.lastPlayed) m.lastPlayed = ts;
+    }
+    if (g.start) {
+      const ts = new Date(g.start).getTime();
+      if (wdFmt && dayFmt) {
+        const wd = WD_MAP[wdFmt.format(ts)];
+        if (wd != null) byWeekday[wd]++;
+        const key = dayFmt.format(ts);
+        byDay.set(key, (byDay.get(key) || 0) + 1);
+      }
+    }
+  }
+  const avgGameSec = sampleCount > 0 ? sampleSec / sampleCount : 0;
+
+  // Playtime estimé : moyenne échantillon × parties de carrière (annoté ≈)
+  const estTotalSec = Math.round(avgGameSec * totalGames);
+  const playtime = {
+    totalSec: estTotalSec,
+    avgGameSec: Math.round(avgGameSec * 10) / 10,
+    longestSec,
+    shortestSec: null,
+    byCategory: {},
+  };
+  for (const key of Object.keys(catSec)) {
+    const share = sampleSec > 0 ? catSec[key] / sampleSec : 0;
+    playtime.byCategory[key] = {
+      games: cats[key].total,
+      playtimeSec: Math.round(estTotalSec * share),
+      wins: cats[key].wins,
+    };
+  }
+
+  // Stats par carte (échantillon récent)
+  const maps = [...mapAgg.entries()].map(([map, m]) => {
+    const decided = m.wins + m.losses;
+    const wr = decided > 0 ? m.wins / decided : 0;
+    return {
+      map, count: m.count, wins: m.wins, losses: m.losses,
+      playtimeSec: m.sec,
+      avgDuration: m.count > 0 ? m.sec / m.count : 0,
+      winRate: wr,
+      lastPlayed: m.lastPlayed ? new Date(m.lastPlayed).toISOString() : null,
+      formatted: {
+        winRate: formatPct(wr),
+        avgDuration: formatDuration(m.count > 0 ? m.sec / m.count : 0),
+        lastPlayed: m.lastPlayed ? formatDateShort(new Date(m.lastPlayed).toISOString()) : "—",
+      },
+    };
+  }).sort((a, b) => b.count - a.count);
+
+  // Séries : série courante depuis la partie la plus récente ; record = max
+  // observé dans l'échantillon (approximation honnête, annotée).
+  let current = 0, best = 0, run = 0;
+  for (const g of sample) {
+    if (g.result === "victory") { run++; if (run > best) best = run; }
+    else if (g.result === "defeat") { run = 0; }
+  }
+  for (const g of sample) {
+    if (g.result === "victory") current++;
+    else break;
+  }
+
+  // Sparkline 7 derniers jours (échantillon — exact si le joueur est actif)
+  const sparkline7d = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const key = dayFmt ? dayFmt.format(d.getTime()) : "__";
+    sparkline7d.push(byDay.get(key) || 0);
+  }
+
+  const points = totalWins * 4 + (totalGames - totalWins);
+  const fmtNum = (n) => new Intl.NumberFormat(LOCALE()).format(Number(n) || 0);
+  const recentGames = sample.slice(0, 20).map((g) => ({ ...g, category: classifyLiveGame(g) }));
+
+  return {
+    publicId,
+    username: playerData?.username || null,
+    computedAt: new Date().toISOString(),
+    lastSyncedAt: new Date().toISOString(),
+    isSample: true,
+    sampleSize: sample.length,
+    totalGames,
+    careerWins: {
+      ffaCasual: cats.ffaCasual.wins, ffaRanked: cats.ffaRanked.wins,
+      teamCasual: cats.teamCasual.wins, teamRanked: cats.teamRanked.wins,
+    },
+    totalWins,
+    points,
+    level: Math.floor(points / 100),
+    levelProgress: points % 100,
+    levelNextAt: (Math.floor(points / 100) + 1) * 100,
+    formatted: {
+      points: fmtNum(points),
+      totalWins: fmtNum(totalWins),
+      totalGames: fmtNum(totalGames),
+      totalPlaytime: "≈ " + formatDuration(estTotalSec),
+      totalPlaytimeCompact: "≈ " + formatDurationCompact(estTotalSec),
+      avgGameDuration: sampleCount > 0 ? formatDuration(avgGameSec) : "—",
+      longestGame: longestSec > 0 ? formatDuration(longestSec) : "—",
+      winrate: totalGames > 0 ? formatPct(totalWins / totalGames) : "—",
+    },
+    playtime,
+    results: { victory: totalWins, defeat: totalGames - totalWins },
+    maps,
+    activity: { byWeekday },
+    sparkline7d,
+    streaks: { current, best },
+    recentGames,
+  };
+}
+
+/** Helpers de formatage — réutilise playtime-stats.js (déjà importé).
+ *  formatDuration / formatDurationCompact / formatPct / gameDurationSec. */
+
+/* ── v5.15 — Rendu d'un MOTIF (pattern) OpenFront sur canvas ──
+   Portage fidèle de PatternDecoder.ts / PatternPreview.ts (OpenFrontIO) :
+   base64url → en-tête 3 octets (version, scale+largeur, hauteur) puis
+   bitmap 1 bit/pixel — bit=0 → couleur primaire, bit=1 → secondaire.
+   Couleurs par défaut de l'aperçu officiel : #ffffff / #000000. */
+
+function decodePatternDataClient(b64) {
+  const s = String(b64 || "").replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(s + "=".repeat((4 - (s.length % 4)) % 4));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  if (bytes.length < 3 || bytes[0] !== 0) throw new Error("bad pattern");
+  const scale = bytes[1] & 0x07;
+  const width = (((bytes[2] & 0x03) << 5) | ((bytes[1] >> 3) & 0x1f)) + 2;
+  const height = ((bytes[2] >> 2) & 0x3f) + 2;
+  const expectedBytes = Math.ceil((width * height) / 8);
+  if (bytes.length - 3 < expectedBytes) throw new Error("pattern too short");
+  return { scale, width, height, bytes };
+}
+
+/** Peint le motif (mosaïque de tuiles) dans un canvas existant. Retourne bool. */
+function paintPatternToCanvas(canvas, patternData, cssSize) {
+  try {
+    const dec = decodePatternDataClient(patternData);
+    const dpr = Math.min(3, Math.max(1, Math.floor(window.devicePixelRatio || 1)));
+    const px = Math.max(1, Math.round(cssSize * dpr));
+    const tileW = dec.width << dec.scale;
+    const tileH = dec.height << dec.scale;
+    const cols = Math.max(1, Math.floor(px / tileW));
+    const rows = Math.max(1, Math.floor(px / tileH));
+    canvas.width = cols * tileW;
+    canvas.height = rows * tileH;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return false;
+    const img = ctx.createImageData(canvas.width, canvas.height);
+    const data = img.data;
+    let i = 0;
+    for (let y = 0; y < canvas.height; y++) {
+      for (let x = 0; x < canvas.width; x++) {
+        const px2 = (x >> dec.scale) % dec.width;
+        const py2 = (y >> dec.scale) % dec.height;
+        const idx = py2 * dec.width + px2;
+        const bit = (dec.bytes[3 + (idx >> 3)] >> (idx & 7)) & 1;
+        // bit=0 → primaire (#ffffff), bit=1 → secondaire (#000000)
+        const v = bit === 0 ? 255 : 0;
+        data[i++] = v; data[i++] = v; data[i++] = v; data[i++] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Peint le motif le plus récemment porté du joueur dans l'avatar du héros
+ * (sinon laisse l'initiale). Appelé après chaque rendu de vitrine.
+ */
+function paintAvatarFromCosmetics(cosmetics) {
+  const avatarEl = document.getElementById("profile-avatar-large");
+  if (!avatarEl || !Array.isArray(cosmetics)) return;
+  const pat = cosmetics.find((c) => String(c.category || "").toLowerCase() === "pattern" && c.patternData);
+  if (!pat) return;
+  const rect = avatarEl.getBoundingClientRect();
+  const cssSize = Math.max(48, Math.round(rect.width || 96));
+  const canvas = document.createElement("canvas");
+  canvas.className = "pf-sc-canvas pf-sc-avatar-pattern";
+  canvas.setAttribute("role", "img");
+  canvas.setAttribute("aria-label", T("pf.showcase_cat_pattern", "Motif"));
+  if (!paintPatternToCanvas(canvas, pat.patternData, cssSize)) return;
+  avatarEl.innerHTML = "";
+  avatarEl.appendChild(canvas);
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -3414,6 +3800,12 @@ function renderPrecomputedStats(stats, mount) {
   setText("stat-wins-sub", stats.streaks?.best ? T("pf.sub_best_streak", "Record série : {v}", { v: stats.streaks.best }) : "");
   setText("stat-winrate-sub", results.victory != null ? T("pf.sub_wl", "{w}V · {l}D", { w: fmt(results.victory), l: fmt(results.defeat || 0) }) : "");
   setText("stat-maps-sub", "");
+  // v5.15 : le score total est aussi alimenté par le dossier (pré-calculé ou
+  // live) — avant, seule loadStats (API OpenFront) le posait ; si l'API était
+  // en 503, la carte restait vide même avec un dossier complet.
+  if (stats.points != null) {
+    setText("stat-alltime-value", stats.formatted?.points || fmt(stats.points));
+  }
 
   // ─────────── Chips meta (niveau / temps de jeu / série) ───────────
   const metaEl = document.getElementById("cockpit-status-meta");
@@ -3432,11 +3824,18 @@ function renderPrecomputedStats(stats, mount) {
   }
 
   // ─────────── Badge de synchro ───────────
-  const syncedDate = stats.lastSyncedAt ? new Date(stats.lastSyncedAt) : null;
-  const syncedStr = syncedDate ? syncedDate.toLocaleString(LOCALE(), { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : T("pf.recently", "récemment");
+  // v5.15 : dossier LIVE (profil non suivi) → badge « échantillon » honnête
+  // au lieu du badge « synchronisé » réservé aux dossiers pré-calculés.
   const badge = document.createElement("div");
-  badge.className = "pf2-sync";
-  badge.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> ${T("pf.sync_badge", "Données synchronisées · {n} parties · MAJ {time}", { n: fmt(stats.totalGames), time: syncedStr })}`;
+  if (stats.isSample) {
+    badge.className = "pf2-sync pf2-sync-sample";
+    badge.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> ${T("pf.sample_badge", "Aperçu calculé en direct · {n} dernières parties · totaux de carrière exacts", { n: fmt(stats.sampleSize || 0) })}`;
+  } else {
+    badge.className = "pf2-sync";
+    const syncedDate = stats.lastSyncedAt ? new Date(stats.lastSyncedAt) : null;
+    const syncedStr = syncedDate ? syncedDate.toLocaleString(LOCALE(), { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : T("pf.recently", "récemment");
+    badge.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> ${T("pf.sync_badge", "Données synchronisées · {n} parties · MAJ {time}", { n: fmt(stats.totalGames), time: syncedStr })}`;
+  }
   mount.appendChild(badge);
 
   // ─────────── Panneau : Parties récentes ───────────
@@ -3770,4 +4169,6 @@ window._profileDebug = {
   renderPrecomputedStats,
   loadStats,
   renderWeeklyChart,
+  buildLiveStatsFromApi,
+  paintPatternToCanvas,
 };

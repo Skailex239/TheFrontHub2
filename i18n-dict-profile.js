@@ -167,8 +167,8 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
 
   // ── Dossier cockpit (pre-computed stats) ──
   "pf.dossier_loading": "Chargement du dossier…",
-  "pf.fallback_title": "Stats en cours de calcul",
-  "pf.fallback_sub": "Notre serveur prépare ton dossier. Recharge la page dans 1-2 minutes.",
+  "pf.fallback_title": "Stats momentanément indisponibles",
+  "pf.fallback_sub": "Impossible de contacter le serveur de statistiques. Recharge la page dans quelques instants.",
   "pf.reload": "Recharger",
   "pf.sub_avg_duration": "Durée moy. {v}",
   "pf.sub_best_streak": "Record série : {v}",
@@ -178,6 +178,7 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   "pf.chip_streak": "Série de {n}",
   "pf.recently": "récemment",
   "pf.sync_badge": "Données synchronisées · {n} parties · MAJ {time}",
+  "pf.sample_badge": "Aperçu calculé en direct · {n} dernières parties · totaux de carrière exacts",
   "pf.recent_title": "Parties récentes",
   "pf.click_details": "clique pour les détails",
   "pf.result_victory": "Victoire",
@@ -515,8 +516,8 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
 
   // ── Career dossier (pre-computed stats) ──
   "pf.dossier_loading": "Loading career data…",
-  "pf.fallback_title": "Stats being computed",
-  "pf.fallback_sub": "Our server is preparing your profile. Reload the page in 1-2 minutes.",
+  "pf.fallback_title": "Stats temporarily unavailable",
+  "pf.fallback_sub": "Could not reach the stats server. Reload the page in a few moments.",
   "pf.reload": "Reload",
   "pf.sub_avg_duration": "Avg. duration {v}",
   "pf.sub_best_streak": "Best streak: {v}",
@@ -526,6 +527,7 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
   "pf.chip_streak": "{n}-win streak",
   "pf.recently": "recently",
   "pf.sync_badge": "Data synced · {n} games · updated {time}",
+  "pf.sample_badge": "Live-computed preview · last {n} games · exact career totals",
   "pf.recent_title": "Recent games",
   "pf.click_details": "click for details",
   "pf.result_victory": "Victory",
