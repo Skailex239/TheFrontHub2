@@ -2173,34 +2173,16 @@ window.loadNews = loadNews;
 window.loadStreams = loadStreams;
 
 function switchTab(name,btn){
-  // Update topbar title based on tab
+  // 2026-09-28 : les catégories Hub « Classé / Classement FFA / Tribus / News /
+  // Live » ont été SUPPRIMÉES (demande propriétaire). Seul l'onglet Speedruns
+  // (maps) existe encore — tout autre nom hérité (?tab=ranked, ffa, tribes,
+  // news, live) retombe sur maps pour ne jamais casser les anciens liens
+  // partagés ni laisser la page sans contenu actif.
+  if (name !== 'maps') name = 'maps';
   const topbarTitle = document.getElementById('topbar-title');
-  if (topbarTitle) {
-    if (name === 'ranked') topbarTitle.textContent = T('nav.ranked', 'Classé');
-    else if (name === 'maps') topbarTitle.textContent = T('nav.maps', 'Speedruns');
-    else if (name === 'ffa') topbarTitle.textContent = T('nav.ffa', 'Classement FFA');
-    else if (name === 'tribes') topbarTitle.textContent = T('nav.tribes', 'Tribus');
-    else if (name === 'news') topbarTitle.textContent = T('nav.news', 'News');
-    else if (name === 'live') topbarTitle.textContent = T('nav.live', 'Streams Live');
-  }
-  if (name === 'ranked') loadRankedLeaderboard(true);
-  if (name === 'ffa') loadFFABoard();
-  if (name === 'tribes') loadTribes();
-  if (name === 'news') loadNews();
-  if (name === 'live') loadStreams();
+  if (topbarTitle) topbarTitle.textContent = T('nav.maps', 'Speedruns');
   document.querySelectorAll('.tab-btn').forEach(b=>{b.classList.remove('active');b.removeAttribute('aria-current');});
-  
-  // Toggle FFA-specific elements visibility (masqués aussi sur les onglets Hub)
-  const hubTab = ['ffa', 'tribes', 'news', 'live'].includes(name);
-  const serverInfo = document.querySelector('.server-info');
-  const ffaStatsGrid = document.getElementById('ffa-stats-grid');
-  const rankedStatsGrid = document.getElementById('ranked-stats-grid');
-  const topbarSubtitle = document.getElementById('topbar-subtitle');
-  if (serverInfo) serverInfo.style.display = (name === 'ranked' || hubTab) ? 'none' : '';
-  if (ffaStatsGrid) ffaStatsGrid.style.display = (name === 'ranked' || hubTab) ? 'none' : '';
-  if (rankedStatsGrid) rankedStatsGrid.style.display = name === 'ranked' ? 'grid' : 'none';
-  if (topbarSubtitle) topbarSubtitle.style.display = (name === 'ranked' || hubTab) ? 'none' : '';
-  
+
   const currentActive = document.querySelector('.tab-content.active');
   if (currentActive) {
     currentActive.style.opacity = '0';
@@ -2225,8 +2207,9 @@ function updateURL(){
   const p=new URLSearchParams();
   const activeTab=document.querySelector('.tab-btn.active');
   if(activeTab){
-    // Resolve tab name from button ID (robust against other nav tabs)
-    const tabNames = { 'tab-btn-ranked':'ranked', 'tab-btn-maps':'maps', 'tab-btn-ffa':'ffa', 'tab-btn-tribes':'tribes', 'tab-btn-news':'news', 'tab-btn-live':'live' };
+    // Resolve tab name from button ID — seul l'onglet maps existe désormais
+    // (catégories Hub supprimées le 2026-09-28)
+    const tabNames = { 'tab-btn-maps':'maps' };
     const tabName = tabNames[activeTab.id] || null;
     if(tabName) p.set('tab',tabName);
   }
@@ -2266,12 +2249,12 @@ window.addEventListener('popstate', () => {
     if (typeof updateCurrentMode === 'function') updateCurrentMode();
   }
 
-  // Tab switch (only for in-page tabs: maps/ranked)
+  // Tab switch (only in-page tab left: maps — les autres catégories Hub ont
+  // été supprimées le 2026-09-28 ; un ?tab=ranked hérité est simplement ignoré)
   const btns = document.querySelectorAll('.tab-btn');
-  if (tab === 'ranked' || tab === 'maps') {
+  if (tab === 'maps') {
     btns.forEach(b => b.classList.remove('active'));
-    const btnId = tab === 'ranked' ? 'tab-btn-ranked' : 'tab-btn-maps';
-    const btn = document.getElementById(btnId);
+    const btn = document.getElementById('tab-btn-maps');
     if (btn) btn.classList.add('active');
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     const tabContent = document.getElementById('tab-' + tab);
@@ -2362,12 +2345,8 @@ if (gameModeParam && ['solo','duos','trios','quads','hvn'].includes(gameModePara
     item.classList.toggle('active', item.dataset.mode === gameModeParam);
   });
 }
-// FIX (audit 2026-09) : deep-link ?tab=ranked&rankedMode=2v2 était ignoré —
-// la page rechargeait toujours le 1v1 (miroir de la logique gameMode ci-dessus).
-const rankedModeParam = urlParams.get('rankedMode');
-if (rankedModeParam === '1v1' || rankedModeParam === '2v2') {
-  switchRankedMode(rankedModeParam); // hoisted — met à jour toggle + labels + _rankedMode
-}
+// (Bloc deep-link rankedMode retiré le 2026-09-28 : l'onglet Classé a été
+// supprimé, le paramètre ?rankedMode= n'a plus d'interface à piloter.)
 // Compat: old ?mode=compact URL
 if (modeParam === 'compact' && !mapSizeParam) {
   currentMapSize = 'compact';
@@ -2386,22 +2365,24 @@ redirectToProfileIfRequested();
 // secondes — voire définitivement — sur la mauvaise catégorie. Les onglets
 // Hub chargent leurs propres données (lazy) : rien n'oblige à attendre.
 if (tabParam && tabParam !== 'profile') {
-  const tabBtnMap = { ranked:'tab-btn-ranked', maps:'tab-btn-maps', ffa:'tab-btn-ffa', tribes:'tab-btn-tribes', news:'tab-btn-news', live:'tab-btn-live' };
-  const btnEarly = document.getElementById(tabBtnMap[tabParam] || 'tab-btn-maps');
+  // 2026-09-28 : seul « maps » est un onglet réel (les catégories Hub Classé/
+  // FFA/Tribus/News/Live ont été supprimées). Tout ?tab= hérité retombe sur
+  // l'accueil Speedruns — aucune page blanche possible.
+  const VALID_HUB_TABS = ['maps'];
+  const targetTab = VALID_HUB_TABS.includes(tabParam) ? tabParam : 'maps';
+  const btnEarly = document.getElementById('tab-btn-maps');
   if (btnEarly) {
-    try { switchTab(tabParam, btnEarly); } catch (e) { console.warn('[tfh] switchTab deep-link:', e); }
+    try { switchTab(targetTab, btnEarly); } catch (e) { console.warn('[tfh] switchTab deep-link:', e); }
   }
 }
 loadData().then(()=>{
   loadVipPlayers(); // Charger les joueurs VIP en parallèle
   loadPublicAliases(); // Charger les aliases publics pour fusion visible par tous
-  // Bridge publicId pour les bannières pleine ligne : ranked.json ne sera
-  // chargé sur l'onglet Classé que si l'utilisateur l'ouvre — hors Classé,
-  // on pré-charge le bridge en tâche de fond (garde _rankedLoaded, rendu
-  // invisible) pour que les lignes speedruns/feed portent data-pfb-pid.
-  if (tabParam !== 'ranked') {
-    loadRankedLeaderboard(false).catch(() => {});
-  }
+  // Bridge publicId pour les bannières pleine ligne : ranked.json alimente le
+  // pont username→publicId utilisé par les lignes speedruns/feed. Depuis la
+  // suppression de l'onglet Classé (2026-09-28), on charge UNIQUEMENT le
+  // bridge — plus aucun rendu du tableau classé (dont le DOM n'existe plus).
+  loadRankedPidBridge().catch(() => {});
   if(mapParam)selectMap(mapParam);
   // Pre-fill player search if ?player= is in URL (deep-linking)
   if (playerParam) {
@@ -2442,6 +2423,66 @@ window.setLanguage = setLanguage;
 window.renderAll = renderAll;
 window.closeUserDropdown = closeUserDropdown;
 
+
+// ====== BRIDGE publicId (extrait de loadRankedLeaderboard — 2026-09-28) ======
+// L'onglet Classé a été supprimé (demande propriétaire) mais ranked.json reste
+// une source du pont username→publicId utilisé par les liens profils des
+// lignes speedruns / bannières pleine ligne. Cette fonction charge UNIQUEMENT
+// le bridge : elle n'écrit dans AUCUN élément DOM du tableau classé (supprimé).
+// Note : loadRankedLeaderboard() ci-dessous reste défini mais devient dormante
+// (elle early-return : le conteneur #ranked-list n'existe plus).
+async function loadRankedPidBridge() {
+  let data;
+  try {
+    const gzRes = await fetch('ranked.json.gz', { cache: 'no-cache' });
+    if (gzRes.ok) {
+      const ds = new DecompressionStream('gzip');
+      const decompressed = gzRes.body.pipeThrough(ds);
+      data = await new Response(decompressed).json();
+    } else {
+      throw new Error('gz not available');
+    }
+  } catch (e) {
+    const plainRes = await fetch('ranked.json', { cache: 'no-cache' });
+    if (!plainRes.ok) throw new Error('Impossible de charger ranked.json');
+    data = await plainRes.json();
+  }
+
+  // Bridge username/accountUsername → publicId depuis les données ranked
+  // elles-mêmes (même logique que l'ancien pré-chargement hors onglet Classé).
+  let rankedBridgeChanged = false;
+  for (const modeKey of ['1v1', '2v2']) {
+    const arr = data && data[modeKey];
+    if (!Array.isArray(arr)) continue;
+    for (const p of arr) {
+      if (!p || !p.public_id) continue;
+      const names = [p.username, p.accountUsername].filter(Boolean);
+      for (const n of names) {
+        if (!usernameToPid.has(n)) {
+          usernameToPid.set(n, p.public_id);
+          rankedBridgeChanged = true;
+        }
+        const nk = normPlayerName(n);
+        if (nk && !usernameToPidNorm.has(nk)) {
+          usernameToPidNorm.set(nk, p.public_id);
+          rankedBridgeChanged = true;
+        }
+      }
+    }
+  }
+  if (rankedBridgeChanged) {
+    rebuildVipByPid();
+    // Le bridge pid vient d'arriver (peut être APRÈS le rendu des runs) :
+    // re-rend la liste speedruns affichée pour poser les data-pfb-pid
+    // manquants (bannières pleine ligne). No-op si aucune carte affichée.
+    try {
+      if (typeof activeMap !== "undefined" && activeMap && typeof allMaps !== "undefined" && allMaps.length) {
+        const d = allMaps.find(m => m.map === activeMap);
+        if (d && document.getElementById("leaderboard")) renderLeaderboard(d);
+      }
+    } catch (e) { /* non critique */ }
+  }
+}
 
 // ====== RANKED LEADERBOARD ======
 async function loadRankedLeaderboard(force = false) {

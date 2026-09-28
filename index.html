@@ -63,7 +63,7 @@
 
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=92" as="style">
-<link rel="preload" href="dist/app.min.js?v=38" as="script" crossorigin>
+<link rel="preload" href="dist/app.min.js?v=39" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=9" as="script" crossorigin>
 <link rel="preload" href="runs_public.json.gz" as="fetch" crossorigin>
 
@@ -113,21 +113,9 @@
       <a class="nav-item tab-btn active" id="tab-btn-maps" href="index.html" aria-current="page" onclick="event.preventDefault();switchTab('maps',this);document.getElementById('topbar-title').textContent=(window.t?window.t('nav.maps'):'Speedruns')">
         <i data-icon="trophy"></i> <span data-i18n="nav.maps">Speedruns</span>
       </a>
-      <a class="nav-item tab-btn" id="tab-btn-ranked" href="index.html?tab=ranked" onclick="event.preventDefault();switchTab('ranked',this);document.getElementById('topbar-title').textContent=(window.t?window.t('nav.ranked'):'Classé')">
-        <i data-icon="ladder"></i> <span data-i18n="nav.ranked">Classé</span>
-      </a>
-      <a class="nav-item tab-btn" id="tab-btn-ffa" href="index.html?tab=ffa" onclick="event.preventDefault();switchTab('ffa',this);document.getElementById('topbar-title').textContent=(window.t?window.t('nav.ffa')||'Classement FFA':'Classement FFA')">
-        <i data-icon="crown"></i> <span data-i18n="nav.ffa">Classement FFA</span>
-      </a>
-      <a class="nav-item tab-btn" id="tab-btn-tribes" href="index.html?tab=tribes" onclick="event.preventDefault();switchTab('tribes',this);document.getElementById('topbar-title').textContent=(window.t?window.t('nav.tribes')||'Tribus':'Tribus')">
-        <i data-icon="users"></i> <span data-i18n="nav.tribes">Tribus</span>
-      </a>
-      <a class="nav-item tab-btn" id="tab-btn-news" href="index.html?tab=news" onclick="event.preventDefault();switchTab('news',this);document.getElementById('topbar-title').textContent=(window.t?window.t('nav.news')||'News':'News')">
-        <i data-icon="globe"></i> <span data-i18n="nav.news">News</span>
-      </a>
-      <a class="nav-item tab-btn" id="tab-btn-live" href="index.html?tab=live" onclick="event.preventDefault();switchTab('live',this);document.getElementById('topbar-title').textContent=(window.t?window.t('nav.live')||'Streams Live':'Streams Live')">
-        <i data-icon="fire"></i> <span data-i18n="nav.live">Live</span>
-      </a>
+      <!-- 2026-09-28 : catégories Hub « Classé / Classement FFA / Tribus / News / Live »
+           SUPPRIMÉES (demande propriétaire). Seul l'onglet Speedruns (maps) reste.
+           Les anciens liens ?tab=ranked|ffa|tribes|news|live retombent sur Speedruns. -->
       <a class="nav-item tab-btn" id="tab-btn-lobby" href="lobby.html">
         <i data-icon="bolt"></i> <span data-i18n="nav.lobby">Lobby</span>
       </a>
@@ -215,9 +203,9 @@
     <header class="topbar">
       <div>
         <!-- ⚠️ PAS de data-i18n ici : ce titre est géré dynamiquement par
-             switchTab() selon l'onglet actif. Une liaison i18n statique
-             (nav.maps) ferait revenir le titre à « Speedruns » à chaque
-             ré-application i18n, même sur les onglets FFA/Tribus/News/Live. -->
+             switchTab(). Une liaison i18n statique (nav.maps) réécrirait le
+             titre à chaque ré-application i18n. Depuis le 2026-09-28, seul
+             l'onglet Speedruns existe (catégories Hub supprimées). -->
         <h1 id="topbar-title">Speedruns</h1>
         <p id="topbar-subtitle" data-i18n="home.topbar_subtitle">OpenFront Leaderboard</p>
       </div>
@@ -372,162 +360,6 @@
       </div>
     </div>
 
-    <!-- ═══ TAB: Ranked ═══ -->
-    <div class="tab-content" id="tab-ranked" role="tabpanel">
-      <!-- Stats Cards Ranked -->
-      <section class="stats-grid" id="ranked-stats-grid">
-        <div class="card">
-          <h2 id="ranked-stat-players">—</h2>
-          <p data-i18n="ranked.stat_players">Joueurs classés</p>
-          <div class="stat-icon"><i data-icon="users"></i></div>
-        </div>
-        <div class="card">
-          <h2 id="ranked-stat-avgelo">—</h2>
-          <p data-i18n="ranked.stat_avg_elo">Elo moyen</p>
-          <div class="stat-icon"><i data-icon="chart"></i></div>
-        </div>
-        <div class="card">
-          <h2 id="ranked-stat-peakelo">—</h2>
-          <p data-i18n="ranked.stat_peak_elo">Peak Elo</p>
-          <div class="stat-icon"><i data-icon="fire"></i></div>
-        </div>
-        <div class="card">
-          <h2 id="ranked-stat-games">—</h2>
-          <p data-i18n="stats.runs">Parties</p>
-          <div class="stat-icon"><i data-icon="swords"></i></div>
-        </div>
-      </section>
-
-      <!-- Search + Filters -->
-      <div class="search-bar">
-        <input type="text" id="ranked-search" class="search-input" placeholder="Rechercher un joueur classé..." data-i18n-placeholder="ranked.search_placeholder" aria-label="Rechercher un joueur classé" data-i18n-aria="ranked.search_aria" oninput="filterRanked(this.value)">
-      </div>
-
-      <!-- Mode toggle 1v1 / 2v2 -->
-      <div class="ranked-mode-toggle" id="ranked-mode-toggle" role="radiogroup" aria-label="Mode classé" data-i18n-aria="ranked.mode_aria">
-        <button class="mode-toggle-btn active" data-mode="1v1" role="radio" aria-checked="true" onclick="switchRankedMode('1v1')">
-          <span class="mode-icon"><i data-icon="user"></i></span> 1v1
-        </button>
-        <button class="mode-toggle-btn" data-mode="2v2" role="radio" aria-checked="false" onclick="switchRankedMode('2v2')">
-          <span class="mode-icon"><i data-icon="users"></i></span> 2v2
-        </button>
-      </div>
-
-      <div class="ranked-toolbar" id="ranked-toolbar">
-        <div class="filter-group" role="group" aria-label="Filtre nombre de joueurs" data-i18n-aria="ranked.filter_players_aria">
-          <button class="filter-btn" data-top="10" onclick="setTopFilter(10)">Top 10</button>
-          <button class="filter-btn" data-top="25" onclick="setTopFilter(25)">Top 25</button>
-          <button class="filter-btn" data-top="50" onclick="setTopFilter(50)">Top 50</button>
-          <button class="filter-btn active" data-top="all" onclick="setTopFilter('all')" data-i18n="ranked.filter_all">Tous</button>
-        </div>
-        <button class="filter-btn fav-toggle" id="fav-toggle" onclick="toggleFavFilter()" title="Afficher uniquement mes favoris" data-i18n-title="ranked.fav_title">
-          <span class="fav-star"><i data-icon="starOutline"></i></span> <span class="fav-label" data-i18n="ranked.fav_label">Favoris</span> <span class="fav-count" id="fav-count" style="display:none">0</span>
-        </button>
-      </div>
-
-      <!-- Newcomers / Dropouts -->
-      <div class="chart-grid" id="ranked-movers-grid" style="margin-bottom:12px">
-        <div class="chart-card" style="display:none" id="newcomers-card">
-          <div class="chart-head"><i data-icon="sparkle"></i> <span data-i18n="ranked.newcomers_title">Nouveaux dans le top 100</span></div>
-          <div class="chart-body" id="ranked-newcomers"></div>
-        </div>
-        <div class="chart-card" style="display:none" id="dropouts-card">
-          <div class="chart-head"><i data-icon="chartDown"></i> <span data-i18n="ranked.dropouts_title">Sortis du top 100</span></div>
-          <div class="chart-body" id="ranked-dropouts"></div>
-        </div>
-      </div>
-
-      <!-- My Position -->
-      <div id="my-ranked-position" style="margin-bottom:12px"></div>
-
-      <!-- Tableau Ranked -->
-      <div class="feed-card" style="margin-bottom:20px">
-        <div class="feed-header" style="display: flex; justify-content: space-between; align-items: center;">
-          <span><i data-icon="ladder"></i> <span data-i18n="ranked.table_title_prefix">Classement Classé (</span><span id="ranked-mode-label">1v1</span><span data-i18n="ranked.table_title_suffix">) — Top 100 Officiel</span></span>
-          <div style="display:flex;align-items:center;gap:10px">
-            <span id="ranked-last-update" style="font-size:12px;color:var(--muted)"></span>
-            <button onclick="loadRankedLeaderboard(true)" data-i18n="ranked.refresh" style="background: var(--bg2); border: 1px solid var(--border); color: var(--text2); padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;">Actualiser</button>
-          </div>
-        </div>
-        <div class="table-container">
-          <table id="ranked-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; table-layout: fixed;">
-            <thead>
-              <tr style="border-bottom: 1px solid var(--border); color: var(--text3);">
-                <th scope="col" style="padding: 12px 8px; width: 6%;" data-i18n="ranked.th_rank">Rang</th>
-                <th scope="col" style="padding: 12px 8px; width: 30%;" data-i18n="ranked.th_player">Joueur</th>
-                <th scope="col" style="padding: 12px 8px; width: 10%;">Elo</th>
-                <th scope="col" class="rk-mobile-hide" style="padding: 12px 8px; width: 10%;" title="Elo maximal atteint par le joueur" data-i18n-title="ranked.th_peak_title">Peak</th>
-                <th scope="col" style="padding: 12px 8px; width: 10%;">Winrate</th>
-                <th scope="col" class="rk-narrow-hide" style="padding: 12px 8px; width: 12%;" title="Victoires - Défaites" data-i18n-title="ranked.th_vd_title" data-i18n="ranked.th_vd">V - D</th>
-                <th scope="col" class="rk-mobile-hide" style="padding: 12px 8px; width: 8%;" title="Parties classées jouées" data-i18n-title="ranked.th_total_title">Total</th>
-                <th scope="col" class="rk-mobile-hide" style="padding: 12px 8px; width: 8%;" title="Mouvement au classement depuis la dernière mise à jour" data-i18n-title="ranked.th_mv_title" data-i18n="ranked.th_mv">MV</th>
-                <th scope="col" class="rk-mobile-hide" style="padding: 12px 8px; width: 8%;" title="Série de victoires en cours" data-i18n-title="ranked.th_streak_title">Streak</th>
-              </tr>
-            </thead>
-            <tbody id="ranked-list">
-              <tr><td colspan="9" style="padding: 20px; text-align: center; color: var(--text3);" data-i18n="ranked.loading">Chargement du classement...</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Distribution Elo + Clans -->
-      <div class="chart-grid" style="margin-bottom:20px">
-        <div class="chart-card">
-          <div class="chart-head"><i data-icon="chart"></i> <span data-i18n="ranked.elo_dist_title">Distribution des Elo</span></div>
-          <div class="chart-body" id="ranked-elo-dist"></div>
-        </div>
-        <div class="chart-card">
-          <div class="chart-head"><i data-icon="castle"></i> <span data-i18n="ranked.clan_title">Classement des Clans</span></div>
-          <div class="chart-body" id="ranked-clan-list">
-            <div class="loading" data-i18n="ui.loading">Chargement...</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="tab-content" id="tab-ffa" role="tabpanel">
-      <div class="table-container">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap">
-          <h3 style="margin:0;font-size:15px;letter-spacing:.4px">👑 CLASSEMENT FFA OFFICIEL — WINS / LOSSES</h3>
-          <button id="ffa-refresh" onclick="loadFFABoard(true)" style="border:1px solid var(--border);background:transparent;color:var(--text,var(--fg));border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px">Actualiser</button>
-        </div>
-        <div id="ffa-body"><div class="loading" style="padding:24px;text-align:center;color:var(--text3,var(--muted))">Chargement…</div></div>
-      </div>
-    </div>
-
-    <div class="tab-content" id="tab-tribes" role="tabpanel">
-      <div class="table-container">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap">
-          <h3 style="margin:0;font-size:15px;letter-spacing:.4px">🫂 TRIBUS — REACH &amp; BOOSTS</h3>
-          <button id="tribes-refresh" onclick="loadTribes(true)" style="border:1px solid var(--border);background:transparent;color:var(--text,var(--fg));border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px">Actualiser</button>
-        </div>
-        <div id="tribes-body"><div class="loading" style="padding:24px;text-align:center;color:var(--text3,var(--muted))">Chargement…</div></div>
-      </div>
-    </div>
-
-    <div class="tab-content" id="tab-news" role="tabpanel">
-      <div class="table-container">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap">
-          <h3 style="margin:0;font-size:15px;letter-spacing:.4px">📰 NEWS OFFICIELLES OPENFRONT</h3>
-          <button id="news-refresh" onclick="loadNews(true)" style="border:1px solid var(--border);background:transparent;color:var(--text,var(--fg));border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px">Actualiser</button>
-        </div>
-        <div id="news-body"><div class="loading" style="padding:24px;text-align:center;color:var(--text3,var(--muted))">Chargement…</div></div>
-      </div>
-    </div>
-
-    <div class="tab-content" id="tab-live" role="tabpanel">
-      <div class="table-container">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap">
-          <h3 style="margin:0;font-size:15px;letter-spacing:.4px">🔴 STREAMS OPENFRONT EN DIRECT</h3>
-          <button id="live-refresh" onclick="loadStreams(true)" style="border:1px solid var(--border);background:transparent;color:var(--text,var(--fg));border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px">Actualiser</button>
-        </div>
-        <div id="live-body"><div class="loading" style="padding:24px;text-align:center;color:var(--text3,var(--muted))">Chargement…</div></div>
-      </div>
-    </div>
-
-
-
   </main>
 
 </div>
@@ -655,7 +487,7 @@
 <script src="dist/lenis.min.js?v=7"></script>
 <script src="dist/animations.min.js?v=2" defer></script>
 <script type="module" src="banners.js?v=4"></script>
-<script src="dist/app.min.js?v=38" type="module"></script>
+<script src="dist/app.min.js?v=39" type="module"></script>
 
 <script>
   // Register Service Worker for offline support + Stale-While-Revalidate caching
@@ -684,7 +516,6 @@
       <ul class="tfh-footer-links">
         <li><a href="dashboard.html" data-i18n="nav.dashboard">Tableau de bord</a></li>
         <li><a href="index.html" data-i18n="nav.maps">Speedruns</a></li>
-        <li><a href="index.html?tab=ranked" data-i18n="nav.ranked">Classé</a></li>
         <li><a href="lobby.html" data-i18n="nav.lobby">Lobby</a></li>
         <li><a href="atlas.html" data-i18n="nav.atlas">Atlas</a></li>
         <li><a href="tournois.html" data-i18n="nav.tournaments">Tournois</a></li>
@@ -726,7 +557,7 @@
     if (el) el.textContent = y;
   })();
 </script>
-<script type="module" src="dist/tutorial.min.js?v=6"></script>
+<script type="module" src="dist/tutorial.min.js?v=7"></script>
 
 
 
