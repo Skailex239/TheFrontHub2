@@ -282,7 +282,7 @@ function tfh_weekly_recompute(PDO $pdo): array
                     'INSERT INTO tfh_g_weekly
                         (week_start, public_id, ffa_casual, ffa_ranked, team_casual, team_ranked,
                          pts_all, pts_ffa, pts_team, rank_all, rank_ffa, rank_team, computed_at)
-                     VALUES (?,?,?,?,?,?,?,?,?,?,?,NOW())'
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NOW())'
                 );
                 foreach ($list as $i => $x) {
                     $ins->execute([
