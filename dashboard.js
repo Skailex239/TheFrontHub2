@@ -284,6 +284,19 @@ async function loadConnectedPlayers() {
     }
     const data = await res.json();
     const docs = data.aliases || [];
+    /* v5.13 — alimente le registre global « joueurs vérifiés » (badge +
+     * extras profil). setFromAliases déclenche onChange → updateLists :
+     * les badges apparaissent dès l'arrivée des aliases. */
+    if (window.TFHVerified && Array.isArray(docs)) {
+      window.TFHVerified.setFromAliases(docs.map((a) => ({
+        publicId: a.publicId,
+        username: a.username,
+        verified: !!a.verified,
+        bio: a.bio,
+        favMap: a.favMap,
+        links: a.links,
+      })));
+    }
     const seen = new Set();
     _connectedPlayers = docs
       .map((doc) => ({
@@ -1725,6 +1738,9 @@ document.addEventListener("click", (e) => {
       console.log("[dashboard] ✅ Rendu instantané depuis scores pré-calculés");
       // Skins VIP en arrière-plan : re-render quand ils arrivent (non bloquant)
       loadVipSkins().then(() => { if (_vipSkins.size > 0) mergeAndRender(); }).catch(() => {});
+      // v5.13 — aliases aussi sur le chemin principal : hub names + registre
+      // « vérifiés » (badges) — sinon le registre reste vide sur ce chemin.
+      loadConnectedPlayers().catch(() => {});
       // v5.13 — top hebdo « tous les joueurs » (API, paginé)
       fetchWeeklyPage({ reset: true });
       return;
