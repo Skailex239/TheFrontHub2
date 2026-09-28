@@ -120,6 +120,12 @@ let _prevWeekly = new Map();
 let _weeklyApi = { rows: [], total: 0, loaded: 0, weekStart: 0, meRow: null, ready: false, loading: false, error: null };
 let _weeklySearchSeq = 0;      // anti-course : seule la dernière requête compte
 let _weeklySearchDebounce = null;
+/* v5.13 — badge « vérifié » : les aliases arrivent APRÈS le premier rendu
+ * (poll 60 s) → on re-rend les listes quand le registre change. app.js
+ * n'est pas chargé sur le dashboard : le dashboard s'abonne lui-même. */
+if (typeof window !== "undefined" && window.TFHVerified) {
+  window.TFHVerified.onChange(() => { updateLists(); });
+}
 let currentUser = null;     // { name, publicId, avatar, uid, email }
 let _ownershipCode = null;
 let _ownershipPublicId = null;
