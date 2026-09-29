@@ -18,7 +18,7 @@ import {
   collection, onSnapshot,
   onAuthStateChanged,
 } from "./auth.js";
-import { fetchOpenFront } from "./openfront-client.js?v=24";
+import { fetchOpenFront } from "./openfront-client.js?v=25";
 import {
   getSkin, getUnlockableSkins, DEFAULT_SKIN_ID, RARITY_META, normalizeCode,
 } from "./skins.js?v=2";
@@ -1332,7 +1332,12 @@ async function loadStats(publicId) {
   }
 
   if (!playerData) {
-    setText("stat-alltime-value", "—");
+    // v5.15.1 : API OpenFront injoignable ≠ score inconnu — on laisse « … »
+    // (chargement) : le bloc week-stats ci-dessous posera le score officiel
+    // depuis dashboard_scores.json (données serveur, indépendantes d'OpenFront).
+    // Si ce bloc n'aboutit pas non plus, il affichera « — » (et non « 0 »,
+    // valeur fallacieuse qui laissait croire à un joueur sans aucun point).
+    setText("stat-alltime-value", "…");
     setText("stat-alltime-sub", "");
   }
 
@@ -1438,7 +1443,11 @@ async function loadStats(publicId) {
     // All-time score
     const allTimeScore = stats.wins * 4 + (stats.total - stats.wins);
 
-    setText("stat-alltime-value", new Intl.NumberFormat(LOCALE()).format(weekTotalPoints || allTimeScore));
+    // v5.15.1 : si ni les points officiels ni l'arbre de carrière ne sont
+    // disponibles (API OpenFront injoignable + joueur absent de
+    // dashboard_scores), on affiche « — » au lieu d'un fallacieux « 0 ».
+    const bestScore = weekTotalPoints || allTimeScore;
+    setText("stat-alltime-value", bestScore > 0 ? new Intl.NumberFormat(LOCALE()).format(bestScore) : (playerData ? new Intl.NumberFormat(LOCALE()).format(allTimeScore) : "—"));
     setText("stat-alltime-sub", weekRank !== "—" ? T("pf.week_sub", "Semaine : {pts} pts · #{rank}", { pts: new Intl.NumberFormat(LOCALE()).format(weekScore), rank: weekRank }) : "");
 
     // Chip hebdo (Niv/temps/série sont posés par renderPrecomputedStats)
@@ -1522,12 +1531,16 @@ async function loadStats(publicId) {
     // Recent games — fetched from /public/player/{id}/games (separate endpoint).
     // Used only for the weekly chart now — the full recent games list
     // is rendered by renderPrecomputedStats via loadAllGamesForStats().
+    // v5.15.1 : renderWeeklyChart() est appelé dans TOUS les cas (succès OU
+    // échec de la récupération des parties) — avant, un échec OpenFront
+    // (503 « Offline », proxies injoignables) laissait le graphique hebdo
+    // absent ou effacé par un rendu ultérieur du cockpit sans seconde passe.
     try {
       await recentGamesPromise;
-      renderWeeklyChart();
     } catch (e) {
       console.error("[profile] recent games fetch failed:", e);
     }
+    renderWeeklyChart();
   })();
 }
 
@@ -2962,9 +2975,16 @@ async function loadAllGamesForStats(publicId, playerData) {
         </div>
         <h3>${T("pf.fallback_title", "Stats momentanément indisponibles")}</h3>
         <p>${T("pf.fallback_sub", "Impossible de contacter le serveur de statistiques. Recharge la page dans quelques instants.")}</p>
-        <button type="button" class="pf2-fallback-btn" onclick="location.reload()">${T("pf.reload", "Recharger")}</button>
+        <button type="button" class="pf2-fallback-btn" id="pf2-stats-retry">${T("pf.stats_retry", "Réessayer")}</button>
       </div>
     `;
+    // v5.15.1 : bouton « Réessayer » réel (relance dossier pré-calculé +
+    // fallback live) — plus besoin de recharger toute la page, et le hero/
+    // l'élo/la vitrine déjà chargés restent en place.
+    document.getElementById("pf2-stats-retry")?.addEventListener("click", () => {
+      _allGamesLoading = false;
+      loadAllGamesForStats(publicId, null);
+    });
   }
   _allGamesLoading = false;
 }

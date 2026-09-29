@@ -55,7 +55,7 @@ import {
   collection, query, where, onSnapshot,
   onAuthStateChanged, signOut,
 } from "./auth.js";
-import { fetchOpenFront } from "./openfront-client.js?v=25";
+import { fetchOpenFront } from "./openfront-client.js?v=26";
 import { fetchActiveSkinMap, normPlayerName } from "./reward-codes.js";
 import { getSkin } from "./skins.js";
 

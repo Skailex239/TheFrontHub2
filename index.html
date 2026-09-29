@@ -488,13 +488,13 @@
 <script src="dist/animations.min.js?v=2" defer></script>
 <script type="module" src="banners.js?v=4"></script>
 <script src="verified.js?v=1"></script>
-<script src="dist/app.min.js?v=40" type="module"></script>
+<script src="dist/app.min.js?v=41" type="module"></script>
 
 <script>
   // Register Service Worker for offline support + Stale-While-Revalidate caching
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=35').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=36').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>
