@@ -364,7 +364,11 @@ function renderRunRow(idx, run) {
   tdPlayer.innerHTML = '<a' + skinAttr + pidAttr + ' data-player="' + escapeHtml(playerName) + '" href="#" onclick="' + clickJs + '"' + titleAttr + ' style="cursor:pointer;text-decoration:none">' + escapeHtml(shownName) + '</a>' + vBadge;
 
   const tdMap = document.createElement('td');
-  tdMap.innerHTML = escapeHtml(mapDisplayName(run.map));
+  // v5.16 — version du jeu (record établi sur v0.33, v0.34…) : era en chip, tag complet en info-bulle
+  var _vm = run.version && run.version !== 'v0.0.2' ? String(run.version).match(/^v?(\d+)\.(\d+)/) : null;
+  var _ver = _vm ? 'v' + _vm[2] : null;
+  tdMap.innerHTML = escapeHtml(mapDisplayName(run.map)) +
+    (_ver ? ' <span class="tfh-ver-chip" title="Version du jeu : ' + escapeHtml(String(run.version)) + '">' + escapeHtml(_ver) + '</span>' : '');
 
   const tdTime = document.createElement('td');
   tdTime.innerHTML = '<span class="run-runtime">' + escapeHtml(formatTime(run.durationS)) + '</span>';
