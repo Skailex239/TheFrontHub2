@@ -44,6 +44,9 @@ const API_BASE = "https://api.openfront.io";
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://thefronthub.com",
   "https://www.thefronthub.com",
+  "https://dev.thefronthub.com",   // pré-production (v5.15.1 — sans elle :
+                                   // 403 sans CORS → « Failed to fetch » sur
+                                   // TOUTES les requêtes OpenFront du site dev)
   "https://skailex239.github.io",   // miroir GitHub Pages
   "http://localhost:3000",         // dev local
   "http://localhost:5500",         // dev local (live server)

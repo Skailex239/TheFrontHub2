@@ -130,11 +130,17 @@ async function tryFetchJson(url, ms) {
 }
 
 /**
- * Fetch générique vers l'API OpenFront.
+ * fetch générique vers l'API OpenFront.
  *
  * Ordre :
  *   1. Proxy local Next.js (/api/openfront/...) — rapide, same-origin.
- *   2. Proxies CORS externes en cascade.
+ *   2. Passerelle PHP same-origin (/api/openfront-gw.php) — v5.15.1.
+ *      Sur o2switch (prod + dev), le serveur interroge api.openfront.io
+ *      avec succès (chemin déjà utilisé par profile.php/skins.php/cron) :
+ *      indépendant de Cloudflare ET des proxys tiers, avec un cache
+ *      stale-while-error qui absorbe les fenêtres 503 « Offline ».
+ *      (404 HTML sur un hébergement statique → automatiquement sautée.)
+ *   3. Proxies CORS externes en cascade.
  *
  * Une OpenFrontError avec status=404 remonte immédiatement (joueur
  * introuvable) sans essayer les autres proxies, car un 404 de l'API
@@ -154,7 +160,15 @@ export async function fetchOpenFront(apiPath) {
     lastError = e;
   }
 
-  // ── 2. Proxies CORS externes (fallback — hébergement statique) ──
+  // ── 2. Passerelle PHP same-origin (prod/dev o2switch — cache anti-503) ──
+  try {
+    return await tryFetchJson(`/api/openfront-gw.php?path=${encodeURIComponent(path)}`, 8000);
+  } catch (e) {
+    if (e instanceof OpenFrontError && e.status === 404) throw e;
+    lastError = e;
+  }
+
+  // ── 3. Proxies CORS externes (fallback — hébergement statique) ──
   const proxyUrls = buildCorsProxyUrls(apiPath);
   for (const proxyUrl of proxyUrls) {
     if (proxyUrl === `/api/openfront${path}`) continue; // déjà essayé
@@ -167,7 +181,7 @@ export async function fetchOpenFront(apiPath) {
     }
   }
 
-  // ── 3. Échec total ──
+  // ── 4. Échec total ──
   throw lastError instanceof OpenFrontError
     ? lastError
     : new OpenFrontError(
