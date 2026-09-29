@@ -2581,7 +2581,7 @@ if ($argStatus) {
         'newest_game' => $newest,
         'recent_end_ms' => state_get($pdo, STATE_KEY_RECENT),
         'backfill_cursor_ms' => state_get($pdo, STATE_KEY_BACKFIL),
-        'backfill_done' => (int)state_get($pdo, STATE_KEY_BACKFIL, (string)GAMES_EPOCH_MS) <= GAMES_EPOCH_MS,
+        'backfill_done' => (int)state_get($pdo, STATE_KEY_BACKFIL, (string)GAMES_EPOCH_DEEP_MS) <= GAMES_EPOCH_DEEP_MS,
         'detail_rate_per_s' => (float)state_get($pdo, 'of_rate_cur', '3'),
         'http_429_total' => (int)state_get($pdo, 'of_429_total', '0'),
         'http_err_total' => (int)state_get($pdo, 'of_err_total', '0'),
@@ -2628,7 +2628,7 @@ if ($argSince !== '') {
     $t = strtotime($argSince);
     if ($t === false) { fwrite(STDERR, "[since] date invalide\n"); exit(1); }
     $ms = $t * 1000;
-    if ($ms < GAMES_EPOCH_MS) $ms = GAMES_EPOCH_MS;
+    if ($ms < GAMES_EPOCH_DEEP_MS) $ms = GAMES_EPOCH_DEEP_MS;
     state_set($pdo, STATE_KEY_BACKFIL, (string)$ms);
     log_line('[since] curseur backfill = ' . $argSince);
     exit(0);
@@ -2745,9 +2745,9 @@ $cursor = (int)state_get($pdo, STATE_KEY_BACKFIL, (string)$nowMs);
 $windowMs = (int)round((float)$cfg['window_days'] * 86400 * 1000);
 $windowsDone = 0;
 try {
-while (microtime(true) < $deadline && $cursor - $windowMs >= GAMES_EPOCH_MS - 3600 * 1000) {
+while (microtime(true) < $deadline && $cursor - $windowMs >= GAMES_EPOCH_DEEP_MS - 3600 * 1000) {
     $wEnd = $cursor;
-    $wStart = max($cursor - $windowMs, GAMES_EPOCH_MS);
+    $wStart = max($cursor - $windowMs, GAMES_EPOCH_DEEP_MS);
     // Reprise : si la fenêtre en cours est la même, on reprend au type et à
     // l'offset persistés (sinon on démarre au premier type, offset 0)
     $savedWinStart = (int)state_get($pdo, BK_WIN_START, '0');
@@ -2817,8 +2817,8 @@ while (microtime(true) < $deadline && $cursor - $windowMs >= GAMES_EPOCH_MS - 36
     log_line('[backfill] fenêtre ' . gmdate('Y-m-d', intdiv($wStart, 1000)) . " ✅ : $winIng partie(s) ($winSeen vues) — curseur " . gmdate('Y-m-d', intdiv($cursor, 1000)));
 }
 } catch (Throwable $e) { log_line('[backfill] 💥 ' . cut_txt($e->getMessage(), 200) . ' @ ' . basename($e->getFile()) . ':' . $e->getLine()); }
-if ($windowsDone > 0 && $cursor <= GAMES_EPOCH_MS + 3600 * 1000) {
-    log_line('[backfill] ✅ epoch publicID atteinte');
+if ($windowsDone > 0 && $cursor <= GAMES_EPOCH_DEEP_MS + 3600 * 1000) {
+    log_line('[backfill] ✅ epoch profonde (mai 2025) atteinte — historique maximal ingéré');
 }
 
 // 4) v5 — Catalogue officiel des cosmétiques (throttlé 6 h)
@@ -2854,7 +2854,7 @@ if ($OF_STATS['r429'] === 0 && $OF_RATE < $rateStart) {
     $OF_RATE = min($OF_RATE_MAX, $rateStart);
     $OF_OK_RUN = 0;
 }
-$done = $cursor <= GAMES_EPOCH_MS + 3600 * 1000;
+$done = $cursor <= GAMES_EPOCH_DEEP_MS + 3600 * 1000;
 state_set($pdo, 'of_rate_cur', (string)round($OF_RATE, 2));
 state_set($pdo, 'of_429_total', (string)((int)state_get($pdo, 'of_429_total', '0') + $OF_STATS['r429']));
 state_set($pdo, 'of_err_total', (string)((int)state_get($pdo, 'of_err_total', '0') + $OF_STATS['err']));
