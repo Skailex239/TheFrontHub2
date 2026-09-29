@@ -168,7 +168,18 @@ if (!$GAME_TYPES) $GAME_TYPES = ['Public', 'Private'];
 $MIN_KEEP = max(0, (int)($cfg['min_players_to_keep'] ?? 1));
 
 const OF_API_BASE    = 'https://api.openfront.io';
-const GAMES_EPOCH_MS = 1788998400000;  // 2026-09-10T00:00:00Z — début ère V34 (v0.34.0-beta1)
+/* v5.16 — HISTORIQUE MAXIMAL : l'archive remonte désormais à la naissance de
+ * l'API publique OpenFront (30 mai 2025, ère v0.23-dev). GAMES_EPOCH_MS devient
+ * la frontière « ère détaillée » (V34) : les fenêtres au-dessus gardent
+ * l'ingestion détail-par-détail (scan_range), celles en dessous passent en
+ * « liste d'abord » (scan_meta_range — 1000 parties/requête, version calculée
+ * localement) puis sont enrichies progressivement par enrich_phase.
+ * Raison : ~3 M de parties pré-V34 — à 2 req/s de détail, plusieurs mois de
+ * fetch ; en liste-seule l'archive complète est reconstruite en quelques
+ * heures de ticks, les détails suivent du plus récent au plus ancien. */
+const GAMES_EPOCH_MS = 1788998400000;      // 2026-09-10T00:00:00Z — début ère V34 (frontière détails)
+const GAMES_EPOCH_DEEP_MS = 1748102400000; // 2025-05-25T00:00:00Z — plus vieilles données servies par l'API (~30 mai 2025)
+const OF_V0231_MS = 1748715223000;         // tag v0.23.1 (31 mai 2025) — avant : ère dev 'v0.23-dev'
 const TIME_OFFSET_S  = 32;             // offset speedrun (extract-speedrun.js)
 const STATE_KEY_RECENT  = 'recent_end_ms';
 const STATE_KEY_BACKFIL = 'backfill_cursor_ms';
@@ -1032,7 +1043,8 @@ function ingest_game(PDO $pdo, string $gameId, array $detail, array $listMeta, a
             $winnerKind,
             null, null, // remplis après résolution roster
             $srCat, $srDur, $modsCsv, $gitc !== '' ? $gitc : null,
-            (string)($detail['version'] ?? '') !== '' ? cut((string)$detail['version'], 24) : null,
+            /* v5.16 : vraie version du jeu (tags OpenFrontIO), pas la constante 'v0.0.2' */
+            of_version_for($startMs, $gitc),
             isset($info['num_turns']) && is_numeric($info['num_turns']) ? (int)$info['num_turns'] : null,
             $cfgG ? json_encode($cfgG, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : null,
         ]);
@@ -1101,6 +1113,48 @@ function ingest_game(PDO $pdo, string $gameId, array $detail, array $listMeta, a
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $e;
     }
+}
+
+/* ─────────────── v5.16 : version officielle du jeu (tags OpenFrontIO) ─────────────── */
+/* Le champ « version » des réponses OpenFront est une CONSTANTE de schéma
+ * analytics (Schemas.ts : version: z.literal("v0.0.2")) — il ne désigne PAS la
+ * version du jeu. La vraie version = le build déployé (gitCommit du serveur de
+ * la partie) rapproché des tags officiels openfrontio/OpenFrontIO :
+ *   1) match SHA exact (git_commit de la partie = commit d'un tag) ;
+ *   2) sinon le dernier tag dont la date <= début de partie (les déploiements
+ *      non tagués — nightly — restent sur la version précédente) ;
+ *   3) avant v0.23.1 (naissance de l'API, 31 mai 2025) → 'v0.23-dev'.
+ * Table générée : api/of-version-map.php (284 tags v0.3.6 → v0.34.20). */
+$_OF_VER_MAP = null;
+function of_version_map(): array {
+    global $_OF_VER_MAP;
+    if ($_OF_VER_MAP === null) {
+        $_OF_VER_MAP = @include __DIR__ . '/of-version-map.php';
+        if (!is_array($_OF_VER_MAP)) $_OF_VER_MAP = [];
+    }
+    return $_OF_VER_MAP;
+}
+function of_version_for(int $startMs, string $gitc = ''): ?string {
+    $map = of_version_map();
+    /* Table absente (fenêtre de déploiement) → NULL plutôt qu'une version
+     * fausse ; vermig_phase / enrich la poseront plus tard. */
+    if (!$map) return null;
+    if ($map) {
+        if ($gitc !== '') {
+            $g = strtolower(substr($gitc, 0, 16));
+            foreach ($map as $e) {
+                if (!empty($e['sha']) && strncmp((string)$e['sha'], $g, strlen($g)) === 0) return (string)$e['v'];
+            }
+        }
+        $lo = 0; $hi = count($map) - 1; $best = null;
+        while ($lo <= $hi) {
+            $mid = intdiv($lo + $hi, 2);
+            if ((int)$map[$mid]['t'] <= $startMs) { $best = $map[$mid]; $lo = $mid + 1; }
+            else { $hi = $mid - 1; }
+        }
+        if ($best !== null && $startMs >= OF_V0231_MS) return (string)$best['v'];
+    }
+    return 'v0.23-dev';
 }
 
 /* ─────────────────────────── Scan d'une plage temporelle ─────────────────────────── */
@@ -1182,7 +1236,111 @@ function scan_range(PDO $pdo, int $startMs, int $endMs, array $cfg, float $deadl
     return [$ingested, $seen, true];
 }
 
+/* ─────────────────── v5.16 : ingestion « liste d'abord » (historique profond) ─────────────────── */
+/**
+ * Ingestion SANS fetch détail : les métadonnées de liste (1000 parties/req)
+ * suffisent pour reconstruire l'archive profonde (mai 2025 → sept. 2026) en
+ * quelques heures de ticks — à 2 req/s de détail, l'ère pré-V34 (~3 M parties)
+ * aurait demandé plusieurs mois. La version officielle est calculée LOCALEMENT
+ * (table des tags OpenFrontIO — aucun appel supplémentaire). Les détails
+ * (carte, roster, config, stats, speedruns) arrivent ensuite via enrich_phase
+ * (v5_done = 0, du plus récent au plus ancien).
+ * Retour : [ingérées, vues, complète] — même contrat que scan_range().
+ */
+function scan_meta_range(PDO $pdo, int $startMs, int $endMs, array $cfg, float $deadline, string $label, int $startOffset = 0, ?callable $onProgress = null, string $gameType = 'Public'): array {
+    $ingested = 0; $seen = 0;
+    $limit = (int)$cfg['list_limit'];
+    $minPlayers = max(0, (int)($cfg['min_players_to_keep'] ?? 1));
+    $ins = $pdo->prepare('INSERT IGNORE INTO tfh_g_games
+        (game_id, started_at, ended_at, duration_s, game_type, game_mode, ranked_type, player_teams,
+         difficulty, num_players, max_players, lobby_fill_time, version, v5_done)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0)');
+    $chk = $pdo->prepare('SELECT 1 FROM tfh_g_games WHERE game_id = ?');
+    for ($offset = $startOffset; $offset <= (int)$cfg['list_max_offset']; $offset += $limit) {
+        if (microtime(true) >= $deadline) return [$ingested, $seen, false];
+        $url = OF_API_BASE . '/public/games?start=' . rawurlencode(gmdate('Y-m-d\\TH:i:s\\Z', intdiv($startMs, 1000)))
+             . '&end=' . rawurlencode(gmdate('Y-m-d\\TH:i:s\\Z', intdiv($endMs, 1000)))
+             . '&type=' . rawurlencode($gameType) . '&limit=' . $limit . '&offset=' . $offset;
+        of_pace(1); // v5.16 : les pages de liste partagent le pacing global (politesse IP mutualisée)
+        [$status, $games] = of_request($url, 30);
+        if ($status !== 200 || !is_array($games)) {
+            log_line("[$label] page liste-meta $gameType offset=$offset : échec HTTP $status — reprise au prochain tick");
+            return [$ingested, $seen, false];
+        }
+        foreach ($games as $g) {
+            if (!is_array($g) || empty($g['game'])) continue;
+            $np = $g['numPlayers'] ?? null;
+            if ($np !== null && $np !== '' && (int)$np < $minPlayers) continue; // lobbies vides (quand l'info existe)
+            $gid = (string)$g['game'];
+            $seen++;
+            $chk->execute([$gid]);
+            if ($chk->fetch()) continue;
+            $ts = isset($g['start']) ? strtotime((string)$g['start']) : false;
+            if ($ts === false) continue;
+            $startGms = (int)$ts * 1000;
+            $te = isset($g['end']) ? strtotime((string)$g['end']) : false;
+            $endGms = $te !== false ? (int)$te * 1000 : null;
+            $dur = $endGms !== null ? max(0, (int)round(($endGms - $startGms) / 1000)) : null;
+            try {
+                $ins->execute([
+                    $gid,
+                    ms_to_dt($startGms),
+                    $endGms !== null ? ms_to_dt($endGms) : null,
+                    $dur,
+                    (string)($g['type'] ?? 'Public'),
+                    (string)($g['mode'] ?? ''),
+                    (string)($g['rankedType'] ?? 'unranked'),
+                    isset($g['playerTeams']) && $g['playerTeams'] !== null ? (string)$g['playerTeams'] : null,
+                    isset($g['difficulty']) && $g['difficulty'] !== null ? cut((string)$g['difficulty'], 16) : null,
+                    $np !== null && $np !== '' ? (int)$np : null,
+                    isset($g['maxPlayers']) && $g['maxPlayers'] !== null ? (int)$g['maxPlayers'] : null,
+                    isset($g['lobbyFillTime']) && $g['lobbyFillTime'] !== null ? (int)$g['lobbyFillTime'] : null,
+                    of_version_for($startGms),
+                ]);
+                if ($ins->rowCount() > 0) $ingested++;
+            } catch (Throwable $e) {
+                log_line("[$label] ⚠️ meta $gid : " . cut($e->getMessage(), 100));
+            }
+        }
+        if ($onProgress !== null) $onProgress($offset + $limit);
+        if (count($games) < $limit) return [$ingested, $seen, true]; // dernière page → fenêtre complète
+    }
+    return [$ingested, $seen, true];
+}
+
 /* ─────────────────── v5 : enrichissement / replays / rating / catalogue ─────────────────── */
+
+/* ─────────────────── v5.16 : migration des versions existantes ─────────────────── */
+/**
+ * Les ~240 k parties ingérées avant v5.16 portent version = 'v0.0.2' (la
+ * constante de schéma analytics, jamais la version du jeu). On les remplace
+ * par la version officielle calculée (tags OpenFrontIO : SHA exact sinon
+ * date), par lots de 20 k à chaque tick jusqu'à épuisement (aucun appel API).
+ */
+function vermig_phase(PDO $pdo): void {
+    if (state_get($pdo, 'vermig_done', '0') === '1') return;
+    phase_mark($pdo, 'vermig');
+    $sel = $pdo->prepare("SELECT game_id, UNIX_TIMESTAMP(started_at)*1000 AS s, git_commit
+        FROM tfh_g_games WHERE version = 'v0.0.2' OR version IS NULL LIMIT 20000");
+    $sel->execute();
+    $rows = $sel->fetchAll(PDO::FETCH_ASSOC);
+    if (!$rows) {
+        state_set($pdo, 'vermig_done', '1');
+        state_set($pdo, 'vermig_remaining', '0');
+        log_line('[vermig] ✅ toutes les versions sont migrées');
+        return;
+    }
+    $upd = $pdo->prepare("UPDATE tfh_g_games SET version = ? WHERE game_id = ? AND (version = 'v0.0.2' OR version IS NULL)");
+    $n = 0;
+    foreach ($rows as $r) {
+        $upd->execute([of_version_for((int)$r['s'], (string)($r['git_commit'] ?? '')), $r['game_id']]);
+        if ($upd->rowCount() > 0) $n++;
+    }
+    $left = (int)$pdo->query("SELECT COUNT(*) FROM tfh_g_games WHERE version = 'v0.0.2' OR version IS NULL")->fetchColumn();
+    state_set($pdo, 'vermig_remaining', (string)$left);
+    log_line("[vermig] $n version(s) migrée(s) — restantes : $left");
+    if ($left === 0) state_set($pdo, 'vermig_done', '1');
+}
 
 /**
  * Enrichit une partie EXISTANTE avec les données v5 (cosmétiques, clan, config…).
@@ -1218,13 +1376,17 @@ function enrich_game(PDO $pdo, string $gameId, array $detail, array &$unameCache
     $board = rating_board($rt, $pt);
     $nowDt = ms_to_dt($startMs);
 
+    $gitcE = cut((string)($detail['gitCommit'] ?? ''), 16);
     $pdo->beginTransaction();
     try {
-        $pdo->prepare('UPDATE tfh_g_games SET version = ?, num_turns = ?, config_json = ?, v5_done = 1 WHERE game_id = ?')
+        /* v5.16 : version réelle (tags) + git_commit complété (lignes liste-seule) */
+        $pdo->prepare("UPDATE tfh_g_games SET version = ?, num_turns = ?, config_json = ?, v5_done = 1,
+            git_commit = IF(? <> '', ?, git_commit) WHERE game_id = ?")
             ->execute([
-                (string)($detail['version'] ?? '') !== '' ? cut((string)$detail['version'], 24) : null,
+                of_version_for($startMs, $gitcE),
                 isset($info['num_turns']) && is_numeric($info['num_turns']) ? (int)$info['num_turns'] : null,
                 $cfgG ? json_encode($cfgG, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : null,
+                $gitcE, $gitcE,
                 $gameId,
             ]);
 
@@ -1285,10 +1447,19 @@ function enrich_phase(PDO $pdo, array $cfg, float $deadline, array &$unameCache)
         foreach ($gone as $gid) $mark->execute([$gid]);
     }
     $done = 0;
+    $delEmpty = $pdo->prepare('DELETE FROM tfh_g_games WHERE game_id = ?');
     foreach ($ids as $gid) {
         if (microtime(true) >= $deadline) break;
         $d = $details[$gid] ?? null;
         if ($d === null) continue; // transitoire → retenté au prochain tick
+        /* v5.16 : détail récupéré mais lobby vide/abandonné (0 joueur) → la
+         * ligne liste-seule n'a aucune valeur (ni carte, ni roster) : on la
+         * supprime pour ne pas polluer l'archive ni re-tenter indéfiniment. */
+        $di = is_array($d['info'] ?? null) ? $d['info'] : null;
+        if ($di === null || !is_array($di['players'] ?? null) || !count($di['players'])) {
+            try { $delEmpty->execute([$gid]); } catch (Throwable $e2) {}
+            continue;
+        }
         try {
             $done += enrich_game($pdo, $gid, $d, $unameCache);
         } catch (Throwable $e) {
@@ -2534,6 +2705,10 @@ if ($recentStart < $nowMs) {
     if ($recentComplete && microtime(true) < $deadline) state_set($pdo, STATE_KEY_RECENT, (string)$nowMs);
 }
 
+// 2b) v5.16 — migration des versions des parties existantes (lots de 20 k,
+//     jusqu'à épuisement ; aucun appel API, quelques ticks seulement)
+try { vermig_phase($pdo); } catch (Throwable $e) { log_line('[vermig] ⚠️ ' . cut($e->getMessage(), 140)); }
+
 // 3) Backfill historique (newest → oldest jusqu'à l'epoch publicID)
 //    Reprise intra-fenêtre : l'offset de pagination est persisté après chaque
 //    page (une fenêtre de 2 jours ne tient pas dans un tick de 240 s).
@@ -2587,13 +2762,27 @@ while (microtime(true) < $deadline && $cursor - $windowMs >= GAMES_EPOCH_MS - 36
         state_set($pdo, BK_WIN_START, (string)$wStart);
         state_set($pdo, BK_WIN_TYPE, $gt);
         state_set($pdo, BK_WIN_OFF, (string)$startOffset);
-        [$ing, $seen, $ok] = scan_range(
-            $pdo, $wStart, $wEnd, $cfg, $deadline, $unameCache, 'backfill', $startOffset,
-            function (int $nextOffset) use ($pdo) {
-                state_set($pdo, BK_WIN_OFF, (string)$nextOffset);
-            },
-            $gt
-        );
+        /* v5.16 : au-dessus de la frontière V34 → ingestion détaillée
+         * (scan_range) ; en dessous → « liste d'abord » (scan_meta_range)
+         * pour reconstruire l'archive profonde (mai 2025 → sept. 2026),
+         * les détails arrivant ensuite via enrich_phase. */
+        if ($wEnd <= GAMES_EPOCH_MS) {
+            [$ing, $seen, $ok] = scan_meta_range(
+                $pdo, $wStart, $wEnd, $cfg, $deadline, 'backfill-deep', $startOffset,
+                function (int $nextOffset) use ($pdo) {
+                    state_set($pdo, BK_WIN_OFF, (string)$nextOffset);
+                },
+                $gt
+            );
+        } else {
+            [$ing, $seen, $ok] = scan_range(
+                $pdo, $wStart, $wEnd, $cfg, $deadline, $unameCache, 'backfill', $startOffset,
+                function (int $nextOffset) use ($pdo) {
+                    state_set($pdo, BK_WIN_OFF, (string)$nextOffset);
+                },
+                $gt
+            );
+        }
         $winIng += $ing; $winSeen += $seen;
         if (!$ok) { $winComplete = false; break; } // v3 : échec → on NE recule PAS le curseur
     }

@@ -7,7 +7,7 @@
   <title>TheFrontHub — Partie</title>
   <meta name="description" content="Détail d'une partie OpenFront : roster complet, clans, vainqueur et configuration.">
   <link rel="icon" type="image/png" href="favicon-32x32.png">
-  <link rel="stylesheet" href="styles.css?v=93">
+  <link rel="stylesheet" href="styles.css?v=94">
   <style>
     :root { --gp-radius: 14px; }
     body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; margin: 0; }
@@ -21,6 +21,9 @@
     .gp-title h1 { font-size: 26px; margin: 0; font-weight: 800; }
     .gp-badge { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, var(--orange) 14%, transparent); color: var(--orange); border: 1px solid color-mix(in srgb, var(--orange) 35%, transparent); }
     .gp-badge.win { background: rgba(16,185,129,.12); color: #10b981; border-color: rgba(16,185,129,.4); }
+    /* v5.16 — badge de version du jeu (era = v34, full = v0.34.5 en info-bulle) */
+    .gp-badge.ver { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .3px; }
+    .gp-notice { display: flex; gap: 10px; align-items: flex-start; border: 1px dashed color-mix(in srgb, var(--orange) 45%, transparent); background: color-mix(in srgb, var(--orange) 7%, transparent); border-radius: 10px; padding: 12px 14px; font-size: 13.5px; color: var(--fg, inherit); margin-top: 10px; }
     .gp-sub { color: var(--muted); font-size: 13.5px; margin: 2px 0 14px; }
     .gp-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
     .gp-stat { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
@@ -147,6 +150,19 @@
         '</tr>';
     }).join('');
 
+    /* v5.16 — version officielle du jeu (tags OpenFrontIO). Era « v34 » ;
+     * tag complet en info-bulle. Null / constante analytics → pas de badge. */
+    function verEra(v) {
+      if (!v || v === 'v0.0.2') return null;
+      var m = String(v).match(/^v?(\d+)\.(\d+)/);
+      return m ? 'v' + m[2] : null;
+    }
+    function verBadge(v) {
+      if (!v || v === 'v0.0.2') return '';
+      var era = verEra(v);
+      return '<span class="gp-badge ver" title="Version du jeu : ' + esc(String(v)) + '">' + esc(era || String(v)) + '</span>';
+    }
+
     var cfg = g.config || {};
     var cfgKeys = ['gameMode', 'difficulty', 'map', 'mapSize', 'bots', ' instantBuild', 'infiniteGold', 'infiniteTroops', 'maxWorkers', 'randomSpawn', 'disableNPCs'];
     var cfgHtml = '';
@@ -163,6 +179,7 @@
           (g.rankedType ? '<span class="gp-badge">' + esc(g.rankedType) + '</span>' : '') +
           (g.speedrun ? '<span class="gp-badge">Speedrun ' + esc(fmtDur(g.speedrun.durationS)) + '</span>' : '') +
           (g.hasReplay ? '<span class="gp-badge">Replay dispo</span>' : '') +
+          verBadge(g.version) +
         '</div>' +
         '<p class="gp-sub">Partie du ' + esc(fmtDate(g.startedAt)) + ' · ID <code>' + esc(g.id) + '</code>' +
           (winRow ? ' · Vainqueur : <a class="gp-player" href="' + profUrl(winRow.username, winRow.publicId) + '">' + esc(winRow.username) + '</a>' + vBadge(winRow) : (winner.username ? ' · Vainqueur : <a class="gp-player" href="' + profUrl(winner.username, winner.publicId) + '">' + esc(winner.username) + '</a>' + vBadge(winner) : '')) +
@@ -173,6 +190,7 @@
           '<div class="gp-stat"><b>' + esc(String(g.numTurns ?? '—')) + '</b><span>Tours</span></div>' +
           '<div class="gp-stat"><b>' + esc(g.difficulty || '—') + '</b><span>Difficulté</span></div>' +
           '<div class="gp-stat"><b>' + esc(g.mapSize || '—') + '</b><span>Taille</span></div>' +
+          (g.version && g.version !== 'v0.0.2' ? '<div class="gp-stat"><b>' + esc(verEra(g.version) || esc(String(g.version))) + '</b><span>Version</span></div>' : '') +
         '</div>' +
       '</div>' +
       (cfgHtml ? '<div class="gp-card"><h2 style="margin:0 0 10px;font-size:16px">⚙️ Configuration</h2><div class="gp-config">' + cfgHtml + '</div></div>' : '') +
@@ -181,6 +199,7 @@
         (players.length ?
           '<div style="overflow-x:auto"><table class="gp-table"><thead><tr><th>Joueur</th><th>Clan</th><th>Équipe</th><th>Résultat</th><th>Stats</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
           : '<div class="gp-empty">Roster indisponible pour cette partie.</div>') +
+      (g.enriching ? '<div class="gp-notice">⏳ <span><b>Détails en cours de récupération.</b> Cette partie date d\'avant septembre 2026 — l\'archive complète est en cours de backfill : carte, joueurs et stats arriveront automatiquement.</span></div>' : '') +
       '</div>';
   }
 

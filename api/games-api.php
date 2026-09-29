@@ -198,6 +198,10 @@ function game_row(array $r): array {
         'map'        => $r['game_map'] !== null ? (string)$r['game_map'] : null,
         'mapSize'    => $r['map_size'] !== null ? (string)$r['map_size'] : null,
         'difficulty' => $r['difficulty'] !== null ? (string)$r['difficulty'] : null,
+        /* v5.16 : version officielle du jeu (tags OpenFrontIO) — 'v0.0.2' = constante
+         * analytics sans valeur, filtrée pour ne jamais s'afficher */
+        'version'    => isset($r['version']) && (string)$r['version'] !== '' && (string)$r['version'] !== 'v0.0.2'
+            ? (string)$r['version'] : null,
         'numPlayers' => $r['num_players'] !== null ? (int)$r['num_players'] : null,
         'speedrun'   => $sr,
         'winner'     => $r['winner_public_id'] !== null || $r['winner_username'] !== null ? [
@@ -265,7 +269,11 @@ case 'game': {
     unset($pv);
     $out = game_row($r);
     $out['players'] = $players;
-    $out['version'] = ($r['version'] ?? null) !== null ? (string)$r['version'] : null;
+    /* v5.16 : l'historique profond est ingéré « liste d'abord » — les détails
+     * (carte, roster) arrivent avec le backfill d'enrichissement */
+    $out['enriching'] = isset($r['v5_done']) && (int)$r['v5_done'] === 0;
+    $out['version'] = isset($r['version']) && (string)$r['version'] !== '' && (string)$r['version'] !== 'v0.0.2'
+        ? (string)$r['version'] : null;
     $out['numTurns'] = ($r['num_turns'] ?? null) !== null ? (int)$r['num_turns'] : null;
     $out['config'] = ($r['config_json'] ?? null) !== null ? json_decode((string)$r['config_json'], true) : null;
     $hr = $pdo->prepare('SELECT 1 FROM tfh_g_turns WHERE game_id = ?');
@@ -869,7 +877,7 @@ case 'status': {
         (SELECT COUNT(*) FROM tfh_g_games WHERE speedrun_category IS NOT NULL) AS speedruns,
         (SELECT MAX(started_at) FROM tfh_g_games) AS newest')->fetch();
     $st = $pdo->query("SELECT skey, svalue FROM tfh_g_state WHERE skey IN
-        ('backfill_cursor_ms','recent_end_ms','of_rate_cur','of_429_total','of_err_total','rating_cursor_ms','v5_phase','v5_phase_at','ladder_refreshed_at','clanslb_refreshed_at','profiles_fetched_total')");
+        ('backfill_cursor_ms','recent_end_ms','of_rate_cur','of_429_total','of_err_total','rating_cursor_ms','v5_phase','v5_phase_at','ladder_refreshed_at','clanslb_refreshed_at','profiles_fetched_total','vermig_remaining','vermig_done')");
     $state = [];
     foreach ($st->fetchAll() as $row) $state[$row['skey']] = $row['svalue'];
     $cursorMs = $state['backfill_cursor_ms'] ?? null;
@@ -913,6 +921,10 @@ case 'status': {
         'speedruns' => (int)$cnt['speedruns'],
         'newestGame' => $cnt['newest'] !== null ? (string)$cnt['newest'] : null,
         'backfillCursor' => $cursorMs !== null ? gmdate('Y-m-d H:i', (int)round(((int)$cursorMs) / 1000)) : null,
+        'verMig' => [
+            'remaining' => isset($state['vermig_remaining']) ? (int)$state['vermig_remaining'] : null,
+            'done' => isset($state['vermig_done']) ? (string)$state['vermig_done'] === '1' : false,
+        ],
         'recentCursor' => $recentMs !== null ? gmdate('Y-m-d H:i', (int)round(((int)$recentMs) / 1000)) : null,
         'httpStats' => [
             'detailRatePerS' => isset($state['of_rate_cur']) ? round((float)$state['of_rate_cur'], 2) : null,
