@@ -7,7 +7,7 @@
   <title>TheFrontHub — Clan</title>
   <meta name="description" content="Fiche d'un clan OpenFront : membres, parties récentes, sessions officielles et activité 30 jours.">
   <link rel="icon" type="image/png" href="favicon-32x32.png">
-  <link rel="stylesheet" href="styles.css?v=92">
+  <link rel="stylesheet" href="styles.css?v=94">
   <style>
     :root { --gp-radius: 14px; }
     body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; margin: 0; }
@@ -75,6 +75,13 @@
     catch (e) { return String(s); }
   };
   var pct = function (w, t) { return (t > 0) ? Math.round((w / t) * 1000) / 10 + ' %' : '—'; };
+  /* v5.13 — badge « joueur vérifié » (bulle CSS de styles.css, liée ci-dessus) */
+  var vBadge = function (m) {
+    if (!m || !m.verified || !m.publicId) return '';
+    var tip = 'Joueur vérifié — cette personne est vérifiée (identité prouvée en jeu)';
+    return '<span class="tfh-vbadge" data-tip="' + esc(tip) + '" title="' + esc(tip) + '" tabindex="0" role="img" aria-label="' + esc(tip) + '">' +
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tfh-vbadge-ic" aria-hidden="true"><path d="M12 2.2l2.3 1.9 3-.3.9 2.9 2.6 1.5-1 2.9 1 2.9-2.6 1.5-.9 2.9-3-.3-2.3 1.9-2.3-1.9-3 .3-.9-2.9L3.2 14l1-2.9-1-2.9 2.6-1.5.9-2.9 3 .3z"/><path d="M8.6 12l2.4 2.4 4.4-4.9"/></svg></span>';
+  };
 
   function fetchJSON(url) {
     return fetch(url, { headers: { 'Accept': 'application/json' } }).then(function (r) { return r.json(); });
@@ -115,7 +122,7 @@
     }
 
     var membersHtml = members.map(function (m) {
-      return '<tr><td><a class="gp-player" href="profile.html?player=' + encodeURIComponent(m.username || '') + '&publicId=' + encodeURIComponent(m.publicId || '') + '">' + esc(m.username) + '</a></td>' +
+      return '<tr><td><a class="gp-player" href="profile.html?player=' + encodeURIComponent(m.username || '') + '&publicId=' + encodeURIComponent(m.publicId || '') + '">' + esc(m.username) + '</a>' + vBadge(m) + '</td>' +
         '<td>' + esc(String(m.games ?? '—')) + '</td><td>' + esc(String(m.wins ?? '—')) + '</td><td>' + esc(pct(m.wins || 0, m.games || 0)) + '</td></tr>';
     }).join('');
 

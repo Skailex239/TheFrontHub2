@@ -227,11 +227,41 @@ async function loadConnectedUsernames() {
           }
         }
       });
+      // v5.13 — alimente le registre global des vérifiés + peint les badges
+      // manquants sur les lignes déjà rendues (idempotent, pas de re-render).
+      try {
+        if (typeof window.TFHVerified === 'object') {
+          var vrows = [];
+          snap.forEach(function (docSnap) {
+            var d = docSnap.data();
+            if (d && (d.publicId || d.username)) {
+              vrows.push({ publicId: d.publicId, username: d.username, verified: !!d.verified,
+                           bio: d.bio, favMap: d.favMap, links: d.links });
+            }
+          });
+          window.TFHVerified.setFromAliases(vrows);
+          applyVerifiedToDom();
+        }
+      } catch (e2) { /* silencieux */ }
       applySkinsToDom();
     }, function() {});
   } catch (e) {
     console.warn('[runs] Could not load connected usernames:', e);
   }
+}
+
+/* v5.13 — Peint les badges « vérifié » sur les lignes déjà rendues :
+ * chaque ancre joueur porte data-pid (publicId DB fiable) → on ajoute le
+ * badge juste après le lien s'il est vérifié et pas encore peint. */
+function applyVerifiedToDom() {
+  if (typeof window.TFHVerified !== 'object') return;
+  var anchors = document.querySelectorAll('#rows a[data-pid], #rows a[data-pfb-pid]');
+  anchors.forEach(function (a) {
+    var pid = a.getAttribute('data-pid') || a.getAttribute('data-pfb-pid');
+    if (!pid || !window.TFHVerified.isVerifiedPid(pid)) return;
+    if (a.parentElement && a.parentElement.querySelector('.tfh-vbadge')) return;
+    a.insertAdjacentHTML('afterend', window.TFHVerified.badgeHtml(pid, { native: true }));
+  });
 }
 
 function handlePlayerClick(name, pid) {
@@ -328,10 +358,17 @@ function renderRunRow(idx, run) {
   var titleAttr = shownName !== playerName ? ' title="' + escapeHtml(TP("runs.ingame_title", { name: playerName }, "En jeu : " + playerName)) + '"' : '';
   var pidAttr = pidForRun ? ' data-pid="' + escapeHtml(String(pidForRun)) + '" data-pfb-pid="' + escapeHtml(String(pidForRun)) + '"' : '';
   var clickJs = "handlePlayerClick('" + escapeHtml(playerName).replace(/'/g, "\\'") + "'," + (pidForRun ? "'" + String(pidForRun).replace(/[^A-Za-z0-9_-]/g, '') + "'" : "null") + ");return false";
-  tdPlayer.innerHTML = '<a' + skinAttr + pidAttr + ' data-player="' + escapeHtml(playerName) + '" href="#" onclick="' + clickJs + '"' + titleAttr + ' style="cursor:pointer;text-decoration:none">' + escapeHtml(shownName) + '</a>';
+  // v5.13 — badge « joueur vérifié » (infobulle native : liste scrollable)
+  var vBadge = (pidForRun && typeof window.TFHVerified === 'object' && window.TFHVerified.isVerifiedPid(pidForRun))
+    ? window.TFHVerified.badgeHtml(pidForRun, { native: true }) : '';
+  tdPlayer.innerHTML = '<a' + skinAttr + pidAttr + ' data-player="' + escapeHtml(playerName) + '" href="#" onclick="' + clickJs + '"' + titleAttr + ' style="cursor:pointer;text-decoration:none">' + escapeHtml(shownName) + '</a>' + vBadge;
 
   const tdMap = document.createElement('td');
-  tdMap.innerHTML = escapeHtml(mapDisplayName(run.map));
+  // v5.16 — version du jeu (record établi sur v0.33, v0.34…) : era en chip, tag complet en info-bulle
+  var _vm = run.version && run.version !== 'v0.0.2' ? String(run.version).match(/^v?(\d+)\.(\d+)/) : null;
+  var _ver = _vm ? 'v' + _vm[2] : null;
+  tdMap.innerHTML = escapeHtml(mapDisplayName(run.map)) +
+    (_ver ? ' <span class="tfh-ver-chip" title="Version du jeu : ' + escapeHtml(String(run.version)) + '">' + escapeHtml(_ver) + '</span>' : '');
 
   const tdTime = document.createElement('td');
   tdTime.innerHTML = '<span class="run-runtime">' + escapeHtml(formatTime(run.durationS)) + '</span>';

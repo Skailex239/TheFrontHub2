@@ -132,6 +132,13 @@
     const hub = hubNameFor(pid);
     const displayName = hub || p.lastUsername || pid;
 
+    // v5.13 — badge « joueur vérifié » dans le panneau (donnée serveur)
+    if (data.verified && typeof window.TFHVerified === 'object') {
+      window.TFHVerified.markVerified(pid);
+    }
+    const vBadge = (data.verified && typeof window.TFHVerified === 'object')
+      ? window.TFHVerified.badgeHtml(pid) : '';
+
     // ── Compteurs ──
     const games = p.gamesCount || 0;
     const wins = p.winsCount || 0;
@@ -168,20 +175,30 @@
     }).join('') || '<div class="pp-sub">Aucun speedrun validé</div>';
 
     // ── Dernières parties ──
+    // v5.13 « tout est relié » : les parties pointent vers la page partie du
+    // site (roster complet, vainqueur, replay) au lieu de quitter le site.
+    // v5.16 — version officielle du jeu (tags OpenFrontIO) : era « v34 »
+    function verEra(v) {
+      if (!v || v === 'v0.0.2') return null;
+      const m = String(v).match(/^v?(\d+)\.(\d+)/);
+      return m ? 'v' + m[2] : null;
+    }
     const recentRows = recent.slice(0, 15).map(function (g) {
       const sr = g.speedrun ? ' <span class="pp-cat ' + esc(g.speedrun.category) + '">' + esc(g.speedrun.category) + '</span>' : '';
+      const ver = verEra(g.version);
       return '<tr>' +
         '<td>' + fmtDateTime(g.startedAt) + '</td>' +
-        '<td><a class="pp-link" href="https://openfront.io/game/' + esc(g.id) + '" target="_blank" rel="noopener">' + esc(g.map || '—') + '</a>' + sr + '</td>' +
+        '<td><a class="pp-link" href="game.html?id=' + encodeURIComponent(g.id) + '">' + esc(g.map || '—') + '</a>' + sr + '</td>' +
         '<td>' + esc(modeLabel(g.mode, g.rankedType)) + '</td>' +
         '<td>' + resultBadge(g.won) + '</td>' +
         '<td class="pp-col-players">' + (g.numPlayers != null ? g.numPlayers : '—') + '</td>' +
+        '<td>' + (ver ? '<span class="tfh-ver-chip" title="Version du jeu : ' + esc(String(g.version)) + '">' + esc(ver) + '</span>' : '—') + '</td>' +
         '</tr>';
     }).join('');
 
     const html = CSS +
       '<section id="preprofile-section" class="pp-panel" aria-label="Historique TheFrontHub">' +
-      '<div class="pp-head"><span class="pp-title">Historique TheFrontHub</span>' +
+      '<div class="pp-head"><span class="pp-title">Historique TheFrontHub' + vBadge + '</span>' +
       '<span class="pp-sub">Pré-profil ' + esc(pid) + ' • toutes les parties publiques archivées depuis sept. 2025</span></div>' +
       '<div class="pp-chips">' +
       '<span class="pp-chip"><b>' + esc(displayName) + '</b></span>' +
@@ -199,7 +216,7 @@
       '</div>' +
       (recent.length ? '<h4 style="margin:18px 0 8px;font-size:12.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--fg-muted,#9aa)">Dernières parties</h4>' +
         '<div class="pp-scroll"><table class="pp-table"><thead><tr>' +
-        '<th>Date</th><th>Carte</th><th>Mode</th><th>Résultat</th><th class="pp-col-players">Joueurs</th>' +
+        '<th>Date</th><th>Carte</th><th>Mode</th><th>Résultat</th><th class="pp-col-players">Joueurs</th><th>Version</th>' +
         '</tr></thead><tbody>' + recentRows + '</tbody></table></div>' : '') +
       '</section>';
 

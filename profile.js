@@ -18,7 +18,7 @@ import {
   collection, onSnapshot,
   onAuthStateChanged,
 } from "./auth.js";
-import { fetchOpenFront } from "./openfront-client.js?v=24";
+import { fetchOpenFront } from "./openfront-client.js?v=25";
 import {
   getSkin, getUnlockableSkins, DEFAULT_SKIN_ID, RARITY_META, normalizeCode,
 } from "./skins.js?v=2";
@@ -33,7 +33,7 @@ import {
 import {
   computePlaytimeStats, extractCareerWins, totalWins, pointsFor,
   formatDurationCompact, formatPct, formatFrenchDate,
-  formatPoints, classifyGame,
+  formatPoints, classifyGame, gameDurationSec,
 } from "./playtime-stats.js?v=1";
 
 /* ── i18n (FR/EN) — moteur commun i18n.js (window.t, dictionnaire de page
@@ -64,6 +64,7 @@ let _ownershipUsername = null;
 let _rankedCache = null;
 let _allGamesCache = null; // toutes les games paginées (pour playtime + map stats)
 let _allGamesLoading = false;
+let _statsRunSeq = 0; // garde anti-course (changement de profil rapide)
 let _mapStatsSortBy = "count";
 let _mapStatsShowAll = false;
 let _rewardCardState = { publicId: null, ownedSkins: [], activeSkinId: null, ownedBanners: [], activeBannerId: null };
@@ -404,10 +405,44 @@ function renderPublicProfile(username, publicId) {
   const verifiedEl = document.getElementById("profile-verified");
   if (verifiedEl) verifiedEl.hidden = true;
 
+  // v5.13 — extras profil masqués en attendant la réponse API
+  renderProfileExtras(null);
+  const editBtn = document.getElementById("profile-edit-btn");
+  if (editBtn) editBtn.hidden = true;
+  const claimHint = document.getElementById("claim-hint-banner");
+  if (claimHint) claimHint.style.display = "none";
+
   // Éditeur de pseudo + carte cosmétiques : réservés au PROPRE profil.
   // setEditingAllowed(false) masque le crayon, referme l'éditeur et purge
   // la carte codes — aucune action d'édition possible sur un profil public.
   setEditingAllowed(false);
+
+  // v5.13 — Données serveur du profil consulté (verified + bio/map/liens) :
+  // une seule requête GET (cache 60 s) peint tout le bloc identité.
+  if (publicId) {
+    fetch("/api/games-api.php?route=profile&publicId=" + encodeURIComponent(publicId), { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!j || !j.ok) return;
+        if (viewingPublicId !== publicId) return; // l'utilisateur a changé de profil entre-temps
+        if (window.TFHVerified && j.verified) window.TFHVerified.markVerified(publicId);
+        const vEl = document.getElementById("profile-verified");
+        if (vEl) {
+          vEl.title = T("pf.verified_tip", "Joueur vérifié — cette personne est vérifiée (identité prouvée en jeu)");
+          vEl.hidden = !j.verified;
+        }
+        const hint = document.getElementById("claim-hint-banner");
+        if (hint) hint.style.display = j.verified ? "none" : "flex";
+        renderProfileExtras(j.profile || null);
+        // v5.14 — Vitrine cosmétiques depuis la réponse déjà chargée (0 requête en plus)
+        renderShowcaseFromData(j);
+      })
+      .catch(() => {});
+  } else {
+    // Profil « speedrun » sans publicId : pas de compte lié → encart revendication
+    const hint = document.getElementById("claim-hint-banner");
+    if (hint) hint.style.display = "flex";
+  }
 
   // Date d'arrivée : masquée sur un profil public (donnée non chargée)
   const joinedEl = document.getElementById("profile-joined-text");
@@ -659,9 +694,25 @@ function renderHero(user, profile) {
     pidBtn.style.display = profile.publicId ? "" : "none";
   }
 
-  // Badge « vérifié » (donnée Firestore : profile.verified)
+  // Badge « vérifié » (v5.13 : preuve serveur — profile.verified = verified_at posé
+  // par la vérification du défi en jeu côté serveur). Info-bulle explicite.
   const verifiedEl = document.getElementById("profile-verified");
-  if (verifiedEl) verifiedEl.hidden = !profile.verified;
+  if (verifiedEl) {
+    const tip = T("pf.verified_tip", "Joueur vérifié — cette personne est vérifiée (identité prouvée en jeu)");
+    verifiedEl.title = tip;
+    verifiedEl.hidden = !profile.verified;
+  }
+
+  // v5.13 — Bio / map préférée / liens réseaux + bouton d'édition
+  renderProfileExtras({
+    bio: profile.bio,
+    favMap: profile.favMap,
+    links: profile.links,
+  });
+  // v5.14 — Vitrine cosmétiques du profil propre (fetch dédié, guard anti-course)
+  if (profile.publicId) void loadShowcase(profile.publicId);
+  const editBtn = document.getElementById("profile-edit-btn");
+  if (editBtn) editBtn.hidden = !profile.verified;
 
   // Éditeur de pseudo : SEULEMENT si le profil affiché est celui du compte
   // connecté (connecté + publicId lié). Tout autre cas reste verrouillé.
@@ -704,6 +755,448 @@ function renderHero(user, profile) {
   // bannière active du profil affiché, clair/sombre re-rendus par banners.js).
   applyBannerToCard(document.querySelector(".pf2-id"), profile.publicId);
 }
+
+/* ═════════════════════════════════════════════════════════════════════════
+   v5.13 — PROFIL REVENDIQUÉ : bio, map préférée, liens réseaux
+   Rendu du bloc identité (propre profil = données du compte ; profil public
+   = réponse route=profile). Édition via la modale #profile-edit-modal.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/** Icônes réseaux : window.icon (icons.js) ou repli autonome minimal. */
+function linkIcon(name) {
+  try {
+    if (typeof window !== "undefined" && typeof window.icon === "function") {
+      return window.icon(name, { size: 14 });
+    }
+  } catch (e) { /* ignore */ }
+  return "";
+}
+
+/** URL cliquable d'un champ réseau (tolère handle, @pseudo ou lien complet). */
+function linkHref(net, raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  if (/^https?:\/\//i.test(v)) return v;
+  const clean = v.replace(/^@/, "");
+  if (net === "x") return "https://x.com/" + encodeURIComponent(clean);
+  if (net === "youtube") return "https://youtube.com/" + encodeURIComponent(v.startsWith("@") ? v : clean);
+  if (net === "twitch") return "https://twitch.tv/" + encodeURIComponent(clean);
+  return null; // discord : pseudo/invitation affiché sans lien automatique
+}
+
+/**
+ * Peint bio / map préférée / liens dans la carte identité.
+ * @param {{bio?:string|null, favMap?:string|null, links?:object|null}|null} extras
+ */
+function renderProfileExtras(extras) {
+  const bioEl = document.getElementById("profile-bio");
+  const mapEl = document.getElementById("profile-favmap");
+  const linksEl = document.getElementById("profile-links");
+
+  const bio = extras?.bio ? String(extras.bio) : "";
+  if (bioEl) {
+    if (bio) {
+      bioEl.textContent = bio;
+      bioEl.hidden = false;
+    } else {
+      bioEl.textContent = "";
+      bioEl.hidden = true;
+    }
+  }
+
+  const fm = extras?.favMap ? String(extras.favMap) : "";
+  if (mapEl) {
+    if (fm) {
+      const thumb = mapThumbUrl(fm);
+      mapEl.innerHTML =
+        '<span class="pf2-id-favmap-label">' + esc(T("pf.fav_map", "Map préférée")) + "</span>" +
+        (thumb ? '<img class="pf2-id-favmap-thumb" src="' + esc(thumb) + '" alt="" width="26" height="26" loading="lazy">' : "") +
+        "<b>" + esc(fm) + "</b>";
+      mapEl.hidden = false;
+    } else {
+      mapEl.innerHTML = "";
+      mapEl.hidden = true;
+    }
+  }
+
+  if (linksEl) {
+    const links = extras?.links || {};
+    const items = [];
+    const push = (net, iconName, label) => {
+      const raw = links[net];
+      if (!raw) return;
+      const href = linkHref(net, raw);
+      items.push(
+        href
+          ? '<a class="pf2-id-link" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer" title="' + esc(label + " : " + raw) + '">' + linkIcon(iconName) + "<span>" + esc(raw) + "</span></a>"
+          : '<span class="pf2-id-link pf2-id-link-plain" title="' + esc(label + " : " + raw) + '">' + linkIcon(iconName) + "<span>" + esc(raw) + "</span></span>"
+      );
+    };
+    push("x", "xSocial", "X");
+    push("youtube", "youtube", "YouTube");
+    push("twitch", "twitch", "Twitch");
+    push("discord", "discord", "Discord");
+    linksEl.innerHTML = items.join("");
+    linksEl.hidden = items.length === 0;
+  }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════
+   v5.14 — VITRINE COSMÉTIQUES
+   Deux sources reliées au profil :
+   1. Cosmétiques OpenFront portés EN JEU (collectés par le cron du site ;
+      route=profile → cosmetics[] : motifs, couronnes, drapeaux, effets…
+      avec la rareté du catalogue officiel + le nombre de parties portés).
+   2. Cosmétiques TheFrontHub (skins texte animés, bannières pixel art,
+      statut VIP — route=profile → hubCosmetics).
+   Rendu sur le profil PROPRE (fetch dédié) et sur les profils PUBLICS
+   (réponse déjà chargée — zéro requête supplémentaire).
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const SHOWCASE_CAT_ICON = {
+  pattern: "🎨", crown: "👑", flag: "🏴", skin: "👕",
+  effect: "✨", emblem: "🛡️", palette: "🌈", pack: "📦",
+};
+const SHOWCASE_RARITY_COLORS = {
+  common: "#6B7280", uncommon: "#0d9488", rare: "#2563eb",
+  epic: "#9333ea", legendary: "#d97706", mythic: "#dc2626",
+};
+
+let _showcaseSeq = 0; // garde anti-course (changement de profil rapide)
+
+const SHOWCASE_KNOWN_RARITIES = new Set(["common", "uncommon", "rare", "epic", "legendary", "mythic"]);
+
+function showcaseRarityChip(rarity) {
+  const r = String(rarity || "").toLowerCase();
+  if (!r) return ""; // rareté inconnue (ex : drapeaux) → pas de chip
+  if (!SHOWCASE_KNOWN_RARITIES.has(r)) {
+    // Rareté inédite du catalogue → libellé capitalisé brut (jamais la clé i18n)
+    const color = "#6B7280";
+    return '<span class="pf-sc-rarity" style="color:' + esc(color) +
+      ';background:' + esc(color) + '1f;border-color:' + esc(color) + '44">' +
+      esc(r.charAt(0).toUpperCase() + r.slice(1)) + "</span>";
+  }
+  const label = T(
+    "pf.showcase_rarity_" + r,
+    r.charAt(0).toUpperCase() + r.slice(1)
+  );
+  const color = SHOWCASE_RARITY_COLORS[r] || "#6B7280";
+  return '<span class="pf-sc-rarity" style="color:' + esc(color) +
+    ';background:' + esc(color) + '1f;border-color:' + esc(color) + '44">' +
+    esc(label) + "</span>";
+}
+
+const SHOWCASE_KNOWN_CATS = new Set(["pattern", "crown", "flag", "skin", "effect", "emblem", "palette", "pack"]);
+
+function showcaseCatLabel(cat) {
+  const c = String(cat || "").toLowerCase();
+  if (!c) return "";
+  if (!SHOWCASE_KNOWN_CATS.has(c)) return c.charAt(0).toUpperCase() + c.slice(1);
+  return T("pf.showcase_cat_" + c, c.charAt(0).toUpperCase() + c.slice(1));
+}
+
+/** Carte d'un cosmétique OpenFront porté en jeu.
+ * Quatre cas réels observés dans les données :
+ *  - c.url renseignée (couronnes, skins) → image CDN ;
+ *  - c.name EST l'URL CDN (drapeaux portés) → image depuis le nom,
+ *    libellé dérivé du segment final (cc_youtube_ → YouTube) ;
+ *  - c.patternData renseigné (motifs du catalogue, v5.15) → canvas décodé ;
+ *  - sinon (effets, patterns sans données) → icône de catégorie. */
+function showcaseCosVisual(c) {
+  let url = c.url ? String(c.url) : "";
+  let patternData = String(c.patternData || "");
+  let label = c.displayName || c.name;
+  if (!url && /^https?:\/\//i.test(String(c.name || ""))) {
+    url = encodeURI(String(c.name));
+    try {
+      const seg = String(c.name).split("/").filter(Boolean).pop() || "";
+      let tail = seg.replace(/^cc_/, "").replace(/_+$/, "").replace(/_+/g, " ").trim();
+      if (tail) {
+        label = tail.charAt(0).toUpperCase() + tail.slice(1);
+      } else {
+        label = "";
+      }
+    } catch (e) { /* label resté = name */ }
+  }
+  return { url, label, patternData };
+}
+
+function showcaseWornCard(c) {
+  const { url, label, patternData } = showcaseCosVisual(c);
+  const name = label || showcaseCatLabel(c.category);
+  const icon = SHOWCASE_CAT_ICON[String(c.category || "").toLowerCase()] || "🧩";
+  let img;
+  if (patternData) {
+    // Motif OpenFront : bitmap décodé et peint après insertion (paintShowcasePatterns).
+    img = '<canvas class="pf-sc-canvas" width="40" height="40" data-pattern="' + esc(patternData) +
+      '" role="img" aria-label="' + esc(name) + '"></canvas>' +
+      '<span class="pf-sc-emoji" style="display:none">' + icon + "</span>";
+  } else if (url) {
+    img = '<img class="pf-sc-img" src="' + esc(url) + '" alt="" width="40" height="40" loading="lazy" ' +
+      'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">' +
+      '<span class="pf-sc-emoji" style="display:none">' + icon + "</span>";
+  } else {
+    img = '<span class="pf-sc-emoji">' + icon + "</span>";
+  }
+  return (
+    '<article class="pf-sc-card">' +
+      '<div class="pf-sc-thumb">' + img + "</div>" +
+      '<div class="pf-sc-body">' +
+        '<div class="pf-sc-name" title="' + esc(name) + '">' + esc(name) + "</div>" +
+        '<div class="pf-sc-meta">' + showcaseRarityChip(c.rarity) + "</div>" +
+        '<div class="pf-sc-sub">' + esc(showcaseCatLabel(c.category)) +
+          " · " + esc(T("pf.showcase_worn", "porté ×{n}", { n: c.timesWorn })) + "</div>" +
+      "</div>" +
+    "</article>"
+  );
+}
+
+/** Peint tous les canvas[data-pattern] du conteneur (après injection innerHTML). */
+function paintShowcasePatterns(root) {
+  if (!root) return;
+  root.querySelectorAll("canvas[data-pattern]").forEach((cv) => {
+    const data = cv.getAttribute("data-pattern") || "";
+    if (!data || !paintPatternToCanvas(cv, data, 40)) {
+      // décodage impossible → repli emoji (comme avant la v5.15)
+      cv.remove();
+      const fb = cv.nextElementSibling;
+      if (fb && fb.classList.contains("pf-sc-emoji")) fb.style.display = "flex";
+      return;
+    }
+    cv.removeAttribute("data-pattern");
+  });
+}
+
+/** Cartes des cosmétiques TheFrontHub (VIP, skins animés, bannières pixel art). */
+function showcaseHubCards(hub) {
+  const cards = [];
+  if (hub?.vipActive && hub?.vipType) {
+    cards.push(
+      '<article class="pf-sc-card pf-sc-vip">' +
+        '<div class="pf-sc-thumb"><span class="pf-sc-emoji">👑</span></div>' +
+        '<div class="pf-sc-body">' +
+          '<div class="pf-sc-name">' + esc(String(hub.vipType).toUpperCase()) + "</div>" +
+          '<div class="pf-sc-meta">' +
+            '<span class="pf-sc-rarity" style="color:#d97706;background:#d977061f;border-color:#d9770644">' +
+              esc(T("pf.showcase_vip", "Statut VIP")) + "</span>" +
+          "</div>" +
+          '<div class="pf-sc-sub">' + esc(T("pf.showcase_hub", "TheFrontHub")) + "</div>" +
+        "</div>" +
+      "</article>"
+    );
+  }
+  const ownedSkins = Array.isArray(hub?.ownedSkins) ? hub.ownedSkins : [];
+  for (const s of ownedSkins) {
+    const skin = getSkin(s.skinId);
+    if (!skin || skin.id === DEFAULT_SKIN_ID) continue; // Standard ≠ cosmétique
+    const active = !!s.active || s.skinId === hub.activeSkinId;
+    cards.push(
+      '<article class="pf-sc-card' + (active ? " pf-sc-active" : "") + '">' +
+        '<div class="pf-sc-thumb"><span class="pf-sc-skin-preview ' + skin.cssClass + '">Aa</span></div>' +
+        '<div class="pf-sc-body">' +
+          '<div class="pf-sc-name">' + esc(skin.name) + "</div>" +
+          '<div class="pf-sc-meta">' + showcaseRarityChip(skin.rarity) +
+            (active ? '<span class="pf-sc-on">' + esc(T("pf.showcase_active", "Actif")) + "</span>" : "") + "</div>" +
+          '<div class="pf-sc-sub">' + esc(T("pf.showcase_hub_skin", "Skin TheFrontHub")) + "</div>" +
+        "</div>" +
+      "</article>"
+    );
+  }
+  const ownedBanners = Array.isArray(hub?.ownedBanners) ? hub.ownedBanners : [];
+  for (const b of ownedBanners) {
+    const banner = getBanner(b.bannerId);
+    if (!banner) continue;
+    const active = !!b.active || b.bannerId === hub.activeBannerId;
+    let thumb;
+    try {
+      const url = renderBannerUrl(banner, currentTheme());
+      thumb = url
+        ? '<img class="pf-sc-img pf-sc-banner" src="' + url + '" alt="" width="40" height="28" loading="lazy">'
+        : '<span class="pf-sc-emoji">🚩</span>';
+    } catch (e) {
+      thumb = '<span class="pf-sc-emoji">🚩</span>';
+    }
+    cards.push(
+      '<article class="pf-sc-card' + (active ? " pf-sc-active" : "") + '">' +
+        '<div class="pf-sc-thumb">' + thumb + "</div>" +
+        '<div class="pf-sc-body">' +
+          '<div class="pf-sc-name">' + esc(banner.name) + "</div>" +
+          '<div class="pf-sc-meta">' + showcaseRarityChip(banner.rarity) +
+            (active ? '<span class="pf-sc-on">' + esc(T("pf.showcase_active", "Actif")) + "</span>" : "") + "</div>" +
+          '<div class="pf-sc-sub">' + esc(T("pf.showcase_hub_banner", "Bannière TheFrontHub")) + "</div>" +
+        "</div>" +
+      "</article>"
+    );
+  }
+  return cards;
+}
+
+/** Peint la vitrine depuis une réponse route=profile (propre ou public). */
+function renderShowcaseFromData(data) {
+  const root = document.getElementById("profile-showcase");
+  if (!root) return;
+  const worn = Array.isArray(data?.cosmetics) ? data.cosmetics : [];
+  const hubCards = showcaseHubCards(data?.hubCosmetics || {});
+  if (!worn.length && !hubCards.length) {
+    root.hidden = true;
+    root.innerHTML = "";
+    return;
+  }
+  const sparkle =
+    '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>';
+  const wornHtml = worn.length
+    ? '<h3 class="pf-sc-title">' +
+      esc(T("pf.showcase_worn_title", "Cosmétiques OpenFront — portés en jeu")) +
+      '</h3><div class="pf-sc-grid">' + worn.map(showcaseWornCard).join("") + "</div>"
+    : "";
+  const hubHtml = hubCards.length
+    ? '<h3 class="pf-sc-title">' +
+      esc(T("pf.showcase_hub_title", "Cosmétiques TheFrontHub")) +
+      '</h3><div class="pf-sc-grid">' + hubCards.join("") + "</div>"
+    : "";
+  root.innerHTML =
+    '<h2 class="pf-sc-heading">' + sparkle +
+      "<span>" + esc(T("pf.showcase_title", "Vitrine cosmétiques")) + "</span></h2>" +
+    wornHtml + hubHtml;
+  root.hidden = false;
+  // v5.15 — peint les motifs (canvas) + emblème du héros (motif le plus récent)
+  paintShowcasePatterns(root);
+  paintAvatarFromCosmetics(worn);
+}
+
+/** Charge puis peint la vitrine du profil PROPRE (fetch dédié, garde anti-course). */
+async function loadShowcase(publicId) {
+  const root = document.getElementById("profile-showcase");
+  if (!root || !publicId) return;
+  const seq = ++_showcaseSeq;
+  try {
+    const res = await fetch(
+      "/api/games-api.php?route=profile&publicId=" + encodeURIComponent(publicId) + "&limit=1",
+      { cache: "no-store" }
+    );
+    if (!res.ok) {
+      if (seq === _showcaseSeq) { root.hidden = true; root.innerHTML = ""; }
+      return;
+    }
+    const j = await res.json().catch(() => null);
+    if (!j?.ok || seq !== _showcaseSeq) return;
+    renderShowcaseFromData(j);
+  } catch (e) {
+    if (seq === _showcaseSeq) { root.hidden = true; }
+  }
+}
+
+/* ── Modale d'édition (propre profil revendiqué uniquement) ── */
+
+window.openProfileEditor = function () {
+  if (!editingAllowed || viewingPublicId) {
+    showToast(T("pf.edit_lock", "Tu ne peux modifier que ton propre profil."), "warning");
+    return;
+  }
+  if (!currentProfile || !currentProfile.publicId) {
+    showToast(T("pf.link_pid_first", "Lie d'abord ton Public ID OpenFront avant de personnaliser ton profil."), "warning");
+    return;
+  }
+  const modal = document.getElementById("profile-edit-modal");
+  if (!modal) return;
+  const bio = currentProfile.bio || "";
+  const bioEl = document.getElementById("pem-bio");
+  const cnt = document.getElementById("pem-bio-count");
+  if (bioEl) bioEl.value = bio;
+  if (cnt) cnt.textContent = bio.length + "/400";
+  const fm = document.getElementById("pem-favmap");
+  if (fm) fm.value = currentProfile.favMap || "";
+  const links = currentProfile.links || {};
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ""; };
+  set("pem-link-x", links.x);
+  set("pem-link-youtube", links.youtube);
+  set("pem-link-twitch", links.twitch);
+  set("pem-link-discord", links.discord);
+  // Datalist des cartes : noms connus + cartes les plus jouées du joueur
+  const dl = document.getElementById("pem-map-list");
+  if (dl) {
+    const names = new Set(Object.keys(MAP_SLUGS).map((s) => s.charAt(0).toUpperCase() + s.slice(1)));
+    if (currentProfile.favMap) names.add(currentProfile.favMap);
+    dl.innerHTML = Array.from(names).sort().map((n) => '<option value="' + esc(n) + '">').join("");
+  }
+  modal.hidden = false;
+  document.body.style.overflow = "hidden";
+};
+
+window.closeProfileEditor = function () {
+  const modal = document.getElementById("profile-edit-modal");
+  if (modal) modal.hidden = true;
+  document.body.style.overflow = "";
+};
+
+window.saveProfileDetails = async function () {
+  const btn = document.getElementById("pem-save");
+  const original = btn?.textContent || "";
+  if (btn) { btn.disabled = true; btn.textContent = T("pf.saving", "Enregistrement…"); }
+  try {
+    const payload = {
+      action: "details",
+      bio: document.getElementById("pem-bio")?.value ?? "",
+      favMap: document.getElementById("pem-favmap")?.value ?? "",
+      links: {
+        x: document.getElementById("pem-link-x")?.value ?? "",
+        youtube: document.getElementById("pem-link-youtube")?.value ?? "",
+        twitch: document.getElementById("pem-link-twitch")?.value ?? "",
+        discord: document.getElementById("pem-link-discord")?.value ?? "",
+      },
+    };
+    const res = await fetch("/api/profile.php", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) {
+      if (j?.error === "not_claimed") {
+        showToast(T("pf.not_claimed", "Revendique d'abord ton profil (Public ID + vérification en jeu)."), "warning");
+      } else if (j?.error === "invalid_link") {
+        showToast(T("pf.bad_link", "Un des liens est invalide."), "error");
+      } else {
+        showToast(j?.message || T("pf.save_fail", "Impossible d'enregistrer. Réessaie."), "error");
+      }
+      return;
+    }
+    // Mise à jour locale + re-rendu immédiat
+    const p = j.profile || {};
+    currentProfile = { ...(currentProfile || {}), bio: p.bio ?? null, favMap: p.favMap ?? null, links: p.links ?? {} };
+    renderProfileExtras({
+      bio: currentProfile.bio,
+      favMap: currentProfile.favMap,
+      links: currentProfile.links,
+    });
+    window.closeProfileEditor();
+    showToast(T("pf.profile_updated", "Profil mis à jour !"), "success");
+  } catch (e) {
+    console.error("[profile] saveProfileDetails:", e);
+    showToast(T("pf.save_fail", "Impossible d'enregistrer. Réessaie."), "error");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = original; }
+  }
+};
+
+// Compteur de caractères de la bio (feedback live)
+document.addEventListener("input", (e) => {
+  if (e.target && e.target.id === "pem-bio") {
+    const cnt = document.getElementById("pem-bio-count");
+    if (cnt) cnt.textContent = (e.target.value || "").length + "/400";
+  }
+});
+// Fermeture de la modale : clic sur le fond + touche Escape
+document.addEventListener("click", (e) => {
+  if (e.target && e.target.id === "profile-edit-modal") window.closeProfileEditor();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    const modal = document.getElementById("profile-edit-modal");
+    if (modal && !modal.hidden) window.closeProfileEditor();
+  }
+});
 
 /** Copie le Public ID dans le presse-papiers (chip de la carte identité). */
 window.copyPublicId = function (btn) {
@@ -816,32 +1309,42 @@ async function loadStats(publicId) {
   // Supprime la rejection non-gérée si on retourne avant (publicId invalide).
   recentGamesPromise.catch(() => {});
 
-  let playerData;
+  let playerData = null;
   try {
     playerData = await fetchOpenFront(`/public/player/${encodeURIComponent(publicId)}`);
   } catch (e) {
     console.error("[profile] OpenFront API error:", e);
     if (e?.isNotFound || e?.status === 404) {
+      // Identifiant invalide : rien à afficher (le dossier pré-calculé ne
+      // correspondra jamais à un joueur inexistant sur l'API).
       showError(
         T("pf.player_not_found", "Joueur introuvable sur l'API OpenFront (publicId : {id}). Vérifie que ton identifiant OpenFront est correct dans tes paramètres de profil.", { id: publicId })
       );
-    } else {
-      showError(T("pf.stats_load_fail", "Impossible de charger les statistiques depuis l'API OpenFront."));
+      setText("stat-alltime-value", "—");
+      setText("stat-alltime-sub", "");
+      return;
     }
-    setText("stat-alltime-value", "—");
-    setText("stat-alltime-sub", "");
-    return;
+    // API OpenFront injoignable (503 « Offline », timeout…) : NON bloquant —
+    // v5.15 le cockpit démarre quand même via le dossier pré-calculé ou le
+    // fallback live (avant : return → profil réduit au nom, même pour les
+    // joueurs suivis dont le fichier player-stats existait).
+    showError(T("pf.stats_load_fail", "Impossible de charger les statistiques depuis l'API OpenFront."));
   }
 
   if (!playerData) {
-    showError(T("pf.api_empty_response", "Réponse vide de l'API OpenFront."));
-    return;
+    // v5.15.1 : API OpenFront injoignable ≠ score inconnu — on laisse « … »
+    // (chargement) : le bloc week-stats ci-dessous posera le score officiel
+    // depuis dashboard_scores.json (données serveur, indépendantes d'OpenFront).
+    // Si ce bloc n'aboutit pas non plus, il affichera « — » (et non « 0 »,
+    // valeur fallacieuse qui laissait croire à un joueur sans aucun point).
+    setText("stat-alltime-value", "…");
+    setText("stat-alltime-sub", "");
   }
 
   // NOTE: /public/player/{id} no longer returns a `games` array.
   // Recent games come from the separate /games endpoint (recentGamesPromise).
   const games = [];
-  const stats = computeStats(games, playerData.stats || {});
+  const stats = computeStats(games, playerData?.stats || {});
 
   // ── Render reward card + career stats + start games loading IMMEDIATELY ──
   // Don't wait for dashboard_scores, ELO, or recent games — those are secondary.
@@ -853,8 +1356,10 @@ async function loadStats(publicId) {
   if (isOwnProfile) {
     renderRewardCodeCard(publicId);
   }
-  renderCareerStats(playerData.stats || {}, publicId);
-  loadAllGamesForStats(publicId);
+  // v5.15 : playerData peut être null (API OpenFront injoignable) — le cockpit
+  // doit quand même démarrer (dossier pré-calculé, sinon fallback live).
+  renderCareerStats(playerData?.stats || {}, publicId);
+  loadAllGamesForStats(publicId, playerData);
 
   // ── Week stats from dashboard_scores.json (official data) — non-blocking ──
   (async () => {
@@ -938,7 +1443,11 @@ async function loadStats(publicId) {
     // All-time score
     const allTimeScore = stats.wins * 4 + (stats.total - stats.wins);
 
-    setText("stat-alltime-value", new Intl.NumberFormat(LOCALE()).format(weekTotalPoints || allTimeScore));
+    // v5.15.1 : si ni les points officiels ni l'arbre de carrière ne sont
+    // disponibles (API OpenFront injoignable + joueur absent de
+    // dashboard_scores), on affiche « — » au lieu d'un fallacieux « 0 ».
+    const bestScore = weekTotalPoints || allTimeScore;
+    setText("stat-alltime-value", bestScore > 0 ? new Intl.NumberFormat(LOCALE()).format(bestScore) : (playerData ? new Intl.NumberFormat(LOCALE()).format(allTimeScore) : "—"));
     setText("stat-alltime-sub", weekRank !== "—" ? T("pf.week_sub", "Semaine : {pts} pts · #{rank}", { pts: new Intl.NumberFormat(LOCALE()).format(weekScore), rank: weekRank }) : "");
 
     // Chip hebdo (Niv/temps/série sont posés par renderPrecomputedStats)
@@ -1022,12 +1531,16 @@ async function loadStats(publicId) {
     // Recent games — fetched from /public/player/{id}/games (separate endpoint).
     // Used only for the weekly chart now — the full recent games list
     // is rendered by renderPrecomputedStats via loadAllGamesForStats().
+    // v5.15.1 : renderWeeklyChart() est appelé dans TOUS les cas (succès OU
+    // échec de la récupération des parties) — avant, un échec OpenFront
+    // (503 « Offline », proxies injoignables) laissait le graphique hebdo
+    // absent ou effacé par un rendu ultérieur du cockpit sans seconde passe.
     try {
       await recentGamesPromise;
-      renderWeeklyChart();
     } catch (e) {
       console.error("[profile] recent games fetch failed:", e);
     }
+    renderWeeklyChart();
   })();
 }
 
@@ -1418,8 +1931,26 @@ window.confirmOwnershipVerification = async () => {
       if (btn) { btn.disabled = false; btn.textContent = original; }
       return;
     }
-    // Verified → save to Firestore
-    await saveUserProfile(_ownershipUsername, _ownershipPublicId);
+    // Verified → save to Firestore (v5.13 : le code part au serveur, qui
+    // revérifie lui-même la propriété avant de poser le badge définitif)
+    await saveUserProfile(_ownershipUsername, _ownershipPublicId, _ownershipCode);
+    // Vérification serveur immédiate (si l'inline du save n'a pas suffi —
+    // ex : API OpenFront lente à cet instant). Non bloquant : en cas d'échec
+    // l'utilisateur garde son profil lié et pourra revérifier plus tard.
+    try {
+      const res = await fetch("/api/profile.php", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verify", publicId: _ownershipPublicId, code: _ownershipCode }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok && j.ok) {
+        if (currentProfile) currentProfile.verified = true;
+      } else if (j?.error && j.error !== "verify_failed") {
+        console.warn("[ownership] Server verify soft-fail:", j.error);
+      }
+    } catch (e) { /* non bloquant */ }
     // Liaison réussie → le défi persistant n'a plus de raison d'exister.
     clearOwnershipChallenge();
   } catch (e) {
@@ -1447,10 +1978,13 @@ window.cancelOwnershipVerification = () => {
   if (s2) s2.style.display = "none";
 };
 
-async function saveUserProfile(username, publicId) {
+async function saveUserProfile(username, publicId, verifyCode) {
   if (!currentUser) throw new Error("No authenticated user");
   try {
     const existing = currentProfile || {};
+    /* v5.13 — le code du défi accompagne la liaison : le serveur scanne
+     * lui-même les parties récentes du publicId (source de vérité du badge
+     * « vérifié »). verified reste affiché côté client pour la réactivité. */
     await setDoc(doc(db, "users", currentUser.uid), {
       username,
       publicId,
@@ -1459,6 +1993,7 @@ async function saveUserProfile(username, publicId) {
       verifiedAt: new Date().toISOString(),
       createdAt: existing.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      ...(verifyCode ? { verifyCode } : {}),
     }, { merge: true });
 
     currentProfile = { ...(currentProfile || {}), username, publicId, verified: true };
@@ -1502,6 +2037,59 @@ async function saveUserProfile(username, publicId) {
     throw e;
   }
 }
+
+/* ═══════ v5.14 — Liaison instantanée par Identity Token OpenFront ═══════
+ * Le joueur génère un token sur openfront.io (Paramètres du compte →
+ * « Lier à un site tiers » → thefronthub.com) et le colle ici. Le serveur
+ * le valide auprès de l'API officielle : liaison du Public ID + badge
+ * « vérifié » immédiats, sans jouer de partie. */
+window.linkWithIdentityToken = async () => {
+  if (!currentUser) {
+    showToast(T("pf.login_required", "Connecte-toi d'abord avec Discord."), "warning");
+    return;
+  }
+  const input = document.getElementById("setup-identity-token");
+  const btn = document.getElementById("link-token-btn");
+  const token = String(input?.value || "").trim();
+  if (!token) {
+    showToast(T("pf.token_required", "Colle d'abord le token généré sur OpenFront."), "error");
+    return;
+  }
+  const original = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = T("pf.token_linking", "Vérification du token…"); }
+  try {
+    const res = await fetch("/api/profile.php", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "link_token", token }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j?.ok) {
+      showToast(
+        j?.message || T("pf.token_failed", "Liaison impossible — régénère un token sur OpenFront et réessaie."),
+        "error"
+      );
+      return;
+    }
+    const chosenUsername =
+      (document.getElementById("setup-username")?.value || "").trim() ||
+      currentProfile?.username ||
+      currentUser.displayName ||
+      (currentUser.email || "").split("@")[0] ||
+      "joueur" + (Date.now() % 10000);
+    // Le serveur a déjà lié + vérifié : on synchronise le pseudo hub + Firestore.
+    await saveUserProfile(chosenUsername, j.publicId, null);
+    if (input) input.value = "";
+    if (window.TFHVerified && j.publicId) window.TFHVerified.markVerified(j.publicId);
+    showToast(T("pf.token_ok", "Compte OpenFront lié et vérifié instantanément !"), "success");
+  } catch (e) {
+    console.error("[profile] linkWithIdentityToken:", e);
+    showToast(T("pf.token_failed", "Liaison impossible — régénère un token sur OpenFront et réessaie."), "error");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = original; }
+  }
+};
 
 /* ── Sidebar / auth modal handlers ── */
 
@@ -2329,9 +2917,10 @@ function renderCareerStats(statsTree, publicId) {
    ALL GAMES PAGINATION (for playtime + map stats)
    ════════════════════════════════════════════════════════════════ */
 
-async function loadAllGamesForStats(publicId) {
+async function loadAllGamesForStats(publicId, playerData) {
   if (_allGamesLoading) return;
   _allGamesLoading = true;
+  const runSeq = ++_statsRunSeq;
 
   const mount = document.getElementById("career-stats-section");
   if (mount) mount.innerHTML = `<div class="pf2-loading"><div class="pf2-loading-spinner"></div><span>${T("pf.dossier_loading", "Chargement du dossier…")}</span></div>`;
@@ -2343,6 +2932,7 @@ async function loadAllGamesForStats(publicId) {
     if (statsRes.ok) {
       const stats = await statsRes.json();
       if (stats && stats.totalGames != null) {
+        if (runSeq !== _statsRunSeq) { _allGamesLoading = false; return; }
         if (mount) mount.innerHTML = "";
         renderPrecomputedStats(stats, mount);
         _allGamesLoading = false;
@@ -2353,23 +2943,377 @@ async function loadAllGamesForStats(publicId) {
     console.warn("[profile] Could not load pre-computed stats file:", e.message);
   }
 
-  // Fallback: no pre-computed stats available. The CI pipeline generates them
-  // within a few minutes of the first sync. Show a friendly message instead of
-  // duplicating the heavy compute logic client-side (the cockpit relies on
-  // pre-computed fields: level, nextMilestones, sparkline7d, etc.).
+  // ── Fallback v5.15 : calcul LIVE côté navigateur ──
+  // Le dossier pré-calculé n'existe que pour les joueurs suivis par le
+  // pipeline CI (sync-players.json). Pour tout autre joueur on construit
+  // maintenant un dossier de substitution depuis l'API OpenFront :
+  //  - totaux de carrière EXACTS (arbre stats de /public/player/{id}) ;
+  //  - échantillon des ~100 dernières parties (cartes, activité, séries…).
+  // Avant : message « Stats en cours de calcul » mensonger (le dossier ne
+  // serait JAMAIS calculé pour un joueur non suivi) → profil vide = juste
+  // un nom. Désormais chaque profil a un vrai cockpit.
+  try {
+    const live = await buildLiveStatsFromApi(publicId, playerData || null);
+    if (runSeq !== _statsRunSeq) { _allGamesLoading = false; return; }
+    if (live) {
+      if (mount) mount.innerHTML = "";
+      renderPrecomputedStats(live, mount);
+      _allGamesLoading = false;
+      return;
+    }
+  } catch (e) {
+    console.warn("[profile] Live stats fallback failed:", e.message);
+  }
+
+  // Dernier recours : API OpenFront injoignable elle aussi.
+  if (runSeq !== _statsRunSeq) { _allGamesLoading = false; return; }
   if (mount) {
     mount.innerHTML = `
       <div class="pf2-fallback">
         <div class="pf2-fallback-icon">
           <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         </div>
-        <h3>${T("pf.fallback_title", "Stats en cours de calcul")}</h3>
-        <p>${T("pf.fallback_sub", "Notre serveur prépare ton dossier. Recharge la page dans 1-2 minutes.")}</p>
-        <button type="button" class="pf2-fallback-btn" onclick="location.reload()">${T("pf.reload", "Recharger")}</button>
+        <h3>${T("pf.fallback_title", "Stats momentanément indisponibles")}</h3>
+        <p>${T("pf.fallback_sub", "Impossible de contacter le serveur de statistiques. Recharge la page dans quelques instants.")}</p>
+        <button type="button" class="pf2-fallback-btn" id="pf2-stats-retry">${T("pf.stats_retry", "Réessayer")}</button>
       </div>
     `;
+    // v5.15.1 : bouton « Réessayer » réel (relance dossier pré-calculé +
+    // fallback live) — plus besoin de recharger toute la page, et le hero/
+    // l'élo/la vitrine déjà chargés restent en place.
+    document.getElementById("pf2-stats-retry")?.addEventListener("click", () => {
+      _allGamesLoading = false;
+      loadAllGamesForStats(publicId, null);
+    });
   }
   _allGamesLoading = false;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   v5.15 — DOSSIER DE SUBSTITUTION (profils NON suivis par le CI)
+   Construit un objet compatible renderPrecomputedStats depuis :
+   1. /public/player/{id}          → arbre de carrière (totaux EXACTS)
+   2. /public/player/{id}/games    → échantillon (~100 parties récentes)
+   ════════════════════════════════════════════════════════════════ */
+
+/** Classification d'une partie API → clé de catégorie du cockpit. */
+function classifyLiveGame(g) {
+  return classifyGame(g); // playtime-stats.js — même logique que le pipeline CI
+}
+
+/**
+ * Agrège l'arbre de carrière OpenFront ({Private,Public,Singleplayer,Ranked})
+ * en totaux exacts par catégorie de cockpit. `recent` est ignoré (fenêtre
+ * courte — déjà inclus dans les feuilles carrière).
+ * Mode FFA/HvN → côté casual ; Team → côté team ; Ranked/1v1 → ffaRanked ;
+ * Ranked/2v2 → teamRanked. Private/Singleplayer comptent en casual.
+ */
+function walkCareerTree(statsTree) {
+  const cats = {
+    ffaCasual: { wins: 0, losses: 0, total: 0 },
+    ffaRanked: { wins: 0, losses: 0, total: 0 },
+    teamCasual: { wins: 0, losses: 0, total: 0 },
+    teamRanked: { wins: 0, losses: 0, total: 0 },
+  };
+  if (!statsTree || typeof statsTree !== "object") return cats;
+  for (const topKey of Object.keys(statsTree)) {
+    if (topKey === "recent") continue; // agrégats fenêtre courte — JAMAIS sommés
+    const top = statsTree[topKey];
+    if (!top || typeof top !== "object") continue;
+    const isRankedTop = topKey === "Ranked";
+    for (const modeKey of Object.keys(top)) {
+      const mode = top[modeKey];
+      if (!mode || typeof mode !== "object") continue;
+      const isTeamMode = modeKey === "Team" || /^\d+v\d+$/i.test(modeKey);
+      for (const diffKey of Object.keys(mode)) {
+        const leaf = mode[diffKey];
+        if (!leaf || typeof leaf !== "object") continue;
+        if (leaf.total == null && leaf.losses == null) continue; // pas une feuille
+        const w = parseInt(leaf.wins, 10) || 0;
+        const l = parseInt(leaf.losses, 10) || (parseInt(leaf.total, 10) || 0) - w;
+        let bucket;
+        if (isRankedTop) bucket = modeKey === "2v2" ? "teamRanked" : "ffaRanked";
+        else bucket = isTeamMode ? "teamCasual" : "ffaCasual";
+        cats[bucket].wins += w;
+        cats[bucket].losses += l;
+        cats[bucket].total += w + l;
+      }
+    }
+  }
+  return cats;
+}
+
+/** Échantillon paginé des dernières parties (cursor API OpenFront).
+ *  Une page en échec interrompt la pagination — on garde ce qui est déjà
+ *  collecté (les totaux carrière, eux, restent exacts via l'arbre). */
+async function fetchGamesSample(publicId, maxPages = 10) {
+  const all = [];
+  let cursor = null;
+  for (let page = 0; page < maxPages; page++) {
+    const url = `/public/player/${encodeURIComponent(publicId)}/games` +
+      (cursor ? `?cursor=${encodeURIComponent(cursor)}` : "");
+    let data;
+    try {
+      data = await fetchOpenFront(url);
+    } catch (e) {
+      if (all.length === 0) throw e; // 1re page KO → l'appelant décidera
+      break; // pages suivantes KO → échantillon partiel suffisant
+    }
+    const results = Array.isArray(data?.results) ? data.results : [];
+    all.push(...results);
+    cursor = data?.nextCursor;
+    if (!cursor || results.length === 0) break;
+  }
+  return all;
+}
+
+/**
+ * Dossier de substitution pour un profil non suivi. Retourne un objet au
+ * format du fichier player-stats (renderPrecomputedStats) marqué
+ * `isSample:true` — totaux de carrière exacts (arbre), détail par carte /
+ * activité / séries issus de l'échantillon récent (annotés comme tels).
+ */
+async function buildLiveStatsFromApi(publicId, playerData) {
+  let tree = playerData?.stats || null;
+  if (!tree) {
+    const data = await fetchOpenFront(`/public/player/${encodeURIComponent(publicId)}`);
+    tree = data?.stats || null;
+  }
+  if (!tree) return null;
+
+  // Échantillon de parties — non bloquant en cas d'échec (totaux restent exacts).
+  let sample = [];
+  try {
+    sample = await fetchGamesSample(publicId, 10);
+  } catch (e) {
+    console.warn("[profile] games sample failed:", e.message);
+  }
+
+  const cats = walkCareerTree(tree);
+  const totalWins = cats.ffaCasual.wins + cats.ffaRanked.wins + cats.teamCasual.wins + cats.teamRanked.wins;
+  const totalGames = cats.ffaCasual.total + cats.ffaRanked.total + cats.teamCasual.total + cats.teamRanked.total;
+  if (totalGames <= 0 && sample.length === 0) return null;
+
+  // Durées + répartition temporelle depuis l'échantillon
+  let sampleSec = 0, sampleCount = 0;
+  const catSec = { ffaCasual: 0, ffaRanked: 0, teamCasual: 0, teamRanked: 0 };
+  const catGames = { ffaCasual: 0, ffaRanked: 0, teamCasual: 0, teamRanked: 0 };
+  const mapAgg = new Map(); // map → {count,wins,losses,sec,lastPlayed}
+  const byWeekday = [0, 0, 0, 0, 0, 0, 0]; // Lun-first (même convention que compute-player-stats)
+  const byDay = new Map(); // JJ/MM/AAAA (Europe/Paris) → parties
+  // Même convention horaire que le pipeline CI (Europe/Paris) pour que les
+  // panneaux activité/sparkline soient identiques entre dossier CI et dossier live.
+  const WD_MAP = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+  let wdFmt, dayFmt;
+  try {
+    wdFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", weekday: "short" });
+    dayFmt = new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", year: "numeric" });
+  } catch (e) {
+    wdFmt = null; dayFmt = null;
+  }
+  let longestSec = 0;
+  for (const g of sample) {
+    const dur = gameDurationSec(g);
+    const cat = classifyLiveGame(g);
+    sampleSec += dur; sampleCount++;
+    catSec[cat] += dur; catGames[cat]++;
+    if (dur > longestSec) longestSec = dur;
+    const mapName = String(g.map || "").trim();
+    if (mapName) {
+      let m = mapAgg.get(mapName);
+      if (!m) { m = { count: 0, wins: 0, losses: 0, sec: 0, lastPlayed: 0 }; mapAgg.set(mapName, m); }
+      m.count++;
+      if (g.result === "victory") m.wins++;
+      else if (g.result === "defeat") m.losses++;
+      m.sec += dur;
+      const ts = g.start ? new Date(g.start).getTime() : 0;
+      if (ts > m.lastPlayed) m.lastPlayed = ts;
+    }
+    if (g.start) {
+      const ts = new Date(g.start).getTime();
+      if (wdFmt && dayFmt) {
+        const wd = WD_MAP[wdFmt.format(ts)];
+        if (wd != null) byWeekday[wd]++;
+        const key = dayFmt.format(ts);
+        byDay.set(key, (byDay.get(key) || 0) + 1);
+      }
+    }
+  }
+  const avgGameSec = sampleCount > 0 ? sampleSec / sampleCount : 0;
+
+  // Playtime estimé : moyenne échantillon × parties de carrière (annoté ≈)
+  const estTotalSec = Math.round(avgGameSec * totalGames);
+  const playtime = {
+    totalSec: estTotalSec,
+    avgGameSec: Math.round(avgGameSec * 10) / 10,
+    longestSec,
+    shortestSec: null,
+    byCategory: {},
+  };
+  for (const key of Object.keys(catSec)) {
+    const share = sampleSec > 0 ? catSec[key] / sampleSec : 0;
+    playtime.byCategory[key] = {
+      games: cats[key].total,
+      playtimeSec: Math.round(estTotalSec * share),
+      wins: cats[key].wins,
+    };
+  }
+
+  // Stats par carte (échantillon récent)
+  const maps = [...mapAgg.entries()].map(([map, m]) => {
+    const decided = m.wins + m.losses;
+    const wr = decided > 0 ? m.wins / decided : 0;
+    return {
+      map, count: m.count, wins: m.wins, losses: m.losses,
+      playtimeSec: m.sec,
+      avgDuration: m.count > 0 ? m.sec / m.count : 0,
+      winRate: wr,
+      lastPlayed: m.lastPlayed ? new Date(m.lastPlayed).toISOString() : null,
+      formatted: {
+        winRate: formatPct(wr),
+        avgDuration: formatDuration(m.count > 0 ? m.sec / m.count : 0),
+        lastPlayed: m.lastPlayed ? formatDateShort(new Date(m.lastPlayed).toISOString()) : "—",
+      },
+    };
+  }).sort((a, b) => b.count - a.count);
+
+  // Séries : série courante depuis la partie la plus récente ; record = max
+  // observé dans l'échantillon (approximation honnête, annotée).
+  let current = 0, best = 0, run = 0;
+  for (const g of sample) {
+    if (g.result === "victory") { run++; if (run > best) best = run; }
+    else if (g.result === "defeat") { run = 0; }
+  }
+  for (const g of sample) {
+    if (g.result === "victory") current++;
+    else break;
+  }
+
+  // Sparkline 7 derniers jours (échantillon — exact si le joueur est actif)
+  const sparkline7d = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const key = dayFmt ? dayFmt.format(d.getTime()) : "__";
+    sparkline7d.push(byDay.get(key) || 0);
+  }
+
+  const points = totalWins * 4 + (totalGames - totalWins);
+  const fmtNum = (n) => new Intl.NumberFormat(LOCALE()).format(Number(n) || 0);
+  const recentGames = sample.slice(0, 20).map((g) => ({ ...g, category: classifyLiveGame(g) }));
+
+  return {
+    publicId,
+    username: playerData?.username || null,
+    computedAt: new Date().toISOString(),
+    lastSyncedAt: new Date().toISOString(),
+    isSample: true,
+    sampleSize: sample.length,
+    totalGames,
+    careerWins: {
+      ffaCasual: cats.ffaCasual.wins, ffaRanked: cats.ffaRanked.wins,
+      teamCasual: cats.teamCasual.wins, teamRanked: cats.teamRanked.wins,
+    },
+    totalWins,
+    points,
+    level: Math.floor(points / 100),
+    levelProgress: points % 100,
+    levelNextAt: (Math.floor(points / 100) + 1) * 100,
+    formatted: {
+      points: fmtNum(points),
+      totalWins: fmtNum(totalWins),
+      totalGames: fmtNum(totalGames),
+      totalPlaytime: "≈ " + formatDuration(estTotalSec),
+      totalPlaytimeCompact: "≈ " + formatDurationCompact(estTotalSec),
+      avgGameDuration: sampleCount > 0 ? formatDuration(avgGameSec) : "—",
+      longestGame: longestSec > 0 ? formatDuration(longestSec) : "—",
+      winrate: totalGames > 0 ? formatPct(totalWins / totalGames) : "—",
+    },
+    playtime,
+    results: { victory: totalWins, defeat: totalGames - totalWins },
+    maps,
+    activity: { byWeekday },
+    sparkline7d,
+    streaks: { current, best },
+    recentGames,
+  };
+}
+
+/** Helpers de formatage — réutilise playtime-stats.js (déjà importé).
+ *  formatDuration / formatDurationCompact / formatPct / gameDurationSec. */
+
+/* ── v5.15 — Rendu d'un MOTIF (pattern) OpenFront sur canvas ──
+   Portage fidèle de PatternDecoder.ts / PatternPreview.ts (OpenFrontIO) :
+   base64url → en-tête 3 octets (version, scale+largeur, hauteur) puis
+   bitmap 1 bit/pixel — bit=0 → couleur primaire, bit=1 → secondaire.
+   Couleurs par défaut de l'aperçu officiel : #ffffff / #000000. */
+
+function decodePatternDataClient(b64) {
+  const s = String(b64 || "").replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(s + "=".repeat((4 - (s.length % 4)) % 4));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  if (bytes.length < 3 || bytes[0] !== 0) throw new Error("bad pattern");
+  const scale = bytes[1] & 0x07;
+  const width = (((bytes[2] & 0x03) << 5) | ((bytes[1] >> 3) & 0x1f)) + 2;
+  const height = ((bytes[2] >> 2) & 0x3f) + 2;
+  const expectedBytes = Math.ceil((width * height) / 8);
+  if (bytes.length - 3 < expectedBytes) throw new Error("pattern too short");
+  return { scale, width, height, bytes };
+}
+
+/** Peint le motif (mosaïque de tuiles) dans un canvas existant. Retourne bool. */
+function paintPatternToCanvas(canvas, patternData, cssSize) {
+  try {
+    const dec = decodePatternDataClient(patternData);
+    const dpr = Math.min(3, Math.max(1, Math.floor(window.devicePixelRatio || 1)));
+    const px = Math.max(1, Math.round(cssSize * dpr));
+    const tileW = dec.width << dec.scale;
+    const tileH = dec.height << dec.scale;
+    const cols = Math.max(1, Math.floor(px / tileW));
+    const rows = Math.max(1, Math.floor(px / tileH));
+    canvas.width = cols * tileW;
+    canvas.height = rows * tileH;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return false;
+    const img = ctx.createImageData(canvas.width, canvas.height);
+    const data = img.data;
+    let i = 0;
+    for (let y = 0; y < canvas.height; y++) {
+      for (let x = 0; x < canvas.width; x++) {
+        const px2 = (x >> dec.scale) % dec.width;
+        const py2 = (y >> dec.scale) % dec.height;
+        const idx = py2 * dec.width + px2;
+        const bit = (dec.bytes[3 + (idx >> 3)] >> (idx & 7)) & 1;
+        // bit=0 → primaire (#ffffff), bit=1 → secondaire (#000000)
+        const v = bit === 0 ? 255 : 0;
+        data[i++] = v; data[i++] = v; data[i++] = v; data[i++] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Peint le motif le plus récemment porté du joueur dans l'avatar du héros
+ * (sinon laisse l'initiale). Appelé après chaque rendu de vitrine.
+ */
+function paintAvatarFromCosmetics(cosmetics) {
+  const avatarEl = document.getElementById("profile-avatar-large");
+  if (!avatarEl || !Array.isArray(cosmetics)) return;
+  const pat = cosmetics.find((c) => String(c.category || "").toLowerCase() === "pattern" && c.patternData);
+  if (!pat) return;
+  const rect = avatarEl.getBoundingClientRect();
+  const cssSize = Math.max(48, Math.round(rect.width || 96));
+  const canvas = document.createElement("canvas");
+  canvas.className = "pf-sc-canvas pf-sc-avatar-pattern";
+  canvas.setAttribute("role", "img");
+  canvas.setAttribute("aria-label", T("pf.showcase_cat_pattern", "Motif"));
+  if (!paintPatternToCanvas(canvas, pat.patternData, cssSize)) return;
+  avatarEl.innerHTML = "";
+  avatarEl.appendChild(canvas);
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -2876,6 +3820,12 @@ function renderPrecomputedStats(stats, mount) {
   setText("stat-wins-sub", stats.streaks?.best ? T("pf.sub_best_streak", "Record série : {v}", { v: stats.streaks.best }) : "");
   setText("stat-winrate-sub", results.victory != null ? T("pf.sub_wl", "{w}V · {l}D", { w: fmt(results.victory), l: fmt(results.defeat || 0) }) : "");
   setText("stat-maps-sub", "");
+  // v5.15 : le score total est aussi alimenté par le dossier (pré-calculé ou
+  // live) — avant, seule loadStats (API OpenFront) le posait ; si l'API était
+  // en 503, la carte restait vide même avec un dossier complet.
+  if (stats.points != null) {
+    setText("stat-alltime-value", stats.formatted?.points || fmt(stats.points));
+  }
 
   // ─────────── Chips meta (niveau / temps de jeu / série) ───────────
   const metaEl = document.getElementById("cockpit-status-meta");
@@ -2894,11 +3844,18 @@ function renderPrecomputedStats(stats, mount) {
   }
 
   // ─────────── Badge de synchro ───────────
-  const syncedDate = stats.lastSyncedAt ? new Date(stats.lastSyncedAt) : null;
-  const syncedStr = syncedDate ? syncedDate.toLocaleString(LOCALE(), { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : T("pf.recently", "récemment");
+  // v5.15 : dossier LIVE (profil non suivi) → badge « échantillon » honnête
+  // au lieu du badge « synchronisé » réservé aux dossiers pré-calculés.
   const badge = document.createElement("div");
-  badge.className = "pf2-sync";
-  badge.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> ${T("pf.sync_badge", "Données synchronisées · {n} parties · MAJ {time}", { n: fmt(stats.totalGames), time: syncedStr })}`;
+  if (stats.isSample) {
+    badge.className = "pf2-sync pf2-sync-sample";
+    badge.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> ${T("pf.sample_badge", "Aperçu calculé en direct · {n} dernières parties · totaux de carrière exacts", { n: fmt(stats.sampleSize || 0) })}`;
+  } else {
+    badge.className = "pf2-sync";
+    const syncedDate = stats.lastSyncedAt ? new Date(stats.lastSyncedAt) : null;
+    const syncedStr = syncedDate ? syncedDate.toLocaleString(LOCALE(), { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : T("pf.recently", "récemment");
+    badge.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> ${T("pf.sync_badge", "Données synchronisées · {n} parties · MAJ {time}", { n: fmt(stats.totalGames), time: syncedStr })}`;
+  }
   mount.appendChild(badge);
 
   // ─────────── Panneau : Parties récentes ───────────
@@ -3232,4 +4189,6 @@ window._profileDebug = {
   renderPrecomputedStats,
   loadStats,
   renderWeeklyChart,
+  buildLiveStatsFromApi,
+  paintPatternToCanvas,
 };

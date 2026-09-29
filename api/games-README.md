@@ -1,9 +1,23 @@
 # Système « Parties & Pré-profils » TheFrontHub
 
 > Stockage **MySQL o2switch** de toutes les parties OpenFront (Public **et**
-> Private) depuis l'ère V34 (début : **2026-09-10 00h00 UTC** — v0.34.0-beta1),
-> avec roster complet lié par publicId, speedruns pré-calculés et
-> pré-profils agrégés par joueur.
+> Private) depuis le **maximum disponible dans l'API** (30 mai 2025, ère
+> v0.23-dev — naissance de l'API publique), avec roster complet lié par
+> publicId, speedruns pré-calculés et pré-profils agrégés par joueur.
+>
+> **v5.16 — Historique maximal + version des parties** :
+> • L'archive remonte à **mai 2025** (~3 M de parties pré-V34). L'ère pré-V34
+>   est ingérée « **liste d'abord** » (`scan_meta_range`, 1000 parties/requête,
+>   quelques heures) puis les détails (carte, roster, stats) suivent via
+>   `enrich_phase` (du plus récent au plus ancien, sur plusieurs semaines).
+> • **Version du jeu** : le champ `version` de l'API est une constante
+>   analytics (« v0.0.2 ») sans valeur. La vraie version est calculée
+>   localement (`api/of-version-map.php`, 284 tags GitHub OpenFrontIO) :
+>   match SHA exact du `gitCommit` du serveur, sinon dernier tag publié avant
+>   le début de partie (`v0.34.5`, `v0.33.12`, `v0.23-dev`…). Exposée par
+>   `game_row()` (routes recent/game/profile/speedruns/clan) et affichée sur
+>   game.html, l'historique des profils et les records de runs.
+> • Migration des ~240 k anciennes lignes : `vermig_phase` (lots de 20 k/tick).
 >
 > Périmètre v2 (2026-09-23) : Public + Private, parties gardées dès 1 joueur
 > (`min_players_to_keep`). Singleplayer exclu par défaut (80 000+/jour de

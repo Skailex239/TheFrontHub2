@@ -20,6 +20,22 @@ RewriteRule ^(scripts|src|tests|prisma|db|screenshots|public|cloudflare-worker|m
 RewriteRule ^(server|openfront-api|generate-code|detect-new-players|compute-player-stats|validate-sync|investigate-sync|backfill-teams|find-bug-games|check-game-detail|quantify-bug|test-extract-team|test-api|perf-test|build)\.js$ - [F,L]
 RewriteRule ^sync[a-z-]*\.js$ - [F,L]
 
+# ── 1ter. DEV — porte d'accès à code (gate.php) ──────────────────────────
+# Actif UNIQUEMENT sur dev.thefronthub.com : thefronthub.com (prod) reste
+# 100 % public, même si ce fichier y était un jour copié.
+# Sans session valide, tout passe par gate.php (pages statiques + /api/
+# inclus par PHP), sauf le gate lui-même et les endpoints webhook appelés
+# par GitHub (sans cookie de session).
+RewriteCond %{HTTP_HOST} ^dev\.thefronthub\.com$ [NC]
+RewriteCond %{REQUEST_URI} !^/gate\.php$
+RewriteCond %{REQUEST_URI} !^/_deploy\.php$
+RewriteCond %{REQUEST_URI} !^/_upload\.php$
+RewriteRule ^ /gate.php [L]
+
+# DEV : la config de la porte (secure/) n'est jamais servie en HTTP
+RewriteCond %{HTTP_HOST} ^dev\.thefronthub\.com$ [NC]
+RewriteRule ^secure(/|$) - [F,L]
+
 # ── 2. Page par défaut ──
 DirectoryIndex index.html
 

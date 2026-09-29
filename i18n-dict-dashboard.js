@@ -104,7 +104,11 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   "dash.toast_code_not_found": "Code non trouvé dans vos parties récentes. Jouez une partie avec le code dans votre pseudo, puis confirmez.",
   "dash.toast_verify_error": "Erreur lors de la vérification. Réessayez.",
   "dash.toast_profile_saved": "Profil vérifié et enregistré avec succès ! Redirection…",
-  "dash.toast_save_error": "Erreur lors de la sauvegarde du profil."
+  "dash.toast_save_error": "Erreur lors de la sauvegarde du profil.",
+  // ── v5.13 — Top de la semaine « tous les joueurs » ──
+  "dash.weekly_more": "Afficher plus de joueurs",
+  "dash.weekly_loading": "Chargement…",
+
 });
 window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en || {}, {
   "dash.preview_note": "Leaderboard preview (ranked top 100) — refreshing live…",
@@ -205,5 +209,13 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
   "dash.toast_code_not_found": "Code not found in your recent games. Play a game with the code in your username, then confirm.",
   "dash.toast_verify_error": "Verification failed. Please try again.",
   "dash.toast_profile_saved": "Profile verified and saved successfully! Redirecting…",
-  "dash.toast_save_error": "Failed to save your profile."
+  "dash.toast_save_error": "Failed to save your profile.",
+  // ── v5.13 — Weekly top (all players) ──
+  "dash.weekly_more": "Show more players",
+  "dash.weekly_loading": "Loading…",
+
+  // ── v5.13 — Weekly top (all players) ──
+  "dash.weekly_more": "Show more players",
+  "dash.weekly_loading": "Loading…",
+
 });
