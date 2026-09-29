@@ -313,6 +313,7 @@ case 'speedruns': {
             'durationS'   => $g['speedrun']['durationS'],
             'numPlayers'  => $g['numPlayers'],
             'difficulty'  => $g['difficulty'],
+            'version'     => $g['version'],
             'player'      => [
                 'publicId' => $g['winner']['publicId'] ?? null,
                 'username' => $g['winner']['username'] ?? null,

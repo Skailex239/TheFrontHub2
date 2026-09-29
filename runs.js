@@ -435,6 +435,7 @@ async function loadTopRuns() {
           pid: (r.player && r.player.publicId) || '',
           map: r.map,
           durationS: r.durationS,
+          version: r.version,
           difficulty: r.difficulty,
           players: r.numPlayers,
           ts: r.startedAt,
