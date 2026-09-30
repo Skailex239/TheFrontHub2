@@ -1023,6 +1023,42 @@
   background:var(--bg,#fff);color:var(--fg-muted,#71717a);cursor:pointer;z-index:1;
 }
 .lchat-tab-close:hover{color:var(--red,#ef4444);border-color:var(--red,#ef4444)}
+/* v5.20 — séparation « Parties du jour » + marqueur ma-partie */
+.lchat-tabs-sep{
+  display:inline-flex;align-items:center;flex-shrink:0;font-size:10px;font-weight:800;
+  text-transform:uppercase;letter-spacing:.06em;color:var(--fg-muted,#71717a);
+  padding:0 2px;align-self:center;
+}
+.lchat-tab-mine{
+  width:6px;height:6px;border-radius:50%;background:var(--accent,#ff6b00);flex-shrink:0;
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--accent,#ff6b00) 22%, transparent);
+}
+/* v5.20 — bandeau « joueurs de la partie » (roster API, inscrits en avant) */
+.lchat-players{
+  display:flex;flex-wrap:wrap;gap:4px;align-items:center;
+  padding:8px 12px;border-bottom:1px solid var(--border-subtle,#f0f0f1);
+  max-height:96px;overflow-y:auto;background:var(--bg,#fff);
+  scrollbar-width:thin;
+}
+.lchat-players::-webkit-scrollbar{width:6px}
+.lchat-players::-webkit-scrollbar-thumb{background:var(--border,#e4e4e7);border-radius:999px}
+.lchat-players-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-muted,#71717a);margin-right:2px}
+.lchat-players-title b{color:var(--fg,#18181b)}
+.lchat-players-hint{font-size:11.5px;color:var(--fg-muted,#71717a)}
+.lchat-player{
+  display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;
+  padding:2px 8px;border-radius:var(--radius-pill,999px);
+  border:1px solid var(--border,#e4e4e7);background:var(--bg-subtle,#fafafa);color:var(--fg,#18181b);
+  max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.lchat-player.is-member{border-color:color-mix(in srgb, var(--accent,#ff6b00) 45%, transparent);background:color-mix(in srgb, var(--accent,#ff6b00) 8%, var(--bg,#fff))}
+.lchat-player.is-you{border-color:var(--accent,#ff6b00);background:color-mix(in srgb, var(--accent,#ff6b00) 14%, var(--bg,#fff))}
+.lchat-player-badge{
+  font-style:normal;font-size:9px;font-weight:800;color:var(--accent,#ff6b00);
+  flex-shrink:0;line-height:1;
+}
+.lchat-player-badge.is-you{background:var(--accent,#ff6b00);color:#fff;padding:1px 5px;border-radius:999px;text-transform:uppercase;letter-spacing:.04em}
+.lchat-composer button:disabled{opacity:.45;cursor:not-allowed}
 .lchat-msgs{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:8px;background:var(--bg-subtle,#fafafa)}
 .lchat-msg{display:flex;gap:8px;align-items:flex-end;max-width:92%}
 .lchat-msg.is-mine{flex-direction:row-reverse;align-self:flex-end}

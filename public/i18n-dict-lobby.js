@@ -200,6 +200,21 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   "lobby.chat_placeholder": "Écris un message…",
   "lobby.chat_input_aria": "Ton message",
   "lobby.chat_send_aria": "Envoyer",
+  // v5.20 — salons « parties du jour » + joueurs de la partie
+  "lobby.chat_desc_game": "Salon des joueurs de cette partie — inscrits TheFrontHub mis en avant.",
+  "lobby.chat_started_ago": "lancée {ago}",
+  "lobby.chat_recent_label": "Parties du jour",
+  "lobby.chat_recent_title": "Dernières parties publiques lancées (24 h) — collectées automatiquement par le serveur",
+  "lobby.chat_mine_title": "Tu as joué dans cette partie",
+  "lobby.chat_players_title": "Joueurs",
+  "lobby.chat_players_loading": "Joueurs de la partie…",
+  "lobby.chat_players_none": "Liste des joueurs pas encore disponible — la partie est peut-être encore en cours.",
+  "lobby.chat_member_title": "Inscrit TheFrontHub",
+  "lobby.chat_you_badge": "toi",
+  "lobby.chat_not_in_game": "Ce salon est réservé aux joueurs de cette partie — relie ton compte OpenFront depuis ton profil pour être reconnu.",
+  "lobby.chat_blocked_placeholder": "Réservé aux joueurs de cette partie",
+  "lobby.chat_sys_game": "Salon de la partie — les joueurs inscrits TheFrontHub y sont mis en avant 💬",
+  "lobby.chat_sys_started": "Ta partie démarre — ce salon réunit ses joueurs (les inscrits TheFrontHub y sont mis en avant). Bonne chance ! 🎮",
 });
 window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en || {}, {
   // ── Page / topbar ──────────────────────────────────────────────────
@@ -399,4 +414,19 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
   "lobby.chat_placeholder": "Type a message…",
   "lobby.chat_input_aria": "Your message",
   "lobby.chat_send_aria": "Send",
+  // v5.20 — today's games rooms + game players
+  "lobby.chat_desc_game": "Room for this game's players — TheFrontHub members highlighted.",
+  "lobby.chat_started_ago": "launched {ago}",
+  "lobby.chat_recent_label": "Today's games",
+  "lobby.chat_recent_title": "Last public games launched (24 h) — collected automatically by the server",
+  "lobby.chat_mine_title": "You played in this game",
+  "lobby.chat_players_title": "Players",
+  "lobby.chat_players_loading": "Game players…",
+  "lobby.chat_players_none": "Player list not available yet — the game may still be running.",
+  "lobby.chat_member_title": "TheFrontHub member",
+  "lobby.chat_you_badge": "you",
+  "lobby.chat_not_in_game": "This room is reserved for the game's players — link your OpenFront account from your profile to be recognized.",
+  "lobby.chat_blocked_placeholder": "Reserved for this game's players",
+  "lobby.chat_sys_game": "Game room — TheFrontHub members are highlighted 💬",
+  "lobby.chat_sys_started": "Your game is starting — this room gathers its players (members highlighted). Good luck! 🎮",
 });

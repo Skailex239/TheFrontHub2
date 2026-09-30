@@ -1,24 +1,28 @@
 /**
- * lobby-chat.js — v5.19 — Chat communautaire du Lobby TheFrontHub.
+ * lobby-chat.js — v5.20 — Chat communautaire du Lobby TheFrontHub.
  *
  * Backend : api/lobby-chat.php (MySQL, polling ~3 s). ACCÈS RÉSERVÉ AUX
  * COMPTES (session Discord — « inscrits sur le site ») : le visiteur
  * déconnecté voit l'encart « Connecte-toi avec Discord ».
  *
  * Salons :
- *   - global     → #Général (tout le monde)
- *   - g<gameID>  → salon d'une partie. Ouvert :
- *     • manuellement via le bouton « Chat » de la topbar (à côté du titre
- *       Lobby — v5.19 : plus de bulle flottante) ou la bulle d'une carte ;
- *     • AUTOMATIQUEMENT quand une partie que le joueur a lancée démarre :
- *       lobby.js émet « tfh:lobby:my-game » au clic, lobby-live.js détecte
- *       le démarrage (pleine / compte à rebours / sortie de liste) et émet
- *       « tfh:lobby:my-game-started » → on ouvre le salon de la partie.
+ *   - global       → #Général (tous les inscrits).
+ *   - Parties du jour → v5.20 : les DERNIÈRES PARTIES PUBLIQUES LANCÉES
+ *     (fenêtre 24 h) sont listées automatiquement depuis la collecte
+ *     serveur (action=rooms → tfh_g_games, cron games-sync) — avec TOUS
+ *     leurs joueurs vus via l'API OpenFront (action=players → roster),
+ *     et la mise en avant des inscrits TheFrontHub (compte relié). Les
+ *     salons de partie que JE suis (bulle d'une carte / ma partie qui
+ *     démarre) restent suivis en local et sont fusionnés dans la liste.
+ *   - Écriture dans un salon de partie : réservée aux JOUEURS DE LA
+ *     PARTIE (roster API ∩ compte relié) — le serveur répond 403
+ *     not_in_game sinon ; #Général reste ouvert à tous les inscrits.
  *
- * UI : bouton « Chat » DANS la page (topbar), drawer latéral (desktop) /
- * bottom-sheet (mobile), onglets de salons avec badges non-lus, historique
- * 50 messages, polling 3 s panneau ouvert + 25 s en fond pour les badges.
- * Zéro dépendance, IIFE autonome.
+ * UI : bouton « Chat » DANS la page (topbar, à côté du titre Lobby — il
+ * n'existe QUE sur la page lobby), drawer latéral (desktop) / bottom-sheet
+ * (mobile), onglets de salons avec badges non-lus, bandeau joueurs du
+ * salon, historique 50 messages, polling 3 s panneau ouvert + 25 s en fond
+ * pour les badges. Zéro dépendance, IIFE autonome.
  */
 (function () {
   "use strict";
@@ -34,22 +38,29 @@
   const LS_LAST  = "tfh_lobbychat_last_v1";    // dernier salon actif
   const POLL_OPEN_MS = 3000;                   // panneau ouvert + visible
   const POLL_BG_MS   = 25000;                  // fond (badges non-lus)
-  const MAX_GAME_ROOMS = 8;
+  const MAX_GAME_ROOMS = 8;                    // salons LOCAUX suivis max
+  const ROOMS_REFRESH_MS = 90_000;             // rafraîchit « parties du jour »
 
   /* ── État ────────────────────────────────────────────────────────────── */
   const load = (k, fb) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? fb : v; } catch { return fb; } };
   const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* quota */ } };
 
   let me = null;                                // { name, avatar } si connecté
+  let linked = false;                           // compte OpenFront relié (public_id)
   let activeRoom = "global";
-  let gameRooms = load(LS_ROOMS, []);           // ["gAb12…", …]
+  let gameRooms = load(LS_ROOMS, []);           // salons LOCAUX suivis ["gAb12…", …]
+  let serverRooms = [];                         // v5.20 : parties du jour (serveur)
+  let playersCache = {};                        // room → { players, canPost, game, at }
   let since = {};                               // room → dernier id reçu
   let unread = {};                              // room → nb non lus
   let roomMeta = load("tfh_lobbychat_meta_v1", {}); // room → { map }
+  let canPostHere = true;                       // salon actif : droit d'écrire
   let pollTimer = null;
+  let roomsTimer = null;
   let bgTick = 0;
   let sending = false;
   let stickBottom = true;
+  const visitedRooms = new Set();   // salons de partie visités (badges fond)
 
   /* ── DOM ─────────────────────────────────────────────────────────────── */
   let drawer = null, headerBtn = null, els = {};
@@ -61,6 +72,8 @@
 
   function roomLabel(room) {
     if (room === "global") return T("lobby.chat_room_global", "#Général");
+    const sr = serverRooms.find((r) => r.id === room);
+    if (sr && sr.map) return sr.map;
     const meta = roomMeta[room];
     if (meta && meta.map) return meta.map;
     return "Partie " + String(room).replace(/^g/, "").slice(0, 8);
@@ -96,6 +109,19 @@
     return isNaN(d) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
 
+  /** « il y a … » depuis un horodatage UTC « YYYY-MM-DD HH:MM:SS » (MySQL). */
+  function agoSince(utcStamp) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(String(utcStamp || ""));
+    if (!m) return "";
+    const d = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    if (isNaN(d)) return "";
+    const s = Math.max(0, Math.round((Date.now() - d) / 1000));
+    if (s < 60) return T("lobby.ago_s", `${s} s`, { n: s });
+    if (s < 3600) { const n = Math.floor(s / 60); return T("lobby.ago_min", `${n} min`, { n }); }
+    const n = Math.floor(s / 3600);
+    return T("lobby.ago_h", `${n} h`, { n });
+  }
+
   function safeAvatar(url) {
     return /^https:\/\//.test(String(url || "")) ? String(url) : "";
   }
@@ -115,6 +141,49 @@
       const res = await fetch("api/me.php", { credentials: "same-origin", cache: "no-store" });
       me = res.ok ? ((await res.json()).user || null) : null;
     } catch { me = null; }
+  }
+
+  /* ── v5.20 : parties du jour (serveur) + joueurs d'un salon ───────── */
+
+  async function fetchRooms() {
+    if (!me) return;
+    try {
+      const r = await apiGet({ action: "rooms" });
+      if (r.status === 401) { me = null; renderAuthZone(); return; }
+      if (!r.data || !r.data.ok) return;
+      linked = !!r.data.linked;
+      serverRooms = Array.isArray(r.data.rooms) ? r.data.rooms : [];
+      // Les libellés serveur enrichissent aussi les salons locaux.
+      for (const sr of serverRooms) {
+        if (sr.map) roomMeta[sr.id] = { map: sr.map };
+      }
+      save("tfh_lobbychat_meta_v1", roomMeta);
+      renderTabs();
+      if (activeRoom !== "global") renderRoomPlayers();
+    } catch { /* réseau : on garde l'état courant */ }
+  }
+
+  async function fetchPlayers(room, force) {
+    if (!room || room === "global") return;
+    const c = playersCache[room];
+    if (!force && c && Date.now() - c.at < 60_000) { renderRoomPlayers(); return; }
+    try {
+      const r = await apiGet({ action: "players", room });
+      if (r.status === 401) return;
+      if (!r.data || !r.data.ok) return;
+      playersCache[room] = {
+        players: Array.isArray(r.data.players) ? r.data.players : [],
+        canPost: r.data.canPost !== false,
+        game: r.data.game || null,
+        at: Date.now(),
+      };
+      if (r.data.game && r.data.game.map) {
+        roomMeta[room] = { map: r.data.game.map };
+        save("tfh_lobbychat_meta_v1", roomMeta);
+      }
+      renderTabs();
+      if (room === activeRoom) renderRoomPlayers();
+    } catch { /* ignore */ }
   }
 
   async function loadHistory(room) {
@@ -179,6 +248,13 @@
       }
       const data = await res.json().catch(() => ({}));
       if (!data.ok) {
+        if (res.status === 403 && data.error === "not_in_game") {
+          // v5.20 : salon réservé aux joueurs de la partie (compte relié).
+          canPostHere = false;
+          renderRoomPlayers();
+          window.showToast?.(T("lobby.chat_not_in_game", "Ce salon est réservé aux joueurs de cette partie — relie ton compte OpenFront depuis ton profil pour être reconnu."), "warning", 6000);
+          return;
+        }
         if (res.status === 429) {
           window.showToast?.(T("lobby.chat_toast_slow", "Doucement ! Trop de messages d'un coup 🐢"), "warning", 4000);
         } else {
@@ -226,12 +302,20 @@
   }
 
   async function switchRoom(room) {
-    if (room !== "global") { rememberGameRoom(room); resolveGameMeta(String(room).slice(1)); }
+    if (room !== "global") {
+      visitedRooms.add(room);
+      // Salon SERVEUR (partie du jour) → pas besoin de suivi local.
+      if (!serverRooms.some((r) => r.id === room)) rememberGameRoom(room);
+      resolveGameMeta(String(room).slice(1));
+      fetchPlayers(room, false);
+    }
     activeRoom = room;
+    canPostHere = room === "global" ? true : (playersCache[room] ? playersCache[room].canPost !== false : true);
     save(LS_LAST, room);
     unread[room] = 0;
     renderTabs();
     renderRoomHeader();
+    renderRoomPlayers();
     els.msgs.innerHTML = `<div class="lchat-loading"><div class="spinner"></div></div>`;
     const r = await loadHistory(room);
     if (r && r.auth) renderAuthZone();
@@ -241,18 +325,71 @@
 
   function renderRoomHeader() {
     els.roomLabel.textContent = roomLabel(activeRoom);
-    els.roomDesc.textContent = activeRoom === "global"
-      ? T("lobby.chat_desc_global", "Le salon de toute la communauté TheFrontHub")
-      : T("lobby.chat_desc_game", "Le chat des inscrits qui lancent cette partie — discutez stratégie avant de commencer !");
+    if (activeRoom === "global") {
+      els.roomDesc.textContent = T("lobby.chat_desc_global", "Le salon de toute la communauté TheFrontHub");
+      return;
+    }
+    const sr = serverRooms.find((r) => r.id === activeRoom);
+    const when = sr && sr.startedAt ? agoSince(sr.startedAt) : "";
+    els.roomDesc.textContent =
+      T("lobby.chat_desc_game", "Salon des joueurs de cette partie — inscrits TheFrontHub mis en avant.") +
+      (when ? " · " + T("lobby.chat_started_ago", "lancée {ago}", { ago: when }) : "");
+  }
+
+  /** Bandeau « joueurs de la partie » (roster API, inscrits mis en avant). */
+  function renderRoomPlayers() {
+    if (!els.players) return;
+    if (activeRoom === "global") { els.players.hidden = true; els.players.innerHTML = ""; syncComposer(); return; }
+    els.players.hidden = false;
+    const cache = playersCache[activeRoom];
+    if (!cache) {
+      els.players.innerHTML = `<span class="lchat-players-hint">${esc(T("lobby.chat_players_loading", "Joueurs de la partie…"))}</span>`;
+      syncComposer();
+      return;
+    }
+    const ps = cache.players || [];
+    if (!ps.length) {
+      els.players.innerHTML = `<span class="lchat-players-hint">${esc(T("lobby.chat_players_none", "Liste des joueurs pas encore disponible — la partie est peut-être encore en cours."))}</span>`;
+      syncComposer();
+      return;
+    }
+    const chips = ps.map((p) => {
+      const cls = "lchat-player" + (p.member ? " is-member" : "") + (p.you ? " is-you" : "");
+      const badges =
+        (p.you ? `<em class="lchat-player-badge is-you">${esc(T("lobby.chat_you_badge", "toi"))}</em>` : "") +
+        (p.member ? `<em class="lchat-player-badge" title="${esc(T("lobby.chat_member_title", "Inscrit TheFrontHub"))}">★</em>` : "");
+      return `<span class="${cls}">${esc(p.name)}${badges}</span>`;
+    }).join("");
+    els.players.innerHTML =
+      `<span class="lchat-players-title">${esc(T("lobby.chat_players_title", "Joueurs"))} <b>${ps.length}</b></span>` + chips;
+    syncComposer();
+  }
+
+  /** Composer grisé si l'envoi est refusé dans ce salon (403 not_in_game). */
+  function syncComposer() {
+    if (!els.input || !els.sendBtn) return;
+    const blocked = activeRoom !== "global" && !!me && canPostHere === false;
+    els.input.disabled = blocked;
+    els.sendBtn.disabled = blocked || sending;
+    els.input.placeholder = blocked
+      ? T("lobby.chat_blocked_placeholder", "Réservé aux joueurs de cette partie")
+      : T("lobby.chat_placeholder", "Écris un message…");
   }
 
   function renderTabs() {
-    const tabs = [["global", roomLabel("global"), unread.global || 0, false]]
-      .concat(gameRooms.map((r) => [r, roomLabel(r), unread[r] || 0, true]));
-    els.tabs.innerHTML = tabs.map(([room, label, n, closable]) => `
+    // v5.20 : salons SERVEUR (parties du jour, « mine » en tête) + salons LOCAUX suivis.
+    const localRooms = gameRooms.filter((r) => !serverRooms.some((s) => s.id === r));
+    const srvSorted = serverRooms.slice().sort((a, b) => (b.mine ? 1 : 0) - (a.mine ? 1 : 0));
+    const tabs = [["global", roomLabel("global"), unread.global || 0, false, false]]
+      .concat(srvSorted.map((r) => [r.id, r.map || roomLabel(r.id), unread[r.id] || 0, false, !!r.mine]))
+      .concat(localRooms.map((r) => [r, roomLabel(r), unread[r] || 0, true, false]));
+    els.tabs.innerHTML = tabs.map(([room, label, n, closable, mineTag], i) => `
+      ${(i === 1) ? `<span class="lchat-tabs-sep" title="${esc(T("lobby.chat_recent_title", "Dernières parties publiques lancées (24 h)"))}">${esc(T("lobby.chat_recent_label", "Parties du jour"))}</span>` : ""}
       <span class="lchat-tab-wrap">
-        <button type="button" class="lchat-tab ${room === activeRoom ? "is-active" : ""}" data-room="${esc(room)}">
+        <button type="button" class="lchat-tab ${room === activeRoom ? "is-active" : ""} ${mineTag ? "is-mine" : ""}"
+                data-room="${esc(room)}" title="${esc(label)}">
           <span class="lchat-tab-label">${esc(label)}</span>
+          ${mineTag ? `<span class="lchat-tab-mine" title="${esc(T("lobby.chat_mine_title", "Tu as joué dans cette partie"))}" aria-hidden="true"></span>` : ""}
           ${n > 0 ? `<span class="lchat-tab-badge">${n > 99 ? "99+" : n}</span>` : ""}
         </button>
         ${closable ? `<button type="button" class="lchat-tab-close" data-close="${esc(room)}" aria-label="${esc(T("lobby.chat_close_room", "Fermer ce salon"))}">${svgClose}</button>` : ""}
@@ -317,9 +454,11 @@
   }
 
   function appendMessage(msg, isHistory) {
-    // remplace l'état loading si présent
+    // remplace l'état loading / marqueur « salon vide » si présents
     const loading = els.msgs.querySelector(".lchat-loading");
     if (loading) loading.remove();
+    const emptyHint = els.msgs.querySelector(".lchat-sys.is-empty");
+    if (emptyHint) emptyHint.remove();
     const nearBottom = els.msgs.scrollHeight - els.msgs.scrollTop - els.msgs.clientHeight < 80;
     els.msgs.appendChild(messageRow(msg, isHistory));
     // limite mémoire : 250 messages affichés max
@@ -333,12 +472,12 @@
       els.msgs.innerHTML = "";
       if (!msgs.length) {
         const empty = document.createElement("div");
-        empty.className = "lchat-sys";
+        empty.className = "lchat-sys is-empty";
         empty.textContent = T("lobby.chat_empty", "Aucun message pour l'instant — lance la conversation ! 💬");
         els.msgs.appendChild(empty);
       }
     } else {
-      const empty = els.msgs.querySelector(".lchat-sys");
+      const empty = els.msgs.querySelector(".lchat-sys.is-empty");
       if (empty) empty.remove();
     }
     for (const m of msgs) appendMessage(m, replace);
@@ -376,9 +515,13 @@
         pollRoom(activeRoom);
         bgTick = 0;
       } else {
-        // fond : badges non-lus, moins fréquent
+        // fond : badges non-lus, moins fréquent — #général + salons suivis
+        // + salons visités (plafonnés pour ne pas marteler l'API).
         if (++bgTick % 8 === 0) {
           const rooms = ["global", ...gameRooms];
+          for (const r of visitedRooms) {
+            if (r !== "global" && !rooms.includes(r) && rooms.length < 16) rooms.push(r);
+          }
           (async () => { for (const r of rooms) await pollRoom(r); })();
         }
       }
@@ -418,6 +561,7 @@
         <button type="button" class="lchat-close" aria-label="${esc(T("lobby.chat_close", "Fermer le chat"))}">${svgClose}</button>
       </header>
       <nav class="lchat-tabs" data-role="tabs" aria-label="${esc(T("lobby.chat_tabs_aria", "Salons"))}"></nav>
+      <div class="lchat-players" data-role="players" hidden></div>
       <div class="lchat-msgs" data-role="msgs" aria-live="polite"></div>
       <div class="lchat-login" data-role="login" hidden>
         <p data-role="login-text"></p>
@@ -437,6 +581,7 @@
 
     els = {
       tabs: drawer.querySelector("[data-role=tabs]"),
+      players: drawer.querySelector("[data-role=players]"),
       msgs: drawer.querySelector("[data-role=msgs]"),
       login: drawer.querySelector("[data-role=login]"),
       loginText: drawer.querySelector("[data-role=login-text]"),
@@ -475,7 +620,7 @@
     window.addEventListener("tfh:lobby:open-chat", (e) => {
       const gameId = e.detail && e.detail.gameId;
       if (!gameId) return;
-      openDrawer("g" + gameId, T("lobby.chat_sys_game", "Salon de la partie — les inscrits TheFrontHub qui la rejoignent arrivent ici 💬"));
+      openDrawer("g" + gameId, T("lobby.chat_sys_game", "Salon de la partie — les joueurs inscrits TheFrontHub y sont mis en avant 💬"));
     });
 
     // v5.19 — démarrage d'une partie que le joueur a lancée : le salon s'ouvre
@@ -490,7 +635,7 @@
         roomMeta["g" + gameId] = { map };
         save("tfh_lobbychat_meta_v1", roomMeta);
       }
-      openDrawer("g" + gameId, T("lobby.chat_sys_started", "Ta partie démarre — ce salon réunit les inscrits qui la rejoignent. Bonne chance ! 🎮"));
+      openDrawer("g" + gameId, T("lobby.chat_sys_started", "Ta partie démarre — ce salon réunit ses joueurs (les inscrits TheFrontHub y sont mis en avant). Bonne chance ! 🎮"));
     });
   }
 
@@ -504,6 +649,11 @@
     await switchRoom(gameRooms.includes(last) || last === "global" ? last : "global");
     startPolling();
     renderHeaderBadge();
+    // v5.20 : salons « parties du jour » — au chargement, puis régulièrement.
+    fetchRooms();
+    roomsTimer = setInterval(() => {
+      if (!document.hidden) fetchRooms();
+    }, ROOMS_REFRESH_MS);
   }
 
   if (document.readyState === "loading") {
