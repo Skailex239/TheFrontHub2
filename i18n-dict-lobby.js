@@ -40,7 +40,6 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   "lobby.scroll_right": "Défiler vers la droite",
 
   // ── Cartes ────────────────────────────────────────────────────────
-  "lobby.almost_full": "Presque pleine",
   "lobby.join": "Rejoindre",
   "lobby.fav_add_title": "Ajouter aux cartes favorites",
   "lobby.fav_add_aria": "Ajouter la carte aux favoris",
@@ -125,9 +124,21 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
 
   // ── v5.18 — Bandeau live (compteurs / modes / courbe) ─────────────
   "lobby.ll_aria": "Statistiques du lobby en direct",
-  "lobby.ll_players": "Joueurs en lobby",
-  "lobby.ll_games": "Parties ouvertes",
-  "lobby.ll_almost": "Presque pleines",
+  "lobby.maps_total_label": "Parties analysées",
+  "lobby.maps_title": "Stats des cartes",
+  "lobby.maps_sub": "Collecte en continu",
+  "lobby.maps_newest": "dernière partie {ago}",
+  "lobby.maps_period_all": "Toujours",
+  "lobby.maps_period_7d": "7 jours",
+  "lobby.maps_period_24h": "24 h",
+  "lobby.maps_range_aria": "Période des stats cartes",
+  "lobby.maps_loading": "Chargement des stats des cartes…",
+  "lobby.maps_empty": "Les stats arrivent avec les prochaines parties collectées…",
+  "lobby.maps_err": "Stats indisponibles pour le moment — nouvelle tentative bientôt.",
+  "lobby.ago_s": "{n} s",
+  "lobby.ago_min": "{n} min",
+  "lobby.ago_h": "{n} h",
+  "lobby.ago_d": "{n} j",
   "lobby.players_unit": "jrs",
   "lobby.ranked_short": "Classé",
   "lobby.curve_title": "Joueurs dans le lobby",
@@ -158,11 +169,16 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   "lobby.watch_on_toast": "OK ! Je te préviens dès que ce lobby est plein 🔔",
   "lobby.watch_off_toast": "Surveillance retirée",
 
+  // ── v5.19 — Suivi « ma partie » (chat auto au lancement) ─────────
+  "lobby.mygame_title": "Ta partie démarre ! 🎮",
+  "lobby.mygame_body": "Le chat de la partie est ouvert — les inscrits qui la rejoignent arrivent dans le salon.",
+  "lobby.mygame_track_toast": "Suivi activé — le chat de la partie s'ouvrira au lancement 💬",
+
   // ── v5.18 — Chat communautaire ────────────────────────────────────
   "lobby.chat_open_title": "Chat de la partie",
   "lobby.chat_open_aria": "Ouvrir le chat de cette partie",
   "lobby.chat_fab_aria": "Ouvrir le chat communautaire",
-  "lobby.chat_fab_title": "Chat communautaire",
+  "lobby.chat_header_label": "Chat",
   "lobby.chat_aria": "Chat communautaire TheFrontHub",
   "lobby.chat_title": "Chat",
   "lobby.chat_room_global": "#Général",
@@ -174,6 +190,7 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   "lobby.chat_empty": "Aucun message pour l'instant — lance la conversation ! 💬",
   "lobby.chat_unavailable": "Chat indisponible pour le moment — réessaie dans un instant.",
   "lobby.chat_sys_game": "Salon de la partie — les inscrits TheFrontHub qui la rejoignent arrivent ici 💬",
+  "lobby.chat_sys_started": "Ta partie démarre — ce salon réunit les inscrits qui la rejoignent. Bonne chance ! 🎮",
   "lobby.chat_login_text": "Le chat est réservé aux joueurs inscrits sur TheFrontHub. Connecte-toi avec Discord en 1 clic pour rejoindre la discussion !",
   "lobby.chat_login_btn": "Connexion Discord",
   "lobby.chat_toast_login": "Connecte-toi pour chatter",
@@ -222,7 +239,6 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
   "lobby.scroll_right": "Scroll right",
 
   // ── Cards ─────────────────────────────────────────────────────────
-  "lobby.almost_full": "Almost full",
   "lobby.join": "Join",
   "lobby.fav_add_title": "Add to favorite maps",
   "lobby.fav_add_aria": "Add map to favorites",
@@ -307,9 +323,21 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
 
   // ── v5.18 — Live strip (counters / modes / curve) ─────────────────
   "lobby.ll_aria": "Live lobby statistics",
-  "lobby.ll_players": "Players in lobby",
-  "lobby.ll_games": "Open games",
-  "lobby.ll_almost": "Almost full",
+  "lobby.maps_total_label": "Games analyzed",
+  "lobby.maps_title": "Map stats",
+  "lobby.maps_sub": "Continuous collection",
+  "lobby.maps_newest": "last game {ago}",
+  "lobby.maps_period_all": "All time",
+  "lobby.maps_period_7d": "7 days",
+  "lobby.maps_period_24h": "24h",
+  "lobby.maps_range_aria": "Map stats period",
+  "lobby.maps_loading": "Loading map stats…",
+  "lobby.maps_empty": "Stats will appear as games get collected…",
+  "lobby.maps_err": "Stats unavailable right now — retrying soon.",
+  "lobby.ago_s": "{n} s",
+  "lobby.ago_min": "{n} min",
+  "lobby.ago_h": "{n} h",
+  "lobby.ago_d": "{n} d",
   "lobby.players_unit": "pl",
   "lobby.ranked_short": "Ranked",
   "lobby.curve_title": "Players in lobby",
@@ -340,11 +368,16 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
   "lobby.watch_on_toast": "Got it! I'll ping you when this lobby fills up 🔔",
   "lobby.watch_off_toast": "Watch removed",
 
+  // ── v5.19 — My game tracking (auto chat on start) ─────────────────
+  "lobby.mygame_title": "Your game is starting! 🎮",
+  "lobby.mygame_body": "The game chat is open — registered players joining it are in the room.",
+  "lobby.mygame_track_toast": "Tracking on — the game chat will open when it starts 💬",
+
   // ── v5.18 — Community chat ────────────────────────────────────────
   "lobby.chat_open_title": "Game chat",
   "lobby.chat_open_aria": "Open this game's chat",
   "lobby.chat_fab_aria": "Open the community chat",
-  "lobby.chat_fab_title": "Community chat",
+  "lobby.chat_header_label": "Chat",
   "lobby.chat_aria": "TheFrontHub community chat",
   "lobby.chat_title": "Chat",
   "lobby.chat_room_global": "#General",
@@ -356,6 +389,7 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
   "lobby.chat_empty": "No messages yet — start the conversation! 💬",
   "lobby.chat_unavailable": "Chat unavailable right now — try again in a moment.",
   "lobby.chat_sys_game": "Game room — registered TheFrontHub players joining it will show up here 💬",
+  "lobby.chat_sys_started": "Your game is starting — this room gathers the registered players joining it. Good luck! 🎮",
   "lobby.chat_login_text": "The chat is reserved for registered TheFrontHub players. Sign in with Discord in 1 click to join the conversation!",
   "lobby.chat_login_btn": "Discord sign in",
   "lobby.chat_toast_login": "Sign in to chat",

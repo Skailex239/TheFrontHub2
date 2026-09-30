@@ -842,19 +842,46 @@ case 'maps': {
     header('Cache-Control: public, max-age=600');
     $scope = (string)($_GET['scope'] ?? 'speedrun');
     if ($scope === 'all') {
-        $st = $pdo->query('SELECT game_map, COUNT(*) AS games, AVG(duration_s) AS avg_duration,
-                MAX(num_players) AS max_players
-            FROM tfh_g_games WHERE game_map IS NOT NULL
-            GROUP BY game_map ORDER BY games DESC LIMIT 200');
+        /* v5.19 — stats de cartes (maps) alimentées par la collecte continue
+         * (cron games-sync) : les compteurs cumulent 24/7 côté serveur, donc
+         * un visiteur qui arrive voit TOUS les totaux accumulés, pas seulement
+         * ce qui s'est passé pendant sa visite.
+         *   &period=all|7d|24h  (défaut all)   fenêtre sur started_at
+         * Réponse enrichie : players (somme), share %, totalGames, newestGame
+         * (dernière partie collectée = preuve que la collecte tourne). */
+        $period = (string)($_GET['period'] ?? 'all');
+        $where = 'game_map IS NOT NULL';
+        if ($period === '24h')      $where .= ' AND started_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY';
+        elseif ($period === '7d')   $where .= ' AND started_at >= UTC_TIMESTAMP() - INTERVAL 7 DAY';
+        elseif ($period === '30d')  $where .= ' AND started_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY';
+        else                        $period = 'all';
+        $st = $pdo->query("SELECT game_map, COUNT(*) AS games, AVG(duration_s) AS avg_duration,
+                MAX(num_players) AS max_players, SUM(num_players) AS players
+            FROM tfh_g_games WHERE $where
+            GROUP BY game_map ORDER BY games DESC LIMIT 200");
         $maps = [];
+        $sumGames = 0;
         foreach ($st->fetchAll() as $m) {
+            $g = (int)$m['games'];
+            $sumGames += $g;
             $maps[] = [
-                'map' => (string)$m['game_map'], 'games' => (int)$m['games'],
+                'map' => (string)$m['game_map'], 'games' => $g,
                 'avgDurationS' => $m['avg_duration'] !== null ? (int)round((float)$m['avg_duration']) : null,
                 'maxPlayers' => $m['max_players'] !== null ? (int)$m['max_players'] : null,
+                'players' => $m['players'] !== null ? (int)$m['players'] : null,
             ];
         }
-        json_out(['ok' => true, 'scope' => 'all', 'maps' => $maps]);
+        /* parts calculées côté client par rapport à $sumGames (cartes listées) */
+        $tot = $pdo->query('SELECT COUNT(*) AS g, MAX(started_at) AS newest,
+                (SELECT COUNT(*) FROM tfh_g_games WHERE started_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY) AS g24,
+                (SELECT COUNT(*) FROM tfh_g_games WHERE started_at >= UTC_TIMESTAMP() - INTERVAL 7 DAY) AS g7
+            FROM tfh_g_games')->fetch();
+        json_out(['ok' => true, 'scope' => 'all', 'period' => $period, 'maps' => $maps,
+            'listedGames' => $sumGames,
+            'totalGames' => (int)$tot['g'],
+            'totalGames24h' => (int)$tot['g24'],
+            'totalGames7d' => (int)$tot['g7'],
+            'newestGame' => $tot['newest'] !== null ? (string)$tot['newest'] : null]);
     }
     $category = (string)($_GET['category'] ?? 'normal');
     if (!in_array($category, ['normal', 'compact'], true)) gfail(400, 'bad_category');

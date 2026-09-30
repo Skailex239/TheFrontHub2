@@ -959,7 +959,6 @@ function buildCard(game) {
       <span class="lobby-card-img-fallback">${esc(mapName.slice(0, 1).toUpperCase())}</span>
       <span class="lobby-card-shade" aria-hidden="true"></span>
       <span class="lobby-card-timer" data-role="timer"></span>
-      <span class="lobby-card-almost" data-role="almost" hidden>${esc(T("lobby.almost_full", "Presque pleine"))}</span>
       <span class="lobby-card-pills"></span>
       <span class="lobby-card-actions">
         <button type="button" class="lobby-card-chat" data-role="chat"
@@ -978,9 +977,7 @@ function buildCard(game) {
     <span class="lobby-card-body">
       <h3 class="lobby-card-map"></h3>
       <p class="lobby-card-mode"></p>
-      <span class="lobby-card-fill" aria-hidden="true"><span class="lobby-card-fill-bar" data-role="fill"></span></span>
       <span class="lobby-card-foot">
-        <span class="lobby-card-players" data-role="players"></span>
         <span class="lobby-card-cta" aria-hidden="true">${esc(T("lobby.join", "Rejoindre"))}
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
         </span>
@@ -993,7 +990,7 @@ function updateCard(card, game, opts) {
   const cfg = game.gameConfig || {};
   const mapName = cfg.gameMap || "?";
   const cap = Number(cfg.maxPlayers) || 0;
-  const nPlayers = Number(game.numClients) || 0;
+  const nPlayers = Number(game.numClients) || 0; // conservé pour l'état « pleine » (alertes) mais plus affiché
 
   if (opts.full) {
     const img = $(".lobby-card-media img", card);
@@ -1031,21 +1028,11 @@ function updateCard(card, game, opts) {
     card.classList.toggle("is-full", cap > 0 && nPlayers >= cap);
   }
 
-  // Barre de remplissage + badge « Presque pleine » (maj fréquente : les
-  // messages "counts" patchent numClients sans re-render complet)
-  const pct = cap > 0 ? Math.min(100, Math.round((nPlayers / cap) * 100)) : 0;
-  const fill = $("[data-role=fill]", card);
-  if (fill) fill.style.width = pct + "%";
-  const almost = cap > 0 && pct >= 80 && nPlayers < cap;
-  card.classList.toggle("is-almost-full", almost);
-  const almostEl = $("[data-role=almost]", card);
-  if (almostEl) almostEl.hidden = !almost;
+  // v5.19 : barre de remplissage, badge « Presque pleine » et compteur
+  // joueurs retirés des cartes (inutiles selon le propriétaire). L'état
+  // interne (numClients/maxPlayers) reste ingéré pour les alertes.
 
-  // Compteur joueurs + compte à rebours (maj fréquente)
-  const players = `${nPlayers}${cap ? "/" + cap : ""}`;
-  const pEl = $("[data-role=players]", card);
-  if (pEl && pEl.textContent !== players) pEl.textContent = players;
-
+  // Compte à rebours (maj fréquente)
   const tEl = $("[data-role=timer]", card);
   const txt = countdownText(Number(game.startsAt) || 0, serverNow());
   if (tEl) {
@@ -1334,7 +1321,6 @@ function renderHero() {
       </span>
       <span class="lobby-banner-name">${esc(mapDisplayName(mapName))}</span>
       <span class="lobby-banner-mode">${esc(bannerMode)}</span>
-      <span class="lobby-banner-players" data-role="hero-players"></span>
       <span class="lobby-card-timer" data-role="hero-timer"></span>
       <span class="lobby-banner-cta">${esc(T("lobby.join", "Rejoindre"))}
         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
@@ -1342,11 +1328,7 @@ function renderHero() {
     hero.setAttribute("aria-label", T("lobby.hero_aria", `Rejoindre la prochaine partie : ${mapDisplayName(mapName)}`, { map: mapDisplayName(mapName) }));
   }
 
-  // Mise à jour dynamique
-  const cap = Number(cfg.maxPlayers) || 0;
-  const players = `${Number(next.numClients) || 0}${cap ? "/" + cap : ""}`;
-  const pEl = $("[data-role=hero-players]", hero);
-  if (pEl && pEl.textContent !== players) pEl.textContent = players;
+  // Mise à jour dynamique (v5.19 : compteur joueurs du bandeau retiré)
   const tEl = $("[data-role=hero-timer]", hero);
   if (tEl) {
     const txt = countdownText(Number(next.startsAt) || 0, serverNow());
@@ -1387,16 +1369,17 @@ function renderStatus() {
   }
 }
 
-/** Injecte la pill d'état dans la topbar (une seule fois). */
+/** Injecte la pill d'état dans la topbar (une seule fois, sans écraser le
+ * bouton chat présent statiquement dans lobby.html — v5.19). */
 function ensureStatusBar() {
   const right = document.querySelector(".topbar-right");
   if (!right || document.getElementById("lobby-status")) return;
-  right.innerHTML = `
+  right.insertAdjacentHTML("afterbegin", `
     <span id="lobby-stats" class="lobby-stats"></span>
     <span id="lobby-status" class="lobby-status" title="${esc(T("lobby.status_connecting_title", "Connexion en cours"))}">
       <span class="lobby-status-dot"></span>
       <span id="lobby-status-label">${esc(T("lobby.status_connecting", "Connexion…"))}</span>
-    </span>`;
+    </span>`);
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -1581,13 +1564,19 @@ function boot() {
       return;
     }
     // Clic sur la CARTE elle-même = lancement de la partie (le lien s'ouvre
-    // dans un nouvel onglet) → ouvre le chat de la partie (v5.18 : « quand on
-    // lance une partie, un chat s'ouvre avec les gens de la partie »).
+    // dans un nouvel onglet). v5.19 : on RETIENT la partie — dès que le flux
+    // voit qu'elle démarre (pleine / compte à rebours écoulé / sortie de
+    // liste), lobby-live.js ouvre le chat du salon. Plus d'ouverture immédiate
+    // du drawer au clic (c'était « mal fait ») : le chat s'ouvre AU BON MOMENT.
     const card = e.target.closest(".lobby-card");
     if (card && card.dataset.gameId) {
-      window.dispatchEvent(new CustomEvent("tfh:lobby:open-chat", {
-        detail: { gameId: card.dataset.gameId },
+      window.dispatchEvent(new CustomEvent("tfh:lobby:my-game", {
+        detail: { gameId: card.dataset.gameId, map: card.dataset.mapName || "" },
       }));
+      window.showToast?.(
+        T("lobby.mygame_track_toast", "Suivi activé — le chat de la partie s'ouvrira au lancement 💬"),
+        "success", 4500, "bell"
+      );
     }
   });
 

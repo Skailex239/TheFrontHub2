@@ -25,7 +25,7 @@
 
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=94" as="style">
-<link rel="preload" href="lobby.css?v=19" as="style">
+<link rel="preload" href="lobby.css?v=20" as="style">
 <link rel="preload" href="dist/lobby-wire.min.js?v=7" as="script">
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
@@ -35,13 +35,13 @@
 <link rel="stylesheet" href="auth.css?v=21">
 <link rel="stylesheet" href="toast.css">
 <link rel="stylesheet" href="animations.css?v=6">
-<link rel="stylesheet" href="lobby.css?v=19">
+<link rel="stylesheet" href="lobby.css?v=20">
 <link rel="stylesheet" href="ads.css?v=2">
 <style>.skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}</style>
 <script type="module" src="dist/icons.min.js?v=10"></script>
 
 <!-- i18n : dict de page (synchrone, avant i18n.js) + moteur + sélecteur de langue -->
-<script src="dist/i18n-dict-lobby.min.js?v=4"></script>
+<script src="dist/i18n-dict-lobby.min.js?v=5"></script>
 <script src="dist/i18n-dict-widgets.min.js?v=3"></script>
 <script src="dist/i18n.min.js?v=8" defer></script>
 <script src="dist/lang-switcher.min.js?v=2" defer></script>
@@ -154,6 +154,15 @@
         <p id="topbar-subtitle" data-i18n="lobby.subtitle">Parties OpenFront en direct — cliquez sur une carte pour rejoindre</p>
       </div>
       <div class="topbar-right">
+        <!-- v5.19 : le chat vit ICI, dans la page, à côté du titre Lobby —
+             plus de bulle flottante (le widget support garde la sienne). -->
+        <button type="button" id="lobby-chat-toggle" class="lchat-header-btn" hidden
+                aria-haspopup="dialog" aria-expanded="false"
+                aria-label="Ouvrir le chat communautaire" data-i18n-aria="lobby.chat_fab_aria">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span class="lchat-header-label" data-i18n="lobby.chat_header_label">Chat</span>
+          <span class="lchat-header-badge" data-role="header-badge" hidden>0</span>
+        </button>
       </div>
     </header>
 
@@ -272,10 +281,10 @@
 <div id="toast-container"></div>
 
 <script src="dist/lobby-wire.min.js?v=7"></script>
-<script type="module" src="dist/lobby.min.js?v=15"></script>
-<!-- v5.18 : bandeau live (compteurs/courbe/stats/alertes) + chat communautaire -->
-<script src="dist/lobby-live.min.js?v=2" defer></script>
-<script src="dist/lobby-chat.min.js?v=2" defer></script>
+<script type="module" src="dist/lobby.min.js?v=16"></script>
+<!-- v5.18/19 : bandeau live (stats cartes/courbe/alertes) + chat communautaire (topbar) -->
+<script src="dist/lobby-live.min.js?v=3" defer></script>
+<script src="dist/lobby-chat.min.js?v=3" defer></script>
 <script type="module" src="dist/auth-ui.min.js?v=4"></script>
 <script src="dist/toast.min.js?v=2"></script>
 <script src="dist/lenis.min.js?v=7"></script>
@@ -284,7 +293,7 @@
   // Service Worker — offline + cache stale-while-revalidate
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=37').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=38').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>
