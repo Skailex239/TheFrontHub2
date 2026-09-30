@@ -236,7 +236,15 @@
   letter-spacing: -.02em; color: var(--fg); line-height: 1.2;
 }
 .pf2-id-name span { display: inline-block; }
-.pf2-id-verified { display: inline-flex; color: var(--accent); }
+.pf2-id-verified {
+  display: inline-flex;
+  /* v5.16.4 — même sceau doré que le badge vérifié du dashboard (.tfh-vbadge) */
+  color: #EFAF23;
+  vertical-align: -1px;
+  flex: none;
+}
+.pf2-id-verified:hover .tfh-vbadge-ic,
+.pf2-id-verified:focus-visible .tfh-vbadge-ic { color: #FFC94D; }
 .pf2-id-verified[hidden] { display: none; }
 .pf2-id-meta-row {
   display: flex; align-items: center; gap: 10px;
