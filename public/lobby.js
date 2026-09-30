@@ -88,7 +88,10 @@ let hostsRefreshInFlight = null;
 
 function legacyLobbyWsUrl() {
   const w = DIRECT_WORKERS[Math.floor(Math.random() * DIRECT_WORKERS.length)];
-  return `wss://${FORCED_HOST}/${w}/lobbies`;
+  // ?platform=web : même signature que le client officiel OpenFront
+  // (v5.17 : le challenge CF devant les hôtes de jeu filtre sur l'UA — un
+  // navigateur réel passe ; le paramètre aligne la requête sur le client jeu).
+  return `wss://${FORCED_HOST}/${w}/lobbies?platform=web`;
 }
 
 /** Récupère cluster.json v2 via le proxy CF → proxy Next → API directe. */
@@ -155,7 +158,7 @@ function pickLobbyWsUrl() {
   const host = dynamicHosts
     ? dynamicHosts[Math.floor(Math.random() * dynamicHosts.length)]
     : FORCED_HOST;
-  return `wss://${host}/${w}/lobbies`;
+  return `wss://${host}/${w}/lobbies?platform=web`;
 }
 
 const WS_OPEN_TIMEOUT = 12_000;      // délai max avant de passer au niveau suivant
