@@ -162,6 +162,17 @@ const WS_OPEN_TIMEOUT = 12_000;      // délai max avant de passer au niveau sui
 const WS_RECONNECT_BASE = 1_000;     // backoff exponentiel
 const WS_RECONNECT_MAX = 15_000;
 const HTTP_POLL_INTERVAL = 60_000;   // fallback : refresh 60 s
+
+// ── Mode dégradé « aperçu des dernières parties » (v5.16.7) ──────────────
+// Depuis la mise à jour OpenFront du 2026-09-30, Cloudflare challenge
+// l'upgrade WebSocket des hôtes de jeu (cf-mitigated: challenge) : ni la
+// page, ni le proxy worker, ni le sync serveur ne peuvent plus ouvrir le
+// flux lobbies. L'API HTTP /public/games (games terminées) reste,
+// elle, accessible — on l'affiche en attendant la réouverture du WS.
+const PROXY_HTTP_URL = "https://openfront-proxy.diofortnite3.workers.dev";
+const DEGRADED_WINDOW_MS = 2 * 60 * 60_000;   // fenêtre : 2 h de parties
+const DEGRADED_POLL_INTERVAL = 120_000;       // refresh aperçu : 2 min
+const DEGRADED_MAX_ITEMS = 24;
 const COUNTDOWN_TICK = 1_000;
 const MAX_CARDS_PER_ROW = 30;
 
@@ -347,6 +358,7 @@ const state = {
   favorites: new Set(),    // slugs des cartes favorites (api/favorites.php)
   knownIds: null,          // Set des ids du dernier snapshot (détection nouvelles parties)
   hydrated: false,         // true après le 1er snapshot (le toast favori ne s'arme qu'ensuite)
+  recentGames: [],         // mode dégradé : dernières parties terminées (/public/games)
 };
 
 /** Retrouve une partie par son id, toutes catégories confondues. */
@@ -502,6 +514,7 @@ function startWebSocket() {
     wsFailCount[level] = 0;
     state.connected = true;
     setSource(level);
+    stopDegradedMode();
     console.log(`[lobby] ✅ WebSocket ${level} connecté`);
     // Le serveur envoie immédiatement un snapshot "full" — rien à demander.
   };
@@ -572,6 +585,8 @@ function wsFailed(gen, level) {
 
 let httpTimer = null;
 let httpAbort = null;
+let degradedTimer = null;
+let degradedInFlight = false;
 
 async function pollFallbackJson() {
   try {
@@ -590,16 +605,23 @@ async function pollFallbackJson() {
       });
       state.connected = true;
       setSource("fallback");
+      // Snapshot vide + WS bloqué → mode dégradé (aperçu dernières parties)
+      if (snapshotIsEmpty()) startDegradedMode();
+      else stopDegradedMode();
     } else if (data && typeof data === "object") {
       // JSON valide mais sans games (ancien format) → état vide plutôt qu'attente infinie
       ingestFull({ serverTime: Date.now(), games: {} });
       state.connected = true;
       setSource("fallback");
+      if (snapshotIsEmpty()) startDegradedMode();
     }
   } catch (e) {
     if (e.name === "AbortError") return;
     state.connected = false;
     setSource("offline");
+    // Snapshot injoignable mais le proxy HTTP OpenFront peut marcher →
+    // le mode dégradé (aperçu dernières parties) reste utile.
+    startDegradedMode();
   }
 }
 
@@ -619,6 +641,131 @@ function startHttpFallback() {
       startWebSocket();
     }
   }, 5 * 60_000);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Mode dégradé — aperçu des dernières parties via l'API HTTP publique
+   (/public/games, games terminées) relayée par le proxy Cloudflare.
+   Le WS lobbies est bloqué côté OpenFront (challenge CF) : on montre de
+   vraies données à la place d'un panneau vide, et le retour du WS est
+   automatique dès qu'OpenFront rouvre (retente toutes les 5 min).
+   ════════════════════════════════════════════════════════════════════════ */
+
+/** API row → objet compatible avec l'affichage (mode, difficulté, durée…). */
+function deriveRecentCard(g) {
+  const id = String(g.game || "");
+  if (!id) return null;
+  const startsAt = Date.parse(g.start);
+  const endsAt = Date.parse(g.end);
+  if (!Number.isFinite(startsAt) || !Number.isFinite(endsAt)) return null;
+  const mode = String(g.mode || "");
+  // Catégorisation like live : FFA / Team / Special
+  const isTeam = /team|2v2|duo/i.test(mode) || String(g.playerTeams || "") === "2";
+  const isSpecial = /special/i.test(String(g.type || ""));
+  return {
+    gameID: id,
+    degraded: true,
+    startsAt,
+    endedAt: endsAt,
+    durationS: Math.max(0, Math.round((endsAt - startsAt) / 1000)),
+    numClients: Number(g.numPlayers) || 0,
+    gameConfig: {
+      gameMap: "",
+      maxPlayers: Number(g.maxPlayers) || 0,
+      mode,
+      difficulty: String(g.difficulty || ""),
+    },
+    mode,
+    difficulty: String(g.difficulty || ""),
+    bucket: isSpecial ? "special" : isTeam ? "team" : "ffa",
+  };
+}
+
+/** Récupère les dernières parties terminées (2 h) via le proxy HTTP. */
+async function pollRecentGames() {
+  if (degradedInFlight) return;
+  degradedInFlight = true;
+  const end = Date.now();
+  const start = end - DEGRADED_WINDOW_MS;
+  const url = `${PROXY_HTTP_URL}/public/games?start=${new Date(start).toISOString()}&end=${new Date(end).toISOString()}`;
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const arr = await res.json();
+    state.recentGames = (Array.isArray(arr) ? arr : [])
+      .map(deriveRecentCard)
+      .filter(Boolean)
+      .sort((a, b) => b.startsAt - a.startsAt)
+      .slice(0, DEGRADED_MAX_ITEMS);
+    console.log(`[lobby] aperçu hors-ligne : ${state.recentGames.length} parties (2 h)`);
+  } catch (e) {
+    console.warn("[lobby] aperçu hors-ligne indisponible :", e && e.message);
+    // on garde la liste précédente
+  } finally {
+    degradedInFlight = false;
+  }
+  renderDegradedPanel();
+  scheduleRender(true);
+}
+
+/** Démarre le mode dégradé (si pas déjà armé). */
+function startDegradedMode() {
+  if (degradedTimer) return;
+  console.log("[lobby] Mode dégradé : aperçu des dernières parties (API HTTP)");
+  pollRecentGames();
+  degradedTimer = setInterval(pollRecentGames, DEGRADED_POLL_INTERVAL);
+}
+
+/** Stoppe le mode dégradé (WS ou snapshot revenus). */
+function stopDegradedMode() {
+  if (degradedTimer) {
+    clearInterval(degradedTimer);
+    degradedTimer = null;
+    console.log("[lobby] Mode dégradé arrêté — flux temps réel revenu");
+  }
+  state.recentGames = [];
+  renderDegradedPanel();
+}
+
+/** Retourne true si le snapshot courant est totalement vide. */
+function snapshotIsEmpty() {
+  return state.games.ffa.length === 0 && state.games.team.length === 0 && state.games.special.length === 0;
+}
+
+/** Injecte/retire le bloc « aperçu » sous le panneau d'état. */
+function renderDegradedPanel() {
+  const host = document.getElementById("lobby-degraded");
+  if (!host) return;
+  const active = degradedTimer && state.recentGames.length >= 0;
+  if (!active) { host.hidden = true; host.innerHTML = ""; return; }
+  const rows = state.recentGames.map((g) => {
+    const mins = Math.max(1, Math.round((Date.now() - g.startsAt) / 60_000));
+    const ago = mins < 60
+      ? T("lobby.degraded_ago_min", "il y a {n} min", { n: mins })
+      : T("lobby.degraded_ago_h", "il y a {n} h", { n: Math.round(mins / 60) });
+    const dur = g.durationS >= 60
+      ? Math.floor(g.durationS / 60) + " min"
+      : g.durationS + " s";
+    const mode = g.mode ? esc(g.mode.replace(/^Free For All$/i, "FFA")) : "—";
+    const diff = g.difficulty ? esc(g.difficulty) : "";
+    return `
+      <a class="lobby-degraded-row" href="https://openfront.io/game/${encodeURIComponent(g.gameID)}" target="_blank" rel="noopener">
+        <span class="lobby-degraded-ago">${esc(ago)}</span>
+        <span class="lobby-degraded-mode">${mode}</span>
+        <span class="lobby-degraded-diff">${diff}</span>
+        <span class="lobby-degraded-dur">${esc(dur)}</span>
+        <span class="lobby-degraded-cta">${esc(T("lobby.degraded_watch", "Voir la partie"))}
+          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+        </span>
+      </a>`;
+  }).join("");
+  host.hidden = false;
+  host.innerHTML = `
+    <div class="lobby-degraded-head">
+      <h3>${esc(T("lobby.degraded_title", "Aperçu — dernières parties (2 h)"))}</h3>
+      <p>${esc(T("lobby.degraded_note", "Le flux temps réel est bloqué côté OpenFront (protection anti-bots). Dès sa réouverture, le live revient automatiquement."))}</p>
+    </div>
+    <div class="lobby-degraded-list">${rows || `<p class="lobby-degraded-none">${esc(T("lobby.degraded_none", "Aucune partie terminée sur les 2 dernières heures."))}</p>`}</div>`;
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -655,6 +802,7 @@ function buildSkeleton() {
         <span class="lobby-filter-updated" id="lobby-updated"></span>
       </div>
       <a class="lobby-banner" id="lobby-hero" hidden></a>
+      <div id="lobby-degraded" hidden></div>
       <div id="lobby-sections"></div>
     </div>`;
 
@@ -952,6 +1100,7 @@ function startAutoScroll(track, speedPxPerSec) {
 
 function render(isFull) {
   if (!buildSkeleton()) return;
+  renderDegradedPanel(); // sync le bloc « aperçu » à chaque passe de rendu
 
   // Liste VISIBLE par section (le filtre « fav » ne garde que les cartes favorites)
   const filtering = state.filter === "fav";
@@ -992,7 +1141,7 @@ function render(isFull) {
         <div class="lobby-empty-inner">
           <div class="lobby-empty-icon"><i data-icon="globe" data-icon-size="32"></i></div>
           <h3>${T("lobby.stream_down_title", "Flux temps réel indisponible")}</h3>
-          <p>${T("lobby.stream_down_text", `Impossible de joindre les serveurs OpenFront en direct depuis ce réseau.<br>Les parties réapparaîtront dès la reconnexion.`)}</p>
+          <p>${T("lobby.stream_down_text", `Impossible de joindre les serveurs OpenFront en direct depuis ce réseau.<br>L'aperçu des dernières parties s'affiche ci-dessous — le live reviendra automatiquement.`)}</p>
           <button class="lobby-retry-btn" type="button">${esc(T("lobby.retry", "Réessayer"))}</button>
         </div>`;
       const retry = $(".lobby-retry-btn", emptyEl);
@@ -1390,6 +1539,13 @@ window._lobbyDebug = {
   // Tests : simule un compte connecté / des favoris (sans serveur PHP)
   setAccount: (u) => { state.account = u || null; scheduleRender(true); },
   setFavorites: (slugs) => { state.favorites = new Set(slugs || []); scheduleRender(true); },
+  // Mode dégradé (aperçu dernières parties) — tests E2E / support
+  setRecentGames: (rows) => {
+    state.recentGames = (rows || []).map(deriveRecentCard).filter(Boolean);
+    renderDegradedPanel();
+    scheduleRender(true);
+  },
+  degraded: { start: startDegradedMode, stop: stopDegradedMode },
   toggleFavoriteRemote,
   scrollState: (trackOrId) => {
     const track = typeof trackOrId === "string"
