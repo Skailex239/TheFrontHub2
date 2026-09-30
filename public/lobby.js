@@ -1,4 +1,11 @@
-// lobby.js — Lobby TheFrontHub (v5 — B+ + favoris & remplissage)
+// lobby.js — Lobby TheFrontHub (v5 — B+ + favoris & remplissage + hooks v5.18)
+//
+// v5.18 : hooks pour lobby-live.js (compteurs live, courbe d'activité, stats
+// par mode, alertes) et lobby-chat.js (chat communautaire par partie) :
+//   - ingestFull/ingestCounts émettent window event « tfh:lobby:update »
+//   - cartes : bouton cloche « prévenir quand pleine » (data-role=watch)
+//     et bulle chat (data-role=chat) — délégation dans boot()
+//   - clic sur une carte (lancement de partie) → émet « tfh:lobby:open-chat »
 //
 // Bandeau compact « Prochaine partie », filtre segmenté
 // Toutes / FFA / Team / Spécial / Favoris, en-têtes de section au design
@@ -435,6 +442,13 @@ function ingestFull(msg) {
   state.hydrated = true;
 
   state.updatedAt = Date.now();
+  // v5.18 — publie le snapshot aux modules compagnons (lobby-live.js : compteurs
+  // live / courbe / stats par mode / alertes ; lobby-chat.js : badges salons)
+  try {
+    window.dispatchEvent(new CustomEvent("tfh:lobby:update", {
+      detail: { games: state.games, source: state.source, full: true },
+    }));
+  } catch { /* navigateurs très anciens : sans importance */ }
   scheduleRender(true);
 }
 
@@ -457,7 +471,15 @@ function ingestCounts(msg) {
       }
     }
   }
-  if (touched) scheduleRender(false); // maj légère : compteurs seulement
+  if (touched) {
+    // v5.18 — les compteurs de joueurs bougent : publie aux modules compagnons
+    try {
+      window.dispatchEvent(new CustomEvent("tfh:lobby:update", {
+        detail: { games: state.games, source: state.source, full: false },
+      }));
+    } catch { /* ignore */ }
+    scheduleRender(false); // maj légère : compteurs seulement
+  }
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -887,6 +909,23 @@ function favIconSvg(filled) {
   return `<svg viewBox="0 0 24 24" width="14" height="14" fill="${filled ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2" stroke-linejoin="round">${path}</svg>`;
 }
 
+/** Icône cloche du bouton « prévenir quand pleine » (pleine si active). */
+function watchIconSvg(filled) {
+  return `<svg viewBox="0 0 24 24" width="13" height="13" fill="${filled ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`;
+}
+
+/** État visuel du bouton cloche d'une carte (lobby-live.js pilote l'état). */
+function setWatchBtn(btn, active) {
+  if (!btn) return;
+  btn.setAttribute("aria-pressed", String(active));
+  btn.innerHTML = watchIconSvg(active);
+  btn.title = active
+    ? T("lobby.watch_remove_title", "Ne plus surveiller ce lobby")
+    : T("lobby.watch_add_title", "Me prévenir quand ce lobby est plein");
+  btn.setAttribute("aria-label", btn.title);
+  btn.classList.toggle("is-active", active);
+}
+
 /** État visuel du bouton favori d'une carte. */
 function setFavBtn(btn, filled) {
   if (!btn) return;
@@ -922,9 +961,19 @@ function buildCard(game) {
       <span class="lobby-card-timer" data-role="timer"></span>
       <span class="lobby-card-almost" data-role="almost" hidden>${esc(T("lobby.almost_full", "Presque pleine"))}</span>
       <span class="lobby-card-pills"></span>
-      <button type="button" class="lobby-card-fav" data-role="fav"
-              aria-pressed="false" title="${esc(T("lobby.fav_add_title", "Ajouter aux cartes favorites"))}"
-              aria-label="${esc(T("lobby.fav_add_aria", "Ajouter la carte aux favoris"))}">${favIconSvg(false)}</button>
+      <span class="lobby-card-actions">
+        <button type="button" class="lobby-card-chat" data-role="chat"
+                title="${esc(T("lobby.chat_open_title", "Chat de la partie"))}"
+                aria-label="${esc(T("lobby.chat_open_aria", "Ouvrir le chat de cette partie"))}">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </button>
+        <button type="button" class="lobby-card-watch" data-role="watch" aria-pressed="false"
+                title="${esc(T("lobby.watch_add_title", "Me prévenir quand ce lobby est plein"))}"
+                aria-label="${esc(T("lobby.watch_add_aria", "Me prévenir quand ce lobby est plein"))}">${watchIconSvg(false)}</button>
+        <button type="button" class="lobby-card-fav" data-role="fav"
+                aria-pressed="false" title="${esc(T("lobby.fav_add_title", "Ajouter aux cartes favorites"))}"
+                aria-label="${esc(T("lobby.fav_add_aria", "Ajouter la carte aux favoris"))}">${favIconSvg(false)}</button>
+      </span>
     </span>
     <span class="lobby-card-body">
       <h3 class="lobby-card-map"></h3>
@@ -1497,14 +1546,48 @@ function boot() {
   render(true);
   startClock();
 
-  // Étoile favori : délégation au niveau de la vue — le clic sur l'étoile ne
-  // doit JAMAIS suivre le lien de la carte (openfront.io).
+  // Étoile favori + cloche « prévenir » + bulle chat : délégation au niveau
+  // de la vue — ces clics ne doivent JAMAIS suivre le lien de la carte.
   view().addEventListener("click", (e) => {
     const fav = e.target.closest("[data-role=fav]");
     if (fav) {
       e.preventDefault();
       e.stopPropagation();
       onFavClick(fav);
+      return;
+    }
+    const watch = e.target.closest("[data-role=watch]");
+    if (watch) {
+      e.preventDefault();
+      e.stopPropagation();
+      const card = watch.closest(".lobby-card");
+      if (card) {
+        window.dispatchEvent(new CustomEvent("tfh:lobby:watch-toggle", {
+          detail: { gameId: card.dataset.gameId },
+        }));
+      }
+      return;
+    }
+    const chatBtn = e.target.closest("[data-role=chat]");
+    if (chatBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const card = chatBtn.closest(".lobby-card");
+      if (card) {
+        window.dispatchEvent(new CustomEvent("tfh:lobby:open-chat", {
+          detail: { gameId: card.dataset.gameId },
+        }));
+      }
+      return;
+    }
+    // Clic sur la CARTE elle-même = lancement de la partie (le lien s'ouvre
+    // dans un nouvel onglet) → ouvre le chat de la partie (v5.18 : « quand on
+    // lance une partie, un chat s'ouvre avec les gens de la partie »).
+    const card = e.target.closest(".lobby-card");
+    if (card && card.dataset.gameId) {
+      window.dispatchEvent(new CustomEvent("tfh:lobby:open-chat", {
+        detail: { gameId: card.dataset.gameId },
+      }));
     }
   });
 
@@ -1537,6 +1620,9 @@ if (document.readyState === "loading") {
 window._lobbyDebug = {
   state,
   reconnect: () => { wsFailCount = { direct: 0, proxy: 0 }; startWebSocket(); },
+  // v5.18 — modules compagnons (lobby-live.js / lobby-chat.js)
+  setWatchBtn,
+  watchIconSvg,
   fallback: startHttpFallback,
   ingest: (fake) => ingestFull(fake),
   // Tests : simule un compte connecté / des favoris (sans serveur PHP)

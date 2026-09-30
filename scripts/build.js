@@ -41,6 +41,9 @@ const targets = [
   { entry: "profile.js",     out: "profile.min.js",     bundled: true },
   { entry: "dashboard.js",   out: "dashboard.min.js",   bundled: true },
   { entry: "lobby.js",       out: "lobby.min.js",        bundled: true },
+  // v5.18 — modules compagnons du lobby (IIFE autonomes, defer)
+  { entry: "lobby-live.js",  out: "lobby-live.min.js",   bundled: false },
+  { entry: "lobby-chat.js",  out: "lobby-chat.min.js",   bundled: false },
   // ⚠️ format iife OBLIGATOIRE : lobby-wire.js contient `module.exports` (usage
   // Node dans sync-lobby-state.js) → esbuild le détecte en CommonJS. Avec le
   // format esm par défaut, la sortie finit par « export default U(); » : chargé
