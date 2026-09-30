@@ -22,10 +22,10 @@
 <link rel="dns-prefetch" href="https://www.gstatic.com" crossorigin>
 
 <!-- Performance: Preload critical assets -->
-<link rel="preload" href="styles.css?v=92" as="style">
-<link rel="preload" href="profile.css?v=42" as="style">
-<link rel="preload" href="dist/profile.min.js?v=30" as="script" crossorigin>
-<link rel="preload" href="dist/icons.min.js?v=9" as="script" crossorigin>
+<link rel="preload" href="styles.css?v=94" as="style">
+<link rel="preload" href="profile.css?v=46" as="style">
+<link rel="preload" href="dist/profile.min.js?v=36" as="script" crossorigin>
+<link rel="preload" href="dist/icons.min.js?v=10" as="script" crossorigin>
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Orbitron:wght@900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
@@ -33,9 +33,9 @@
   <link rel="icon" type="image/png" href="favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="128x128" href="favicon-180x180.png">
   <link rel="apple-touch-icon" sizes="180x180" href="favicon-180x180.png">
-  <link rel="stylesheet" href="styles.css?v=92">
+  <link rel="stylesheet" href="styles.css?v=94">
   <link rel="stylesheet" href="auth.css?v=21">
-  <link rel="stylesheet" href="profile.css?v=42">
+  <link rel="stylesheet" href="profile.css?v=46">
   <link rel="stylesheet" href="skins.css?v=7">
   <link rel="stylesheet" href="animations.css?v=6" media="print" onload="this.media='all'">
   <noscript><link rel="stylesheet" href="animations.css?v=6"></noscript>
@@ -47,12 +47,12 @@
     .skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}
     .skip-link:focus{top:0}
   </style>
-  <script type="module" src="dist/icons.min.js?v=9"></script>
+  <script type="module" src="dist/icons.min.js?v=10"></script>
 
 <!-- i18n : dict de page (synchrone, avant i18n.js) + moteur + sélecteur de langue -->
-<script src="dist/i18n-dict-profile.min.js?v=4"></script>
+<script src="dist/i18n-dict-profile.min.js?v=9"></script>
 <script src="dist/i18n-dict-widgets.min.js?v=3"></script>
-<script src="dist/i18n.min.js?v=6" defer></script>
+<script src="dist/i18n.min.js?v=8" defer></script>
 <script src="dist/lang-switcher.min.js?v=2" defer></script>
 
 <!-- cookies.js v5 : GA4 + tag AdSense (sert le bandeau CMP Google) + réouverture consentement -->
@@ -78,9 +78,6 @@
       </a>
       <a class="nav-item tab-btn" id="tab-btn-maps" href="index.html">
         <i data-icon="trophy"></i> <span data-i18n="nav.maps">Speedruns</span>
-      </a>
-      <a class="nav-item tab-btn" id="tab-btn-ranked" href="index.html?tab=ranked">
-        <i data-icon="ladder"></i> <span data-i18n="nav.ranked">Classé</span>
       </a>
       <a class="nav-item tab-btn" id="tab-btn-lobby" href="lobby.html">
         <i data-icon="bolt"></i> <span data-i18n="nav.lobby">Lobby</span>
@@ -219,6 +216,16 @@
             <div class="lang-choice" data-lang-choice role="group" aria-labelledby="setup-lang-label"></div>
             <span class="pf-form-hint" data-i18n="profile.lang_hint_setup">Enregistrée sur ton compte — modifiable à tout moment.</span>
           </div>
+          <!-- v5.14 — Liaison instantanée par Identity Token OpenFront -->
+          <div class="pf-form-group pf-token-box">
+            <label for="setup-identity-token" data-i18n="pf.token_label">⚡ Liaison instantanée — token OpenFront (recommandé)</label>
+            <p class="pf-form-hint" data-i18n-html="pf.token_hint">1. Sur <b>openfront.io</b> : <b>Paramètres du compte → Lier à un site tiers</b>.<br>2. Choisis <b>thefronthub.com</b> puis clique <b>Générer</b> (token valable 10 min).<br>3. Colle le token ici — ton compte est lié et vérifié immédiatement, sans jouer de partie.</p>
+            <div class="pf-token-row">
+              <input type="text" id="setup-identity-token" placeholder="eyJhbGciOi…" data-i18n-placeholder="pf.token_ph" autocomplete="off" spellcheck="false">
+              <button type="button" class="pf-primary-btn pf-token-btn" id="link-token-btn" onclick="linkWithIdentityToken()" data-i18n="pf.token_btn">Lier mon compte</button>
+            </div>
+          </div>
+          <div class="pf-or-divider" role="separator" aria-hidden="true"><span data-i18n="pf.or_classic">— ou la méthode classique —</span></div>
           <div class="pf-form-group">
             <label for="setup-username" data-i18n="pf.setup_username_label">Nom d'utilisateur OpenFront</label>
             <input type="text" id="setup-username" placeholder="Ex: Skailex" data-i18n-placeholder="pf.setup_username_ph" autocomplete="off">
@@ -272,7 +279,7 @@
         <div class="pf2-id-info">
           <div class="pf2-id-name-row">
             <h2 class="pf2-id-name" id="profile-title-name">—</h2>
-            <span class="pf2-id-verified" id="profile-verified" title="Compte vérifié — Public ID lié" data-i18n-title="pf.verified_title" hidden>
+            <span class="pf2-id-verified" id="profile-verified" title="Joueur vérifié — cette personne est vérifiée (identité prouvée en jeu)" data-i18n-title="pf.verified_tip" hidden>
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tfh-vbadge-ic" aria-hidden="true"><path d="M12 2.2l2.3 1.9 3-.3.9 2.9 2.6 1.5-1 2.9 1 2.9-2.6 1.5-.9 2.9-3-.3-2.3 1.9-2.3-1.9-3 .3-.9-2.9L3.2 14l1-2.9-1-2.9 2.6-1.5.9-2.9 3 .3z"/><path d="M8.6 12l2.4 2.4 4.4-4.9"/></svg>
             </span>
             <button type="button" class="pf2-id-iconbtn" id="pseudo-edit-btn" onclick="togglePseudoEditor(true)" title="Modifier mon pseudo" data-i18n-title="pf.edit_pseudo" aria-label="Modifier mon pseudo" data-i18n-aria="pf.edit_pseudo" hidden>
@@ -285,6 +292,10 @@
             <button type="button" class="pf2-pseudo-cancel" onclick="togglePseudoEditor(false)" data-i18n="profile.cancel">Annuler</button>
             <span class="pf2-pseudo-hint" data-i18n="pf.pseudo_hint">3 à 32 caractères (lettres, chiffres, . _ - espace). Ce pseudo s'affiche partout : profil, classements, classé, speedruns.</span>
           </div>
+          <!-- v5.13 — Bio / map préférée / liens réseaux (profil revendiqué) -->
+          <p id="profile-bio" class="pf2-id-bio" hidden></p>
+          <div id="profile-favmap" class="pf2-id-favmap" hidden></div>
+          <div id="profile-links" class="pf2-id-links" hidden></div>
           <div class="pf2-id-meta-row">
             <button type="button" class="pf2-id-pid" id="profile-public-badge" onclick="copyPublicId(this)" title="Copier le Public ID" data-i18n-title="pf.copy_pid" aria-label="Copier le Public ID" data-i18n-aria="pf.copy_pid">
               <span id="profile-public-badge-text">—</span>
@@ -297,6 +308,10 @@
           </div>
         </div>
         <div class="pf2-id-actions">
+          <button type="button" class="pf2-id-editbtn" id="profile-edit-btn" onclick="openProfileEditor()" title="Bio, map préférée, liens" data-i18n-title="pf.edit_profile" hidden>
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+            <span data-i18n="pf.edit_profile">Modifier le profil</span>
+          </button>
           <button type="button" class="pf2-id-share" onclick="cockpitShareProfile()">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/></svg>
             <span data-i18n="btn.share">Partager</span>
@@ -306,6 +321,16 @@
           </button>
         </div>
       </section>
+
+
+      <!-- v5.13 — Encart « revendique ce profil » (profil public non vérifié) -->
+      <div id="claim-hint-banner" class="pf-claim-hint" style="display:none">
+        <div class="pf-claim-hint-text">
+          <b data-i18n="pf.claim_hint_title">Ce profil n'est pas encore revendiqué.</b>
+          <span data-i18n="pf.claim_hint_text">C'est ton pseudo ? Connecte-toi, lie ton Public ID et joue une partie avec le code de vérification pour débloquer le badge vérifié, la bio, la map préférée et tes liens réseaux.</span>
+        </div>
+        <button type="button" class="pf-primary-btn" onclick="window.location.href='profile.html'" data-i18n="pf.claim_hint_btn">Revendiquer ce profil</button>
+      </div>
 
       <!-- Chips meta (niveau / temps de jeu / série / Elo / hebdo) -->
       <div id="cockpit-status-meta" class="pf2-chips" aria-label="Niveau, temps de jeu, série" data-i18n-aria="pf.chips_aria"></div>
@@ -405,15 +430,60 @@
   </div>
 </div>
 <script src="dist/toast.min.js?v=2" defer></script>
+<script src="verified.js?v=1"></script>
 <script src="dist/lenis.min.js?v=7"></script>
 <script src="dist/animations.min.js?v=2" defer></script>
-<script src="dist/profile.min.js?v=30" type="module"></script>
+<script src="dist/profile.min.js?v=36" type="module"></script>
 
-<script type="module" src="dist/tutorial.min.js?v=5"></script>
+<!-- v5.13 — Modale d'édition du profil (bio, map préférée, liens réseaux) -->
+<div id="profile-edit-modal" class="pf-modal-backdrop" hidden>
+  <div class="pf-modal" role="dialog" aria-modal="true" aria-labelledby="pem-title">
+    <header class="pf-modal-head">
+      <h3 id="pem-title" data-i18n="pf.edit_modal_title">Modifier mon profil</h3>
+      <button type="button" class="pf-modal-close" onclick="closeProfileEditor()" aria-label="Fermer" data-i18n-aria="profile.cancel">✕</button>
+    </header>
+    <div class="pf-modal-body">
+      <label class="pf-modal-field">
+        <span class="pf-modal-label">Bio <span class="pf-modal-count" id="pem-bio-count">0/400</span></span>
+        <textarea id="pem-bio" maxlength="400" rows="3" placeholder="Parle de toi : style de jeu, team, pays…" data-i18n-placeholder="pf.bio_ph"></textarea>
+      </label>
+      <label class="pf-modal-field">
+        <span class="pf-modal-label">Map préférée</span>
+        <input id="pem-favmap" list="pem-map-list" maxlength="64" autocomplete="off" placeholder="Ex : Italy, Europe, Half Earth…" data-i18n-placeholder="pf.favmap_ph">
+        <datalist id="pem-map-list"></datalist>
+      </label>
+      <div class="pf-modal-links">
+        <label class="pf-modal-field">
+          <span class="pf-modal-label">X / Twitter</span>
+          <input id="pem-link-x" maxlength="150" autocomplete="off" placeholder="@pseudo ou lien">
+        </label>
+        <label class="pf-modal-field">
+          <span class="pf-modal-label">YouTube</span>
+          <input id="pem-link-youtube" maxlength="150" autocomplete="off" placeholder="Lien de chaîne ou @handle">
+        </label>
+        <label class="pf-modal-field">
+          <span class="pf-modal-label">Twitch</span>
+          <input id="pem-link-twitch" maxlength="150" autocomplete="off" placeholder="Lien de chaîne ou pseudo">
+        </label>
+        <label class="pf-modal-field">
+          <span class="pf-modal-label">Discord</span>
+          <input id="pem-link-discord" maxlength="150" autocomplete="off" placeholder="Pseudo ou invitation">
+        </label>
+      </div>
+      <p class="pf-modal-note" data-i18n="pf.edit_note">Ces informations s'affichent publiquement sur ton profil. Ton profil doit être revendiqué (Public ID vérifié) pour les modifier.</p>
+    </div>
+    <footer class="pf-modal-foot">
+      <button type="button" class="pf2-pseudo-cancel" onclick="closeProfileEditor()" data-i18n="profile.cancel">Annuler</button>
+      <button type="button" class="pf-primary-btn" id="pem-save" onclick="saveProfileDetails()" data-i18n="profile.save">Enregistrer</button>
+    </footer>
+  </div>
+</div>
+
+<script type="module" src="dist/tutorial.min.js?v=7"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=34').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=36').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>
@@ -436,7 +506,6 @@
       <ul class="tfh-footer-links">
         <li><a href="dashboard.html" data-i18n="nav.dashboard">Tableau de bord</a></li>
         <li><a href="index.html" data-i18n="nav.maps">Speedruns</a></li>
-        <li><a href="index.html?tab=ranked" data-i18n="nav.ranked">Classé</a></li>
         <li><a href="lobby.html" data-i18n="nav.lobby">Lobby</a></li>
         <li><a href="atlas.html" data-i18n="nav.atlas">Atlas</a></li>
         <li><a href="tournois.html" data-i18n="nav.tournaments">Tournois</a></li>
@@ -484,6 +553,6 @@
 
 <script src="dist/chat-widget.min.js?v=3" defer></script>
 <script src="dist/update-banner.min.js?v=3" defer></script>
-<script type="module" src="dist/preprofile.min.js?v=1"></script>
+<script type="module" src="dist/preprofile.min.js?v=3"></script>
 </body>
 </html>
