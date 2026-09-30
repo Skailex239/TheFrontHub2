@@ -231,12 +231,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.lobby-banner-players {
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--fg-secondary);
-  white-space: nowrap;
-}
 .lobby-banner-cta {
   display: inline-flex;
   align-items: center;
@@ -550,27 +544,6 @@
   padding-top: 9px;
   border-top: 1px solid var(--border-subtle);
 }
-.lobby-card-players {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-family: var(--mono);
-  font-size: 13px;
-  color: var(--fg-secondary);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.lobby-card-players::before {
-  content: "";
-  display: inline-block;
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
-  background: currentColor;
-  opacity: 0.55;
-  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='currentColor'><path d='M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z'/></svg>") center/contain no-repeat;
-  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='currentColor'><path d='M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z'/></svg>") center/contain no-repeat;
-}
 .lobby-card-cta {
   display: inline-flex;
   align-items: center;
@@ -582,47 +555,6 @@
 }
 .lobby-card-cta svg { transition: transform var(--dur-fast) var(--ease); }
 .lobby-card:hover .lobby-card-cta svg { transform: translateX(2px); }
-
-/* Barre de remplissage joueur/capacité (orange ; dorée à ≥ 80 %) */
-.lobby-card-fill {
-  position: relative;
-  height: 4px;
-  margin-top: 8px;
-  border-radius: 2px;
-  background: var(--bg-muted);
-  overflow: hidden;
-}
-.lobby-card-fill-bar {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 0%;
-  border-radius: 2px;
-  background: var(--accent);
-  transition: width var(--dur) var(--ease);
-}
-.lobby-card.is-almost-full .lobby-card-fill-bar { background: var(--gold); }
-.lobby-card.no-cap .lobby-card-fill { display: none; }
-
-/* Badge « Presque pleine » (chip flottant sur la vignette, sous le timer) */
-.lobby-card-almost {
-  position: absolute;
-  top: 36px;
-  right: 8px;
-  z-index: 2;
-  padding: 2px 7px;
-  border-radius: var(--radius-pill);
-  background: var(--bg);
-  border: 1px solid var(--gold);
-  color: var(--gold);
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  line-height: 1.4;
-  white-space: nowrap;
-}
 
 /* ════════════════════════════════════════════════════════════════════
    États vides / chargement
@@ -828,7 +760,7 @@
    ════════════════════════════════════════════════════════════════════════ */
 
 .llive-strip{margin:0 0 14px;display:flex;flex-direction:column;gap:10px}
-.llive-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.llive-row{display:grid;grid-template-columns:1fr auto;gap:10px}
 .llive-tile{
   display:flex;flex-direction:column;align-items:flex-start;gap:2px;
   background:var(--bg-subtle,#fafafa);border:1px solid var(--border,#e4e4e7);
@@ -841,6 +773,13 @@
   font-variant-numeric:tabular-nums;
 }
 .llive-tile-label{font-size:11.5px;font-weight:600;color:var(--fg-muted,#71717a);letter-spacing:.02em}
+.llive-tile-total .llive-tile-num{color:var(--accent,#ff6b00)}
+.llive-live-dot{
+  display:inline-block;width:7px;height:7px;border-radius:50%;
+  background:var(--accent,#ff6b00);margin-right:5px;vertical-align:1px;
+  animation:llive-pulse 1.6s ease-in-out infinite;
+}
+@keyframes llive-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.8)}}
 .llive-tile-bell{justify-content:center;align-items:center;cursor:pointer}
 .llive-tile-bell:hover{border-color:var(--accent-border,#ffd4b8)}
 .llive-bell{
@@ -929,6 +868,63 @@
 .llive-curve-card canvas{display:block;width:100%;height:150px}
 .llive-curve-empty{font-size:12px;color:var(--fg-muted,#71717a);text-align:center;padding:8px 0}
 
+/* ── v5.19 — Stats des cartes (collecte continue côté serveur) ─────── */
+.llive-maps{
+  background:var(--bg,#fff);border:1px solid var(--border,#e4e4e7);
+  border-radius:var(--radius-lg,12px);padding:14px 16px;
+  display:flex;flex-direction:column;gap:8px;
+}
+.llive-maps-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.llive-maps-head h3{
+  margin:0;font-family:var(--f-display,'Inter',sans-serif);
+  font-size:14px;font-weight:800;color:var(--fg,#18181b);
+  display:inline-flex;align-items:center;gap:6px;
+}
+.llive-maps-head h3::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--accent,#ff6b00);display:inline-block}
+.llive-maps-range{margin:0}
+.llive-maps-sub{margin:0;font-size:11.5px;color:var(--fg-muted,#71717a)}
+.llive-maps-list{
+  list-style:none;margin:0;padding:0;
+  max-height:352px;overflow-y:auto;scrollbar-gutter:stable;
+  display:flex;flex-direction:column;gap:2px;
+}
+.llive-maps-list::-webkit-scrollbar{width:8px}
+.llive-maps-list::-webkit-scrollbar-track{background:transparent}
+.llive-maps-list::-webkit-scrollbar-thumb{background:var(--border,#e4e4e7);border-radius:8px}
+.llive-maps-list::-webkit-scrollbar-thumb:hover{background:var(--fg-subtle,#a1a1aa)}
+.llive-map-row{
+  display:grid;grid-template-columns:22px minmax(90px,1.2fr) minmax(60px,1fr) auto auto;
+  align-items:center;gap:10px;padding:7px 8px;border-radius:8px;
+  font-size:12.5px;color:var(--fg,#18181b);
+}
+.llive-map-row:nth-child(odd){background:var(--bg-subtle,#fafafa)}
+.llive-map-row.is-top .llive-map-rank{background:var(--accent,#ff6b00);color:#fff;border-color:var(--accent,#ff6b00)}
+.llive-map-rank{
+  width:20px;height:20px;border-radius:6px;border:1px solid var(--border,#e4e4e7);
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:800;color:var(--fg-muted,#71717a);background:var(--bg,#fff);
+}
+.llive-map-name{
+  font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.llive-map-bar{
+  height:6px;border-radius:4px;background:var(--bg-subtle,#f4f4f5);
+  border:1px solid var(--border-subtle,#f0f0f1);overflow:hidden;
+}
+.llive-map-bar i{
+  display:block;height:100%;border-radius:4px;
+  background:linear-gradient(90deg,var(--accent,#ff6b00),var(--accent-border,#ffd4b8));
+  transition:width .5s ease;
+}
+.llive-map-games{
+  font-variant-numeric:tabular-nums;font-weight:800;min-width:64px;text-align:right;
+}
+.llive-map-meta{font-size:11px;color:var(--fg-muted,#71717a);white-space:nowrap;min-width:86px;text-align:right}
+.llive-map-empty{
+  padding:18px 8px;text-align:center;font-size:12.5px;color:var(--fg-muted,#71717a);
+  list-style:none;
+}
+
 /* Boutons sur les cartes : chat + cloche */
 .lobby-card-actions{position:absolute;top:6px;right:6px;display:flex;flex-direction:column;gap:4px;z-index:3}
 .lobby-card-chat,.lobby-card-watch{
@@ -953,27 +949,36 @@
 }
 
 /* ════════════════════════════════════════════════════════════════════════
-   v5.18 — Chat communautaire (FAB gauche + drawer)
+   v5.19 — Chat communautaire (bouton DANS la page + drawer)
+   Le FAB flottant est supprimé : l'entrée du chat est le bouton « Chat »
+   de la topbar, à côté du titre Lobby (statique dans lobby.html).
    ════════════════════════════════════════════════════════════════════════ */
 
-.lchat-fab{
-  position:fixed;left:16px;bottom:16px;z-index:1200;
-  width:52px;height:52px;border-radius:50%;
-  display:inline-flex;align-items:center;justify-content:center;
-  background:var(--accent,#ff6b00);color:#fff;border:none;cursor:pointer;
-  box-shadow:0 6px 20px rgba(255,107,0,.35);
-  transition:transform .15s ease, box-shadow .15s ease;
+.lchat-header-btn{
+  display:inline-flex;align-items:center;gap:7px;
+  height:36px;padding:0 14px;border-radius:var(--radius-pill,999px);
+  border:1px solid var(--accent-border,#ffd4b8);
+  background:var(--accent-subtle,#fff4ed);color:var(--accent,#ff6b00);
+  font-size:13px;font-weight:800;cursor:pointer;
+  transition:all .15s ease;position:relative;white-space:nowrap;
 }
-.lchat-fab:hover{transform:translateY(-2px) scale(1.04);box-shadow:0 10px 26px rgba(255,107,0,.45)}
-.lchat-fab.is-open{transform:rotate(180deg)}
-.lchat-fab-badge{
-  position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;padding:0 5px;
+.lchat-header-btn:hover{
+  background:var(--accent,#ff6b00);color:#fff;
+  box-shadow:0 4px 14px rgba(255,107,0,.35);
+}
+.lchat-header-btn.is-open{
+  background:var(--accent,#ff6b00);color:#fff;
+  box-shadow:0 4px 14px rgba(255,107,0,.35);
+}
+.lchat-header-badge{
+  min-width:18px;height:18px;padding:0 5px;
   border-radius:var(--radius-pill,999px);background:var(--red,#ef4444);color:#fff;
-  font-size:11px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;
-  border:2px solid var(--bg,#fff);
+  font-size:10.5px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;
 }
+.lchat-header-btn.is-open .lchat-header-badge,
+.lchat-header-btn:hover .lchat-header-badge{background:#fff;color:var(--accent,#ff6b00)}
 .lchat-drawer{
-  position:fixed;left:16px;bottom:76px;z-index:1200;
+  position:fixed;left:16px;bottom:16px;z-index:1200;
   width:min(380px,calc(100vw - 32px));height:min(560px,calc(100vh - 110px));
   display:flex;flex-direction:column;overflow:hidden;
   background:var(--bg,#fff);border:1px solid var(--border,#e4e4e7);
@@ -1070,14 +1075,18 @@
 
 /* ── Mobile ── */
 @media (max-width:640px){
-  .llive-row{grid-template-columns:repeat(2,1fr)}
+  .llive-row{grid-template-columns:1fr auto}
   .llive-tile-num{font-size:22px}
-  .lchat-fab{left:12px;bottom:12px;width:48px;height:48px}
+  .llive-maps-list{max-height:240px}
+  .llive-map-meta{display:none}
+  .llive-map-row{grid-template-columns:22px minmax(90px,1.2fr) minmax(50px,1fr) auto}
+  .lchat-header-btn{height:32px;padding:0 11px;font-size:12px}
   .lchat-drawer{
-    left:8px;right:8px;bottom:68px;width:auto;height:min(480px,72vh);
+    left:8px;right:8px;bottom:8px;width:auto;height:min(480px,72vh);
   }
 }
 @media (max-width:380px){
   .llive-row{gap:8px}
   .llive-tile{padding:10px 12px}
+  .llive-map-games{min-width:52px}
 }

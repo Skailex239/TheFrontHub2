@@ -1,5 +1,5 @@
 /**
- * lobby-chat.js — v5.18 — Chat communautaire du Lobby TheFrontHub.
+ * lobby-chat.js — v5.19 — Chat communautaire du Lobby TheFrontHub.
  *
  * Backend : api/lobby-chat.php (MySQL, polling ~3 s). ACCÈS RÉSERVÉ AUX
  * COMPTES (session Discord — « inscrits sur le site ») : le visiteur
@@ -7,15 +7,18 @@
  *
  * Salons :
  *   - global     → #Général (tout le monde)
- *   - g<gameID>  → salon d'une partie.lobby.js émet « tfh:lobby:open-chat »
- *                  quand le joueur clique une carte (lancement de partie) ou
- *                  la bulle chat d'une carte → le drawer s'ouvre sur le salon
- *                  de la partie : « un chat s'ouvre avec les gens de la partie ».
+ *   - g<gameID>  → salon d'une partie. Ouvert :
+ *     • manuellement via le bouton « Chat » de la topbar (à côté du titre
+ *       Lobby — v5.19 : plus de bulle flottante) ou la bulle d'une carte ;
+ *     • AUTOMATIQUEMENT quand une partie que le joueur a lancée démarre :
+ *       lobby.js émet « tfh:lobby:my-game » au clic, lobby-live.js détecte
+ *       le démarrage (pleine / compte à rebours / sortie de liste) et émet
+ *       « tfh:lobby:my-game-started » → on ouvre le salon de la partie.
  *
- * UI : bouton flottant en bas à GAUCHE (le chat support occupe la droite),
- * drawer latéral (desktop) / bottom-sheet (mobile), onglets de salons avec
- * badges non-lus, historique 50 messages, polling 3 s panneau ouvert +
- * 25 s en fond pour les badges. Zéro dépendance, IIFE autonome.
+ * UI : bouton « Chat » DANS la page (topbar), drawer latéral (desktop) /
+ * bottom-sheet (mobile), onglets de salons avec badges non-lus, historique
+ * 50 messages, polling 3 s panneau ouvert + 25 s en fond pour les badges.
+ * Zéro dépendance, IIFE autonome.
  */
 (function () {
   "use strict";
@@ -49,9 +52,8 @@
   let stickBottom = true;
 
   /* ── DOM ─────────────────────────────────────────────────────────────── */
-  let fab = null, drawer = null, els = {};
+  let drawer = null, headerBtn = null, els = {};
 
-  const svgChat = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
   const svgSend = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`;
   const svgClose = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
 
@@ -153,7 +155,7 @@
       } else {
         unread[room] = (unread[room] || 0) + msgs.length;
         renderTabs();
-        renderFabBadge();
+        renderHeaderBadge();
       }
     }
   }
@@ -198,19 +200,29 @@
 
   function isOpen() { return drawer && !drawer.hidden; }
 
-  function openDrawer(room) {
-    if (room) switchRoom(room);
+  function openDrawer(room, sysText) {
+    if (room) {
+      // Le message système est posé APRÈS le rendu de l'historique (sinon
+      // switchRoom → loadHistory remplace le contenu et l'efface).
+      switchRoom(room).then(() => { if (sysText && me) sysMessage(sysText); });
+    }
     drawer.hidden = false;
-    fab.classList.add("is-open");
-    renderFabBadge();
+    if (headerBtn) {
+      headerBtn.setAttribute("aria-expanded", "true");
+      headerBtn.classList.add("is-open");
+    }
+    renderHeaderBadge();
     if (me) setTimeout(() => els.input.focus(), 120);
     startPolling();
   }
 
   function closeDrawer() {
     drawer.hidden = true;
-    fab.classList.remove("is-open");
-    renderFabBadge();
+    if (headerBtn) {
+      headerBtn.setAttribute("aria-expanded", "false");
+      headerBtn.classList.remove("is-open");
+    }
+    renderHeaderBadge();
   }
 
   async function switchRoom(room) {
@@ -224,7 +236,7 @@
     const r = await loadHistory(room);
     if (r && r.auth) renderAuthZone();
     scrollBottom(true);
-    renderFabBadge();
+    renderHeaderBadge();
   }
 
   function renderRoomHeader() {
@@ -256,21 +268,15 @@
       }));
   }
 
-  function renderFabBadge() {
+  function renderHeaderBadge() {
+    if (!headerBtn) return;
+    const badge = headerBtn.querySelector("[data-role=header-badge]");
+    if (!badge) return;
     const total = Object.entries(unread)
       .filter(([room]) => !(room === activeRoom && isOpen()))
       .reduce((s, [, n]) => s + (n || 0), 0);
-    let badge = fab.querySelector(".lchat-fab-badge");
-    if (total > 0) {
-      if (!badge) {
-        badge = document.createElement("span");
-        badge.className = "lchat-fab-badge";
-        fab.appendChild(badge);
-      }
-      badge.textContent = total > 99 ? "99+" : String(total);
-    } else if (badge) {
-      badge.remove();
-    }
+    badge.hidden = total === 0;
+    badge.textContent = total > 99 ? "99+" : String(total);
   }
 
   function messageRow(msg, isHistory) {
@@ -386,16 +392,16 @@
   /* ── Construction UI ─────────────────────────────────────────────────── */
 
   function buildUI() {
-    if (document.getElementById("lobby-chat-fab")) return;
+    if (document.getElementById("lobby-chat-drawer")) return;
 
-    fab = document.createElement("button");
-    fab.type = "button";
-    fab.id = "lobby-chat-fab";
-    fab.className = "lchat-fab";
-    fab.setAttribute("aria-label", T("lobby.chat_fab_aria", "Ouvrir le chat communautaire"));
-    fab.title = T("lobby.chat_fab_title", "Chat communautaire");
-    fab.innerHTML = svgChat;
-    fab.addEventListener("click", () => (isOpen() ? closeDrawer() : openDrawer()));
+    // Bouton « Chat » de la topbar (statique dans lobby.html — démasqué ici).
+    // v5.19 : le chat vit DANS la page, à côté du titre Lobby ; plus de bulle
+    // flottante (le widget support garde la sienne, en bas à droite).
+    headerBtn = document.getElementById("lobby-chat-toggle");
+    if (headerBtn) {
+      headerBtn.hidden = false;
+      headerBtn.addEventListener("click", () => (isOpen() ? closeDrawer() : openDrawer()));
+    }
 
     drawer = document.createElement("section");
     drawer.id = "lobby-chat-drawer";
@@ -427,7 +433,6 @@
         <button type="submit" data-role="send" aria-label="${esc(T("lobby.chat_send_aria", "Envoyer"))}">${svgSend}</button>
       </form>`;
 
-    document.body.appendChild(fab);
     document.body.appendChild(drawer);
 
     els = {
@@ -466,12 +471,26 @@
       stickBottom = els.msgs.scrollHeight - els.msgs.scrollTop - els.msgs.clientHeight < 80;
     });
 
-    // Salon de partie demandé par lobby.js (clic carte / bulle chat)
+    // Salon de partie demandé par lobby.js (bulle chat d'une carte)
     window.addEventListener("tfh:lobby:open-chat", (e) => {
       const gameId = e.detail && e.detail.gameId;
       if (!gameId) return;
-      openDrawer("g" + gameId);
-      if (me) sysMessage(T("lobby.chat_sys_game", "Salon de la partie — les inscrits TheFrontHub qui la rejoignent arrivent ici 💬"));
+      openDrawer("g" + gameId, T("lobby.chat_sys_game", "Salon de la partie — les inscrits TheFrontHub qui la rejoignent arrivent ici 💬"));
+    });
+
+    // v5.19 — démarrage d'une partie que le joueur a lancée : le salon s'ouvre
+    // AUTOMATIQUEMENT (lobby-live.js détecte le lancement côté flux OpenFront).
+    window.addEventListener("tfh:lobby:my-game-started", (e) => {
+      const gameId = e.detail && e.detail.gameId;
+      if (!gameId) return;
+      const map = e.detail && e.detail.map;
+      if (map) {
+        // La partie peut avoir déjà quitté la liste : on mémorise le nom de
+        // la carte transmis par lobby-live pour un libellé de salon propre.
+        roomMeta["g" + gameId] = { map };
+        save("tfh_lobbychat_meta_v1", roomMeta);
+      }
+      openDrawer("g" + gameId, T("lobby.chat_sys_started", "Ta partie démarre — ce salon réunit les inscrits qui la rejoignent. Bonne chance ! 🎮"));
     });
   }
 
@@ -484,7 +503,7 @@
     const last = load(LS_LAST, "global");
     await switchRoom(gameRooms.includes(last) || last === "global" ? last : "global");
     startPolling();
-    renderFabBadge();
+    renderHeaderBadge();
   }
 
   if (document.readyState === "loading") {

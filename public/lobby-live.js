@@ -1,19 +1,29 @@
 /**
- * lobby-live.js — v5.18 — Bandeau LIVE du lobby TheFrontHub.
+ * lobby-live.js — v5.19 — Bandeau LIVE du lobby TheFrontHub.
  *
  * Module compagnon de lobby.js (qui publie l'event window « tfh:lobby:update »
  * à chaque snapshot/counts). Il ajoute au-dessus des cartes :
  *
- *   1. Compteurs animés      → joueurs en lobby, parties ouvertes, presque pleines
- *   2. Stats par mode        → chips FFA / Team / Spécial / Classé (parties + joueurs)
- *   3. Courbe d'activité     → canvas, historique 24 h en localStorage, ranges 1h/6h/24h
- *   4. Alertes (bell 18/22)  → notification navigateur + son WebAudio quand
+ *   1. Compteur global « parties analysées » → total accumulé 24/7 côté
+ *      serveur (cron games-sync → MySQL → api/games-api.php route=maps).
+ *      Le compteur tourne même quand personne ne regarde : à l'arrivée sur
+ *      la page, il démarre de TOUT l'historique collecté (count-up animé),
+ *      pas de zéro.
+ *   2. Stats des cartes (maps) → top des cartes par parties collectées,
+ *      liste défilante (top 10 visible, scroll pour la suite), filtres
+ *      Toujours / 7 jours / 24 h, rafraîchie toutes les 90 s.
+ *   3. Stats par mode        → chips FFA / Team / Spécial / Classé (parties + joueurs)
+ *   4. Courbe d'activité     → canvas, historique 24 h en localStorage, ranges 1h/6h/24h
+ *   5. Alertes (bell 18/22)  → notification navigateur + son WebAudio quand
  *                              une partie correspondant aux filtres s'ouvre,
  *                              ou quand un lobby surveillé (« préviens-moi
  *                              quand ce lobby est plein ») devient pleine.
+ *   6. Suivi « ma partie »   → clic sur une carte = tu lances la partie ;
+ *                              dès que le flux voit qu'elle démarre (pleine,
+ *                              compte à rebours écoulé ou sortie de liste),
+ *                              le chat de la partie s'ouvre (lobby-chat.js).
  *
- * Tout est client-side : aucune dépendance serveur, aucune lib. Les réglages
- * persistent dans localStorage. Chargé en script autonome (IIFE, defer).
+ * Chargé en script autonome (IIFE, defer). Zéro dépendance.
  */
 (function () {
   "use strict";
@@ -28,11 +38,17 @@
   const LS_ALERTS = "tfh_lobby_alerts_v1";
   const LS_WATCH  = "tfh_lobby_watch_v1";
   const LS_HIST   = "tfh_lobby_hist_v1";
-  const SAMPLE_MIN_MS   = 20_000;          // 1 échantillon courbe / 20 s max
-  const HIST_TTL        = 24 * 3600_000;   // fenêtre historique : 24 h
+  const LS_MINE   = "tfh_lobby_mine_v1";      // parties que JE lance (chat auto)
+  const LS_MAPS_P = "tfh_lobby_maps_period_v1";
+  const MAPS_API  = "api/games-api.php";
+  const MAPS_POLL_MS    = 90_000;             // rafraîchissement stats cartes
+  const SAMPLE_MIN_MS   = 20_000;             // 1 échantillon courbe / 20 s max
+  const HIST_TTL        = 24 * 3600_000;      // fenêtre historique : 24 h
   const HIST_MAX_POINTS = 3_000;
-  const WATCH_TTL       = 3 * 3600_000;    // une surveillance expire après 3 h
-  const WATCH_GONE_MS   = 5 * 60_000;      // partie absente > 5 min → dé-surveillance
+  const WATCH_TTL       = 3 * 3600_000;       // une surveillance expire après 3 h
+  const WATCH_GONE_MS   = 5 * 60_000;         // partie absente > 5 min → dé-surveillance
+  const MINE_TTL        = 3 * 3600_000;       // suivi « ma partie » expire après 3 h
+  const MINE_GONE_MS    = 8_000;              // absente d'un snapshot complet > 8 s → démarrée
   const MODES = ["ffa", "team", "special"];
 
   /* ── État persistant ─────────────────────────────────────────────────── */
@@ -45,6 +61,8 @@
   const settings = Object.assign({ enabled: false, mode: "all", minPlayers: 0 }, load(LS_ALERTS, {}));
   let watch   = load(LS_WATCH, {});       // { gameId: { map, mode, addedAt, lastSeen } }
   let history = load(LS_HIST, []);        // [[ts, players, games], …]
+  let mine    = load(LS_MINE, {});        // { gameId: { map, addedAt, lastSeen } }
+  let mapsPeriod = load(LS_MAPS_P, "all"); // all | 7d | 24h
   const firedFull = new Set();            // ids déjà notifiés « pleine » (session)
   let seenIds = null;                     // ids du snapshot précédent (détection nouvelles)
   let lastSample = 0;
@@ -53,7 +71,6 @@
   /* ── DOM ─────────────────────────────────────────────────────────────── */
   let strip = null;
   let els = {};
-  let anim = { players: 0, games: 0, almost: 0, started: false };
 
   function cssVar(name, fb) {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -61,55 +78,68 @@
   }
 
   /* ══════════════════════════════════════════════════════════════════════
-     Métriques
+     Utilitaires
+     ══════════════════════════════════════════════════════════════════════ */
+
+  const nf = (() => {
+    try { return new Intl.NumberFormat(); } catch { return null; }
+  })();
+  function fmtNum(n) {
+    if (n == null || !isFinite(n)) return "—";
+    return nf ? nf.format(Math.round(n)) : String(Math.round(n));
+  }
+
+  /** « il y a … » depuis un timestamp UTC « YYYY-MM-DD HH:MM:SS » (MySQL). */
+  function agoSince(utcStamp) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(String(utcStamp || ""));
+    if (!m) return "";
+    const d = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    if (isNaN(d)) return "";
+    const s = Math.max(0, Math.round((Date.now() - d) / 1000));
+    if (s < 60) return T("lobby.ago_s", `${s} s`, { n: s });
+    if (s < 3600) { const n = Math.floor(s / 60); return T("lobby.ago_min", `${n} min`, { n }); }
+    if (s < 86400) { const n = Math.floor(s / 3600); return T("lobby.ago_h", `${n} h`, { n }); }
+    const n = Math.floor(s / 86400);
+    return T("lobby.ago_d", `${n} j`, { n });
+  }
+
+  function fmtDuration(sec) {
+    const s = Number(sec);
+    if (!s || s <= 0) return null;
+    if (s < 90) return Math.round(s) + " s";
+    const m = Math.round(s / 60);
+    return m + " min";
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     Métriques live (chips + courbe)
      ══════════════════════════════════════════════════════════════════════ */
 
   function computeMetrics(games) {
-    let players = 0, total = 0, almost = 0, ranked = 0;
+    let players = 0, total = 0, ranked = 0;
     const perMode = { ffa: { g: 0, p: 0 }, team: { g: 0, p: 0 }, special: { g: 0, p: 0 } };
     for (const k of MODES) {
       for (const g of games[k] || []) {
         const cfg = g.gameConfig || {};
-        const cap = Number(cfg.maxPlayers) || 0;
         const n = Number(g.numClients) || 0;
         players += n; total++;
         perMode[k].g++; perMode[k].p += n;
         if (cfg.rankedType) ranked++;
-        if (cap > 0 && n < cap && n / cap >= 0.8) almost++;
       }
     }
-    return { players, total, almost, ranked, perMode };
+    return { players, total, ranked, perMode };
   }
 
-  /* ══════════════════════════════════════════════════════════════════════
-     Compteurs animés
-     ══════════════════════════════════════════════════════════════════════ */
-
-  function animateNum(el, from, to) {
-    if (from === to) { el.textContent = String(to); return; }
-    const t0 = performance.now(), dur = 380;
+  function animateNum(el, from, to, dur = 380) {
+    if (from === to) { el.textContent = fmtNum(to); return; }
+    const t0 = performance.now();
     const step = (now) => {
       const p = Math.min(1, (now - t0) / dur);
       const eased = 1 - Math.pow(1 - p, 3);
-      el.textContent = String(Math.round(from + (to - from) * eased));
+      el.textContent = fmtNum(from + (to - from) * eased);
       if (p < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
-  }
-
-  function renderCounters(m) {
-    if (!els.players) return;
-    if (!anim.started) {
-      anim = { players: m.players, games: m.total, almost: m.almost, started: true };
-      els.players.textContent = String(m.players);
-      els.games.textContent = String(m.total);
-      els.almost.textContent = String(m.almost);
-      return;
-    }
-    animateNum(els.players, anim.players, m.players);
-    animateNum(els.games, anim.games, m.total);
-    animateNum(els.almost, anim.almost, m.almost);
-    anim = { players: m.players, games: m.total, almost: m.almost, started: true };
   }
 
   /* ══════════════════════════════════════════════════════════════════════
@@ -135,6 +165,94 @@
       parts.push(`<span class="llive-chip is-ranked"><b>${esc(MODE_LABEL.ranked())}</b> ${m.ranked}</span>`);
     }
     els.modes.innerHTML = parts.join("");
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     Stats des cartes — alimentées par la collecte continue du serveur
+     (cron games-sync → MySQL → api/games-api.php?route=maps&scope=all).
+     Le compteur cumule 24/7 : un visiteur qui arrive voit le total accumulé.
+     ══════════════════════════════════════════════════════════════════════ */
+
+  let mapsTimer = null;
+  let mapsBusy = false;
+  let mapsTotalShown = 0;      // dernière valeur affichée (pour le count-up)
+  let mapsFirstPaint = false;
+
+  async function fetchMaps() {
+    if (mapsBusy || !els.mapsList) return;
+    mapsBusy = true;
+    try {
+      const res = await fetch(`${MAPS_API}?route=maps&scope=all&period=${encodeURIComponent(mapsPeriod)}`, {
+        cache: "no-store",
+      });
+      const data = await res.json().catch(() => null);
+      if (data && data.ok) renderMaps(data);
+      else if (els.mapsSub) els.mapsSub.textContent = T("lobby.maps_err", "Stats indisponibles pour le moment — nouvelle tentative bientôt.");
+    } catch {
+      if (els.mapsSub) els.mapsSub.textContent = T("lobby.maps_err", "Stats indisponibles pour le moment — nouvelle tentative bientôt.");
+    } finally {
+      mapsBusy = false;
+    }
+  }
+
+  function totalForPeriod(d) {
+    if (mapsPeriod === "24h") return d.totalGames24h != null ? d.totalGames24h : d.totalGames;
+    if (mapsPeriod === "7d") return d.totalGames7d != null ? d.totalGames7d : d.totalGames;
+    return d.totalGames;
+  }
+
+  function renderMaps(d) {
+    if (!els.mapsList) return;
+    const total = totalForPeriod(d) || 0;
+
+    // Gros compteur animé — au 1er affichage, il monte de 0 vers le total
+    // accumulé côté serveur (« dès que j'arrive, c'est là où le compteur en est »)
+    if (els.mapsTotal) {
+      if (!mapsFirstPaint) {
+        animateNum(els.mapsTotal, 0, total, 900);
+        mapsFirstPaint = true;
+      } else if (total !== mapsTotalShown) {
+        animateNum(els.mapsTotal, mapsTotalShown, total, 600);
+      }
+      mapsTotalShown = total;
+    }
+
+    // Sous-ligne : preuve de collecte (dernière partie collectée il y a …)
+    if (els.mapsSub) {
+      const ago = agoSince(d.newestGame);
+      els.mapsSub.innerHTML = ago
+        ? `${esc(T("lobby.maps_sub", "Collecte en continu"))} · ${esc(T("lobby.maps_newest", "dernière partie {ago}", { ago }))}`
+        : esc(T("lobby.maps_sub", "Collecte en continu"));
+    }
+
+    // Liste défilante — top cartes par parties collectées
+    const maps = Array.isArray(d.maps) ? d.maps : [];
+    const base = Math.max(1, d.listedGames || maps.reduce((s, m) => s + (m.games || 0), 0));
+    if (!maps.length) {
+      els.mapsList.innerHTML = `<li class="llive-map-empty">${esc(T("lobby.maps_empty", "Les stats arrivent avec les prochaines parties collectées…"))}</li>`;
+      return;
+    }
+    els.mapsList.innerHTML = maps.map((m, i) => {
+      const share = Math.max(2, Math.min(100, Math.round(((m.games || 0) / base) * 100)));
+      const meta = [];
+      if (m.players != null && m.players > 0) meta.push(`${fmtNum(m.players)} ${T("lobby.players_unit", "jrs")}`);
+      const dur = fmtDuration(m.avgDurationS);
+      if (dur) meta.push(dur);
+      return `<li class="llive-map-row${i < 3 ? " is-top" : ""}">
+        <span class="llive-map-rank">${i + 1}</span>
+        <span class="llive-map-name" title="${esc(m.map)}">${esc(m.map)}</span>
+        <span class="llive-map-bar" aria-hidden="true"><i style="width:${share}%"></i></span>
+        <span class="llive-map-games">${fmtNum(m.games)}</span>
+        <span class="llive-map-meta">${esc(meta.join(" · "))}</span>
+      </li>`;
+    }).join("");
+  }
+
+  function startMaps() {
+    fetchMaps();
+    mapsTimer = setInterval(() => {
+      if (!document.hidden) fetchMaps();
+    }, MAPS_POLL_MS);
   }
 
   /* ══════════════════════════════════════════════════════════════════════
@@ -341,7 +459,69 @@
     return [...(games.ffa || []), ...(games.team || []), ...(games.special || [])];
   }
 
-  /** Moteur d'alertes — exécuté à CHAQUE event (counts compris). */
+  /* ══════════════════════════════════════════════════════════════════════
+     Suivi « ma partie » — le joueur clique une carte pour lancer sa partie ;
+     dès que le flux voit qu'elle démarre, on ouvre le chat de la partie.
+     ══════════════════════════════════════════════════════════════════════ */
+
+  window.addEventListener("tfh:lobby:my-game", (e) => {
+    const d = e.detail || {};
+    const id = d.gameId;
+    if (!id) return;
+    mine[id] = { map: String(d.map || ""), addedAt: Date.now(), lastSeen: Date.now() };
+    save(LS_MINE, mine);
+  });
+
+  function fireMyGameStarted(id, g, reason) {
+    const map = (g && gameLabel(g)) || (mine[id] && mine[id].map) || "";
+    delete mine[id];
+    save(LS_MINE, mine);
+    beep();
+    notify(
+      T("lobby.mygame_title", "Ta partie démarre ! 🎮"),
+      T("lobby.mygame_body", "Le chat de la partie est ouvert — les inscrits qui la rejoignent arrivent dans le salon."),
+      "tfh-mygame-" + id
+    );
+    window.dispatchEvent(new CustomEvent("tfh:lobby:my-game-started", {
+      detail: { gameId: id, map, reason },
+    }));
+  }
+
+  function runMyGameEngine(detail) {
+    const games = detail.games || {};
+    const ids = Object.keys(mine);
+    if (!ids.length) return;
+    let dirty = false;
+    const now = Date.now();
+    for (const id of ids) {
+      const m = mine[id];
+      if (!m) continue;
+      if (now - (m.addedAt || now) > MINE_TTL) { delete mine[id]; dirty = true; continue; }
+      const g = findGameById(games, id);
+      if (g) {
+        m.lastSeen = now;
+        const cap = Number((g.gameConfig || {}).maxPlayers) || 0;
+        const n = Number(g.numClients) || 0;
+        // OpenFront lance automatiquement un lobby public dès qu'il est plein,
+        // ou quand le compte à rebours (startsAt) tombe à zéro.
+        if (cap > 0 && n >= cap) { dirty = true; fireMyGameStarted(id, g, "full"); }
+        else if (Number(g.startsAt) > 0 && Number(g.startsAt) <= now + 1500) { dirty = true; fireMyGameStarted(id, g, "countdown"); }
+      } else if (now - (m.lastSeen || m.addedAt) > MINE_GONE_MS) {
+        // Plus vue depuis > 8 s (sur N'IMPORTE QUEL événement — les counts
+        // patchent les parties existantes, ils ne retirent jamais une partie
+        // de la liste) → le lobby a démarré (il quitte la liste) ou s'est
+        // terminé. On ouvre le chat : le salon reste utile dans les deux cas.
+        dirty = true;
+        fireMyGameStarted(id, null, "gone");
+      }
+    }
+    if (dirty) save(LS_MINE, mine);
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     Moteur d'alertes
+     ══════════════════════════════════════════════════════════════════════ */
+
   function runAlertEngine(detail) {
     const games = detail.games || {};
     annotateBuckets(games);
@@ -398,6 +578,9 @@
       }
       seenIds = ids;
     }
+
+    // 3) Suivi « ma partie » → ouverture du chat au lancement
+    runMyGameEngine(detail);
   }
 
   function modeLabelOf(g) {
@@ -424,17 +607,12 @@
     strip.setAttribute("aria-label", T("lobby.ll_aria", "Statistiques du lobby en direct"));
     strip.innerHTML = `
       <div class="llive-row">
-        <div class="llive-tile">
-          <span class="llive-tile-num" data-role="ll-players">—</span>
-          <span class="llive-tile-label">${esc(T("lobby.ll_players", "Joueurs en lobby"))}</span>
-        </div>
-        <div class="llive-tile">
-          <span class="llive-tile-num" data-role="ll-games">—</span>
-          <span class="llive-tile-label">${esc(T("lobby.ll_games", "Parties ouvertes"))}</span>
-        </div>
-        <div class="llive-tile">
-          <span class="llive-tile-num" data-role="ll-almost">—</span>
-          <span class="llive-tile-label">${esc(T("lobby.ll_almost", "Presque pleines"))}</span>
+        <div class="llive-tile llive-tile-total">
+          <span class="llive-tile-num" data-role="maps-total">0</span>
+          <span class="llive-tile-label">
+            <span class="llive-live-dot" aria-hidden="true"></span>
+            ${esc(T("lobby.maps_total_label", "Parties analysées"))}
+          </span>
         </div>
         <div class="llive-tile llive-tile-bell">
           <button type="button" class="llive-bell" data-role="ll-bell" aria-expanded="false"
@@ -470,6 +648,20 @@
         <p class="llive-panel-hint">${esc(T("lobby.alert_hint", "Tu seras prévenu dès qu'une partie correspondante s'ouvre. Garde cet onglet ouvert."))}</p>
         <div class="llive-watch-list" data-role="ll-watch"></div>
       </div>
+      <section class="llive-maps" aria-label="${esc(T("lobby.maps_title", "Stats des cartes"))}">
+        <div class="llive-maps-head">
+          <h3>${esc(T("lobby.maps_title", "Stats des cartes"))}</h3>
+          <div class="llive-curve-range llive-maps-range" role="group" aria-label="${esc(T("lobby.maps_range_aria", "Période des stats cartes"))}">
+            <button type="button" data-period="all" class="${mapsPeriod === "all" ? "is-active" : ""}">${esc(T("lobby.maps_period_all", "Toujours"))}</button>
+            <button type="button" data-period="7d" class="${mapsPeriod === "7d" ? "is-active" : ""}">${esc(T("lobby.maps_period_7d", "7 jours"))}</button>
+            <button type="button" data-period="24h" class="${mapsPeriod === "24h" ? "is-active" : ""}">${esc(T("lobby.maps_period_24h", "24 h"))}</button>
+          </div>
+        </div>
+        <p class="llive-maps-sub" data-role="maps-sub">${esc(T("lobby.maps_sub", "Collecte en continu"))}</p>
+        <ol class="llive-maps-list" data-role="maps-list">
+          <li class="llive-map-empty">${esc(T("lobby.maps_loading", "Chargement des stats des cartes…"))}</li>
+        </ol>
+      </section>
       <div class="llive-modes" data-role="ll-modes" aria-live="off"></div>
       <div class="llive-curve-card">
         <div class="llive-curve-head">
@@ -487,9 +679,6 @@
     viewEl.parentNode.insertBefore(strip, viewEl);
 
     els = {
-      players:   strip.querySelector("[data-role=ll-players]"),
-      games:     strip.querySelector("[data-role=ll-games]"),
-      almost:    strip.querySelector("[data-role=ll-almost]"),
       badge:     strip.querySelector("[data-role=ll-badge]"),
       bell:      strip.querySelector("[data-role=ll-bell]"),
       panel:     strip.querySelector("[data-role=ll-panel]"),
@@ -500,6 +689,9 @@
       modes:     strip.querySelector("[data-role=ll-modes]"),
       curve:     strip.querySelector("[data-role=ll-curve]"),
       curveEmpty: strip.querySelector("[data-role=ll-curve-empty]"),
+      mapsTotal: strip.querySelector("[data-role=maps-total]"),
+      mapsSub:   strip.querySelector("[data-role=maps-sub]"),
+      mapsList:  strip.querySelector("[data-role=maps-list]"),
     };
 
     // État initial des contrôles
@@ -544,13 +736,26 @@
       settings.minPlayers = v;
       save(LS_ALERTS, settings);
     });
-    strip.querySelector(".llive-curve-range").addEventListener("click", (e) => {
+    strip.querySelector(".llive-curve-range:not(.llive-maps-range)").addEventListener("click", (e) => {
       const btn = e.target.closest("[data-range]");
       if (!btn) return;
       range = Number(btn.dataset.range) || 6;
-      strip.querySelectorAll(".llive-curve-range button").forEach((b) =>
+      strip.querySelectorAll(".llive-curve-range:not(.llive-maps-range) button").forEach((b) =>
         b.classList.toggle("is-active", b === btn));
       drawCurve();
+    });
+    strip.querySelector(".llive-maps-range").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-period]");
+      if (!btn) return;
+      mapsPeriod = btn.dataset.period;
+      if (!["all", "7d", "24h"].includes(mapsPeriod)) mapsPeriod = "all";
+      save(LS_MAPS_P, mapsPeriod);
+      strip.querySelectorAll(".llive-maps-range button").forEach((b) =>
+        b.classList.toggle("is-active", b === btn));
+      if (els.mapsList) {
+        els.mapsList.innerHTML = `<li class="llive-map-empty">${esc(T("lobby.maps_loading", "Chargement des stats des cartes…"))}</li>`;
+      }
+      fetchMaps();
     });
 
     // Ouverture/fermeture de surveillance depuis les cartes (lobby.js émet)
@@ -569,6 +774,7 @@
     renderBell();
     renderWatchList();
     drawCurve();
+    startMaps();
   }
 
   function renderBell() {
@@ -643,7 +849,6 @@
     currentGames = detail.games || currentGames;
     buildStrip();
     const m = computeMetrics(currentGames);
-    renderCounters(m);
     renderModes(m);
     sampleHistory(m);
     runAlertEngine({ games: currentGames, full: !!detail.full });
@@ -652,7 +857,6 @@
   function boot() {
     buildStrip();
     window.addEventListener("tfh:lobby:update", onUpdate);
-    // Un premier état « 0 » propre même avant le 1er snapshot
   }
 
   if (document.readyState === "loading") {
