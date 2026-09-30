@@ -27,16 +27,25 @@
 // instead of throwing, so a map addition alone doesn't kill the dashboard.
 //
 // ── Historique de synchro schéma ────────────────────────────────────────────
+//   2026-09-30 : v5.17 — CASSAGE MAJEUR déployé (commit d7075bfa, vérifié
+//   contre 78 frames live capturées + décodage de référence par le vrai
+//   schéma OpenFrontIO@d7075bfa) :
+//   1. PublicGameInfo gagne `autoStartAt: uint.optional()` (bit 6) puis
+//      `custom: boolean.optional()` (bits 7-8) → le header de présence passe
+//      de 6 bits (1 octet) à 9 bits = 2 OCTETS. L'ancien décodeur lisait ce
+//      2e octet comme début du body → décalage d'1 byte par game → toute la
+//      frame full était perdue ("union tag 80", "Invalid byte sequence").
+//      Les frames counts, sans gameInfo, continuaient de passer (d'où les
+//      fausses impressions de « ça marche à moitié »).
+//   2. GameConfig gagne `pool: {id: str, siblings: str[]}.optional()`
+//      (bit 45, PoolConfigSchema — lobby pools multi-instances). 45→46 bits,
+//      header toujours 6 octets, mais il FAUT décoder le body si présent,
+//      sinon le flux suivant se désaligne.
+//   3. Maps.gen.ts : les 4 maps ajoutées le 21/09 sont RETIRÉES (Canary
+//      Islands, Rio de Janeiro, New Zealand, Pulicat Lake) → 123 entrées,
+//      ordinaux ≥24 décalés d'un cran (noms faux mais layout intact).
 //   2026-09-21 : v5.16 — Migration API (veille de la bascule du système d'API
-//   openfront). AUCUN changement de layout zbin depuis v0.34.0 (vérifié :
-//   diff 1e973bb..HEAD de Schemas.ts ne touche que le WS de jeu — join
-//   message — pas PublicLobbyFull/GameInfo/GameConfig). QUATRE nouvelles
-//   maps en insertion ordre-préservée d'après Maps.gen.ts (127 entrées,
-//   vérifié position par position) : Canary Islands (#24), Rio de Janeiro
-//   (#53), New Zealand (#85), Pulicat Lake (#94). Sans ce patch, les maps
-//   après l'ordinal 24 se décodent avec un nom DÉCALÉ (l'insertion ne saute
-//   aucun ordinal) — noms faux mais layout intact : un ordinal d'enum est un
-//   simple varint, aucun décalage binaire des champs suivants.
+//   openfront). AUCUN changement de layout zbin entre v0.34.0 et le 21/09.
 //   2026-09-14 : v5.15 — Mise à jour pour la release v0.34.0 (commit 1e973bb,
 //   déployé en prod — cf. api.openfront.io/cluster.json). TROIS changements :
 //   1. PublicLobbyFull gagne `gitCommit: string.optional()` (1 bit de
@@ -78,7 +87,7 @@
   // --- Enum tables (declaration order = wire ordinal) -----------------------
 
   // src/core/game/Maps.gen.ts — GameMapType
-  // Maps.gen.ts (HEAD 2026-09-21, post-v0.34.0) — 127 entrées,
+  // Maps.gen.ts (d7075bfa déployé, 2026-09-29) — 123 entrées,
   // ordre de déclaration = ordinal wire
   const GAME_MAP = [
     "Achiran", "Aegean", "Africa", "Alps", "Amazon River", "Antarctica",
@@ -86,14 +95,14 @@
     "Baikal Nuke Wars", "Baja California", "Balkans", "Balkhash", "Baltics",
     "Bering Sea", "Bering Strait", "Between Two Seas", "Black Sea",
     "Bosphorus Straits", "Branching Paths", "Britannia", "Britannia Classic",
-    "Canary Islands", "Cape Cod", "Caribbean", "Caspian Sea",
+    "Cape Cod", "Caribbean", "Caspian Sea",
     "Caucasus", "Central America", "Channel Islands", "China",
     "Chopping Block", "Clearwater Lakes", "Conakry", "Crimea",
     "Danish Straits", "Deglaciated Antarctica", "Didier", "Didier France",
     "Dyslexdria", "East Asia", "Europe", "Europe Classic",
     "Falkland Islands", "Faroe Islands", "Finger Lakes", "Four Islands",
     "France", "Gateway to the Atlantic", "Germany", "Giant World Map",
-    "Great Lakes", "Rio de Janeiro", "Gulf Of Guinea", "Gulf Of Mexico",
+    "Great Lakes", "Gulf Of Guinea", "Gulf Of Mexico",
     "Gulf of St. Lawrence", "Halkidiki", "Hawaii", "Hecate Strait",
     "Hong Kong", "Iceland", "Indian Subcontinent", "Irish Sea",
     "Italia", "Japan", "Juan De Fuca Strait", "Korea",
@@ -101,9 +110,9 @@
     "Lisbon", "Los Angeles", "Luna", "Manicouagan",
     "Mare Nostrum", "Mars", "Mena", "Middle East",
     "MilkyWay", "Mississippi River", "Montreal", "More Than Luck",
-    "New York City", "New Zealand", "Nile Delta", "North America",
+    "New York City", "Nile Delta", "North America",
     "Northwest Passage", "Oceania", "Onion", "Pangaea",
-    "Passage", "Pluto", "Pulicat Lake", "Qing China",
+    "Passage", "Pluto", "Qing China",
     "Russia", "San Francisco", "Scandinavia", "Sierpinski",
     "Sol", "South America", "SoutheastAsia", "Strait of Gibraltar",
     "Strait of Hormuz", "Strait Of Malacca", "Surrounded", "Svalmel",
@@ -361,6 +370,13 @@
     f("startingGold", "uint", { opt: true, nul: true }),
   ]);
 
+  // PoolConfigSchema (v5.17, d7075bfa) — lobby pools multi-instances : un
+  // point d'entrée répartit les arrivants sur plusieurs lobbies sœurs.
+  const PoolConfig = obj([
+    f("id", "str"),
+    f("siblings", { arr: "str" }),
+  ]);
+
   const GameConfig = obj([
     f("gameMap", { enum: GAME_MAP }),
     f("difficulty", { enum: DIFFICULTY }),
@@ -414,6 +430,10 @@
     f("goldMultiplier", "f64", { opt: true, nul: true }),
     f("startingGold", "uint", { opt: true, nul: true }),
     f("hostCheats", HostCheats, { opt: true }),
+    // ⚠️ v5.17 (d7075bfa) : `pool` ajouté en DERNIER champ (bit 45).
+    // Header toujours 6 octets, mais le body DOIT être décodé s'il est
+    // présent, sinon le reste du flux se désaligne.
+    f("pool", PoolConfig, { opt: true }),
   ]);
 
   const PublicGameInfo = obj([
@@ -425,6 +445,11 @@
     f("label", "str", { opt: true }),
     f("accent", { enum: LOBBY_ACCENT }, { opt: true }),
     f("featured", "bool", { opt: true }),
+    // ⚠️ v5.17 (d7075bfa) : ces 2 champs font passer le header de présence
+    // de 6 bits (1 octet) à 9 bits = 2 OCTETS. C'est CE changement qui
+    // désalignait chaque game d'1 byte et cassait toutes les frames full.
+    f("autoStartAt", "uint", { opt: true }),
+    f("custom", "bool", { opt: true }),
   ]);
 
   const PublicLobbyFull = obj([

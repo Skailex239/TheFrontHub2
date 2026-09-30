@@ -162,8 +162,22 @@ export default {
           ? hosts[Math.floor(Math.random() * hosts.length)]
           : FORCED_HOST;
         const w = LOBBY_WORKERS[Math.floor(Math.random() * LOBBY_WORKERS.length)];
-        return `wss://${host}/${w}/lobbies`;
+        // ?platform=web : même signature que le client officiel (métriques serveur)
+        return `wss://${host}/${w}/lobbies?platform=web`;
       });
+    }
+
+    // ───────────────────────────────────────────────────────────
+    // GET /lobby-snapshot — one-shot snapshot du lobby en JSON
+    //   (v5.17) Le challenge CF sur les hôtes de jeu bloque le TLS non
+    //   navigateur (Node/OpenSSL = 403 même avec UA Chrome complet) : le
+    //   sync o2switch ne peut plus ouvrir le WS directement. Ce endpoint
+    //   fait le trajet CF→CF (fetch Workers, UA Chrome) : il ouvre le WS
+    //   upstream, capture la première frame « full » et la renvoie en
+    //   base64. Le sync la décode côté serveur avec lobby-wire.js.
+    // ───────────────────────────────────────────────────────────
+    if (url.pathname === "/lobby-snapshot") {
+      return handleLobbySnapshot(request);
     }
 
     // /matchmaking-ws?mode=1v1  → wss://api.openfront.io/matchmaking/join?instance_id=tfh-monitor&mode=1v1
@@ -228,6 +242,74 @@ export default {
 };
 
 /**
+ * GET /lobby-snapshot — ouvre le WS upstream, capture la 1ère frame
+ * « full » (snapshot lobbies) et la renvoie en JSON :
+ *   { frame: <base64 zbin>, ts: <ms>, host: "<hôte>" }
+ * Le consommateur (sync-lobby-state.js) décode `frame` avec lobby-wire.js.
+ * Timeout 6 s → 504. Le challenge CF côté OpenFront est satisfait par le
+ * fetch Workers (trajet CF→CF) avec un UA Chrome complet — cf. proxyWebSocket.
+ */
+async function handleLobbySnapshot(request) {
+  const origin = request.headers.get("Origin") || "";
+  const host = FORCED_HOST;
+  const w = LOBBY_WORKERS[Math.floor(Math.random() * LOBBY_WORKERS.length)];
+  const upstreamUrl = `wss://${host}/${w}/lobbies?platform=web`;
+  const cors = { "Content-Type": "application/json", ...corsHeadersFor(origin) };
+
+  const finish = (status, body) =>
+    new Response(JSON.stringify(body), { status, headers: cors });
+
+  try {
+    const upstreamResp = await fetch(upstreamUrl, {
+      headers: {
+        "Origin": "https://openfront.io",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+          "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9,fr;q=0.8",
+      },
+    });
+
+    const upstreamWs = upstreamResp.webSocket;
+    if (!upstreamWs) {
+      return finish(502, { error: "Upstream WS failed" });
+    }
+
+    upstreamWs.accept();
+    return await new Promise((resolve) => {
+      let settled = false;
+      const done = (status, body) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try { upstreamWs.close(); } catch (e) { /* ignore */ }
+        resolve(finish(status, body));
+      };
+      const timer = setTimeout(() => done(504, { error: "snapshot timeout" }), 6000);
+      upstreamWs.addEventListener("message", (e) => {
+        if (settled) return;
+        try {
+          const bytes = new Uint8Array(e.data);
+          // zbin frame binaire → base64 (safe JSON). Tag 0 = "full" ;
+          // on ignore les premières frames "counts" (tag 1) si elles
+          // arrivaient avant le full (le serveur prime avec un full).
+          if (bytes.length > 0 && bytes[0] !== 0) return;
+          let bin = "";
+          for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+          done(200, { frame: btoa(bin), ts: Date.now(), host });
+        } catch (err) {
+          done(502, { error: "frame error: " + err.message });
+        }
+      });
+      upstreamWs.addEventListener("close", () => done(502, { error: "upstream closed early" }));
+      upstreamWs.addEventListener("error", () => done(502, { error: "upstream error" }));
+    });
+  } catch (err) {
+    return finish(502, { error: "WS fetch failed", message: err.message });
+  }
+}
+
+/**
  * Proxifie une connexion WebSocket entrante vers une URL upstream.
  * L'URL upstream peut être déterminée dynamiquement (résolution Server list
  * v2, pick d'un worker aléatoire) grâce à la fonction `resolveUpstream`
@@ -245,10 +327,18 @@ async function proxyWebSocket(request, resolveUpstream) {
     // ⚠️ API Cloudflare Workers pour les WebSockets :
     //   On fetch l'URL wss:// SANS header Upgrade manuel (Cloudflare le fait).
     //   On doit passer l'header Origin pour passer les checks OpenFront.
+    // v5.17 (2026-09-30) : le challenge CF devant les hôtes de jeu filtre sur
+    //   l'UA — un UA nu "Mozilla/5.0" est flagué bot (403 cf-mitigated:challenge
+    //   → 502 ici). Un UA Chrome COMPLET passe (testé depuis Node : OPEN + frames
+    //   reçues, Origin sans importance). On envoie donc le même UA que le client
+    //   officiel, + ?platform=web comme lui.
     const upstreamResp = await fetch(upstreamUrl, {
       headers: {
         "Origin": "https://openfront.io",
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+          "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9,fr;q=0.8",
       },
     });
 
