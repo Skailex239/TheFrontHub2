@@ -249,12 +249,50 @@ function tfh_serve_path(string $path, bool $headOnly): void
     header('Cache-Control: ' . $cache);
     header('Last-Modified: ' . $lastMod);
     header('Accept-Ranges: none');
+
+    /* — Pages HTML : injection du ruban « DEV » (v5.16.5) —
+     * Ce code ne s'exécute QUE sur dev.thefronthub.com (le gate y est confiné
+     * par le .htaccess + tfh_is_dev_host()) : la prod n'est jamais touchée.
+     * Objectif : distinguer immédiatement la pré-production de la prod. */
+    if ($isHtml && !$headOnly) {
+        tfh_serve_html_with_dev_ribbon($file, $cache, $lastMod);
+        return;
+    }
+
     header('Content-Length: ' . (string) filesize($file));
 
     if ($headOnly) {
         return;
     }
     readfile($file);
+}
+
+/**
+ * Sert une page HTML en y injectant le ruban flottant « DEV » (non cliquable,
+ * zéro dépendance, double-injection impossible via le marqueur tfh-dev-ribbon).
+ */
+function tfh_serve_html_with_dev_ribbon(string $file, string $cache, string $lastMod): void
+{
+    $html = (string) file_get_contents($file);
+
+    if ($html !== '' && !str_contains($html, 'tfh-dev-ribbon')) {
+        $ribbon = '<div class="tfh-dev-ribbon" role="note"'
+            . ' aria-label="Environnement de pré-production (dev)"'
+            . ' title="dev.thefronthub.com — pré-production"'
+            . ' style="position:fixed;z-index:2147483647;right:10px;bottom:10px;pointer-events:none;'
+            . 'font:700 11px/1.2 system-ui,-apple-system,\'Segoe UI\',Roboto,sans-serif;letter-spacing:2px;'
+            . 'color:#ffb066;background:rgba(11,14,20,.85);border:1px solid rgba(255,107,0,.6);'
+            . 'border-radius:999px;padding:6px 12px;backdrop-filter:blur(4px);text-transform:uppercase">'
+            . 'DEV</div>';
+        if (preg_match('/<\/body\s*>/i', $html) === 1) {
+            $html = (string) preg_replace('/<\/body\s*>/i', $ribbon . '</body>', $html, 1);
+        } else {
+            $html .= $ribbon;
+        }
+    }
+
+    header('Content-Length: ' . (string) strlen($html));
+    echo $html;
 }
 
 /* ════════════════════════════════════════════════════════════════════ */

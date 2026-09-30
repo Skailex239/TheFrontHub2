@@ -7,11 +7,24 @@ declare(strict_types=1);
  * Principe :
  *   - Vérification 100 % serveur (aucun indice côté client).
  *   - Session = cookie signé HMAC-SHA256 (payload base64url JSON : version,
- *     iat, exp, nonce). Forgery impossible sans 'secret' (auth-config.php).
+ *     iat, exp, nonce). Forgery impossible sans 'secret'.
+ *   - ⚠️ SECRET & HASH JAMAIS DANS LE REPO (v5.16.5 — le repo GitHub est
+ *     PUBLIC : toute valeur versionnée est lisible par tout le monde).
+ *     La config vit dans <home>/.tfs_secrets/gate-config.json (HORS webroot,
+ *     hors repo, survivant aux rsync de déploiement) :
+ *       {"v":2,"hash":"$2y$...","secret":"<64 hex>"}
+ *     Au premier appel sans config, AMORÇAGE AUTOMATIQUE :
+ *       'secret' → NOUVEAU, généré sur le serveur (random_bytes, 0600) ;
+ *       'hash'   → seed de migration TFH_GATE_HASH_SEED (déjà public dans
+ *                  l'historique git : ne révèle RIEN de nouveau ; sert une
+ *                  seule fois, le temps que le serveur écrive sa config).
+ *     Pour CHANGER le code d'accès : générer un hash
+ *       php -r "echo password_hash('NOUVEAU_CODE', PASSWORD_BCRYPT), PHP_EOL;"
+ *     puis éditer <home>/.tfs_secrets/gate-config.json (cPanel) et bump 'v'.
  *   - Anti force brute : compteur d'échecs par IP (fenêtre 15 min, 5 essais),
  *     puis verrouillage croissant 5 → 10 → 20 → 40 → 60 min. Les compteurs
  *     vivent dans sys_get_temp_dir() (HORS webroot → jamais écrasés par le
- *     rsync de deploy.sh, jamais servis en HTTP).
+ *     rsync de déploiement, jamais servis en HTTP).
  *   - Dégradation sûre : si l'anti brute-force n'arrive pas à écrire
  *     (permissions…), la connexion légitime reste possible (jamais de
  *     verrouillage faux-positif du propriétaire).
@@ -19,6 +32,16 @@ declare(strict_types=1);
 
 const TFH_GATE_COOKIE = 'tfh_dev_gate';
 const TFH_GATE_TTL    = 30 * 86400; // session 30 jours
+
+/**
+ * Seed de migration (UNIQUE AMORÇAGE serveur) : hash bcrypt du code actuel.
+ * ⚠️ Déjà présent dans l'historique public du repo (ancien auth-config.php) :
+ *    l'embarquer ici n'expose donc RIEN de nouveau. Il ne sert qu'à écrire la
+ *    config initiale sur le serveur ; ensuite le serveur n'utilise plus que
+ *    <home>/.tfs_secrets/gate-config.json (hors repo). Le secret, lui, n'a
+ *    JAMAIS été public dans cette version : il est régénéré à l'amorçage.
+ */
+const TFH_GATE_HASH_SEED = '$2y$12$56sfEPt9gwune.sY6Sq/BueL7.ClHXij6PkRXAntPsC5BNcE/poAu';
 
 const TFH_RL_WINDOW    = 900; // fenêtre d'échecs : 15 min
 const TFH_RL_MAX_FAILS = 5;   // essais avant verrouillage
@@ -39,18 +62,106 @@ function tfh_is_dev_host(): bool
 /* Config                                                             */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Répertoires candidats pour la config hors webroot (ordre de préférence) :
+ *   1. <home>/.tfs_secrets            — convention _deploy.php / _upload.php
+ *   2. <public_html>/.tfs_secrets     — repli si le home n'est pas déductible
+ *   3. <parent(home)>/.tfs_secrets    — repli
+ *   4. <tmp système>/tfh-gate-secrets — dernier repli (toujours inscriptible)
+ * Le __DIR__ ici est <webroot>/secure → 3 niveaux au-dessus = /home/USER.
+ */
+function tfh_secrets_dir_candidates(): array
+{
+    $cands = [];
+    foreach ([3, 2, 4] as $levels) {
+        $dir = __DIR__;
+        for ($i = 0; $i < $levels; $i++) {
+            $parent = dirname($dir);
+            if ($parent === $dir || $parent === '/' || $parent === '') {
+                $dir = '';
+                break;
+            }
+            $dir = $parent;
+        }
+        if ($dir !== '' && $dir !== '/' && $dir !== '.') {
+            $cands[] = $dir . '/.tfs_secrets';
+        }
+    }
+    $cands[] = rtrim((string) (sys_get_temp_dir() ?: '/tmp'), '/') . '/tfh-gate-secrets';
+    return array_values(array_unique($cands));
+}
+
+/** JSON de config valide ? */
+function tfh_parse_gate_config(string $raw): ?array
+{
+    $j = json_decode($raw, true);
+    if (is_array($j)
+        && isset($j['hash'], $j['secret'], $j['v'])
+        && is_string($j['hash']) && str_starts_with($j['hash'], '$2')
+        && is_string($j['secret']) && strlen($j['secret']) >= 32) {
+        return $j;
+    }
+    return null;
+}
+
+/**
+ * Charge <home>/.tfs_secrets/gate-config.json ; l'amorce si absente
+ * (nouveau secret généré sur le serveur + hash seed) ; null si impossible.
+ */
+function tfh_load_or_bootstrap_gate_config(): ?array
+{
+    $candidates = tfh_secrets_dir_candidates();
+
+    /* 1) Config existante : premier fichier lisible et valide gagne. */
+    foreach ($candidates as $dir) {
+        $file = $dir . '/gate-config.json';
+        if (is_readable($file)) {
+            $cfg = tfh_parse_gate_config((string) file_get_contents($file));
+            if ($cfg !== null) {
+                return $cfg;
+            }
+        }
+    }
+
+    /* 2) Amorçage : premier répertoire inscriptible gagne. */
+    foreach ($candidates as $dir) {
+        if (!is_dir($dir) && !@mkdir($dir, 0700, true) && !is_dir($dir)) {
+            continue;
+        }
+        $file = $dir . '/gate-config.json';
+        if (is_readable($file)) {
+            // Une requête concurrente a déjà amorcé : on réutilise.
+            $cfg = tfh_parse_gate_config((string) file_get_contents($file));
+            if ($cfg !== null) {
+                return $cfg;
+            }
+        }
+        $cfg = [
+            'v'      => 2, // v2 : invalide tous les cookies forgés avec l'ancien secret public
+            'hash'   => TFH_GATE_HASH_SEED,
+            'secret' => bin2hex(random_bytes(32)), // 64 hex, généré ICI, jamais dans le repo
+        ];
+        $tmp = $file . '.tmp' . getmypid();
+        if (@file_put_contents($tmp, (string) json_encode($cfg), LOCK_EX) !== false) {
+            @chmod($tmp, 0600);
+            if (@rename($tmp, $file)) {
+                error_log('[tfh-gate] config serveur amorcée (nouveau secret hors repo) : ' . $file);
+                return $cfg;
+            }
+        }
+        @unlink($tmp);
+    }
+    return null;
+}
+
 /** Config (hash + secret) lue une seule fois par requête. Fail-closed. */
 function tfh_gate_config(): array
 {
     static $cfg = null;
     if ($cfg === null) {
-        $cfg = require __DIR__ . '/auth-config.php';
-        $ok  = is_array($cfg)
-            && isset($cfg['hash'], $cfg['secret'], $cfg['v'])
-            && is_string($cfg['hash']) && str_starts_with($cfg['hash'], '$2')
-            && is_string($cfg['secret']) && strlen($cfg['secret']) >= 32;
-        if (!$ok) {
-            error_log('[tfh-gate] secure/auth-config.php invalide — porte verrouillée');
+        $cfg = tfh_load_or_bootstrap_gate_config();
+        if ($cfg === null) {
+            error_log('[tfh-gate] config indisponible (aucun stockage inscriptible) — porte verrouillée');
             http_response_code(500);
             header('Content-Type: text/plain; charset=utf-8');
             exit('Configuration indisponible');
