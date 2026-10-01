@@ -15,9 +15,13 @@
  *   3. Stats par mode        → chips FFA / Team / Spécial / Classé (parties + joueurs)
  *   4. Courbe d'activité     → canvas, historique 24 h en localStorage, ranges 1h/6h/24h
  *   5. Alertes (bell 18/22)  → notification navigateur + son WebAudio quand
- *                              une partie correspondant aux filtres s'ouvre,
- *                              ou quand un lobby surveillé (« préviens-moi
+ *                              une partie correspondant aux filtres s'ouvre
+ *                              (ou atteint le seuil « joueurs min. »), ou
+ *                              quand un lobby surveillé (« préviens-moi
  *                              quand ce lobby est plein ») devient pleine.
+ *                              v5.20.1 anti-spam : regroupement + 1 alerte
+ *                              « nouvelles parties » max par minute, une
+ *                              partie ne sonne jamais deux fois.
  *   6. Suivi « ma partie »   → clic sur une carte = tu lances la partie ;
  *                              dès que le flux voit qu'elle démarre (pleine,
  *                              compte à rebours écoulé ou sortie de liste),
@@ -49,6 +53,12 @@
   const WATCH_GONE_MS   = 5 * 60_000;         // partie absente > 5 min → dé-surveillance
   const MINE_TTL        = 3 * 3600_000;       // suivi « ma partie » expire après 3 h
   const MINE_GONE_MS    = 8_000;              // absente d'un snapshot complet > 8 s → démarrée
+  // v5.20.1 — anti-spam alertes : le serveur OpenFront renvoie un snapshot
+  // « full » dès que quelque chose change hors des comptes de joueurs (partie
+  // créée, partie lancée, startsAt qui bouge…) — souvent plusieurs fois par
+  // minute. Sans garde, CHAQUE nouvelle partie sonnait : alarme continue.
+  const NEW_ALERT_COOLDOWN_MS = 60_000; // 1 bip/notification « nouvelles parties » max / minute
+  const ALERTED_MAX     = 400;          // plafond du Set de dédup session
   const MODES = ["ffa", "team", "special"];
 
   /* ── État persistant ─────────────────────────────────────────────────── */
@@ -60,11 +70,18 @@
 
   const settings = Object.assign({ enabled: false, mode: "all", minPlayers: 0 }, load(LS_ALERTS, {}));
   let watch   = load(LS_WATCH, {});       // { gameId: { map, mode, addedAt, lastSeen } }
+  for (const w of Object.values(watch)) w.armedAt = 0; // ré-armé par session (anti re-bip au rechargement)
   let history = load(LS_HIST, []);        // [[ts, players, games], …]
   let mine    = load(LS_MINE, {});        // { gameId: { map, addedAt, lastSeen } }
   let mapsPeriod = load(LS_MAPS_P, "all"); // all | 7d | 24h
   const firedFull = new Set();            // ids déjà notifiés « pleine » (session)
-  let seenIds = null;                     // ids du snapshot précédent (détection nouvelles)
+  let seenIds = null;                     // ids du snapshot complet précédent (détection nouvelles)
+  // v5.20.1 — état anti-spam des alertes « nouvelles parties »
+  let pendingFresh = [];                  // alertes en attente du flush (regroupées)
+  let newAlertTimer = null;               // flush programmé à la fin du cooldown
+  let lastNewAlert = 0;                   // ts du dernier bip « nouvelles parties »
+  let alertedIds = new Set();             // une partie n'alerte JAMAIS 2 fois par session
+  let lastCounts = new Map();             // id → numClients au passage précédent (détection de seuil)
   let lastSample = 0;
   let range = 6;                          // heures affichées (1 | 6 | 24)
 
@@ -487,12 +504,55 @@
     }));
   }
 
+  /* ── v5.20.1 : regroupement + cooldown des alertes « nouvelles parties » ── */
+
+  /** Pousse une alerte candidate dans la file d'attente (si alertes actives). */
+  function queueFreshAlert(g, id) {
+    alertedIds.add(id);
+    if (!settings.enabled) return; // alertes coupées : on n'accumule rien
+    pendingFresh.push({ id, map: gameLabel(g), mode: modeLabelOf(g), n: Number(g.numClients) || 0 });
+    if (pendingFresh.length > 30) pendingFresh.shift(); // garde-fou mémoire
+  }
+
+  /** Émet AU PLUS UN bip + une notification agrégée toutes les NEW_ALERT_COOLDOWN_MS. */
+  function flushNewAlerts() {
+    if (newAlertTimer) { clearTimeout(newAlertTimer); newAlertTimer = null; }
+    if (!pendingFresh.length) return;
+    if (!settings.enabled) { pendingFresh = []; return; }
+    const wait = NEW_ALERT_COOLDOWN_MS - (Date.now() - lastNewAlert);
+    if (wait > 0) {
+      // Trop tôt : on garde en attente, flush automatique à la fin du cooldown.
+      newAlertTimer = setTimeout(flushNewAlerts, wait + 50);
+      return;
+    }
+    // Au moment du flush, ne citer que les parties ENCORE ouvertes
+    // (inutile de prévenir d'une partie déjà lancée depuis 30 s).
+    const alive = pendingFresh.filter((p) => findGameById(currentGames, p.id));
+    pendingFresh = [];
+    if (!alive.length) return;
+    lastNewAlert = Date.now();
+    beep();
+    const g0 = alive[0];
+    const extra = alive.length - 1;
+    notify(
+      extra > 0
+        ? T("lobby.alert_new_many_title", `${alive.length} nouvelles parties ! 🎮`, { n: alive.length })
+        : T("lobby.alert_new_title", "Nouvelle partie ! 🎮"),
+      T("lobby.alert_new_body", `${g0.map} vient de s'ouvrir`, { map: g0.map }) +
+        (extra > 0 ? " " + T("lobby.alert_new_extra", `(+${extra} autre${extra > 1 ? "s" : ""})`, { n: extra }) : ""),
+      "tfh-new-" + g0.id
+    );
+  }
+
   function runMyGameEngine(detail) {
     const games = detail.games || {};
     const ids = Object.keys(mine);
     if (!ids.length) return;
     let dirty = false;
     const now = Date.now();
+    // v5.20.1 : startsAt est en horloge SERVEUR — compare avec l'heure serveur
+    // (publiée par lobby.js), pas l'horloge du navigateur (décalage possible).
+    const sNow = Number(detail.serverNow) > 0 ? Number(detail.serverNow) : now;
     for (const id of ids) {
       const m = mine[id];
       if (!m) continue;
@@ -505,7 +565,7 @@
         // OpenFront lance automatiquement un lobby public dès qu'il est plein,
         // ou quand le compte à rebours (startsAt) tombe à zéro.
         if (cap > 0 && n >= cap) { dirty = true; fireMyGameStarted(id, g, "full"); }
-        else if (Number(g.startsAt) > 0 && Number(g.startsAt) <= now + 1500) { dirty = true; fireMyGameStarted(id, g, "countdown"); }
+        else if (Number(g.startsAt) > 0 && Number(g.startsAt) <= sNow + 1500) { dirty = true; fireMyGameStarted(id, g, "countdown"); }
       } else if (now - (m.lastSeen || m.addedAt) > MINE_GONE_MS) {
         // Plus vue depuis > 8 s (sur N'IMPORTE QUEL événement — les counts
         // patchent les parties existantes, ils ne retirent jamais une partie
@@ -528,6 +588,9 @@
     const now = Date.now();
 
     // 1) Surveillances : pleine ? expirée ? partie disparue ?
+    //    v5.20.1 : une surveillance n'est « armée » qu'après avoir été vue
+    //    NON pleine au moins une fois dans cette session — sinon, après un
+    //    rechargement de page, un lobby DÉJÀ pleine redéclenchait le bip.
     let watchDirty = false;
     for (const id of Object.keys(watch)) {
       const w = watch[id];
@@ -536,15 +599,20 @@
         w.lastSeen = now;
         const cap = Number((g.gameConfig || {}).maxPlayers) || 0;
         const n = Number(g.numClients) || 0;
-        if (cap > 0 && n >= cap && !firedFull.has(id)) {
-          firedFull.add(id);
-          beep();
-          notify(
-            T("lobby.alert_full_title", "Lobby plein ! 🔔"),
-            T("lobby.alert_full_body", `${gameLabel(g)} est complète (${n}/${cap}) — file rejoindre !`, { map: gameLabel(g), n, cap }),
-            "tfh-full-" + id
-          );
-          delete watch[id];
+        if (cap > 0 && n >= cap) {
+          if (w.armedAt && !firedFull.has(id)) {
+            firedFull.add(id);
+            beep();
+            notify(
+              T("lobby.alert_full_title", "Lobby plein ! 🔔"),
+              T("lobby.alert_full_body", `${gameLabel(g)} est complète (${n}/${cap}) — file rejoindre !`, { map: gameLabel(g), n, cap }),
+              "tfh-full-" + id
+            );
+          }
+          delete watch[id]; // pleine (sonnée ou pas) : plus rien à surveiller
+          watchDirty = true;
+        } else if (!w.armedAt) {
+          w.armedAt = now; // vue non pleine → alerte armée pour cette session
           watchDirty = true;
         }
       } else if (now - (w.lastSeen || w.addedAt || now) > WATCH_GONE_MS) {
@@ -558,26 +626,31 @@
     if (watchDirty) { save(LS_WATCH, watch); renderWatchList(); }
     syncCardBells();
 
-    // 2) Nouvelles parties → filtres (uniquement sur snapshot complet)
+    // 2) Alertes « nouvelles parties » — avec anti-spam complet (v5.20.1) :
+    //      • une partie ne déclenche AU PLUS UNE alerte par session ;
+    //      • déclencheurs : création d'une partie qui passe les filtres, OU
+    //        franchissement du seuil « joueurs min. » (de < min à ≥ min) ;
+    //      • regroupement : 1 bip + 1 notification agrégée max / minute.
+    const prevSeen = seenIds;
     if (detail.full) {
-      const ids = new Set(allGames(games).map((g) => String(g.gameID || g.id)));
-      if (seenIds) {
-        const fresh = allGames(games).filter((g) => {
-          const id = String(g.gameID || g.id);
-          return !seenIds.has(id) && matchesFilters(g);
-        });
-        if (fresh.length && settings.enabled) {
-          beep();
-          const g0 = fresh[0];
-          notify(
-            T("lobby.alert_new_title", "Nouvelle partie ! 🎮"),
-            T("lobby.alert_new_body", `${gameLabel(g0)} — ${modeLabelOf(g0)} (${fresh.length > 1 ? "+" + (fresh.length - 1) + " autre" + (fresh.length > 2 ? "s" : "") : ""})`, { map: gameLabel(g0) }),
-            "tfh-new-" + (g0.gameID || g0.id)
-          );
-        }
-      }
-      seenIds = ids;
+      seenIds = new Set(allGames(games).map((g) => String(g.gameID || g.id)));
+      for (const k of lastCounts.keys()) if (!seenIds.has(k)) lastCounts.delete(k);
     }
+    const wantMin = Math.max(0, Math.round(Number(settings.minPlayers) || 0));
+    for (const g of allGames(games)) {
+      const id = String(g.gameID || g.id);
+      const n = Number(g.numClients) || 0;
+      const prevN = lastCounts.get(id);
+      lastCounts.set(id, n);
+      if (alertedIds.has(id) || !matchesFilters(g)) continue;
+      const isNew = !!(detail.full && prevSeen && !prevSeen.has(id));
+      const crossed = wantMin > 0 && prevN !== undefined && prevN < wantMin && n >= wantMin;
+      if ((isNew || crossed) && n >= wantMin) queueFreshAlert(g, id);
+    }
+    if (alertedIds.size > ALERTED_MAX) {
+      alertedIds = new Set([...alertedIds].slice(-ALERTED_MAX / 2));
+    }
+    flushNewAlerts();
 
     // 3) Suivi « ma partie » → ouverture du chat au lancement
     runMyGameEngine(detail);
@@ -645,7 +718,7 @@
             <input type="number" min="0" max="60" data-role="ll-min">
           </label>
         </div>
-        <p class="llive-panel-hint">${esc(T("lobby.alert_hint", "Tu seras prévenu dès qu'une partie correspondante s'ouvre. Garde cet onglet ouvert."))}</p>
+        <p class="llive-panel-hint">${esc(T("lobby.alert_hint", "Prévenu quand une partie correspondante s'ouvre (ou atteint le seuil de joueurs) — regroupé : 1 alerte max par minute. Garde cet onglet ouvert."))}</p>
         <div class="llive-watch-list" data-role="ll-watch"></div>
       </div>
       <section class="llive-maps" aria-label="${esc(T("lobby.maps_title", "Stats des cartes"))}">
@@ -817,6 +890,7 @@
         mode: g ? modeLabelOf(g) : "",
         addedAt: Date.now(),
         lastSeen: Date.now(),
+        armedAt: 0, // armée au 1er passage « non pleine » de cette session
       };
       ensureAudio(); // geste utilisateur : audio prêt pour le bip « pleine »
       window.showToast?.(
@@ -851,7 +925,11 @@
     const m = computeMetrics(currentGames);
     renderModes(m);
     sampleHistory(m);
-    runAlertEngine({ games: currentGames, full: !!detail.full });
+    runAlertEngine({
+      games: currentGames,
+      full: !!detail.full,
+      serverNow: Number(detail.serverNow) || 0, // v5.20.1 : horloge serveur pour startsAt
+    });
   }
 
   function boot() {

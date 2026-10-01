@@ -399,8 +399,11 @@ function announceFavoriteGames(isNew) {
   });
 }
 
-/** Horloge serveur interpolée localement (serverTime + temps écoulé). */
+/** Horloge serveur interpolée localement (serverTime + temps écoulé).
+ *  0 si le serveur n'a encore rien annoncé — les consommateurs retombent
+ *  alors sur leur horloge locale (guard Number(...) > 0). */
 function serverNow() {
+  if (!state.serverTime) return 0;
   return state.serverTime + (Date.now() - state.serverTimeAt);
 }
 
@@ -444,9 +447,11 @@ function ingestFull(msg) {
   state.updatedAt = Date.now();
   // v5.18 — publie le snapshot aux modules compagnons (lobby-live.js : compteurs
   // live / courbe / stats par mode / alertes ; lobby-chat.js : badges salons)
+  // v5.20.1 — serverNow : horloge serveur interpolée (les comparaisons startsAt
+  // côté alertes ne doivent PAS utiliser l'horloge du navigateur, décalage possible)
   try {
     window.dispatchEvent(new CustomEvent("tfh:lobby:update", {
-      detail: { games: state.games, source: state.source, full: true },
+      detail: { games: state.games, source: state.source, full: true, serverNow: serverNow() },
     }));
   } catch { /* navigateurs très anciens : sans importance */ }
   scheduleRender(true);
@@ -475,7 +480,7 @@ function ingestCounts(msg) {
     // v5.18 — les compteurs de joueurs bougent : publie aux modules compagnons
     try {
       window.dispatchEvent(new CustomEvent("tfh:lobby:update", {
-        detail: { games: state.games, source: state.source, full: false },
+        detail: { games: state.games, source: state.source, full: false, serverNow: serverNow() },
       }));
     } catch { /* ignore */ }
     scheduleRender(false); // maj légère : compteurs seulement
