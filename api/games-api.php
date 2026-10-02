@@ -76,6 +76,22 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
     gout(['ok' => true]);
 }
 
+/* ── Audit P0-2 (2026-10) : garde admin pour les routes diagnostiques ──────
+ * status / synclog exposaient publiquement l'état interne de la base et du
+ * cycle de synchronisation. Ces routes ne servent AUCUN page du front :
+ * on les verrouille sur une session Discord site avec role = admin
+ * (helpers.php : current_user(), chargé via config.php).
+ * Devient 403 JSON pour tout visiteur externe. */
+function tfh_route_admin_only(PDO $pdo): bool
+{
+    try {
+        $user = current_user($pdo);
+        return is_array($user) && (($user['role'] ?? '') === 'admin');
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
 /* ── v5.15 — Motifs (patterns) OpenFront : bitmaps pour rendu canvas ──
  * Le catalogue officiel (api.openfront.io/cosmetics.json) porte, pour chaque
  * motif, un champ `pattern` = bitmap base64url (cf. PatternDecoder.ts côté
@@ -898,6 +914,12 @@ case 'maps': {
 
 /* ── État de la base (admin / widgets) ───────────────────────────────────── */
 case 'status': {
+    /* Audit P0-2 : route diagnostique réservée aux admins (session Discord
+     * site avec role=admin). Aucune page du front ne la consomme — verrou
+     * anti-exposition publique des compteurs internes (curseurs, 429…). */
+    if (!tfh_route_admin_only($pdo)) {
+        gfail(403, 'forbidden', 'Route réservée aux administrateurs.');
+    }
     header('Cache-Control: public, max-age=60');
     $cnt = $pdo->query('SELECT
         (SELECT COUNT(*) FROM tfh_g_games) AS games,
@@ -1471,6 +1493,11 @@ case 'playercosmetics': {
 
 /* ── v5.12 : diagnostic — dernières lignes du log de sync ────────────────── */
 case 'synclog': {
+    /* Audit P0-2 : log de synchronisation interne (IP, débits, erreurs) —
+     * strictement réservé aux administrateurs du site. */
+    if (!tfh_route_admin_only($pdo)) {
+        gfail(403, 'forbidden', 'Route réservée aux administrateurs.');
+    }
     $f = __DIR__ . '/games-sync.log';
     $lines = [];
     if (is_readable($f)) {
