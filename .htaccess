@@ -207,3 +207,11 @@ FileETag MTime Size
 
 # ── 14. Désactiver le suivi des répertoires (sécurité) ──
 Options -Indexes
+
+# ── 15. Page 404 personnalisée (audit P1-8) ─────────────────────────────
+# Avant : 404 Apache générique (page blanche technique, aucun lien de
+# récupération → visite perdue). 404.html est cohérente avec le design du
+# site (thème clair/sombre respecté) et propose 3 sorties vers l'accueil.
+# ⚠️ Le .htaccess racine est géré manuellement sur le serveur (exclu du
+# rsync de deploy.sh) : recopier ce fichier une fois via cPanel.
+ErrorDocument 404 /404.html
