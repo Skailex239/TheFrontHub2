@@ -45,7 +45,17 @@ jobs:
       - name: Prepare site (exclut fichiers sensibles et de dev)
         run: |
           mkdir -p /tmp/pages-site
+          # Audit P1-2/P1-4 : les PNG/WebP de travail à la racine (captures de
+          # design, vérifs, maquettes — ~20 Mo) ne sont référencés par AUCUNE
+          # page (vérifié par grep sur *.html, *.js et dist/*.js). On ne publie
+          # sur le miroir Pages que les images réellement utilisées : les 3
+          # logos officiels + les favicons. Tout le reste de la racine est exclu.
           rsync -a ./ /tmp/pages-site/ \
+            --include='/TheFrontHub Logo*.png' \
+            --include='/TheFrontHub LOGO*.png' \
+            --include='/favicon-*.png' \
+            --exclude='/*.png' \
+            --exclude='/*.webp' \
             --exclude='.git' \
             --exclude='.github' \
             --exclude='.gitignore' \
@@ -101,6 +111,12 @@ jobs:
           echo "✓ Aucun fichier sensible"
       - name: Setup Pages
         uses: actions/configure-pages@v5
+        with:
+          # Audit P0-5 : le workflow échouait (7 runs) car GitHub Pages n'était
+          # pas activé sur le dépôt → « Get Pages site failed … Not Found ».
+          # enablement: true active/aligne automatiquement Pages en mode
+          # « build via GitHub Actions » — plus jamais d'échec silencieux.
+          enablement: true
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
