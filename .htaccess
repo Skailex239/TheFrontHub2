@@ -30,6 +30,9 @@ RewriteCond %{HTTP_HOST} ^dev\.thefronthub\.com$ [NC]
 RewriteCond %{REQUEST_URI} !^/gate\.php$
 RewriteCond %{REQUEST_URI} !^/_deploy\.php$
 RewriteCond %{REQUEST_URI} !^/_upload\.php$
+# Rapports CSP : POST navigateur sans cookie (cf. section 16) — ne pas
+# les faire avaler par la porte, sinon plus aucun rapport sur dev.
+RewriteCond %{REQUEST_URI} !^/api/csp-report\.php$
 RewriteRule ^ /gate.php [L]
 
 # DEV : la config de la porte (secure/) n'est jamais servie en HTTP
@@ -215,3 +218,14 @@ Options -Indexes
 # ⚠️ Le .htaccess racine est géré manuellement sur le serveur (exclu du
 # rsync de deploy.sh) : recopier ce fichier une fois via cPanel.
 ErrorDocument 404 /404.html
+
+# ── 16. Content-Security-Policy (audit P1-3) ─────────────────────────────
+# Inventaire complet des ressources externes fait sur *.html + *.js + dist
+# (Google Fonts, AdSense/GTM, API+WS OpenFront, proxies CORS, miniatures
+# GitHub). 'unsafe-inline' requis (JS inline historique partout — passer
+# aux nonces serait un chantier dédié). Rapports → /api/csp-report.php
+# (stockés dans api/csp-reports.jsonl, non servi par Apache).
+# En cas de blocage inattendu d'une ressource : consulter le journal de
+# rapports, ajouter le domaine à la directive concernée, ou commenter
+# l'en-tête le temps de corriger.
+Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://pagead2.googlesyndication.com https://www.googletagmanager.com https://tpc.googlesyndication.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://raw.githubusercontent.com https://minhkarl.github.io https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://www.google.com https://www.gstatic.com; connect-src 'self' https://api.openfront.io https://openfront-proxy.diofortnite3.workers.dev wss://openfront.io wss://blue.openfront.io wss://green.openfront.io wss://openfront-proxy.diofortnite3.workers.dev https://api.github.com https://corsproxy.io https://api.codetabs.com https://api.allorigins.win https://thingproxy.freeboard.io https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://www.google.com; frame-src 'self' https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com; media-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; report-uri /api/csp-report.php"
