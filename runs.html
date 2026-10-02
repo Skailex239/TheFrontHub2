@@ -53,6 +53,36 @@
 <!-- cookies.js v5 : GA4 + tag AdSense (sert le bandeau CMP Google) + réouverture consentement -->
 <link rel="preconnect" href="https://www.googletagmanager.com" crossorigin>
 <script src="cookies.js?v=5"></script>
+  <!-- Audit P2-5 : données structurées sur les speedruns -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "name": "Speedruns OpenFront — TheFrontHub",
+    "url": "https://thefronthub.com/runs.html",
+    "description": "Records de vitesse OpenFront par catégorie et carte : les meilleurs temps des speedrunners.",
+    "isPartOf": { "@type": "WebSite", "name": "TheFrontHub", "url": "https://thefronthub.com/" },
+    "breadcrumb": { "@type": "BreadcrumbList", "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Accueil", "item": "https://thefronthub.com/" },
+      { "@type": "ListItem", "position": 2, "name": "Speedruns", "item": "https://thefronthub.com/runs.html" }
+    ] }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Dataset",
+    "name": "Speedruns OpenFront",
+    "description": "Temps records OpenFront par catégorie de speedrun et par carte, synchronisés depuis l'API officielle du jeu.",
+    "url": "https://thefronthub.com/runs.html",
+    "creator": { "@type": "Organization", "name": "TheFrontHub", "url": "https://thefronthub.com/" },
+    "about": { "@type": "VideoGame", "name": "OpenFront.io", "url": "https://openfront.io", "inLanguage": "fr" },
+    "inLanguage": "fr",
+    "isAccessibleForFree": true,
+    "distribution": { "@type": "DataDownload", "encodingFormat": "application/json", "contentUrl": "https://thefronthub.com/api/games-api.php?route=speedruns" }
+  }
+  </script>
+
 </head>
   <body>
     <a href="#runs-content" class="skip-link" data-i18n="runs.skip_link">Aller au contenu principal</a>
