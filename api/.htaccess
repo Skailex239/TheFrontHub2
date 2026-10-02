@@ -14,11 +14,17 @@ Options -Indexes
 </FilesMatch>
 
 # En-tetes de securite sur toutes les reponses de l'API
+# Audit P0-3 (2026-10) : plus de Cache-Control global « no-store, max-age=0 »
+# ici — il écrasait/en doublait le Cache-Control posé par chaque route PHP et
+# désactivait TOUT cache navigateur sur /api/ (double en-tête constaté en prod :
+# « no-store, max-age=0 » + « max-age=300 »). Le cache est désormais piloté
+# par le code, qui sait ce qui est public ou par-utilisateur :
+#   - routes publiques (games-api.php via gout)  → public, max-age=45..600
+#   - routes par-utilisateur (via json_out)      → no-store (déjà forcé)
 <IfModule mod_headers.c>
   Header always set X-Content-Type-Options "nosniff"
   Header always set X-Frame-Options "DENY"
   Header always set Referrer-Policy "no-referrer"
-  Header always set Cache-Control "no-store, max-age=0"
 </IfModule>
 
 # ── DEV : tout /api/ passe par la porte gate.php (racine du site) ────────

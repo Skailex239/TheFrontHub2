@@ -44,7 +44,7 @@ const STATIC_ASSETS = [
   '/skins.css',
   '/animations.css',
   '/toast.css',
-  '/TheFrontHub LOGO WHITE TEXT.png',
+  '/TheFrontHub LOGO WHITE TEXT.webp',
   '/cookies.js',
   // Minified JS bundles
   '/dist/app.min.js',
@@ -76,7 +76,7 @@ const STATIC_ASSETS = [
   // pas dans le repo (404 à chaque installation du SW).
   '/favicon-32x32.png',
   '/favicon-180x180.png',
-  '/TheFrontHub Logo Text.png',
+  '/TheFrontHub Logo Text.webp',
   // ⚠️ Perf (audit 2026-08-27) : fichiers de DONNÉES retirés du précachage.
   // Raisons :
   //   1. Ils sont mis à jour toutes les 5 min par la sync → toute copie précachée

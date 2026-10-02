@@ -148,8 +148,15 @@ DirectoryIndex index.html
 AddDefaultCharset UTF-8
 AddCharset UTF-8 .html .css .js .json .xml .svg
 
-# ── 7. ETag désactivé (utilise Cache-Control à la place, plus efficace) ──
-FileETag None
+# ── 7. ETag réactivés (audit P0-3) ────────────────────────────────────────
+# « FileETag None » empêchait TOUTE validation conditionnelle : avec
+# must-revalidate, le navigateur revalide mais sans ETag il ne peut PAS
+# envoyer If-None-Match → le serveur renvoyait 200 + le fichier ENTIER
+# (36 Ko pour l'accueil, plusieurs Mo pour les JSON gz) toutes les 5 min,
+# au lieu d'un 304 de quelques octets.
+# MTime Size : portable (indépendant des inodes, identique derrière un
+# éventuel ré-équilibrage de serveurs o2switch).
+FileETag MTime Size
 
 # ── 8. Sécurité : bloquer accès aux fichiers sensibles ──
 # Dotfiles (.env, .git, .htaccess…), docs internes, scripts, config,

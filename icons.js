@@ -149,9 +149,9 @@ const THEME_KEY = 'tfs-theme';
 
 // ─── Logo header/footer : version à texte BLANC en mode sombre ───
 // Le « TheFront » du logo standard est noir → illisible sur fond sombre.
-// Fichier officiel fourni par le propriétaire du site : « TheFrontHub LOGO WHITE TEXT.png »
-const LOGO_SRC_LIGHT = 'TheFrontHub Logo Text.png';
-const LOGO_SRC_DARK = 'TheFrontHub LOGO WHITE TEXT.png';
+// Fichier officiel fourni par le propriétaire du site : « TheFrontHub LOGO WHITE TEXT.webp »
+const LOGO_SRC_LIGHT = 'TheFrontHub Logo Text.webp';
+const LOGO_SRC_DARK = 'TheFrontHub LOGO WHITE TEXT.webp';
 
 function applyLogoTheme() {
   const dark = getEffectiveTheme() === 'dark';
