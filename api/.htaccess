@@ -9,7 +9,8 @@ Options -Indexes
 </FilesMatch>
 
 # Aucun fichier de donnees ou de sauvegarde servi ici
-<FilesMatch "\.(json|log|md|sql|bak|ini|sh|csv|tar|gz|zip)$">
+# (jsonl = rapports CSP, cf. csp-report.php — audit P1-3)
+<FilesMatch "\.(json|jsonl|log|md|sql|bak|ini|sh|csv|tar|gz|zip)$">
   Require all denied
 </FilesMatch>
 
@@ -31,9 +32,14 @@ Options -Indexes
 # Condition host → aucun effet sur thefronthub.com (prod).
 # gate.php inclut le script demandé après vérification du cookie d'accès
 # (tous les require de l'API sont en __DIR__ : inclusion transparente).
+# EXCEPTION : csp-report.php — les rapports CSP sont envoyés par les
+# navigateurs SANS cookie (comportement standard de report-uri) : sans
+# cette exception, la porte les avalerait et aucun rapport n'arriverait
+# sur dev. L'endpoint est déjà rate-limité et ne renvoie que 204.
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteCond %{HTTP_HOST} ^dev\.thefronthub\.com$ [NC]
+  RewriteCond %{REQUEST_URI} !^/api/csp-report\.php$
   RewriteCond %{REQUEST_URI} !^/gate\.php$
   RewriteRule ^ /gate.php [L]
 </IfModule>
