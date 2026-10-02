@@ -230,7 +230,7 @@ function tfh_serve_path(string $path, bool $headOnly): void
     /* — Politique de cache (miroir du .htaccess prod) — */
     $isHtml   = ($ext === 'html' || $ext === 'htm');
     $isSw     = ($rel === 'sw.js');
-    $isData   = in_array($ext, ['json', 'gz', 'webmanifest', 'txt', 'xml'], true);
+    $isData   = in_array($ext, ['json', 'topojson', 'gz', 'webmanifest', 'txt', 'xml'], true);
     $isAsset  = in_array($ext, ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'svg', 'ico', 'woff', 'woff2', 'ttf', 'otf'], true);
     $cache    = $isHtml || $isSw
         ? 'no-cache, must-revalidate'
@@ -256,6 +256,7 @@ function tfh_serve_path(string $path, bool $headOnly): void
         'js'   => 'text/javascript; charset=utf-8',
         'mjs'  => 'text/javascript; charset=utf-8',
         'json' => 'application/json; charset=utf-8',
+        'topojson' => 'application/json; charset=utf-8',
         'map'  => 'application/json; charset=utf-8',
         'webmanifest' => 'application/manifest+json; charset=utf-8',
         'xml'  => 'application/xml; charset=utf-8',
