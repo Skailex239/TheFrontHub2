@@ -53,6 +53,8 @@ jobs:
           rsync -a ./ /tmp/pages-site/ \
             --include='/TheFrontHub Logo*.png' \
             --include='/TheFrontHub LOGO*.png' \
+            --include='/TheFrontHub Logo*.webp' \
+            --include='/TheFrontHub LOGO*.webp' \
             --include='/favicon-*.png' \
             --exclude='/*.png' \
             --exclude='/*.webp' \
