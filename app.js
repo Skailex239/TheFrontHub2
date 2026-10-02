@@ -48,6 +48,11 @@ let currentMapSize = 'normal'; // 'normal' or 'compact'
 let currentGameMode = 'solo'; // 'solo', 'duos', 'trios', 'quads', 'hvn'
 // Compat: currentMode derived from mapSize + gameMode
 let currentMode = 'normal'; // kept for getDataFile() compatibility
+/* v5.20.2 — carte à RESTAURER après un changement de catégorie : avant, chaque
+ * switchGameMode/switchMapSize remettait activeMap = null → retour forcé à la
+ * 1re carte de la liste (saut visuel + impression de « refresh »). On garde
+ * désormais la carte sélectionnée si elle existe dans le nouveau mode. */
+let _pendingMapRestore = null;
 let gameCommit = null;
 let lastSyncTime = null;
 let aliasMap = {}; // Fusion temps réel via loadPublicAliases() (Firestore)
@@ -260,9 +265,100 @@ async function fetchPlayerClientIds(publicId, cachedSessions) {
  * chez tout le monde en ~1 min (l'ancien listener Firestore temps réel
  * sur public-rewards a été retiré — table legacy désactivée).
  */
+/* ── Cache local des cosmétiques (v5.20.2 — fix « skins/badges absents du
+ * 1er rendu ») ────────────────────────────────────────────────────────
+ * Problème : la map des skins (/api/skins.php), les aliases publics
+ * (badges vérifiés + ponts publicId + pseudos hub) et le bridge ranked
+ * n'étaient JAMAIS mis en cache côté navigateur. À chaque chargement, le
+ * classement s'affichait NU, puis chaque donnée qui arrivait re-déclenchait
+ * un re-rendu complet → l'effet « refresh » répété que l'utilisateur voyait
+ * (skins/badges qui n'apparaissent qu'au 2e rendu). Et si l'API était
+ * lente/WAF-403, ils n'apparaissaient JAMAIS au 1er passage.
+ * Fix : stale-while-revalidate — on hydrate IndexedDB AVANT le premier
+ * rendu, puis le réseau rafraîchit silencieusement (re-rendu SEULEMENT si
+ * les données ont réellement changé). */
+const CACHE_KEYS = {
+  skins: "cache_skins_activemap_v1",
+  aliases: "cache_public_aliases_v1",
+  rankedBridge: "cache_ranked_bridge_v1",
+};
+
+/** Map → tableau [k, v] (IndexedDB ne clone pas les Map). */
+function mapToArr(m) { return m ? Array.from(m.entries()) : []; }
+function arrToMap(a) { return new Map(Array.isArray(a) ? a : []); }
+
+async function hydrateCosmeticsCaches() {
+  // 1. Skins actifs (byPid/byUser/byNorm/byNormPid)
+  try {
+    const c = await localDB.get(CACHE_KEYS.skins);
+    if (c && Array.isArray(c.byPid)) {
+      activeMapCacheRef = {
+        byPid: arrToMap(c.byPid),
+        byUser: arrToMap(c.byUser),
+        byNorm: arrToMap(c.byNorm),
+        byNormPid: arrToMap(c.byNormPid),
+      };
+      vipPlayers = new Map(activeMapCacheRef.byUser);
+      vipPlayersByPid = new Map(activeMapCacheRef.byPid);
+      for (const [name] of activeMapCacheRef.byUser) connectedUsernames.add(name);
+    }
+  } catch (e) { /* cache illisible : rendu nu, réseau prendra le relais */ }
+
+  // 2. Aliases publics (badges vérifiés + ponts + pseudos hub)
+  try {
+    const c = await localDB.get(CACHE_KEYS.aliases);
+    if (c && Array.isArray(c.rows)) applyAliasesRows(c.rows, true);
+  } catch (e) { /* idem */ }
+
+  // 3. Bridge ranked (username → publicId, bannières pleine ligne)
+  try {
+    const c = await localDB.get(CACHE_KEYS.rankedBridge);
+    if (c && Array.isArray(c.user)) {
+      for (const [k, v] of c.user) if (!usernameToPid.has(k)) usernameToPid.set(k, v);
+      for (const [k, v] of (c.userNorm || [])) if (!usernameToPidNorm.has(k)) usernameToPidNorm.set(k, v);
+    }
+  } catch (e) { /* idem */ }
+}
+
+/** Sérialise la map des skins actifs vers IndexedDB (fire-and-forget). */
+function persistSkinsMap() {
+  try {
+    localDB.set(CACHE_KEYS.skins, {
+      byPid: mapToArr(activeMapCacheRef.byPid),
+      byUser: mapToArr(activeMapCacheRef.byUser),
+      byNorm: mapToArr(activeMapCacheRef.byNorm),
+      byNormPid: mapToArr(activeMapCacheRef.byNormPid),
+      at: Date.now(),
+    });
+  } catch (e) { /* stockage plein/indisponible : non critique */ }
+}
+
+/** Sérialise le bridge ranked vers IndexedDB (fire-and-forget). */
+function persistRankedBridge() {
+  try {
+    localDB.set(CACHE_KEYS.rankedBridge, {
+      user: mapToArr(usernameToPid),
+      userNorm: mapToArr(usernameToPidNorm),
+      at: Date.now(),
+    });
+  } catch (e) { /* non critique */ }
+}
+
+// Référence à la map renvoyée par fetchActiveSkinMap (byPid/byUser/byNorm).
+let activeMapCacheRef = { byPid: new Map(), byUser: new Map(), byNorm: new Map() };
+/* v5.20.2 — signature de la dernière map de skins APPLIQUÉE : avec l'hydratation
+ * IndexedDB, le refresh réseau renvoie souvent la même map — re-render tout le
+ * classement (processData sur 42k runs) pour rien = le « mini-refresh » qu'on
+ * élimine. On ne re-rend que si la map a réellement changé. */
+let _lastSkinsSig = null;
+
 async function loadVipPlayers() {
   const applyMap = () => {
     const { byPid, byUser } = activeMapCacheRef;
+    // v5.20.2 — map identique à celle déjà appliquée (cache hydraté) : rien à faire
+    const sig = JSON.stringify([mapToArr(byPid), mapToArr(byUser)]);
+    if (sig === _lastSkinsSig) return;
+    _lastSkinsSig = sig;
     vipPlayers = new Map(byUser);       // username → skinId (classements speedruns)
     vipPlayersByPid = new Map(byPid);   // publicId → skinId (ranked — matching stable)
     vipRewardsRaw = [];
@@ -282,21 +378,20 @@ async function loadVipPlayers() {
     const map = await fetchActiveSkinMap();
     activeMapCacheRef = map;
     applyMap();
+    persistSkinsMap(); // v5.20.2 — SWR : la map fraîche remplace le cache local
     // Poll léger : garde les classements à jour sans listener temps réel.
     setInterval(async () => {
       try {
         const m = await fetchActiveSkinMap(true);
         activeMapCacheRef = m;
         applyMap();
+        persistSkinsMap();
       } catch (e) { /* silencieux — on garde la dernière map */ }
     }, 60 * 1000);
   } catch (e) {
     console.warn("[app] Erreur chargement skins actifs:", e);
   }
 }
-
-// Référence à la map renvoyée par fetchActiveSkinMap (byPid/byUser/byNorm).
-let activeMapCacheRef = { byPid: new Map(), byUser: new Map(), byNorm: new Map() };
 
 /**
  * ⚠️ OBSOLÈTE (no-op conservé pour les 2 sites d'appel restants) :
@@ -424,143 +519,169 @@ async function ensurePublicIdBridge(uid, username, publicId) {
 // Charge la collection public-aliases (écrite par profile.js quand un user se connecte)
 // et enrichit aliasMap pour que la fusion de pseudos soit visible par tout le monde
 let publicAliasesLoaded = false;
+
+/**
+ * Applique une liste de lignes public-aliases (ponts publicId, pseudos hub,
+ * fusion par nom, badges vérifiés). v5.20.2 : extraite du snapshot handler
+ * pour être réutilisée par l'hydratation du cache IndexedDB (badges/skins
+ * présents dès le PREMIER rendu, au lieu d'arriver en retard et de forcer
+ * un re-rendu visible). Chaque entrée ne déclenche un re-rendu QUE si elle
+ * change réellement quelque chose.
+ * @param {Array} rows lignes { uid, username, publicId, aliases, verified,
+ *        bio, favMap, links, clientIds }
+ * @param {boolean} fromCache true = hydratation locale (pas de persist)
+ */
+function applyAliasesRows(rows, fromCache = false) {
+  if (!Array.isArray(rows)) return;
+  let changed = false;
+  let pidBridgeChanged = false;
+  let hubNameChanged = false;
+  for (const data of rows) {
+    if (!data) continue;
+    const uid = String(data.uid || "");
+
+    // --- Bridge publicId (prioritaire sur l'alias pour le matching VIP ranked) ---
+    // On lit publicId même si le doc n'a pas d'aliases (cas d'un doc pont minimal
+    // {username, publicId} écrit par saveUserProfile).
+    if (data.publicId) {
+      const pidVal = String(data.publicId);
+      if (!uidToPid.has(uid) || uidToPid.get(uid) !== pidVal) {
+        uidToPid.set(uid, pidVal);
+        pidBridgeChanged = true;
+      }
+      const namesToBridge = [data.username, ...(data.aliases || [])].filter(Boolean);
+      for (const n of namesToBridge) {
+        if (!usernameToPid.has(n) || usernameToPid.get(n) !== pidVal) {
+          usernameToPid.set(n, pidVal);
+          pidBridgeChanged = true;
+        }
+        const nk = normPlayerName(n);
+        if (nk && (!usernameToPidNorm.has(nk) || usernameToPidNorm.get(nk) !== pidVal)) {
+          usernameToPidNorm.set(nk, pidVal);
+          pidBridgeChanged = true;
+        }
+      }
+      // --- Pseudo « hub » (choisi dans le profil TheFrontHub) ---
+      // Affiché à la place du pseudo en jeu sur TOUS les leaderboards.
+      if (data.username && pidToHubName.get(pidVal) !== String(data.username)) {
+        pidToHubName.set(pidVal, String(data.username));
+        hubNameChanged = true;
+      }
+      // --- Fusion par publicId RÉEL (fix 2026-09-06) ---
+      // Chaque run porte playerId = publicId OpenFront. En indexant
+      // aliasMap sous le publicId RÉEL, getCanonicalName() (qui lit
+      // run.playerId) fusionne TOUS les pseudos historiques du joueur
+      // ("[MSC] Skailex", "Skailex on YT"…) dans le pseudo hub — même
+      // si aliases[] ne connaît plus que le pseudo actuel (la chaîne
+      // openFrontSessions est morte depuis la bascule MySQL).
+      if (data.username) {
+        const hubEntry = aliasMap[pidVal];
+        if (!hubEntry || hubEntry.name !== String(data.username)) {
+          aliasMap[pidVal] = { name: String(data.username), aliases: data.aliases || [] };
+          changed = true;
+        } else {
+          hubEntry.aliases = data.aliases || hubEntry.aliases;
+        }
+        // Index de fusion par NOM (norm + préfixe) — cf. resolveAliasPidLoose()
+        [data.username, ...(data.aliases || [])].forEach(n => {
+          if (!n) return;
+          const low = String(n).toLowerCase();
+          if (!aliasNormToPid.has(low)) aliasNormToPid.set(low, pidVal);
+          const nk = normAliasKey(n);
+          if (nk && !aliasNormToPid.has(nk)) aliasNormToPid.set(nk, pidVal);
+        });
+      }
+    }
+
+    if (!data.username || !data.aliases || data.aliases.length <= 1) continue;
+
+    const pid = '__public_alias__' + uid;
+    const existing = aliasMap[pid];
+    const newAliases = JSON.stringify(data.aliases || []);
+
+    // Détecter un VRAI changement (comparaison sérialisée)
+    if (existing && existing._raw === newAliases) continue;
+
+    if (data.clientIds) {
+      data.clientIds.forEach(cid => {
+        if (cid && !data.aliases.includes(cid)) {
+          if (aliasMap[cid] && aliasMap[cid].name !== data.username) {
+            aliasMap[cid] = { name: data.username, aliases: aliasMap[cid].aliases || [] };
+          } else if (!aliasMap[cid]) {
+            aliasMap[cid] = { name: data.username, aliases: [] };
+          }
+        }
+      });
+    }
+
+    aliasMap[pid] = { name: data.username, aliases: data.aliases || [], _raw: newAliases };
+    connectedUsernames.add(data.username);
+    changed = true;
+  }
+
+  // FIX 2026-09-06 (mémo) : la mémo de résolution peut contenir des ""
+  // posés par un premier processData AVANT l'arrivée des aliases
+  // (public-aliases.php est lent à froid : fetch OpenFront jusqu'à 5 s
+  // par joueur). Sans invalidation, « [LBU] Zorbit » resterait brut
+  // pour toujours alors que « [LBU] Skailex » fusionnait via la map
+  // des skins. On purge à chaque changement d'aliases.
+  if (changed || pidBridgeChanged || hubNameChanged) {
+    _aliasResCache.clear();
+  }
+
+  if ((changed || hubNameChanged) && _rawRuns.length > 0) {
+    debouncedRender();
+  }
+  // Si le bridge publicId a changé, on reconstruit la map VIP-par-publicId ;
+  // si les pseudos hub ont changé (ou le bridge), on re-render le
+  // leaderboard ranked si déjà chargé (noms affichés + skins).
+  if (pidBridgeChanged) {
+    rebuildVipByPid();
+  }
+  if ((pidBridgeChanged || hubNameChanged) && window._rankedPlayers) {
+    renderRankedTable(window._rankedPlayers);
+    renderMyRank(window._rankedPlayers);
+  }
+  // Bridge arrivé en retard : (re)décore les bannières des pseudos
+  // déjà rendus (speedruns / global / HOF) sans re-render complet.
+  if (pidBridgeChanged) {
+    decorateBanners(document);
+  }
+  // v5.13 — Badge « joueur vérifié » + extras profil (bio/map/liens) :
+  // on alimente le registre global partagé (verified.js) avec la même
+  // réponse d'API, puis on re-rend pour faire apparaître les badges.
+  if (window.TFHVerified) {
+    const vRows = rows
+      .filter((d) => d && (d.publicId || d.username))
+      .map((d) => ({
+        publicId: d.publicId,
+        username: d.username,
+        verified: !!d.verified,
+        bio: d.bio,
+        favMap: d.favMap,
+        links: d.links,
+      }));
+    window.TFHVerified.setFromAliases(vRows);
+  }
+  // v5.20.2 — SWR : on ne persiste que les données réseau (jamais la
+  // réhydratation du cache, qui serait un aller-retour inutile).
+  if (!fromCache) {
+    try {
+      localDB.set(CACHE_KEYS.aliases, { rows, at: Date.now() });
+    } catch (e) { /* stockage indisponible : non critique */ }
+  }
+  publicAliasesLoaded = true;
+}
+
 function loadPublicAliases() {
   try {
     onSnapshot(collection(db, "public-aliases"), (snap) => {
-      let changed = false;
-      let pidBridgeChanged = false;
-      let hubNameChanged = false;
+      const rows = [];
       snap.forEach((docSnap) => {
-        const data = docSnap.data();
-
-        // --- Bridge publicId (prioritaire sur l'alias pour le matching VIP ranked) ---
-        // On lit publicId même si le doc n'a pas d'aliases (cas d'un doc pont minimal
-        // {username, publicId} écrit par saveUserProfile).
-        if (data.publicId) {
-          const pidVal = String(data.publicId);
-          if (!uidToPid.has(docSnap.id) || uidToPid.get(docSnap.id) !== pidVal) {
-            uidToPid.set(docSnap.id, pidVal);
-            pidBridgeChanged = true;
-          }
-          const namesToBridge = [data.username, ...(data.aliases || [])].filter(Boolean);
-          for (const n of namesToBridge) {
-            if (!usernameToPid.has(n) || usernameToPid.get(n) !== pidVal) {
-              usernameToPid.set(n, pidVal);
-              pidBridgeChanged = true;
-            }
-            const nk = normPlayerName(n);
-            if (nk && (!usernameToPidNorm.has(nk) || usernameToPidNorm.get(nk) !== pidVal)) {
-              usernameToPidNorm.set(nk, pidVal);
-              pidBridgeChanged = true;
-            }
-          }
-          // --- Pseudo « hub » (choisi dans le profil TheFrontHub) ---
-          // Affiché à la place du pseudo en jeu sur TOUS les leaderboards.
-          if (data.username && pidToHubName.get(pidVal) !== String(data.username)) {
-            pidToHubName.set(pidVal, String(data.username));
-            hubNameChanged = true;
-          }
-          // --- Fusion par publicId RÉEL (fix 2026-09-06) ---
-          // Chaque run porte playerId = publicId OpenFront. En indexant
-          // aliasMap sous le publicId RÉEL, getCanonicalName() (qui lit
-          // run.playerId) fusionne TOUS les pseudos historiques du joueur
-          // ("[MSC] Skailex", "Skailex on YT"…) dans le pseudo hub — même
-          // si aliases[] ne connaît plus que le pseudo actuel (la chaîne
-          // openFrontSessions est morte depuis la bascule MySQL).
-          if (data.username) {
-            const hubEntry = aliasMap[pidVal];
-            if (!hubEntry || hubEntry.name !== String(data.username)) {
-              aliasMap[pidVal] = { name: String(data.username), aliases: data.aliases || [] };
-              changed = true;
-            } else {
-              hubEntry.aliases = data.aliases || hubEntry.aliases;
-            }
-            // Index de fusion par NOM (norm + préfixe) — cf. resolveAliasPidLoose()
-            [data.username, ...(data.aliases || [])].forEach(n => {
-              if (!n) return;
-              const low = String(n).toLowerCase();
-              if (!aliasNormToPid.has(low)) aliasNormToPid.set(low, pidVal);
-              const nk = normAliasKey(n);
-              if (nk && !aliasNormToPid.has(nk)) aliasNormToPid.set(nk, pidVal);
-            });
-          }
-        }
-
-        if (!data.username || !data.aliases || data.aliases.length <= 1) return;
-
-        const pid = '__public_alias__' + docSnap.id;
-        const existing = aliasMap[pid];
-        const newAliases = JSON.stringify(data.aliases || []);
-
-        // Détecter un VRAI changement (comparaison sérialisée)
-        if (existing && existing._raw === newAliases) return;
-
-        if (data.clientIds) {
-          data.clientIds.forEach(cid => {
-            if (cid && !data.aliases.includes(cid)) {
-              if (aliasMap[cid] && aliasMap[cid].name !== data.username) {
-                aliasMap[cid] = { name: data.username, aliases: aliasMap[cid].aliases || [] };
-              } else if (!aliasMap[cid]) {
-                aliasMap[cid] = { name: data.username, aliases: [] };
-              }
-            }
-          });
-        }
-
-        aliasMap[pid] = { name: data.username, aliases: data.aliases || [], _raw: newAliases };
-        connectedUsernames.add(data.username);
-        changed = true;
+        const d = docSnap.data();
+        rows.push({ uid: docSnap.id, ...d });
       });
-
-      // FIX 2026-09-06 (mémo) : la mémo de résolution peut contenir des ""
-      // posés par un premier processData AVANT l'arrivée des aliases
-      // (public-aliases.php est lent à froid : fetch OpenFront jusqu'à 5 s
-      // par joueur). Sans invalidation, « [LBU] Zorbit » resterait brut
-      // pour toujours alors que « [LBU] Skailex » fusionnait via la map
-      // des skins. On purge à chaque changement d'aliases.
-      if (changed || pidBridgeChanged || hubNameChanged) {
-        _aliasResCache.clear();
-      }
-
-      if ((changed || hubNameChanged) && _rawRuns.length > 0) {
-        debouncedRender();
-      }
-      // Si le bridge publicId a changé, on reconstruit la map VIP-par-publicId ;
-      // si les pseudos hub ont changé (ou le bridge), on re-render le
-      // leaderboard ranked si déjà chargé (noms affichés + skins).
-      if (pidBridgeChanged) {
-        rebuildVipByPid();
-      }
-      if ((pidBridgeChanged || hubNameChanged) && window._rankedPlayers) {
-        renderRankedTable(window._rankedPlayers);
-        renderMyRank(window._rankedPlayers);
-      }
-      // Bridge arrivé en retard : (re)décore les bannières des pseudos
-      // déjà rendus (speedruns / global / HOF) sans re-render complet.
-      if (pidBridgeChanged) {
-        decorateBanners(document);
-      }
-      // v5.13 — Badge « joueur vérifié » + extras profil (bio/map/liens) :
-      // on alimente le registre global partagé (verified.js) avec la même
-      // réponse d'API, puis on re-rend pour faire apparaître les badges.
-      if (window.TFHVerified) {
-        const vRows = [];
-        snap.forEach((docSnap) => {
-          const d = docSnap.data();
-          if (d && (d.publicId || d.username)) {
-            vRows.push({
-              publicId: d.publicId,
-              username: d.username,
-              verified: !!d.verified,
-              bio: d.bio,
-              favMap: d.favMap,
-              links: d.links,
-            });
-          }
-        });
-        window.TFHVerified.setFromAliases(vRows);
-      }
-      publicAliasesLoaded = true;
+      applyAliasesRows(rows);
     }, (error) => {
       console.warn("[app] Firestore public-aliases listener error (non-critique):", error.message);
     });
@@ -985,9 +1106,11 @@ async function switchMapSize(size) {
   const p = new URLSearchParams(window.location.search);
   if (size === 'compact') p.set('mapSize', 'compact'); else p.delete('mapSize');
   history.replaceState(null, '', window.location.pathname + (p.toString() ? '?' + p.toString() : ''));
+  _pendingMapRestore = activeMap; // v5.20.2 : garder la carte sélectionnée
   activeMap = null; mapShowCount = [];
   if(refreshInterval) clearInterval(refreshInterval);
   await loadData();
+  _pendingMapRestore = null;
   document.getElementById('mode-selector').classList.remove('mode-loading');
 }
 
@@ -1011,9 +1134,11 @@ async function switchGameMode(mode) {
   const p = new URLSearchParams(window.location.search);
   p.set('gameMode', mode);
   history.replaceState(null, '', window.location.pathname + '?' + p.toString());
+  _pendingMapRestore = activeMap; // v5.20.2 : garder la carte sélectionnée
   activeMap = null; mapShowCount = [];
   if(refreshInterval) clearInterval(refreshInterval);
   await loadData();
+  _pendingMapRestore = null;
   document.getElementById('mode-selector').classList.remove('mode-loading');
 }
 
@@ -1059,6 +1184,18 @@ const localDB = {
 };
 localDB.init(); // Démarre en arrière-plan
 
+/* v5.20.2 — Signature de CONTENU d'un payload (anti « mini-refresh ») :
+ * après le rendu instantané du cache IndexedDB, le réseau renvoie souvent
+ * le MÊME contenu avec juste un `u` (horodatage de sync) plus récent —
+ * l'ancien code re-rendait TOUT (innerHTML complet) pour rien → le petit
+ * flash/refresh visible à chaque changement de catégorie. On ne re-rend
+ * désormais que si le contenu a réellement bougé (volume + 1re run). */
+let _lastPayloadSig = null;
+function payloadContentSig(runs, total) {
+  const first = runs && runs.length ? (runs[0].id || runs[0].g || '') : '';
+  return `${currentMode}|${total}|${runs ? runs.length : 0}|${first}`;
+}
+
 function applyPayloadData(data, isBackground = false) {
   window.apiMapTotals = {};
   let apiMapTotals = window.apiMapTotals;
@@ -1087,15 +1224,26 @@ function applyPayloadData(data, isBackground = false) {
         });
       });
     }
+    lastSyncTime = data.u || data.lastUpdate;
+    window.apiMapTotals = mapTotals;
+    // v5.20.2 — contenu identique → pas de re-rendu (juste l'horodatage)
+    const sig = payloadContentSig(runs, runs.length);
+    if (sig === _lastPayloadSig) {
+      updateLastUpdate();
+      if (isBackground) {
+        const badge = document.getElementById('refresh-badge');
+        if (badge) badge.style.display = 'inline-block';
+      }
+      return true;
+    }
+    _lastPayloadSig = sig;
     allRuns = runs;
     _rawRuns = allRuns;
     totalRunsCount = runs.length;
-    lastSyncTime = data.u || data.lastUpdate;
-    window.apiMapTotals = mapTotals;
     processData();
     renderAll();
     updateStats();
-    if (!activeMap && allMaps.length) selectMap(allMaps[0].map);
+    if (!activeMap && allMaps.length) selectMap(_pendingMapRestore && allMaps.find(m => m.map === _pendingMapRestore) ? _pendingMapRestore : allMaps[0].map);
     if (isBackground) {
       const badge = document.getElementById('refresh-badge');
       if(badge) badge.style.display='inline-block';
@@ -1104,32 +1252,48 @@ function applyPayloadData(data, isBackground = false) {
   }
 
   const compact = decodeCompactPayload(data);
+  let runs, total, commit, lastUpdate;
   if (compact) {
-    allRuns = compact.runs;
-    _rawRuns = allRuns;
-    totalRunsCount = compact.totalCount || allRuns.length;
-    gameCommit = compact.latestCommit;
-    lastSyncTime = compact.lastUpdate;
+    runs = compact.runs;
+    total = compact.totalCount || runs.length;
+    commit = compact.latestCommit;
+    lastUpdate = compact.lastUpdate;
     window.apiMapTotals = compact.mapTotals || {};
   } else if (data.runs && Array.isArray(data.runs)) {
-    allRuns = data.runs;
-    _rawRuns = allRuns;
-    totalRunsCount = data.totalCount || allRuns.length;
-    gameCommit = data.latestCommit;
-    lastSyncTime = data.lastUpdate;
+    runs = data.runs;
+    total = data.totalCount || runs.length;
+    commit = data.latestCommit;
+    lastUpdate = data.lastUpdate;
   } else if (Array.isArray(data)) {
-    allRuns = data;
-    _rawRuns = allRuns;
-    totalRunsCount = allRuns.length;
+    runs = data;
+    total = runs.length;
   } else {
     return false;
   }
 
+  lastSyncTime = lastUpdate;
+  // v5.20.2 — contenu identique → pas de re-rendu (juste l'horodatage)
+  const sig = payloadContentSig(runs, total);
+  if (sig === _lastPayloadSig) {
+    gameCommit = commit;
+    updateLastUpdate();
+    if (isBackground) {
+      const badge = document.getElementById('refresh-badge');
+      if (badge) badge.style.display = 'inline-block';
+    }
+    return true;
+  }
+  _lastPayloadSig = sig;
+
+  allRuns = runs;
+  _rawRuns = allRuns;
+  totalRunsCount = total;
+  gameCommit = commit;
   processData();
   renderAll();
   updateStats();
 
-  if (!activeMap && allMaps.length) selectMap(allMaps[0].map);
+  if (!activeMap && allMaps.length) selectMap(_pendingMapRestore && allMaps.find(m => m.map === _pendingMapRestore) ? _pendingMapRestore : allMaps[0].map);
 
   if (isBackground) {
     const badge = document.getElementById('refresh-badge');
@@ -1146,26 +1310,32 @@ async function loadData(){
   const dataFilePlain = getDataFile();
   const fallbackPlain = getDataFileFallback();
   const modeKey = 'cache_data_' + currentMode;
-  
+
   console.log(`[TheFrontHub] ⏳ Chargement des données (${currentMode})...`);
-  showProgressBar();
-  setProgressBar(10);
-  
+
   try {
-    // 1. Essayer de charger depuis IndexedDB (Instantané)
+    // 1. Essayer de charger depuis IndexedDB (Instantané). v5.20.2 : la barre
+    //    de progression ne s'affiche QUE si le cache ne peut pas rendre la
+    //    page immédiatement — sinon elle clignotait à chaque changement de
+    //    catégorie pour un rendu qui était déjà prêt (effet « mini-refresh »).
     const cachedData = await localDB.get(modeKey);
     if (cachedData) {
       console.log('[TheFrontHub] ⚡ Données affichées depuis le cache local !');
       applyPayloadData(cachedData, false);
-      setProgressBar(50);
-      hideProgressBar();
+      // Rendu effectif → on lève TOUT DE SUITE le voile .mode-loading du
+      // sélecteur (l'attente réseau restante est une mise à jour silencieuse)
+      const ms = document.getElementById('mode-selector');
+      if (ms) ms.classList.remove('mode-loading');
+    } else {
+      showProgressBar();
+      setProgressBar(10);
     }
-    
+
     // 2. Fetch réseau en arrière-plan (sans 'no-store' pour utiliser le cache HTTP 304 du navigateur)
     let runsRes = await fetch(dataFile);
     if (!runsRes.ok) runsRes = await fetch(fallbackGz);
     if (!runsRes.ok) throw new Error(T("home.error_fetch", "Impossible de récupérer les données"));
-    
+
     let data;
     try {
       const ds = new DecompressionStream("gzip");
@@ -1175,13 +1345,15 @@ async function loadData(){
       const fbRes = await fetch(dataFilePlain);
       data = fbRes.ok ? await fbRes.json() : await (await fetch(fallbackPlain)).json();
     }
-    
+
     // Vérifier si la donnée réseau est plus récente que le cache
     const isNew = !cachedData || (data.u && data.u !== cachedData.u) || (data.lastUpdate && data.lastUpdate !== cachedData.lastUpdate);
-                  
+
     if (isNew) {
       console.log('[TheFrontHub] 🔄 Nouvelles données récupérées depuis le serveur.');
       await localDB.set(modeKey, data);
+      // v5.20.2 : applyPayloadData compare la signature de CONTENU — un simple
+      // horodatage plus récent avec le même contenu ne re-rend plus la page.
       applyPayloadData(data, !!cachedData); // Affiche le badge si mis à jour en background
     } else {
       console.log('[TheFrontHub] ✅ Données déjà à jour.');
@@ -1189,7 +1361,7 @@ async function loadData(){
 
     if(refreshInterval) clearInterval(refreshInterval);
     refreshInterval=setInterval(autoRefresh, 180000);
-    
+
     hideProgressBar();
     const elapsed=((performance.now()-t0)/1000).toFixed(1);
     console.log(`[TheFrontHub] ✅ Processus terminé en ${elapsed}s`);
@@ -1199,7 +1371,7 @@ async function loadData(){
     console.error("Erreur critique chargement:", e);
     window.showToast(T("home.offline_toast", "Mode hors-ligne : données réseau inaccessibles."), "warning", 6000);
     hideProgressBar();
-    
+
     // Si on a pas de cache du tout, on affiche une erreur fatale
     const cachedData = await localDB.get(modeKey);
     if (!cachedData) {
@@ -1207,6 +1379,57 @@ async function loadData(){
       document.getElementById("map-list").innerHTML=`<div class="error">${T("home.error_prefix", "Erreur: ")}${e.message}<br><small>${TP("home.error_no_data", { mode: modeLabel }, `Aucune donnée ${modeLabel} disponible pour le moment.`)}</small></div>`;
     }
   }
+}
+
+/* v5.20.2 — Préchargement des AUTRES catégories en tache de fond : une fois
+ * l'accueil rendu, on chauffe le cache IndexedDB des autres modes (solo,
+ * compact, équipes) pour que TOUT changement de catégorie soit INSTANTANÉ
+ * (rendu local immédiat, le réseau ne servant plus qu'à revalider en 304).
+ * Les fichiers .gz des modes équipes sont partagés (teams_public.json.gz). */
+function prefetchOtherModes() {
+  const MODE_FILES = {
+    normal:   ['runs_public.json.gz', 'runs.json.gz'],
+    compact:  ['runs_compact_public.json.gz', 'runs_compact.json.gz'],
+    duos:     ['teams_public.json.gz'],
+    trios:    null, // même fichier que duos — un seul prefetch suffit
+    quads:    null,
+    hvn:      null,
+  };
+  const teamModes = ['duos', 'trios', 'quads', 'hvn'];
+  (async () => {
+    for (const mode of Object.keys(MODE_FILES)) {
+      try {
+        if (document.hidden) continue; // onglet en arrière-plan : pas de bande passante
+        if (mode === currentMode) continue; // déjà chargé par loadData
+        const files = MODE_FILES[mode];
+        if (!files) continue;
+        const cacheKey = 'cache_data_' + mode;
+        const cached = await localDB.get(cacheKey);
+        // Frais (< 12 h) ? → le rendu local suffira, le 304 de loadData confirmera.
+        if (cached && cached.u && Date.now() - cached.u < 12 * 3600 * 1000) continue;
+        let data = null;
+        for (const f of files) {
+          try {
+            const res = await fetch(f); // cache HTTP par défaut → 304 bon marché
+            if (!res.ok || !res.body) continue;
+            const ds = new DecompressionStream("gzip");
+            data = await new Response(res.body.pipeThrough(ds)).json();
+            break;
+          } catch (e) { /* essai du fichier suivant */ }
+        }
+        if (data) {
+          await localDB.set(cacheKey, data);
+          // Les modes équipes partagent le même payload : on le note pour chacun
+          if (mode === 'duos') {
+            for (const tm of teamModes) {
+              if (tm !== currentMode) await localDB.set('cache_data_' + tm, data);
+            }
+          }
+          console.log(`[TheFrontHub] 📦 Préchargement ${mode} (cache chauffé)`);
+        }
+      } catch (e) { /* prefetch best-effort — jamais bloquant */ }
+    }
+  })();
 }
 
 async function autoRefresh(){
@@ -2421,28 +2644,42 @@ if (tabParam && tabParam !== 'profile') {
     try { switchTab(targetTab, btnEarly); } catch (e) { console.warn('[tfh] switchTab deep-link:', e); }
   }
 }
-loadData().then(()=>{
-  loadVipPlayers(); // Charger les joueurs VIP en parallèle
-  loadPublicAliases(); // Charger les aliases publics pour fusion visible par tous
-  // Bridge publicId pour les bannières pleine ligne : ranked.json alimente le
-  // pont username→publicId utilisé par les lignes speedruns/feed. Depuis la
-  // suppression de l'onglet Classé (2026-09-28), on charge UNIQUEMENT le
-  // bridge — plus aucun rendu du tableau classé (dont le DOM n'existe plus).
-  loadRankedPidBridge().catch(() => {});
-  if(mapParam)selectMap(mapParam);
-  // Pre-fill player search if ?player= is in URL (deep-linking)
-  if (playerParam) {
-    const searchInput = document.getElementById('player-search');
-    if (searchInput) {
-      searchInput.value = playerParam;
-      searchPlayer();
-      // Scroll the search bar into view so the user sees it
-      setTimeout(() => {
-        try { searchInput.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e) {}
-      }, 300);
-    }
+/* v5.20.2 — Boot : hydratation des caches cosmétiques AVANT le premier rendu
+ * (skins + badges vérifiés + ponts publicId + pseudos hub présents dès la
+ * 1ère peinture — plus de « refresh » qui les ajoute après coup), puis
+ * chargement des runs, rafraîchissement réseau en SWR, et préchargement
+ * des autres catégories en tache de fond (changements instantanés). */
+(async () => {
+  try {
+    await hydrateCosmeticsCaches();
+  } catch (e) {
+    console.warn("[app] Hydratation des caches cosmétiques impossible (non critique) :", e);
   }
-});
+  loadData().then(()=>{
+    loadVipPlayers(); // SWR : rafraîchit la map des skins en arrière-plan
+    loadPublicAliases(); // SWR : rafraîchit aliases/badges en arrière-plan
+    // Bridge publicId pour les bannières pleine ligne : ranked.json alimente le
+    // pont username→publicId utilisé par les lignes speedruns/feed. Depuis la
+    // suppression de l'onglet Classé (2026-09-28), on charge UNIQUEMENT le
+    // bridge — plus aucun rendu du tableau classé (dont le DOM n'existe plus).
+    loadRankedPidBridge().catch(() => {});
+    if(mapParam)selectMap(mapParam);
+    // Pre-fill player search if ?player= is in URL (deep-linking)
+    if (playerParam) {
+      const searchInput = document.getElementById('player-search');
+      if (searchInput) {
+        searchInput.value = playerParam;
+        searchPlayer();
+        // Scroll the search bar into view so the user sees it
+        setTimeout(() => {
+          try { searchInput.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e) {}
+        }, 300);
+      }
+    }
+    // v5.20.2 — chauffe le cache des autres catégories (switch instantanés)
+    setTimeout(prefetchOtherModes, 3000);
+  });
+})();
 
 // Export functions to window for HTML event handlers (module script = not global by default)
 window.requestNotifs = requestNotifs;
@@ -2518,6 +2755,7 @@ async function loadRankedPidBridge() {
   }
   if (rankedBridgeChanged) {
     rebuildVipByPid();
+    persistRankedBridge(); // v5.20.2 — SWR : bridge disponible au prochain 1er rendu
     // Le bridge pid vient d'arriver (peut être APRÈS le rendu des runs) :
     // re-rend la liste speedruns affichée pour poser les data-pfb-pid
     // manquants (bannières pleine ligne). No-op si aucune carte affichée.

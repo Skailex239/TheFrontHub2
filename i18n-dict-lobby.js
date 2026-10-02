@@ -49,6 +49,7 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   // ── Comptes à rebours ─────────────────────────────────────────────
   "lobby.cd_pending": "En attente",
   "lobby.cd_ongoing": "En cours",
+  "lobby.cd_done": "Terminée",
   "lobby.cd_imminent": "Imminent",
 
   // ── Modes / équipes ───────────────────────────────────────────────
@@ -105,6 +106,9 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   "lobby.status_live_title": "WebSocket OpenFront (direct)",
   "lobby.status_proxy_title": "WebSocket OpenFront (proxy Cloudflare)",
   "lobby.status_cache": "Cache 5 min",
+  "lobby.status_preview": "Aperçu · 2 h",
+  "lobby.status_preview_title": "Flux temps réel bloqué — aperçu des dernières parties, rafraîchi toutes les 2 min",
+  "lobby.stats_done": "{total} dernières parties (2 h)",
   "lobby.status_cache_title": "Flux temps réel indisponible — données rafraîches toutes les 5 min",
   "lobby.status_offline": "Hors ligne",
   "lobby.status_offline_title": "Impossible de joindre OpenFront",
@@ -265,6 +269,7 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
   // ── Countdowns ────────────────────────────────────────────────────
   "lobby.cd_pending": "Waiting",
   "lobby.cd_ongoing": "In progress",
+  "lobby.cd_done": "Finished",
   "lobby.cd_imminent": "Imminent",
 
   // ── Modes / teams ─────────────────────────────────────────────────
@@ -321,6 +326,9 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
   "lobby.status_live_title": "OpenFront WebSocket (direct)",
   "lobby.status_proxy_title": "OpenFront WebSocket (Cloudflare proxy)",
   "lobby.status_cache": "5 min cache",
+  "lobby.status_preview": "Preview · 2 h",
+  "lobby.status_preview_title": "Live feed blocked — preview of the latest games, refreshed every 2 min",
+  "lobby.stats_done": "{total} latest games (2 h)",
   "lobby.status_cache_title": "Live feed unavailable — data refreshed every 5 min",
   "lobby.status_offline": "Offline",
   "lobby.status_offline_title": "Cannot reach OpenFront",

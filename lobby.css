@@ -445,6 +445,27 @@
   color: #fff;
 }
 
+/* v5.20.2 — cartes d'aperçu (mode dégradé : parties TERMINÉES) : pas
+   d'actions live (chat / cloche « prévenir quand pleine » n'ont pas de sens),
+   timer « Terminée » au look neutre-verrouillé (jamais urgent). L'étoile
+   favori reste accessible (elle est portée par data-role=fav, masquée ici
+   aussi car le clic ouvrirait le chat/la cloche — le filtre « Favoris » de la
+   barre reste fonctionnel, lui). */
+.lobby-card.is-degraded .lobby-card-actions { display: none; }
+.lobby-card.is-degraded .lobby-card-timer {
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.85);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.lobby-card.is-degraded .lobby-card-timer::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.8;
+}
+
 /* Pills en chips bordées (coin bas-gauche de la miniature) */
 .lobby-card-pills {
   position: absolute;

@@ -77,6 +77,7 @@ rsync -a --delete \
   --include='/data/' \
   --include='/data/**' \
   --include='/atlas-data/maps_data.json' \
+  --include='/atlas-data/world-110m.topojson' \
   --exclude='*.json' \
   --exclude='*.json.gz' \
   --exclude='player-data' \
@@ -188,6 +189,7 @@ if git ls-remote --heads origin dev 2>/dev/null | grep -q "refs/heads/dev"; then
       --include='/data/' \
       --include='/data/**' \
       --include='/atlas-data/maps_data.json' \
+      --include='/atlas-data/world-110m.topojson' \
       --exclude='*.json' \
       --exclude='*.json.gz' \
       --exclude='player-data' \

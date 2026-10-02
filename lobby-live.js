@@ -925,11 +925,17 @@
     const m = computeMetrics(currentGames);
     renderModes(m);
     sampleHistory(m);
-    runAlertEngine({
-      games: currentGames,
-      full: !!detail.full,
-      serverNow: Number(detail.serverNow) || 0, // v5.20.1 : horloge serveur pour startsAt
-    });
+    // v5.20.2 — snapshot DÉGRADÉ (parties terminées, pas de live) : on met à
+    // jour les compteurs/la courbe, mais le moteur d'alertes et le suivi
+    // « ma partie » restent éteints — bip/notification pour une partie déjà
+    // terminée = spam sans objet (l'utilisateur ne peut plus la rejoindre).
+    if (!detail.degraded) {
+      runAlertEngine({
+        games: currentGames,
+        full: !!detail.full,
+        serverNow: Number(detail.serverNow) || 0, // v5.20.1 : horloge serveur pour startsAt
+      });
+    }
   }
 
   function boot() {
