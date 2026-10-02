@@ -1182,7 +1182,10 @@ const localDB = {
     });
   }
 };
-localDB.init(); // Démarre en arrière-plan
+// v5.20.2 — on CONSERVE la promesse d'ouverture : le boot attend la base
+// avant d'hydrater les caches (avant : hydratation/loadData pouvaient lire
+// AVANT l'ouverture → localDB.db null → cache invisible, hydratation no-op).
+localDB._ready = localDB.init();
 
 /* v5.20.2 — Signature de CONTENU d'un payload (anti « mini-refresh ») :
  * après le rendu instantané du cache IndexedDB, le réseau renvoie souvent
@@ -2650,6 +2653,11 @@ if (tabParam && tabParam !== 'profile') {
  * chargement des runs, rafraîchissement réseau en SWR, et préchargement
  * des autres catégories en tache de fond (changements instantanés). */
 (async () => {
+  try {
+    // v5.20.2 — attend l'ouverture d'IndexedDB (sinon : course perdue,
+    // hydratation silencieusement ignorée — cf. localDB._ready)
+    if (localDB._ready) await localDB._ready;
+  } catch (e) { /* IndexedDB indisponible : mode sans cache */ }
   try {
     await hydrateCosmeticsCaches();
   } catch (e) {
