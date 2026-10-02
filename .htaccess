@@ -229,3 +229,16 @@ ErrorDocument 404 /404.html
 # rapports, ajouter le domaine à la directive concernée, ou commenter
 # l'en-tête le temps de corriger.
 Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://pagead2.googlesyndication.com https://www.googletagmanager.com https://tpc.googlesyndication.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://raw.githubusercontent.com https://minhkarl.github.io https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://www.google.com https://www.gstatic.com; connect-src 'self' https://api.openfront.io https://openfront-proxy.diofortnite3.workers.dev wss://openfront.io wss://blue.openfront.io wss://green.openfront.io wss://openfront-proxy.diofortnite3.workers.dev https://api.github.com https://corsproxy.io https://api.codetabs.com https://api.allorigins.win https://thingproxy.freeboard.io https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://www.google.com; frame-src 'self' https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com; media-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; report-uri /api/csp-report.php"
+
+# ── 17. SSR léger game.html / clan.html (audit P1-7) ────────────────────
+# Réécriture INTERNE (l'URL visible reste game.html / clan.html) vers les
+# vues PHP qui calculent les métadonnées serveur (titre, description,
+# Open Graph, JSON-LD, canonical dynamique) à partir de MySQL. Sans règle
+# active (recopie manuelle serveur non faite), game.html/clan.html sont
+# servis comme aujourd'hui : coquilles JS. Avec la règle : crawleurs et
+# partages réseaux sociaux reçoivent un titre/description par partie/clan.
+# NB : placé APRÈS le bloc gate dev — sur dev.thefronthub.com la porte
+# continue d'intercepter ces pages (dev noindex) ; la prod (thefronthub.com)
+# n'a pas de gate → réécriture active.
+RewriteRule ^game\.html$ game-view.php [L]
+RewriteRule ^clan\.html$ clan-view.php [L]
