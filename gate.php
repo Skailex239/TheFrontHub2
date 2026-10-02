@@ -19,7 +19,24 @@ declare(strict_types=1);
  *
  * Jamais servis via le gate : secure/ (config), dotfiles, .php hors /api/,
  * gate.php lui-même, fichiers inexistants (404).
+ *
+ * MODE OUVERT (v5.16.7 — demande explicite du propriétaire, 2026-10-02) :
+ *   TFH_GATE_OPEN = true → dev.thefronthub.com est servi SANS code d'accès.
+ *   Motivations : vérification automatisée de l'audit en conditions réelles
+ *   (captures, en-têtes, SSR). Contreparties assumées :
+ *     - le ruban « DEV » reste injecté sur chaque page HTML ;
+ *     - le noindex dev reste assuré par Apache (X-Robots-Tag + robots.txt) ;
+ *     - miroir fidèle des réécritures prod : game.html/clan.html passent par
+ *       les vues SSR (§17 du .htaccess), la 404 sert 404.html (§15) ;
+ *     - tout le reste du comportement (cache, 401 API admin, refus dotfiles
+ *       et secure/) est inchangé.
+ *   Pour REFERMER la porte : repasser le flag à false et re-déployer. Le
+ *   code d'accès et son hash serveur (~/.tfs_secrets/gate-config.json)
+ *   restent intacts entre-temps — aucune rotation nécessaire.
  */
+
+/** true = accès libre (sans code) • false = code d'accès exigé. */
+const TFH_GATE_OPEN = true;
 
 require_once __DIR__ . '/secure/auth-lib.php';
 
@@ -37,8 +54,8 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: DENY');
 header('Referrer-Policy: no-referrer');
 
-/* ── 1) Session valide → on sert le site ─────────────────────────────── */
-if (tfh_has_access()) {
+/* ── 1) Session valide OU mode ouvert (TFH_GATE_OPEN) → on sert le site ─────────────────────────────── */
+if (TFH_GATE_OPEN || tfh_has_access()) {
     if ($uri === '/gate.php' || $uri === '/login') {
         header('Location: /', true, 303);
         exit;
@@ -158,6 +175,19 @@ function tfh_serve_path(string $path, bool $headOnly): void
         return;
     }
     $ext = strtolower(pathinfo($rel, PATHINFO_EXTENSION));
+
+    /* — Vues SSR (miroir §17 du .htaccess prod) : game.html → game-view.php,
+     * clan.html → clan-view.php. La query string est intacte ($_GET['id']/
+     * $_GET['tag']) car la réécriture Apache conserve la query d'origine.
+     * Chaque vue gère sa dégradation gracieuse et ses propres en-têtes. — */
+    if ($rel === 'game.html' || $rel === 'clan.html') {
+        $view = __DIR__ . '/' . ($rel === 'game.html' ? 'game-view.php' : 'clan-view.php');
+        if (is_file($view)) {
+            require $view;
+            return;
+        }
+        /* vue absente → on sert le .html statique (comportement prod sans règle) */
+    }
 
     /* — /api/*.php : exécution après authentification — */
     if (str_starts_with($rel, 'api/')) {
@@ -304,6 +334,19 @@ function tfh_render_404(): void
     http_response_code(404);
     header('Content-Type: text/html; charset=utf-8');
     header('Cache-Control: no-store, max-age=0');
+
+    /* Miroir prod (§15 : ErrorDocument 404 /404.html) — uniquement en mode
+     * ouvert : derrière la porte fermée, la 404 doit rester autonome (zéro
+     * ressource externe, cf. docblock). En mode ouvert, ses assets chargent. */
+    if (TFH_GATE_OPEN) {
+        $custom = __DIR__ . '/404.html';
+        if (is_file($custom) && is_readable($custom)) {
+            header('Content-Length: ' . (string) filesize($custom));
+            readfile($custom);
+            return;
+        }
+    }
+
     echo '<!doctype html><html lang="fr"><meta charset="utf-8">'
         . '<meta name="viewport" content="width=device-width,initial-scale=1">'
         . '<meta name="robots" content="noindex">'
