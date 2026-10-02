@@ -1646,12 +1646,16 @@ function startClock() {
       if (!card) return;
       const game = findGame(card.dataset.gameId);
       if (game) {
-        const txt = countdownText(Number(game.startsAt) || 0, serverNow());
+        // v5.20.2 — carte d'aperçu dégradée : « Terminée » (le countdown
+        // écraserait sinon le libellé posé par updateCard toutes les secondes)
+        const txt = game.degraded
+          ? T("lobby.cd_done", "Terminée")
+          : countdownText(Number(game.startsAt) || 0, serverNow());
         if (el.textContent !== txt) el.textContent = txt;
-        el.classList.toggle("urgent", isUrgentCountdown(txt));
+        el.classList.toggle("urgent", !game.degraded && isUrgentCountdown(txt));
       }
     });
-    // Hero timer
+    // Hero timer (caché en mode dégradé — le garde-fou reste par sécurité)
     const heroT = document.querySelector("[data-role=hero-timer]");
     if (heroT) {
       const hero = document.getElementById("lobby-hero");
@@ -1659,9 +1663,11 @@ function startClock() {
       const all = [...state.games.ffa, ...state.games.team, ...state.games.special];
       const game = all.find((g) => (g.gameID || g.id) === id);
       if (game) {
-        const txt = countdownText(Number(game.startsAt) || 0, serverNow());
+        const txt = game.degraded
+          ? T("lobby.cd_done", "Terminée")
+          : countdownText(Number(game.startsAt) || 0, serverNow());
         heroT.textContent = txt;
-        heroT.classList.toggle("urgent", isUrgentCountdown(txt));
+        heroT.classList.toggle("urgent", !game.degraded && isUrgentCountdown(txt));
       }
     }
   }, COUNTDOWN_TICK);
