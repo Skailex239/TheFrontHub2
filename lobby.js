@@ -188,6 +188,16 @@ const HUB_RECENT_API = "api/games-api.php";
 const DEGRADED_WINDOW_MS = 2 * 60 * 60_000;   // fenêtre : 2 h de parties
 const DEGRADED_POLL_INTERVAL = 120_000;       // refresh aperçu : 2 min
 const DEGRADED_MAX_ITEMS = 24;
+// v5.20.3 — tolérance au retard de la collecte hub (cron serveur, 5-15 min).
+// Constat terrain 2026-10-02 : le cron games-sync peut geler plusieurs heures
+// (rate-limit OpenFront, cron arrêté…) → les 30 dernières parties MySQL
+// sortaient TOUTES de la fenêtre 2 h → hubRows = 0 → l'aperçu retombait en
+// cartes SANS vignette (« ça fait toujours la même chose »). Dégradé propre :
+// au-delà de 2 h de retard, on montre quand même les plus récentes du hub
+// (elles ont leurs vignettes), sous quota, jusqu'à 12 h de retard. Passé ce
+// délai, on retombe sur le comportement v5.20.2 (fraîches seules).
+const DEGRADED_STALE_MAX_MS = 12 * 60 * 60_000; // retard hub toléré : 12 h
+const DEGRADED_MAPPED_QUOTA = 16;               // mini de cartes AVEC vignette
 const COUNTDOWN_TICK = 1_000;
 const MAX_CARDS_PER_ROW = 30;
 
@@ -375,6 +385,7 @@ const state = {
   hydrated: false,         // true après le 1er snapshot (le toast favori ne s'arme qu'ensuite)
   recentGames: [],         // mode dégradé : dernières parties terminées (/public/games)
   degradedCards: false,    // v5.20.2 : true = state.games contient les cartes d'aperçu (parties terminées)
+  hubLagMs: 0,             // v5.20.3 : retard constaté de la collecte hub (0 = à l'heure)
 };
 
 /** Retrouve une partie par son id, toutes catégories confondues. */
@@ -767,7 +778,11 @@ function deriveHubCard(r) {
 }
 
 /** Récupère les dernières parties terminées (2 h) : hub (cartes !) +
- *  OpenFront /public/games (fraîcheur minute) fusionnées. v5.20.2. */
+ *  OpenFront /public/games (fraîcheur minute) fusionnées. v5.20.2.
+ *  v5.20.3 : robuste au RETARD du hub — si le cron serveur a pris du retard
+ *  (> 2 h), les parties MySQL sortent toutes de la fenêtre et l'aperçu
+ *  retombait en cartes sans vignette ; on étend alors la sélection aux plus
+ *  récentes du hub (jusqu'à 12 h) pour que les vignettes restent visibles. */
 async function pollRecentGames() {
   if (degradedInFlight) return;
   degradedInFlight = true;
@@ -781,36 +796,66 @@ async function pollRecentGames() {
     fetch(publicUrl, { cache: "no-store" }),
   ]);
   try {
-    // 1. Cartes du hub (avec vignettes de carte)
-    const hubRows = [];
+    // 1. Cartes du hub (avec vignettes de carte) — toutes dérivées, la
+    //    fenêtre 2 h est appliquée ensuite (v5.20.3 ; SQL = récentes d'abord).
+    const hubAll = [];
     if (hubRes.status === "fulfilled" && hubRes.value.ok) {
       const body = await hubRes.value.json().catch(() => null);
       if (body && body.ok && Array.isArray(body.games)) {
         for (const r of body.games) {
           const c = deriveHubCard(r);
-          if (c && c.startsAt >= start) hubRows.push(c);
+          if (c) hubAll.push(c);
         }
       }
     }
+    const hubRows = hubAll.filter((c) => c.startsAt >= start);
     // 2. Parties toutes fraîches d'OpenFront (pas encore collectées par le hub)
     const freshRows = [];
     if (publicRes.status === "fulfilled" && publicRes.value.ok) {
       const arr = await publicRes.value.json().catch(() => null);
       if (Array.isArray(arr)) freshRows.push(...arr);
     }
-    const hubIds = new Set(hubRows.map((c) => c.gameID));
-    const cards = [...hubRows];
+    const hubIds = new Set(hubAll.map((c) => c.gameID));
+    const freshCards = [];
     for (const g of freshRows) {
       const id = String(g.game || "");
-      if (!id || hubIds.has(id)) continue; // déjà couvert (avec sa carte)
+      if (!id || hubIds.has(id)) continue; // déjà couvert par le hub (plus riche)
       const c = deriveRecentCard(g, null);
-      if (c) cards.push(c);
+      if (c) freshCards.push(c);
     }
-    // 3. Fusion, tri, plafond
+    // 3. Sélection + fusion — v5.20.3 : les cartes AVEC vignette sont
+    //    garanties au quota, même quand le hub a du retard.
+    let cards;
+    let hubLagMs = 0;
+    if (hubRows.length > 0) {
+      // Chemin nominal (hub à l'heure) : comportement v5.20.2.
+      cards = [...hubRows, ...freshCards];
+    } else if (
+      hubAll.length > 0 && hubAll[0].startsAt >= end - DEGRADED_STALE_MAX_MS
+    ) {
+      // v5.20.3 — RETARD DU HUB : plus rien dans la fenêtre 2 h, mais les
+      // données restent exploitables (≤ 12 h). On montre les plus récentes
+      // (vignettes !) en tête, complétées par les fraîches sans carte.
+      const staleFloor = end - DEGRADED_STALE_MAX_MS;
+      const staleHub = hubAll
+        .filter((c) => c.startsAt >= staleFloor && c.gameConfig && c.gameConfig.gameMap)
+        .slice(0, freshCards.length > 0 ? DEGRADED_MAPPED_QUOTA : DEGRADED_MAX_ITEMS);
+      hubLagMs = end - hubAll[0].startsAt;
+      console.warn(`[lobby] hub en retard de ${Math.round(hubLagMs / 60000)} min — vignettes sur les ${staleHub.length} plus récentes du hub`);
+      for (const c of staleHub) c.mapPinned = true; // tri : vignettes d'abord
+      const freshQuota = Math.max(0, DEGRADED_MAX_ITEMS - staleHub.length);
+      cards = [...staleHub, ...freshCards.slice(0, freshQuota)];
+    } else {
+      // Hub vide ou trop vieux (> 12 h) : v5.20.2 (fraîches seules).
+      cards = freshCards.slice(0, DEGRADED_MAX_ITEMS);
+    }
+    state.hubLagMs = hubLagMs;
+    // 4. Ordre d'affichage : cartes pinnées (vignettes) d'abord, puis
+    //    décroissance temporelle — plafond global inchangé.
     state.recentGames = cards
-      .sort((a, b) => b.startsAt - a.startsAt)
+      .sort((a, b) => (b.mapPinned ? 1 : 0) - (a.mapPinned ? 1 : 0) || b.startsAt - a.startsAt)
       .slice(0, DEGRADED_MAX_ITEMS);
-    console.log(`[lobby] aperçu hors-ligne : ${state.recentGames.length} parties (${hubRows.length} avec carte, ${state.recentGames.length - hubRows.length} fraîches)`);
+    console.log(`[lobby] aperçu hors-ligne : ${state.recentGames.length} parties (${hubRows.length} avec carte hub${hubLagMs ? `, hub en retard ${Math.round(hubLagMs / 60000)} min` : ", " + (state.recentGames.length - hubRows.length) + " fraîches"})`);
   } catch (e) {
     console.warn("[lobby] aperçu hors-ligne indisponible :", e && e.message);
     // on garde la liste précédente
@@ -833,7 +878,13 @@ function ingestDegradedGames() {
   }
   // Tri interne : la plus récente d'abord (contrairement au live « la plus
   // proche de démarrer d'abord » — ici tout est terminé, la fraîcheur prime)
-  for (const k of Object.keys(buckets)) buckets[k].sort((a, b) => b.startsAt - a.startsAt);
+  for (const k of Object.keys(buckets)) {
+    // v5.20.3 : les cartes pinnées (vignettes du hub en retard) restent en
+    // tête de section ; sinon décroissance temporelle, comme avant.
+    buckets[k].sort(
+      (a, b) => (b.mapPinned ? 1 : 0) - (a.mapPinned ? 1 : 0) || b.startsAt - a.startsAt,
+    );
+  }
   state.games = buckets;
   state.degradedCards = true;
   state.updatedAt = Date.now();
@@ -862,6 +913,7 @@ function stopDegradedMode() {
     console.log("[lobby] Mode dégradé arrêté — flux temps réel revenu");
   }
   state.recentGames = [];
+  state.hubLagMs = 0;
   // v5.20.2 : si les sections contiennent encore les cartes d'aperçu, on les
   // vide (le prochain snapshot live remplit) pour ne pas afficher des parties
   // terminées sous l'étiquette « Temps réel ».
@@ -878,6 +930,18 @@ function snapshotIsEmpty() {
   return state.games.ffa.length === 0 && state.games.team.length === 0 && state.games.special.length === 0;
 }
 
+/** Libellé de la période couverte par l'aperçu. Nominal : 2 h (la fenêtre).
+ *  v5.20.3 : quand le hub a du retard, la période réelle s'étend au retard
+ *  constaté — l'étiquette reste honnête (« Aperçu · 5 h »). */
+function previewSpanLabel() {
+  const list = state.recentGames;
+  let oldest = Infinity;
+  for (const c of list) if (c.startsAt && c.startsAt < oldest) oldest = c.startsAt;
+  if (!Number.isFinite(oldest)) return "2 h";
+  const hours = Math.max(2, Math.ceil((Date.now() - oldest) / 3_600_000));
+  return `${hours} h`;
+}
+
 /** Injecte/retire le bloc « aperçu » sous le panneau d'état.
  *  v5.20.2 : quand les parties d'aperçu sont rendues en CARTES dans les
  *  sections (state.degradedCards), la liste texte devient redondante — on
@@ -890,7 +954,7 @@ function renderDegradedPanel() {
   host.hidden = false;
   const head = `
     <div class="lobby-degraded-head">
-      <h3>${esc(T("lobby.degraded_title", "Aperçu — dernières parties (2 h)"))}</h3>
+      <h3>${esc(T("lobby.degraded_title", "Aperçu — dernières parties" + " (" + previewSpanLabel() + ")", { span: previewSpanLabel() }))}</h3>
       <p>${esc(T("lobby.degraded_note", "Le flux temps réel est bloqué côté OpenFront (protection anti-bots). Dès sa réouverture, le live revient automatiquement."))}</p>
     </div>`;
   if (state.degradedCards) {
@@ -1497,7 +1561,7 @@ function renderStatus() {
     : T(meta.titleKey, meta.titleFb);
   const label = $("#lobby-status-label", el);
   if (label) label.textContent = state.degradedCards
-    ? T("lobby.status_preview", "Aperçu · 2 h")
+    ? T("lobby.status_preview", "Aperçu · " + previewSpanLabel(), { span: previewSpanLabel() })
     : T(meta.labelKey, meta.labelFb);
 
   const stats = document.getElementById("lobby-stats");
@@ -1507,7 +1571,7 @@ function renderStatus() {
       // v5.20.2 — aperçu des parties TERMINÉES : le libellé « en attente »
       // serait mensonger.
       stats.textContent = total > 0
-        ? T("lobby.stats_done", `${total} dernières parties (2 h)`, { total })
+        ? T("lobby.stats_done", `${total} dernières parties (${previewSpanLabel()})`, { total, span: previewSpanLabel() })
         : "";
     } else {
       const players = ["ffa", "team", "special"].reduce(
