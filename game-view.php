@@ -55,7 +55,7 @@ if ($__my !== null) {
         $id = isset($_GET['id']) && is_string($_GET['id']) ? trim($_GET['id']) : '';
         if ($id !== '' && preg_match('/^[A-Za-z0-9]{6,16}$/', $id)) {
             $st = $pdo->prepare(
-                'SELECT g.game_id, g.mode, g.num_turns, g.speedrun_category,
+                'SELECT g.game_id, g.game_mode, g.num_turns, g.speedrun_category,
                         UNIX_TIMESTAMP(g.started_at) AS started_ts,
                         u.username AS winner_username
                  FROM tfh_g_games g
@@ -71,7 +71,7 @@ if ($__my !== null) {
                 $n    = (int) ($c['n'] ?? 0);
                 $wins = (int) ($c['wins'] ?? 0);
                 $date = $g['started_ts'] ? gmdate('d/m/Y H:i', (int) $g['started_ts']) . ' UTC' : '—';
-                $mode = (string) ($g['mode'] ?: 'FFA');
+                $mode = (string) ($g['game_mode'] ?: 'FFA');
                 $winner = (string) ($g['winner_username'] ?? '');
                 $title  = $winner !== ''
                     ? 'Partie ' . $id . ' — vainqueur ' . $winner . ' · TheFrontHub'
