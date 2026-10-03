@@ -7,11 +7,19 @@
 //     et bulle chat (data-role=chat) — délégation dans boot()
 //   - clic sur une carte (lancement de partie) → émet « tfh:lobby:open-chat »
 //
+// v5.21 : SUR DEMANDE DU PROPRIÉTAIRE —
+//   - FIN de l'auto-défilement des carrousels (la « transition qui défile
+//     vers la droite » était horrible) : les pistes de cartes sont des
+//     listes horizontales à scroll MANUEL (doigt/trackpad/flèches).
+//   - Bandeau compagnon réduit aux ALERTES (lobby-live.js) : le compteur
+//     « Parties analysées », les « Stats des cartes », les chips de mode
+//     et la courbe « Joueurs dans le lobby » sont retirés.
+//
 // Bandeau compact « Prochaine partie », filtre segmenté
 // Toutes / FFA / Team / Spécial / Favoris, en-têtes de section au design
 // system (majuscules + filet) et cartes claires (vignette, timer flottant,
-// pills chips, barre de remplissage, compteur mono, étoile favori,
-// CTA « Rejoindre »), réparties en carrousels défilants.
+// pills chips, étoile favori, CTA « Rejoindre »), réparties en pistes
+// horizontales à scroll manuel.
 //
 // v5 :
 //   - FIN des cartes en double : chaque partie est rendue UNE seule fois
@@ -79,12 +87,14 @@ const FALLBACK_JSON = "lobby_state.json";
 // ── Server list v2 (v34) — résolution dynamique des hôtes WS ──────────
 // À partir de la v34, le client peut lire GET api.<domain>/cluster.json?site=<host>
 // pour découvrir les hôtes de jeu (blue/green.openfront.io…).
-// ⚠️ Choix Skailex : FORCED_HOST = green.openfront.io — serveur ACTIF de la
-// prod OpenFront (cluster.json 2026-09-14 : green state=open a33efb78, blue
-// draining). Jamais blue., jamais openfront.io tant que green est ouvert.
-// USE_CLUSTER_JSON = true réactiverait la résolution dynamique cluster.json.
-const FORCED_HOST = "green.openfront.io";
-const USE_CLUSTER_JSON = false;
+// ⚠️ v5.21 — FIX « lobby vide » : FORCED_HOST = green + résolution désactivée
+// datait du 2026-09-14 (green open, blue draining). Depuis, OpenFront a
+// BASCULÉ : blue est actif, green draine → on se connectait à un serveur
+// mourant qui ne diffuse plus aucune partie en attente (« aucune partie en
+// attente » en permanence). Désormais : cluster.json à chaque (re)connexion
+// (serveurs « open » d'abord), repli blue → green si l'endpoint est indisponible.
+const FORCED_HOST = "blue.openfront.io"; // repli si cluster.json injoignable
+const USE_CLUSTER_JSON = true;
 const API_PROXY_META = document.querySelector('meta[name="openfront-api-proxy"]');
 const API_PROXY_BASE = (API_PROXY_META && API_PROXY_META.content || "").replace(/\/$/, "");
 const CLUSTER_SITE = "openfront.io";
@@ -124,13 +134,6 @@ async function fetchClusterJson() {
 
 /** Rafraîchit la liste des hôtes (Server list v2) ; fallback legacy sinon. */
 function refreshLobbyHosts() {
-  if (!USE_CLUSTER_JSON) {
-    // Choix Skailex : green.openfront.io forcé — aucune résolution dynamique.
-    if (dynamicHosts) console.log(`[lobby] Hôte lobby forcé : ${FORCED_HOST} (cluster.json désactivé)`);
-    dynamicHosts = null;
-    dynamicHostsAt = Date.now();
-    return Promise.resolve();
-  }
   if (hostsRefreshInFlight) return hostsRefreshInFlight;
   if (dynamicHosts && Date.now() - dynamicHostsAt < HOSTS_TTL) {
     return Promise.resolve();
@@ -138,9 +141,12 @@ function refreshLobbyHosts() {
   hostsRefreshInFlight = (async () => {
     try {
       const data = await fetchClusterJson();
+      // v5.21 : serveurs « open » D'ABORD (le repli FORCED_HOST = blue reste
+      // en tête si cluster.json est vide — même logique que le worker v2).
       const hosts = data
         ? Object.values(data.servers || {})
             .filter((s) => s && s.host && s.state !== "draining" && s.state !== "fenced")
+            .sort((a, b) => (a.state === "open" ? -1 : 1) - (b.state === "open" ? -1 : 1))
             .map((s) => s.host)
         : [];
       if (hosts.length) {
@@ -149,8 +155,8 @@ function refreshLobbyHosts() {
         }
         dynamicHosts = hosts;
       } else {
-        if (dynamicHosts) console.log("[lobby] Server list v2 vide/absente → retour legacy (openfront.io)");
-        dynamicHosts = null; // endpoint dormant ou vide → legacy
+        if (dynamicHosts) console.log(`[lobby] Server list v2 vide/absente → repli ${FORCED_HOST}`);
+        dynamicHosts = null; // endpoint dormant ou vide → repli
       }
       dynamicHostsAt = Date.now();
     } finally {
@@ -1079,7 +1085,6 @@ function buildSkeleton() {
     const track = $(`#lobby-track-${sec.key}`, el);
     $$(".lobby-arrow", el).forEach((btn) => {
       btn.addEventListener("click", () => {
-        pauseAutoScroll(track, 6000);
         track.scrollBy({ left: Number(btn.dataset.dir) * track.clientWidth * 0.8, behavior: "smooth" });
       });
     });
@@ -1244,99 +1249,11 @@ function updateCard(card, game, opts) {
   }
 }
 
-/* ── Auto-défilement des carrousels ─────────────────────────────────── */
-
-const autoScrollState = new WeakMap(); // track → {pausedUntil, raf}
-
-function pauseAutoScroll(track, ms) {
-  const st = autoScrollState.get(track);
-  if (st) st.pausedUntil = Math.max(st.pausedUntil || 0, Date.now() + ms);
-}
-
-function startAutoScroll(track, speedPxPerSec) {
-  if (autoScrollState.has(track)) return; // déjà actif
-  const st = { pausedUntil: 0, last: performance.now(), dragging: false, carry: 0 };
-  autoScrollState.set(track, st);
-
-  const step = (now) => {
-    const dt = Math.min(now - st.last, 100);
-    st.last = now;
-    const auto = track.dataset.autoScroll !== "off";
-    const hovered = track.matches(":hover");
-    const paused = Date.now() < (st.pausedUntil || 0);
-
-    if (!st.dragging && !hovered && !paused && auto) {
-      // ⚠️ scrollLeft est arrondi à l'entier par le navigateur : on accumule
-      // les fractions en JS et on n'écrit que des pixels entiers.
-      st.carry += (speedPxPerSec * dt) / 1000;
-      if (st.carry >= 1) {
-        const whole = Math.floor(st.carry);
-        st.carry -= whole;
-        // Une seule copie des cartes (pas de duplication) : en fin de piste
-        // on repasse simplement au début.
-        const maxScroll = track.scrollWidth - track.clientWidth;
-        if (maxScroll > 0) {
-          if (track.scrollLeft >= maxScroll - 1) {
-            track.scrollLeft = 0;
-          } else {
-            track.scrollLeft = Math.min(track.scrollLeft + whole, maxScroll);
-          }
-        }
-      }
-    }
-    if (track.isConnected) requestAnimationFrame(step);
-  };
-  requestAnimationFrame(step);
-
-  // ── Drag manuel (souris uniquement ; le tactile garde le scroll natif) ──
-  // ⚠️ NE PAS utiliser setPointerCapture : il retargete le pointerup vers la
-  // piste, le navigateur émet alors le clic sur la piste (ancêtre commun de
-  // pointerdown/pointerup) et JAMAIS sur le lien de la carte → « cliquer une
-  // carte ne fait rien ». On drague via des listeners fenêtre et on n'avale
-  // le clic qu'après un VRAI déplacement (seuil 6 px).
-  const DRAG_THRESHOLD = 6;
-  let activePointer = null;
-
-  const onMove = (e) => {
-    if (activePointer !== e.pointerId) return;
-    const dx = e.clientX - st.downX;
-    if (!st.dragging && Math.abs(dx) > DRAG_THRESHOLD) st.dragging = true;
-    if (st.dragging) {
-      track.scrollLeft = st.downScroll - dx;
-      pauseAutoScroll(track, 4000);
-    }
-  };
-  const onUp = (e) => {
-    if (activePointer !== e.pointerId) return;
-    activePointer = null;
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-    window.removeEventListener("pointercancel", onUp);
-    if (st.dragging) {
-      st.dragging = false;
-      st.suppressClick = true; // le clic qui suit est un reliquat du drag
-    }
-  };
-
-  track.addEventListener("pointerdown", (e) => {
-    if (e.pointerType !== "mouse" || e.button !== 0) return;
-    activePointer = e.pointerId;
-    st.downX = e.clientX;
-    st.downScroll = track.scrollLeft;
-    st.dragging = false;
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-  });
-  track.addEventListener("click", (e) => {
-    if (st.suppressClick) {
-      st.suppressClick = false;
-      e.preventDefault();
-      e.stopPropagation();
-    }
-  }, true);
-  track.addEventListener("wheel", () => pauseAutoScroll(track, 5000), { passive: true });
-}
+/* ── Pistes horizontales — scroll manuel uniquement (v5.21) ───────────
+ *   L'ancien auto-défilement (le « défile vers la droite » animé en
+ *   permanence) est SUPPRIMÉ sur demande du propriétaire. Les pistes sont
+ *   des listes horizontales standards : doigt/trackpad, molette et les
+ *   flèches de section suffisent. Pas de rAF, pas de drag custom. */
 
 /* ── Rendu principal ────────────────────────────────────────────────── */
 
@@ -1479,7 +1396,7 @@ function render(isFull) {
       // Restaure la position de scroll (clampée au nouveau contenu)
       const max = Math.max(0, track.scrollWidth - track.clientWidth);
       track.scrollLeft = Math.min(savedScroll, max);
-      startAutoScroll(track, 18); // ~18 px/s, défilement lent (pause au survol)
+      // v5.21 : plus AUCUN auto-défilement — la piste reste immobile.
     }
 
     // Mise à jour des cartes visibles (timers + joueurs + contenu)
@@ -1847,10 +1764,4 @@ window._lobbyDebug = {
   },
   degraded: { start: startDegradedMode, stop: stopDegradedMode },
   toggleFavoriteRemote,
-  scrollState: (trackOrId) => {
-    const track = typeof trackOrId === "string"
-      ? document.getElementById(`lobby-track-${trackOrId}`)
-      : trackOrId;
-    return track ? autoScrollState.get(track) : null;
-  },
 };

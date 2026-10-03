@@ -940,10 +940,20 @@ function render() {
     btn.addEventListener("click", () => {
       if (!btn.dataset.filter || btn.dataset.filter === _pointFilter) return;
       _pointFilter = btn.dataset.filter;
-      // Rebuild complet : points recalculés + tri + corps des panneaux
+      // v5.21 — changement de catégorie SANS rechargement visuel : état des
+      // boutons mis à jour à la main, vues recalculées, et on ne re-rend que
+      // les CORPS des deux panneaux (updateLists). Plus de innerHTML global
+      // → pas de flash de page, pas d'animations re-jouées, la recherche
+      // et le scroll restent en place. Même comportement, mêmes données.
       // v5.13 : le panel hebdo API est re-trié côté serveur selon le mode.
+      document.querySelectorAll(".dash-filter").forEach((b) => {
+        const on = b.dataset.filter === _pointFilter;
+        b.classList.toggle("active", on);
+        b.setAttribute("aria-pressed", String(on));
+      });
+      _mergedViews = buildMergedViews();
       fetchWeeklyPage({ reset: true });
-      mergeAndRender();
+      updateLists();
     });
   });
 
@@ -966,6 +976,33 @@ function render() {
   if (window.TFH_reveal) {
     requestAnimationFrame(() => window.TFH_reveal());
   }
+}
+
+/* ── v5.21 — Préchargement « atomique » avant le premier rendu ──────────
+ * Le propriétaire décrit une cascade : le tableau arrive (joueurs), PUIS
+ * les pseudos changent (aliases hub), PUIS les couleurs de skin, PUIS les
+ * badges « vérifiés ». Cause : 3 re-rendus successifs au fil des fetch.
+ * Fix : on attend skins actifs + aliases AVANT le premier rendu → tout
+ * arrive D'UN COUP. Garde-fou 3 s : si une API tarde, on rend quand même
+ * et un unique re-rendu appliquera les retardataires (au lieu de 2 cascades). */
+let _atomicLateFlush = false;
+function atomicPreload() {
+  const skinsP = loadVipSkins().catch(() => {});
+  const aliasesP = loadConnectedPlayers().catch(() => {});
+  return Promise.race([
+    Promise.allSettled([skinsP, aliasesP]).then(() => true),
+    new Promise((resolve) => setTimeout(() => resolve(false), 3000)),
+  ]).then((onTime) => {
+    if (!onTime) {
+      _atomicLateFlush = true;
+      Promise.allSettled([skinsP, aliasesP]).then(() => {
+        if (_atomicLateFlush) {
+          _atomicLateFlush = false;
+          mergeAndRender(); // un seul re-rendu correctif
+        }
+      });
+    }
+  });
 }
 
 /** Merge + render (utilisé après chaque fetch live pour mise à jour progressive). */
@@ -1724,6 +1761,9 @@ document.addEventListener("click", (e) => {
           // Load ranked.json for ELO display + ranked wins merge
           await loadRankedJson();
           _mergedViews = buildMergedViews();
+          // v5.21 — rendu ATOMIQUE : skins + aliases (pseudos hub + badges)
+          // attendus AVANT le premier rendu → tout arrive d'un coup.
+          await atomicPreload();
           mergeAndRender();
           scoresLoaded = true;
           _liveFetchDone = true;
@@ -1735,27 +1775,19 @@ document.addEventListener("click", (e) => {
     }
 
     if (scoresLoaded) {
-      console.log("[dashboard] ✅ Rendu instantané depuis scores pré-calculés");
-      // Skins VIP en arrière-plan : re-render quand ils arrivent (non bloquant)
-      loadVipSkins().then(() => { if (_vipSkins.size > 0) mergeAndRender(); }).catch(() => {});
-      // v5.13 — aliases aussi sur le chemin principal : hub names + registre
-      // « vérifiés » (badges) — sinon le registre reste vide sur ce chemin.
-      loadConnectedPlayers().catch(() => {});
+      console.log("[dashboard] ✅ Rendu atomique depuis scores pré-calculés (v5.21 : pseudos hub + badges + skins dès le 1er rendu)");
       // v5.13 — top hebdo « tous les joueurs » (API, paginé)
       fetchWeeklyPage({ reset: true });
       return;
     }
 
     // Fallback : ancien système (ranked.json + live API)
-    // Phase 1 : Charger ranked.json → rendu immédiat avec données classées
+    // Phase 1 : Charger ranked.json → v5.21 : rendu ATOMIQUE (skins actifs
+    // + aliases attendus avant le premier rendu, garde-fou 3 s).
     await loadRankedJson();
     _mergedViews = buildMergedViews();
+    await atomicPreload();
     render();
-    // Skins VIP en arrière-plan même en mode fallback
-    loadVipSkins().then(() => { if (_vipSkins.size > 0) mergeAndRender(); }).catch(() => {});
-
-    // Phase 2 : Charger la liste des joueurs connectés (Firebase)
-    await loadConnectedPlayers();
 
     // Phase 3 : Charger les stats live pour chaque joueur connecté
     if (_connectedPlayers.length > 0) {
