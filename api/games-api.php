@@ -913,6 +913,40 @@ case 'maps': {
 }
 
 /* ── État de la base (admin / widgets) ───────────────────────────────────── */
+case 'totals': {
+    /* v5.22 — Compteurs publics pour la page d'accueil (« Parties en base »).
+     * COUNT(*) sur des millions de lignes = trop cher à chaque visite →
+     * cache fichier 5 min hors webroot (~/.tfs_cache, même philosophie que
+     * tfh_patterns_map). Aucun compteur interne sensible exposé. */
+    header('Cache-Control: public, max-age=120');
+    $cacheDir = (getenv('HOME') ?: sys_get_temp_dir()) . '/.tfs_cache';
+    $cacheFile = $cacheDir . '/games_totals.json';
+    $data = null;
+    if (is_file($cacheFile) && (time() - (int)filemtime($cacheFile)) < 300) {
+        $data = json_decode((string)@file_get_contents($cacheFile), true);
+    }
+    if (!is_array($data)) {
+        $row = $pdo->query('SELECT
+            (SELECT COUNT(*) FROM tfh_g_games) AS games,
+            (SELECT COUNT(*) FROM tfh_g_games WHERE game_type = \'Public\') AS public_games,
+            (SELECT COUNT(*) FROM tfh_g_games WHERE speedrun_category IS NOT NULL) AS speedruns,
+            (SELECT COUNT(*) FROM tfh_g_games WHERE started_at >= NOW() - INTERVAL 1 DAY) AS last24h,
+            (SELECT COUNT(*) FROM tfh_g_players WHERE deleted_at IS NULL) AS players')->fetch();
+        $data = [
+            'ok'          => true,
+            'games'       => (int)$row['games'],
+            'publicGames' => (int)$row['public_games'],
+            'speedruns'   => (int)$row['speedruns'],
+            'last24h'     => (int)$row['last24h'],
+            'players'     => (int)$row['players'],
+            'generatedAt' => time(),
+        ];
+        if (!is_dir($cacheDir)) @mkdir($cacheDir, 0700, true);
+        @file_put_contents($cacheFile, json_encode($data), LOCK_EX);
+    }
+    json_out($data);
+}
+
 case 'status': {
     /* Audit P0-2 : route diagnostique réservée aux admins (session Discord
      * site avec role=admin). Aucune page du front ne la consomme — verrou

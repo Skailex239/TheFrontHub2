@@ -112,6 +112,17 @@ ${rows}
               </div>
             </div>
           </section>
+          <section class="dash-panel dash-panel-preview dash-panel-preview-weekly" aria-hidden="true">
+            <div class="dash-panel-header">
+              <h2 class="dash-panel-title" data-i18n="dash.panel_weekly">Top joueurs — Cette semaine</h2>
+              <span class="dash-panel-sub" data-i18n="dash.preview_weekly_sub">Disponible dans un instant…</span>
+            </div>
+            <div class="dash-panel-body">
+              <div class="dash-skeleton-list" data-lenis-prevent>
+${Array.from({ length: 12 }, () => '                <div class="dash-skeleton-row"><span class="dash-skeleton-rank"></span><span class="dash-skeleton-name"></span><span class="dash-skeleton-pts"></span></div>').join("\n")}
+              </div>
+            </div>
+          </section>
         </div>
       </div>
       ${MARK_END}`;

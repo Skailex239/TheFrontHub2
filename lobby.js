@@ -244,13 +244,26 @@ function mapSlug(mapName) {
     : "";
 }
 
-/** URL de la miniature de map (repo GitHub OpenFrontIO, CDN public). */
+/** Miniature de map — miroir LOCAL d'abord (atlas-data/thumbnails, même
+ * origine : rapide, fiable, pas de dépendance à GitHub), puis repli GitHub
+ * via l'attribut data-gh + onerror (voir IMG_THUMB_ONERROR). */
 function mapThumb(mapName) {
+  const slug = mapSlug(mapName);
+  return slug ? `atlas-data/thumbnails/${slug}.webp` : "";
+}
+
+/** Repli distant de la miniature (repo GitHub OpenFrontIO, CDN public). */
+function mapThumbRemote(mapName) {
   const slug = mapSlug(mapName);
   return slug
     ? `https://raw.githubusercontent.com/openfrontio/OpenFrontIO/main/resources/maps/${slug}/thumbnail.webp`
     : "";
 }
+
+/** v5.22 — chaîne de repli des vignettes : local → GitHub → suppression
+ * (l'initiale de la map prend le relais via .lobby-card-img-fallback). */
+const IMG_THUMB_ONERROR =
+  "if(this.dataset.gh){this.src=this.dataset.gh;this.removeAttribute('data-gh');}else{this.remove();}";
 
 /** "isCompact" → "Compact", pour l'affichage des pills de modificateurs. */
 function humanizeFlag(name) {
@@ -1157,7 +1170,8 @@ function buildCard(game) {
     <span class="lobby-card-media">
       <img alt="" loading="lazy" draggable="false"
            src="${esc(mapThumb(mapName))}"
-           onerror="this.remove()">
+           data-gh="${esc(mapThumbRemote(mapName))}"
+           onerror="${IMG_THUMB_ONERROR}">
       <span class="lobby-card-img-fallback">${esc(mapName.slice(0, 1).toUpperCase())}</span>
       <span class="lobby-card-shade" aria-hidden="true"></span>
       <span class="lobby-card-timer" data-role="timer"></span>
@@ -1179,7 +1193,9 @@ function buildCard(game) {
     <span class="lobby-card-body">
       <h3 class="lobby-card-map"></h3>
       <p class="lobby-card-mode"></p>
+      <span class="lobby-card-fill" aria-hidden="true"><i data-role="fill"></i></span>
       <span class="lobby-card-foot">
+        <span class="lobby-card-count" data-role="count"></span>
         <span class="lobby-card-cta" aria-hidden="true">${esc(T("lobby.join", "Rejoindre"))}
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
         </span>
@@ -1192,13 +1208,14 @@ function updateCard(card, game, opts) {
   const cfg = game.gameConfig || {};
   const mapName = cfg.gameMap || "?";
   const cap = Number(cfg.maxPlayers) || 0;
-  const nPlayers = Number(game.numClients) || 0; // conservé pour l'état « pleine » (alertes) mais plus affiché
+  const nPlayers = Number(game.numClients) || 0; // affiché + alertes
 
   if (opts.full) {
     const img = $(".lobby-card-media img", card);
     const src = mapThumb(mapName);
     if (img) {
       if (img.getAttribute("src") !== src) img.setAttribute("src", src);
+      img.dataset.gh = mapThumbRemote(mapName);
       img.alt = mapName;
     }
     $(".lobby-card-img-fallback", card).textContent = mapName.slice(0, 1).toUpperCase();
@@ -1233,9 +1250,24 @@ function updateCard(card, game, opts) {
     card.classList.toggle("is-degraded", !!game.degraded);
   }
 
-  // v5.19 : barre de remplissage, badge « Presque pleine » et compteur
-  // joueurs retirés des cartes (inutiles selon le propriétaire). L'état
-  // interne (numClients/maxPlayers) reste ingéré pour les alertes.
+  // v5.22 — retour demandé : compteur joueurs + barre de remplissage sur
+  // chaque carte (maj à CHAQUE frame, y compris les « counts » WebSocket qui
+  // font évoluer numClients en temps réel). L'état interne reste aussi
+  // utilisé par les alertes (is-full / no-cap).
+  const fillEl = $("[data-role=fill]", card);
+  if (fillEl) {
+    const pct = cap > 0 ? Math.min(100, Math.round((nPlayers / cap) * 100)) : 0;
+    if (fillEl.dataset.pct !== String(pct)) {
+      fillEl.dataset.pct = String(pct);
+      fillEl.style.width = pct + "%";
+    }
+    card.classList.toggle("is-nearly-full", cap > 0 && pct >= 80 && pct < 100);
+  }
+  const countEl = $("[data-role=count]", card);
+  if (countEl) {
+    const txt = cap > 0 ? `${nPlayers}/${cap}` : `${nPlayers}`;
+    if (countEl.textContent !== txt) countEl.textContent = txt;
+  }
 
   // Compte à rebours (maj fréquente) — v5.20.2 : « Terminée » sur une carte
   // d'aperçu dégradée (le countdown live n'a pas de sens, la partie est finie)
@@ -1437,11 +1469,12 @@ function renderHero() {
       <span class="lobby-banner-dot" aria-hidden="true"></span>
       <span class="lobby-banner-label">${esc(T("lobby.next_game", "Prochaine partie"))}</span>
       <span class="lobby-banner-thumb">
-        <img alt="" src="${esc(mapThumb(mapName))}" onerror="this.remove()">
+        <img alt="" src="${esc(mapThumb(mapName))}" data-gh="${esc(mapThumbRemote(mapName))}" onerror="${IMG_THUMB_ONERROR}">
         <span class="lobby-banner-thumb-fallback">${esc(mapName.slice(0, 1).toUpperCase())}</span>
       </span>
       <span class="lobby-banner-name">${esc(mapDisplayName(mapName))}</span>
       <span class="lobby-banner-mode">${esc(bannerMode)}</span>
+      <span class="lobby-banner-count" data-role="hero-count"></span>
       <span class="lobby-card-timer" data-role="hero-timer"></span>
       <span class="lobby-banner-cta">${esc(T("lobby.join", "Rejoindre"))}
         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
@@ -1449,7 +1482,15 @@ function renderHero() {
     hero.setAttribute("aria-label", T("lobby.hero_aria", `Rejoindre la prochaine partie : ${mapDisplayName(mapName)}`, { map: mapDisplayName(mapName) }));
   }
 
-  // Mise à jour dynamique (v5.19 : compteur joueurs du bandeau retiré)
+  // Mise à jour dynamique — v5.22 : compteur joueurs du bandeau RÉTABLI
+  // (demande du propriétaire) + timer.
+  const cEl = $("[data-role=hero-count]", hero);
+  if (cEl) {
+    const hcap = Number(cfg.maxPlayers) || 0;
+    const hn = Number(next.numClients) || 0;
+    const ctxt = hcap > 0 ? `${hn}/${hcap}` : `${hn}`;
+    if (cEl.textContent !== ctxt) cEl.textContent = ctxt;
+  }
   const tEl = $("[data-role=hero-timer]", hero);
   if (tEl) {
     const txt = countdownText(Number(next.startsAt) || 0, serverNow());

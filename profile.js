@@ -46,14 +46,31 @@ const LOCALE = () => (window.currentLanguage === "en" ? "en-GB" : "fr-FR");
    précalculé en dictionnaire compact pour un lookup instantané) ── */
 const MAP_SLUGS={achiran:"achiran",aegean:"aegean",africa:"africa",alps:"alps",amazonriver:"amazonriver",antarctica:"antarctica",archipelagosea:"archipelagosea",arctic:"arctic",asia:"asia",australia:"australia",baikal:"baikal",baikalnukewars:"baikalnukewars",bajacalifornia:"bajacalifornia",balkans:"balkans",beringsea:"beringsea",beringstrait:"beringstrait",betweentwoseas:"betweentwoseas",blacksea:"blacksea",bosphorusstraits:"bosphorusstraits",branchingpaths:"branchingpaths",britannia:"britannia",britanniaclassic:"britanniaclassic",caribbean:"caribbean",caspiansea:"caspiansea",caucasus:"caucasus",centralasia:"centralasia",china:"china",colombia:"colombia", continua:"continua",danelaw:"danelaw",danishstraits:"danishstraits",degehabur:"degehabur",degahbour:"degahbour",dfz:"dfz",easterisland:"easterisland",europe:"europe",europeclassic:"europeclassic",falklandislands:"falklandislands",fars:"fars",france:"france",gatewaytotheatlantic:"gatewaytotheatlantic",germany:"germany",ghangisgolf:"ghangisgolf",ghana:"ghana",gobi:"gobi",greatlakes:"greatlakes",greece:"greece",greenland:"greenland",halfearth:"halfearth",hawaii:"hawaii",himalaya:"himalaya",iceland:"iceland",india:"india",indonesia:"indonesia",iowa:"iowa",iran:"iran",italia:"italia",italy:"italy",japan:"japan",japanneureich:"japanneureich",kalahari:"kalahari",kamtchatka:"kamtchatka",korea:"korea",lisboa:"lisboa",luna:"luna",maharaja:"maharaja",mallorca:"mallorca",manchuria:"manchuria",mapuche:"mapuche",mars:"mars",medina:"medina",mediterranean:"mediterranean",menam:"menam",montreal:"montreal",namibia:"namibia",naussicaa:"naussicaa",netherlands:"netherlands",newcaledonia:"newcaledonia",newengland:"newengland",newyork:"newyork",northamerica:"northamerica",norway:"norway",oceania:"oceania",pangaea:"pangaea",paris:"paris",patagonia:"patagonia",persepolis:"persepolis",poland:"poland",quebec:"quebec",richelieu:"richelieu",rome:"rome",sahara:"sahara",sardaigne:"sardaigne",sardinia:"sardinia",scandinavia:"scandinavia",southamerica:"southamerica",straitofgibraltar:"straitofgibraltar",suezcanal:"suezcanal",switzerland:"switzerland",taiwan:"taiwan",turkey:"turkey",uk:"uk",ukraine:"ukraine",vostok:"vostok",warsaw:"warsaw",westus:"westus",world:"world",yenisei:"yenisei",yemen:"yemen",znation:"znation"};
 
-/** Thumbnail URL for a map display name (null si le nom est inconnu). */
-function mapThumbUrl(name) {
-  if (!name) return null;
-  const slug = MAP_SLUGS[String(name).replace(/[^a-z0-9]/gi, "").toLowerCase()];
-  return slug
-    ? `https://raw.githubusercontent.com/openfrontio/OpenFrontIO/main/resources/maps/${slug}/thumbnail.webp`
-    : null;
+/** Slug de carte (même règle que l'atlas & lobby.js : minuscules alphanumériques). */
+function mapSlugOfName(name) {
+  return String(name || "").replace(/[^a-z0-9]/gi, "").toLowerCase();
 }
+
+/** Miniature de carte — miroir LOCAL d'abord (atlas-data/thumbnails, 132 cartes,
+ *  même origine : rapide et fiable). Repli GitHub automatique par le listener
+ *  d'erreur global ci-dessous (v5.22). */
+function mapThumbUrl(name) {
+  const slug = mapSlugOfName(name);
+  return slug ? `atlas-data/thumbnails/${slug}.webp` : null;
+}
+
+/* v5.22 — repli automatique des vignettes locales → dépôt GitHub OpenFrontIO
+ * (les erreurs de chargement <img> ne bouillonnent pas → capture:true).
+ * Une seule substitution par image (dataset.ghFb). */
+document.addEventListener("error", (e) => {
+  const img = e.target;
+  if (!(img instanceof HTMLImageElement)) return;
+  const src = img.getAttribute("src") || "";
+  const m = src.match(/^atlas-data\/thumbnails\/([a-z0-9]+)\.webp$/i);
+  if (!m || img.dataset.ghFb) return;
+  img.dataset.ghFb = "1";
+  img.src = `https://raw.githubusercontent.com/openfrontio/OpenFrontIO/main/resources/maps/${m[1]}/thumbnail.webp`;
+}, true);
 
 /* ── State ── */
 let currentUser = null;
@@ -896,11 +913,15 @@ function showcaseCatLabel(cat) {
 }
 
 /** Carte d'un cosmétique OpenFront porté en jeu.
- * Quatre cas réels observés dans les données :
+ * Cas réels observés dans les données :
  *  - c.url renseignée (couronnes, skins) → image CDN ;
  *  - c.name EST l'URL CDN (drapeaux portés) → image depuis le nom,
  *    libellé dérivé du segment final (cc_youtube_ → YouTube) ;
  *  - c.patternData renseigné (motifs du catalogue, v5.15) → canvas décodé ;
+ *  - c.name relatif « /flags/SPQR.svg » (drapeaux de nations, v5.22) →
+ *    miroir GitHub du dépôt officiel OpenFrontIO ;
+ *  - catalogue officiel chargé en fond (v5.22) → name → url pour tout ce
+ *    que le cache serveur n'a pas (couronnes/drapeaux « aléatoires ») ;
  *  - sinon (effets, patterns sans données) → icône de catégorie. */
 function showcaseCosVisual(c) {
   let url = c.url ? String(c.url) : "";
@@ -918,6 +939,21 @@ function showcaseCosVisual(c) {
       }
     } catch (e) { /* label resté = name */ }
   }
+  // v5.22 — drapeaux relatifs (« /flags/SPQR.svg ») → dépôt officiel (1000 drapeaux)
+  if (!url && !patternData && /^\/flags\//i.test(String(c.name || ""))) {
+    url = "https://raw.githubusercontent.com/openfrontio/OpenFrontIO/main/resources" +
+      encodeURI(String(c.name));
+    try {
+      const seg = String(c.name).split("/").pop().replace(/\.svg$/i, "");
+      if (seg) label = seg.replace(/_/g, " ").trim() || label;
+    } catch (e) { /* label resté */ }
+  }
+  // v5.22 — catalogue officiel en fond : name → url (cache serveur incomplet)
+  if (!url && !patternData) {
+    const cat = window.__ofCosmeticsMap;
+    const nm = String(c.name || "");
+    if (cat && cat[nm]) url = cat[nm];
+  }
   return { url, label, patternData };
 }
 
@@ -933,6 +969,7 @@ function showcaseWornCard(c) {
       '<span class="pf-sc-emoji" style="display:none">' + icon + "</span>";
   } else if (url) {
     img = '<img class="pf-sc-img" src="' + esc(url) + '" alt="" width="40" height="40" loading="lazy" ' +
+      'referrerpolicy="no-referrer" decoding="async" ' +
       'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">' +
       '<span class="pf-sc-emoji" style="display:none">' + icon + "</span>";
   } else {
@@ -1032,9 +1069,11 @@ function showcaseHubCards(hub) {
 }
 
 /** Peint la vitrine depuis une réponse route=profile (propre ou public). */
+let _lastShowcaseData = null; // v5.22 — re-rendu après arrivée du catalogue officiel
 function renderShowcaseFromData(data) {
   const root = document.getElementById("profile-showcase");
   if (!root) return;
+  _lastShowcaseData = data || null;
   const worn = Array.isArray(data?.cosmetics) ? data.cosmetics : [];
   const hubCards = showcaseHubCards(data?.hubCosmetics || {});
   if (!worn.length && !hubCards.length) {
@@ -1062,6 +1101,64 @@ function renderShowcaseFromData(data) {
   // v5.15 — peint les motifs (canvas) + emblème du héros (motif le plus récent)
   paintShowcasePatterns(root);
   paintAvatarFromCosmetics(worn);
+  // v5.22 — si des cartes n'ont pas d'image (cache serveur incomplet), charge
+  // le catalogue officiel en fond puis re-rend la vitrine quand il arrive.
+  if (worn.some((c) => c && !c.url && !c.patternData &&
+      !/^https?:\/\//i.test(String(c.name || "")) &&
+      !/^\/flags\//i.test(String(c.name || "")))) {
+    loadCosmeticsCatalogue();
+  }
+}
+
+/* v5.22 — catalogue officiel OpenFront chargé en fond (proxy worker /cosmetics,
+ * compacté + cache 6 h, repli api.openfront.io direct) → map name → url.
+ * Répare les vitrines dont la ligne catalogue en base est absente
+ * (couronnes/drapeaux affichés « au hasard » sans image). */
+let _cosmeticsMapLoading = false;
+function loadCosmeticsCatalogue() {
+  if (window.__ofCosmeticsMap || _cosmeticsMapLoading) return;
+  _cosmeticsMapLoading = true;
+  const BASES = [
+    "https://openfront-proxy.diofortnite3.workers.dev/cosmetics",
+    "https://api.openfront.io/cosmetics.json",
+  ];
+  // Aplatit les formes possibles : tableaux (worker) ou objets par nom (catalogue brut)
+  const flatten = (v) => {
+    const out = [];
+    const walk = (x) => {
+      if (!x) return;
+      if (Array.isArray(x)) { x.forEach(walk); return; }
+      if (typeof x === "object") {
+        if (typeof x.name === "string") { out.push(x); return; }
+        Object.values(x).forEach(walk);
+      }
+    };
+    walk(v);
+    return out;
+  };
+  const tryFetch = async (i) => {
+    if (i >= BASES.length) return null;
+    try {
+      const res = await fetch(BASES[i], { cache: "force-cache" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    } catch (e) { return tryFetch(i + 1); }
+  };
+  tryFetch(0).then((d) => {
+    _cosmeticsMapLoading = false;
+    if (!d) return;
+    const map = {};
+    [d.patterns, d.flags, d.crowns, d.skins, d.effects].forEach((group) => {
+      flatten(group).forEach((v) => {
+        if (v && typeof v.name === "string" && typeof v.url === "string" && v.url) {
+          map[v.name] = v.url;
+        }
+      });
+    });
+    if (!Object.keys(map).length) return;
+    window.__ofCosmeticsMap = map;
+    if (_lastShowcaseData) renderShowcaseFromData(_lastShowcaseData);
+  }).catch(() => { _cosmeticsMapLoading = false; });
 }
 
 /** Charge puis peint la vitrine du profil PROPRE (fetch dédié, garde anti-course). */
@@ -4110,8 +4207,9 @@ function renderPrecomputedStats(stats, mount) {
     const mapRowHtml = (m) => {
       const wr = m.winRate * 100;
       const wrColor = wr >= 60 ? "is-win" : wr >= 40 ? "" : "is-loss";
+      const thumb = mapThumbUrl(m.map);
       return `<tr>
-        <td>${esc(m.map)}</td>
+        <td><span class="pf2-mapcell">${thumb ? `<img class="pf2-mapcell-thumb" src="${esc(thumb)}" alt="" loading="lazy" width="26" height="26">` : ""}<span>${esc(m.map)}</span></span></td>
         <td>${fmt(m.count)}</td>
         <td class="is-win">${fmt(m.wins)}</td>
         <td class="is-loss">${fmt(m.losses)}</td>

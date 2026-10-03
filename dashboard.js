@@ -82,6 +82,7 @@ const view = document.getElementById("dashboard-view");
 const lastUpdateEl = document.getElementById("last-update");
 
 let _rankedData = null;        // ranked.json décodé (ranked wins carrière)
+let _previewTimedOut = false;  // v5.22 : garde-fou — l'aperçu statique ne doit jamais rester seul
 let _connectedPlayers = [];    // [{publicId, username}] depuis Firebase
 let _hubNamesByPid = new Map(); // publicId → pseudo hub (profil TheFrontHub) — affiché partout
 
@@ -775,14 +776,17 @@ function computePrevWeeklyRanks() {
    ════════════════════════════════════════════════════════════════ */
 
 function render() {
-  if (!_rankedData && _mergedViews.global.length === 0 && _mergedViews.weekly.length === 0) {
+  if (!_previewTimedOut && !_rankedData && _mergedViews.global.length === 0 && _mergedViews.weekly.length === 0) {
     /* Aperçu statique pré-généré (scripts/gen-ranked-preview.js) encore en
      * place → on le CONSERVE au lieu d'un « Chargement… » sans contenu
      * (robots d'indexation, échec réseau, API lente). Le premier lot de
      * données live remplacera le preview normalement. Les lignes statiques
      * portent data-pfb-pid/data-pfb-row → on les décore aussi (idempotent,
      * no-op si banners.js n'est pas encore chargé — render() est re-appelé
-     * au fil des fetch). */
+     * au fil des fetch).
+     * v5.22 : l'aperçu est DEUX panneaux (global + squelette hebdo) —
+     * plus jamais le top global seul en pleine largeur. Et si aucune
+     * donnée n'arrive sous 7 s, _previewTimedOut force un état honnête. */
     if (view.querySelector(".dash-static-preview")) {
       if (window.TFHBanners && typeof window.TFHBanners.decorate === "function") {
         window.TFHBanners.decorate(view);
@@ -1810,3 +1814,16 @@ document.addEventListener("click", (e) => {
     if (window.hydrateIcons) window.hydrateIcons(view);
   }
 })();
+
+/* v5.22 — Garde-fou : si l'aperçu statique est toujours seul affiché après
+ * 7 s (toutes les sources de données en échec), on force un rendu honnête
+ * (« Aucune donnée disponible ») au lieu de laisser un top 100 figé prendre
+ * la page. Si les données sont arrivées entre-temps, c'est un no-op. */
+setTimeout(function () {
+  if (document.querySelector("#dashboard-view .dash-static-preview")) {
+    _previewTimedOut = true;
+    try { render(); } catch (e) { /* état déjà cohérent */ }
+    console.warn("[dashboard] preview timeout — données live indisponibles après 7 s");
+  }
+}, 7000);
+

@@ -74,43 +74,56 @@ $TOP_PER_MAP = 30;
 /**
  * Exporte une catégorie de speedruns vers <base>.json et <base>.json.gz.
  * Retourne [total catégorie, runs exportés].
+ *
+ * v5.22 — MÉMOIRE-SAFE : plus aucun fetchAll() du corpus complet (des millions
+ * de lignes à venir = >1 Go en RAM). Deux requêtes bornées :
+ *   1) GROUP BY game_map  → totals par carte ('m') + total catégorie ('t') ;
+ *   2) par carte, top N   → 'r' (meilleur temps d'abord, LIMIT 30).
  */
 function export_category(PDO $pdo, string $category, string $base, int $topPerMap, array $keys): array {
-    $st = $pdo->prepare("SELECT g.game_id, g.game_map, g.speedrun_duration_s, g.difficulty, g.bots,
+    $mapsSt = $pdo->prepare("SELECT g.game_map, COUNT(*) AS n
+        FROM tfh_g_games g
+        WHERE g.speedrun_category = ? AND g.speedrun_duration_s IS NOT NULL AND g.game_map IS NOT NULL
+        GROUP BY g.game_map ORDER BY g.game_map ASC");
+    $mapsSt->execute([$category]);
+    $mapRows = $mapsSt->fetchAll();
+
+    $topSt = $pdo->prepare("SELECT g.game_id, g.game_map, g.speedrun_duration_s, g.difficulty, g.bots,
             g.num_players, g.started_at, g.winner_public_id, u.username AS winner_name
         FROM tfh_g_games g LEFT JOIN tfh_g_usernames u ON u.id = g.winner_username_id
-        WHERE g.speedrun_category = ? AND g.speedrun_duration_s IS NOT NULL AND g.game_map IS NOT NULL
-        ORDER BY g.game_map ASC, g.speedrun_duration_s ASC, g.started_at ASC");
-    $st->execute([$category]);
-    $rows = $st->fetchAll();
+        WHERE g.speedrun_category = ? AND g.speedrun_duration_s IS NOT NULL AND g.game_map = ?
+        ORDER BY g.speedrun_duration_s ASC, g.started_at ASC
+        LIMIT " . $topPerMap);
 
     $mapTotals = [];
-    $perMapCount = [];
     $r = [];
-    foreach ($rows as $row) {
-        $map = (string) $row['game_map'];
-        $mapTotals[$map] = ($mapTotals[$map] ?? 0) + 1;
-        if (($perMapCount[$map] ?? 0) >= $topPerMap) continue; // top N par carte
-        $perMapCount[$map] = ($perMapCount[$map] ?? 0) + 1;
+    $total = 0;
+    foreach ($mapRows as $mrow) {
+        $map = (string) $mrow['game_map'];
+        $n = (int) $mrow['n'];
+        $mapTotals[$map] = $n;
+        $total += $n;
 
-        // '2026-09-23 18:28:01.185' → '2026-09-23T18:28:01.185Z'
-        $tsIso = str_replace(' ', 'T', substr((string) $row['started_at'], 0, 23)) . 'Z';
-
-        $r[] = [
-            (string) $row['game_id'],
-            (string) ($row['winner_name'] ?? '—'),
-            (string) ($row['winner_public_id'] ?? ''),
-            $map,
-            (int) $row['speedrun_duration_s'],
-            (string) ($row['difficulty'] ?? ''),
-            (int) ($row['bots'] ?? ($category === 'compact' ? 100 : 400)),
-            (int) ($row['num_players'] ?? 0),
-            $tsIso,
-        ];
+        $topSt->execute([$category, $map]);
+        foreach ($topSt->fetchAll() as $row) {
+            // '2026-09-23 18:28:01.185' → '2026-09-23T18:28:01.185Z'
+            $tsIso = str_replace(' ', 'T', substr((string) $row['started_at'], 0, 23)) . 'Z';
+            $r[] = [
+                (string) $row['game_id'],
+                (string) ($row['winner_name'] ?? '—'),
+                (string) ($row['winner_public_id'] ?? ''),
+                $map,
+                (int) $row['speedrun_duration_s'],
+                (string) ($row['difficulty'] ?? ''),
+                (int) ($row['bots'] ?? ($category === 'compact' ? 100 : 400)),
+                (int) ($row['num_players'] ?? 0),
+                $tsIso,
+            ];
+        }
     }
 
     $payload = [
-        't' => count($rows),                    // total catégorie (compteur « nouveau départ »)
+        't' => $total,                          // total catégorie (compteur « nouveau départ »)
         'u' => gmdate('Y-m-d\TH:i:s.v\Z'),      // dernière génération
         'c' => null,                            // ancien champ latestCommit (plus pertinent)
         'm' => $mapTotals,                      // totals par carte
@@ -120,7 +133,7 @@ function export_category(PDO $pdo, string $category, string $base, int $topPerMa
     $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if ($json === false) {
         fwrite(STDERR, "[games-export] $category : json_encode a échoué\n");
-        return [count($rows), 0];
+        return [$total, 0];
     }
     $gz = gzencode($json, 6);
 
@@ -136,8 +149,8 @@ function export_category(PDO $pdo, string $category, string $base, int $topPerMa
         @chmod($f, 0644);
     }
 
-    fwrite(STDERR, "[games-export] $category : " . count($r) . " runs (top $topPerMap/carte), total " . count($rows) . " → $base.json(.gz)\n");
-    return [count($rows), count($r)];
+    fwrite(STDERR, "[games-export] $category : " . count($r) . " runs (top $topPerMap/carte), total $total → $base.json(.gz)\n");
+    return [$total, count($r)];
 }
 
 [$nTotal, $nRuns] = export_category($pdo, 'normal',  $WEBROOT . '/runs_public.json',         $TOP_PER_MAP, $KEYS);

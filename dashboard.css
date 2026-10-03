@@ -959,9 +959,57 @@
 
 /* ── Aperçu statique pré-généré (scripts/gen-ranked-preview.js) ────
    Affiché instantanément au chargement (robots + connexions lentes),
-   remplacé par le classement live dès que les données arrivent. */
+   remplacé par le classement live dès que les données arrivent.
+   v5.22 : DEUX panneaux (global + squelette hebdo) pour que la mise
+   en page ne saute plus et que le « Top de la semaine » soit visible
+   dès la première seconde — l'aperçu global ne prend plus tout l'écran. */
 .dash-static-preview .dash-panel-preview {
-  grid-column: 1 / -1;
+  /* 2 colonnes normales comme le rendu live (plus de grid-column: 1/-1) */
+  grid-column: auto;
+}
+/* Garde-fou hauteur : l'aperçu reste scrollable même sur mobile
+   (spécificité > media query .dash-list { max-height:none }) */
+.dash-static-preview .dash-list {
+  max-height: 640px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 34px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 34px), transparent 100%);
+}
+/* Squelette du panneau hebdo pendant le préchargement */
+.dash-skeleton-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 640px;
+  overflow: hidden;
+}
+.dash-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 52px;
+  padding: 10px;
+  border-bottom: 1px solid #F5F5F5;
+}
+.dash-skeleton-rank,
+.dash-skeleton-name,
+.dash-skeleton-pts {
+  border-radius: 6px;
+  background: linear-gradient(90deg, #ECECEF 25%, #F6F6F8 50%, #ECECEF 75%);
+  background-size: 200% 100%;
+  animation: dash-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+.dash-skeleton-rank { flex: 0 0 26px; height: 26px; }
+.dash-skeleton-name { flex: 1 1 auto; height: 14px; max-width: 220px; }
+.dash-skeleton-pts  { flex: 0 0 64px; height: 14px; margin-left: auto; }
+.dash-skeleton-row:nth-child(2n) .dash-skeleton-name { max-width: 170px; animation-delay: 0.15s; }
+.dash-skeleton-row:nth-child(3n) .dash-skeleton-pts  { animation-delay: 0.3s; }
+@keyframes dash-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dash-skeleton-rank, .dash-skeleton-name, .dash-skeleton-pts { animation: none; }
 }
 .dash-preview-note {
   display: flex;

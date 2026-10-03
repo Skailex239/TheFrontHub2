@@ -15,7 +15,7 @@
 //   - On next visit: user sees fresh data, still instantly
 //   - Works even on flaky 3G
 
-const CACHE_NAME = 'thefronthub-v97';
+const CACHE_NAME = 'thefronthub-v98';
 const CACHE_IMMUTABLE = 'thefronthub-imm-v45';
 const SWR_MAX_AGE_MS = 30 * 60 * 1000;  // 30 min — consider cache fresh this long
 

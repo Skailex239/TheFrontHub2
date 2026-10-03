@@ -1,23 +1,26 @@
 /**
- * lobby-live.js — v5.21 — Alertes du lobby TheFrontHub.
+ * lobby-live.js — v5.22 — Alertes du lobby TheFrontHub.
  *
  * Module compagnon de lobby.js (qui publie l'event window « tfh:lobby:update »
- * à chaque snapshot/counts). v5.21 : SUR DEMANDE DU PROPRIÉTAIRE, le bandeau
- * « Parties analysées », les « Stats des cartes », les chips de mode et la
- * courbe « Joueurs dans le lobby » sont RETIRÉS — il ne reste que l'essentiel :
+ * à chaque snapshot/counts). v5.21 : le bandeau ne garde que l'essentiel
+ * (alertes + suivi « ma partie »). v5.22 — FILTRE D'ALERTE COMPLET (demande
+ * du propriétaire, inspiré du filtre de lobby d'OpenFront) :
  *
  *   1. Alertes (bell)        → notification navigateur + son WebAudio quand
- *                              une partie correspondant aux filtres s'ouvre
+ *                              une partie correspondant AUX FILTRES s'ouvre
  *                              (ou atteint le seuil « joueurs min. »), ou
- *                              quand un lobby surveillé (« préviens-moi
- *                              quand ce lobby est plein ») devient pleine.
- *                              v5.20.1 anti-spam : regroupement + 1 alerte
- *                              « nouvelles parties » max par minute, une
- *                              partie ne sonne jamais deux fois.
+ *                              quand un lobby surveillé devient pleine.
+ *                              FILTRES : mode (toutes/ffa/team/spécial),
+ *                              joueurs min., format (tous/compact/normal),
+ *                              classé (tous/non classé/1v1/2v2) et SÉLECTION
+ *                              DE CARTES multiple (132 cartes, avec recherche,
+ *                              vignettes, « toutes/aucune »).
+ *                              v5.20.1 anti-spam conservé : regroupement +
+ *                              1 alerte « nouvelles parties » max par minute,
+ *                              une partie ne sonne jamais deux fois.
  *   2. Suivi « ma partie »   → clic sur une carte = tu lances la partie ;
- *                              dès que le flux voit qu'elle démarre (pleine,
- *                              compte à rebours écoulé ou sortie de liste),
- *                              le chat de la partie s'ouvre (lobby-chat.js).
+ *                              dès que le flux voit qu'elle démarre, le chat
+ *                              de la partie s'ouvre (lobby-chat.js).
  *
  * Chargé en script autonome (IIFE, defer). Zéro dépendance.
  */
@@ -31,7 +34,8 @@
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
   /* ── Constantes ──────────────────────────────────────────────────────── */
-  const LS_ALERTS = "tfh_lobby_alerts_v1";
+  const LS_ALERTS = "tfh_lobby_alerts_v2";      // v5.22 : filtres étendus
+  const LS_ALERTS_V1 = "tfh_lobby_alerts_v1";   // migration depuis l'ancien format
   const LS_WATCH  = "tfh_lobby_watch_v1";
   const LS_MINE   = "tfh_lobby_mine_v1";      // parties que JE lance (chat auto)
   const WATCH_TTL       = 3 * 3600_000;       // une surveillance expire après 3 h
@@ -53,7 +57,17 @@
   };
   const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* quota */ } };
 
-  const settings = Object.assign({ enabled: false, mode: "all", minPlayers: 0 }, load(LS_ALERTS, {}));
+  // v5.22 — migration douce depuis tfh_lobby_alerts_v1 (enabled/mode/minPlayers)
+  let _alertStore = load(LS_ALERTS, null);
+  if (!_alertStore) {
+    const v1 = load(LS_ALERTS_V1, null);
+    if (v1 && typeof v1 === "object") _alertStore = Object.assign({}, v1);
+  }
+  const settings = Object.assign(
+    { enabled: false, mode: "all", minPlayers: 0, maps: [], compact: "any", ranked: "any" },
+    _alertStore || {}
+  );
+  if (!Array.isArray(settings.maps)) settings.maps = [];
   let watch   = load(LS_WATCH, {});       // { gameId: { map, mode, addedAt, lastSeen } }
   for (const w of Object.values(watch)) w.armedAt = 0; // ré-armé par session (anti re-bip au rechargement)
   let mine    = load(LS_MINE, {});        // { gameId: { map, addedAt, lastSeen } }
@@ -124,14 +138,44 @@
     return String(cfg.gameMap || "?").slice(0, 24);
   }
 
-  /** Une partie passe-t-elle les filtres d'alerte (mode, joueurs min) ? */
+  /** Slug de map (même règle que lobby.js mapSlug — copie locale, zéro dépendance). */
+  function mapSlugOf(mapName) {
+    return typeof mapName === "string"
+      ? mapName.toLowerCase().replace(/[\s_]/g, "").replace(/[^\w]/g, "")
+      : "";
+  }
+
+  /** La partie est-elle au format « Compact » ? (modificateur ou taille de map) */
+  function isCompactGame(g) {
+    const cfg = g.gameConfig || {};
+    return !!(cfg.publicGameModifiers && cfg.publicGameModifiers.isCompact) ||
+      cfg.gameMapSize === "Compact";
+  }
+
+  /** Une partie passe-t-elle TOUS les filtres d'alerte (mode, joueurs min.,
+   *  format compact, classé, cartes sélectionnées) ? */
   function matchesFilters(g) {
+    const cfg = g.gameConfig || {};
     if (settings.minPlayers > 0 && (Number(g.numClients) || 0) < settings.minPlayers) return false;
-    if (settings.mode === "all") return true;
-    if (settings.mode === "ranked") return !!(g.gameConfig || {}).rankedType;
-    return (g.publicGameType !== "special") === false
-      ? settings.mode === "special"
-      : settings.mode === (isTeam(g) ? "team" : "ffa");
+    // Mode (toutes / ffa / team / spécial / classé)
+    if (settings.mode === "ranked") {
+      if (!cfg.rankedType) return false;
+    } else if (settings.mode !== "all") {
+      const bucket = g.publicGameType === "special" ? "special" : (isTeam(g) ? "team" : "ffa");
+      if (settings.mode !== bucket) return false;
+    }
+    // Classé : indépendant du mode (non classé / 1v1 / 2v2)
+    if (settings.ranked === "unranked" && cfg.rankedType) return false;
+    if (settings.ranked === "1v1" && cfg.rankedType !== "1v1") return false;
+    if (settings.ranked === "2v2" && cfg.rankedType !== "2v2") return false;
+    // Format
+    const compact = isCompactGame(g);
+    if (settings.compact === "only" && !compact) return false;
+    if (settings.compact === "none" && compact) return false;
+    // Cartes (sélection multiple — vide = toutes)
+    const sel = Array.isArray(settings.maps) ? settings.maps : [];
+    if (sel.length && !sel.includes(mapSlugOf(cfg.gameMap))) return false;
+    return true;
   }
 
   function isTeam(g) {
@@ -372,11 +416,17 @@
         </div>
       </div>
       <div class="llive-panel" data-role="ll-panel" hidden>
-        <label class="llive-toggle">
-          <input type="checkbox" data-role="ll-enabled">
-          <span class="llive-toggle-track" aria-hidden="true"></span>
-          <span>${esc(T("lobby.alert_enable", "Alertes actives (notification + son)"))}</span>
-        </label>
+        <div class="llive-toggle-line">
+          <label class="llive-toggle">
+            <input type="checkbox" data-role="ll-enabled">
+            <span class="llive-toggle-track" aria-hidden="true"></span>
+            <span>${esc(T("lobby.alert_enable", "Alertes actives (notification + son)"))}</span>
+          </label>
+          <button type="button" class="llive-test-sound" data-role="ll-test"
+                  title="${esc(T("lobby.alert_test_title", "Tester le son de l'alerte"))}">
+            🔊 ${esc(T("lobby.alert_test", "Test"))}
+          </button>
+        </div>
         <div class="llive-panel-row">
           <label>
             <span>${esc(T("lobby.alert_mode", "Mode"))}</span>
@@ -392,6 +442,42 @@
             <span>${esc(T("lobby.alert_min", "Joueurs min."))}</span>
             <input type="number" min="0" max="60" data-role="ll-min">
           </label>
+          <label>
+            <span>${esc(T("lobby.alert_compact", "Format"))}</span>
+            <select data-role="ll-compact">
+              <option value="any">${esc(T("lobby.alert_compact_any", "Tous"))}</option>
+              <option value="only">${esc(T("lobby.alert_compact_only", "Compact"))}</option>
+              <option value="none">${esc(T("lobby.alert_compact_none", "Normal"))}</option>
+            </select>
+          </label>
+          <label>
+            <span>${esc(T("lobby.alert_ranked", "Classé"))}</span>
+            <select data-role="ll-ranked">
+              <option value="any">${esc(T("lobby.alert_compact_any", "Tous"))}</option>
+              <option value="unranked">${esc(T("lobby.alert_ranked_no", "Non classé"))}</option>
+              <option value="1v1">1v1</option>
+              <option value="2v2">2v2</option>
+            </select>
+          </label>
+        </div>
+        <div class="llive-maps">
+          <div class="llive-maps-head">
+            <span class="llive-maps-label">${esc(T("lobby.alert_maps", "Cartes"))}</span>
+            <span class="llive-maps-summary" data-role="ll-maps-summary"></span>
+            <button type="button" class="llive-maps-toggle" data-role="ll-maps-toggle"
+                    aria-expanded="false">${esc(T("lobby.alert_maps_toggle", "Choisir…"))}</button>
+          </div>
+          <div class="llive-maps-body" data-role="ll-maps-body" hidden>
+            <input type="search" class="llive-maps-search" data-role="ll-maps-search"
+                   placeholder="${esc(T("lobby.alert_maps_search", "Rechercher une carte…"))}"
+                   aria-label="${esc(T("lobby.alert_maps_search", "Rechercher une carte…"))}">
+            <div class="llive-maps-actions">
+              <button type="button" data-role="ll-maps-all">${esc(T("lobby.alert_maps_select_all", "Toutes"))}</button>
+              <button type="button" data-role="ll-maps-none">${esc(T("lobby.alert_maps_clear", "Aucune"))}</button>
+            </div>
+            <div class="llive-maps-list" data-role="ll-maps-list" role="group"
+                 aria-label="${esc(T("lobby.alert_maps", "Cartes à surveiller"))}"></div>
+          </div>
         </div>
         <p class="llive-panel-hint">${esc(T("lobby.alert_hint", "Prévenu quand une partie correspondante s'ouvre (ou atteint le seuil de joueurs) — regroupé : 1 alerte max par minute. Garde cet onglet ouvert."))}</p>
         <div class="llive-watch-list" data-role="ll-watch"></div>
@@ -404,8 +490,19 @@
       bell:      strip.querySelector("[data-role=ll-bell]"),
       panel:     strip.querySelector("[data-role=ll-panel]"),
       enabled:   strip.querySelector("[data-role=ll-enabled]"),
+      test:      strip.querySelector("[data-role=ll-test]"),
       mode:      strip.querySelector("[data-role=ll-mode]"),
       min:       strip.querySelector("[data-role=ll-min]"),
+      compact:   strip.querySelector("[data-role=ll-compact]"),
+      ranked:    strip.querySelector("[data-role=ll-ranked]"),
+      mapsHead:  strip.querySelector("[data-role=ll-maps-summary]").parentNode,
+      mapsSummary: strip.querySelector("[data-role=ll-maps-summary]"),
+      mapsToggle:  strip.querySelector("[data-role=ll-maps-toggle]"),
+      mapsBody:    strip.querySelector("[data-role=ll-maps-body]"),
+      mapsSearch:  strip.querySelector("[data-role=ll-maps-search]"),
+      mapsAll:     strip.querySelector("[data-role=ll-maps-all]"),
+      mapsNone:    strip.querySelector("[data-role=ll-maps-none]"),
+      mapsList:    strip.querySelector("[data-role=ll-maps-list]"),
       watchList: strip.querySelector("[data-role=ll-watch]"),
     };
 
@@ -413,6 +510,9 @@
     els.enabled.checked = !!settings.enabled;
     els.mode.value = settings.mode || "all";
     els.min.value = String(settings.minPlayers || 0);
+    els.compact.value = settings.compact || "any";
+    els.ranked.value = settings.ranked || "any";
+    updateMapsSummary();
 
     // ── Interactions ──
     els.bell.addEventListener("click", () => {
@@ -450,6 +550,47 @@
       els.min.value = String(v);
       settings.minPlayers = v;
       save(LS_ALERTS, settings);
+    });
+    // v5.22 — filtres étendus
+    els.compact.addEventListener("change", () => {
+      settings.compact = els.compact.value;
+      save(LS_ALERTS, settings);
+    });
+    els.ranked.addEventListener("change", () => {
+      settings.ranked = els.ranked.value;
+      save(LS_ALERTS, settings);
+    });
+    els.test.addEventListener("click", () => {
+      ensureAudio(); // geste utilisateur : débloque l'audio
+      beep();
+    });
+    els.mapsToggle.addEventListener("click", () => {
+      const open = els.mapsBody.hidden;
+      els.mapsBody.hidden = !open;
+      els.mapsToggle.setAttribute("aria-expanded", String(open));
+      if (open) loadMapsCatalog();
+    });
+    els.mapsSearch.addEventListener("input", () => renderMapsList());
+    els.mapsAll.addEventListener("click", () => {
+      // sélectionne toutes les cartes VISIBLES (recherche respectée)
+      const sel = new Set(settings.maps);
+      els.mapsList.querySelectorAll("input[type=checkbox]").forEach((cb) => {
+        sel.add(cb.value);
+        cb.checked = true;
+        cb.closest(".llive-map-item")?.classList.add("is-on");
+      });
+      settings.maps = [...sel];
+      save(LS_ALERTS, settings);
+      updateMapsSummary();
+    });
+    els.mapsNone.addEventListener("click", () => {
+      settings.maps = [];
+      save(LS_ALERTS, settings);
+      els.mapsList.querySelectorAll("input[type=checkbox]").forEach((cb) => {
+        cb.checked = false;
+        cb.closest(".llive-map-item")?.classList.remove("is-on");
+      });
+      updateMapsSummary();
     });
 
     // Ouverture/fermeture de surveillance depuis les cartes (lobby.js émet)
@@ -514,6 +655,76 @@
     save(LS_WATCH, watch);
     renderWatchList();
     syncCardBells();
+  }
+
+  /* ── v5.22 — sélecteur de cartes (catalogue atlas, 132 cartes) ──────── */
+
+  let mapsCatalog = null;       // [{ slug, name }] — chargé au 1er dépliage
+  let mapsLoading = false;
+
+  function loadMapsCatalog() {
+    if (mapsCatalog || mapsLoading) { if (mapsCatalog) renderMapsList(); return; }
+    mapsLoading = true;
+    els.mapsList.innerHTML = `<p class="llive-maps-empty">${esc(T("lobby.alert_maps_loading", "Chargement des cartes…"))}</p>`;
+    fetch("atlas-data/maps_data.json?v=132", { cache: "force-cache" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))))
+      .then((d) => {
+        mapsCatalog = Object.keys(d || {}).map((slug) => {
+          const e = d[slug] || {};
+          return { slug, name: e.translated_name || e.display_name || e.enum_key || slug };
+        }).sort((a, b) => a.name.localeCompare(b.name, "fr"));
+      })
+      .catch(() => {
+        // Repli : les cartes actuellement en lobby (catalogue indisponible)
+        const seen = new Map();
+        allGames(currentGames).forEach((g) => {
+          const raw = String((g.gameConfig || {}).gameMap || "");
+          const slug = mapSlugOf(raw);
+          if (slug && !seen.has(slug)) seen.set(slug, raw);
+        });
+        mapsCatalog = [...seen.entries()].map(([slug, raw]) => ({ slug, name: raw }))
+          .sort((a, b) => a.name.localeCompare(b.name, "fr"));
+      })
+      .finally(() => {
+        mapsLoading = false;
+        renderMapsList();
+      });
+  }
+
+  function renderMapsList() {
+    if (!els.mapsList || !mapsCatalog) return;
+    const q = String((els.mapsSearch && els.mapsSearch.value) || "").trim().toLowerCase();
+    const sel = new Set(settings.maps);
+    const items = mapsCatalog.filter((m) => !q || m.name.toLowerCase().includes(q) || m.slug.includes(q));
+    els.mapsList.innerHTML = items.length
+      ? items.map((m) => `
+        <label class="llive-map-item${sel.has(m.slug) ? " is-on" : ""}">
+          <input type="checkbox" value="${esc(m.slug)}"${sel.has(m.slug) ? " checked" : ""}>
+          <img class="llive-map-thumb" alt="" loading="lazy" draggable="false"
+               src="atlas-data/thumbnails/${esc(m.slug)}.webp"
+               onerror="this.style.visibility='hidden'">
+          <span class="llive-map-name">${esc(m.name)}</span>
+        </label>`).join("")
+      : `<p class="llive-maps-empty">${esc(T("lobby.alert_maps_empty", "Aucune carte trouvée"))}</p>`;
+    els.mapsList.querySelectorAll("input[type=checkbox]").forEach((cb) => {
+      cb.addEventListener("change", () => {
+        const s = new Set(settings.maps);
+        if (cb.checked) s.add(cb.value); else s.delete(cb.value);
+        settings.maps = [...s];
+        save(LS_ALERTS, settings);
+        cb.closest(".llive-map-item")?.classList.toggle("is-on", cb.checked);
+        updateMapsSummary();
+      });
+    });
+  }
+
+  function updateMapsSummary() {
+    if (!els.mapsSummary) return;
+    const n = Array.isArray(settings.maps) ? settings.maps.length : 0;
+    els.mapsSummary.textContent = n === 0
+      ? T("lobby.alert_maps_all", "Toutes")
+      : T("lobby.alert_maps_custom", `${n} choisie${n > 1 ? "s" : ""}`, { n, s: n > 1 ? "s" : "" });
+    els.mapsSummary.classList.toggle("is-filtered", n > 0);
   }
 
   /** Répercute l'état de surveillance sur les cloches des cartes. */
