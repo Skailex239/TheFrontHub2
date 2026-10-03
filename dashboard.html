@@ -27,8 +27,8 @@
 
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=94" as="style">
-<link rel="preload" href="dashboard.css?v=22" as="style">
-<link rel="preload" href="dist/dashboard.min.js?v=23" as="script" crossorigin>
+<link rel="preload" href="dashboard.css?v=23" as="style">
+<link rel="preload" href="dist/dashboard.min.js?v=24" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=10" as="script" crossorigin>
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
@@ -41,7 +41,7 @@
 <link rel="stylesheet" href="auth.css?v=21">
 <link rel="stylesheet" href="toast.css">
 <link rel="stylesheet" href="animations.css?v=6">
-<link rel="stylesheet" href="dashboard.css?v=22">
+<link rel="stylesheet" href="dashboard.css?v=23">
 <style>.skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}</style>
 <script type="module" src="dist/icons.min.js?v=10"></script>
 <link rel="stylesheet" href="ads.css?v=2">
@@ -820,6 +820,28 @@
               </div>
             </div>
           </section>
+          <section class="dash-panel dash-panel-preview dash-panel-preview-weekly" aria-hidden="true">
+            <div class="dash-panel-header">
+              <h2 class="dash-panel-title" data-i18n="dash.panel_weekly">Top joueurs — Cette semaine</h2>
+              <span class="dash-panel-sub" data-i18n="dash.preview_weekly_sub">Disponible dans un instant…</span>
+            </div>
+            <div class="dash-panel-body">
+              <div class="dash-skeleton-list" data-lenis-prevent>
+                <div class="dash-skeleton-row"><span class="dash-skeleton-rank"></span><span class="dash-skeleton-name"></span><span class="dash-skeleton-pts"></span></div>
+                <div class="dash-skeleton-row"><span class="dash-skeleton-rank"></span><span class="dash-skeleton-name"></span><span class="dash-skeleton-pts"></span></div>
+                <div class="dash-skeleton-row"><span class="dash-skeleton-rank"></span><span class="dash-skeleton-name"></span><span class="dash-skeleton-pts"></span></div>
+                <div class="dash-skeleton-row"><span class="dash-skeleton-rank"></span><span class="dash-skeleton-name"></span><span class="dash-skeleton-pts"></span></div>
+                <div class="dash-skeleton-row"><span class="dash-skeleton-rank"></span><span class="dash-skeleton-name"></span><span class="dash-skeleton-pts"></span></div>
+                <div class="dash-skeleton-row"><span class="dash-skeleton-rank"></span><span class="dash-skeleton-name"></span><span class="dash-skeleton-pts"></span></div>
+                <div class="dash-skeleton-row"><span class="dash-skeleton-rank"></span><span class="dash-skeleton-name"></span><span class="dash-skeleton-pts"></span></div>
+                <div class="dash-skeleton-row"><span class="dash-skeleton-rank"></span><span class="dash-skeleton-name"></span><span class="dash-skeleton-pts"></span></div>
+                <div class="dash-skeleton-row"><span class="dash-skeleton-rank"></span><span class="dash-skeleton-name"></span><span class="dash-skeleton-pts"></span></div>
+                <div class="dash-skeleton-row"><span class="dash-skeleton-rank"></span><span class="dash-skeleton-name"></span><span class="dash-skeleton-pts"></span></div>
+                <div class="dash-skeleton-row"><span class="dash-skeleton-rank"></span><span class="dash-skeleton-name"></span><span class="dash-skeleton-pts"></span></div>
+                <div class="dash-skeleton-row"><span class="dash-skeleton-rank"></span><span class="dash-skeleton-name"></span><span class="dash-skeleton-pts"></span></div>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
       <!-- TFH:RANKED_PREVIEW:END -->
@@ -922,7 +944,7 @@
 
 <script type="module" src="banners.js?v=4"></script>
 <script src="verified.js?v=1"></script>
-<script type="module" src="dist/dashboard.min.js?v=23"></script>
+<script type="module" src="dist/dashboard.min.js?v=24"></script>
 <script src="dist/toast.min.js?v=2"></script>
 <script src="dist/lenis.min.js?v=7"></script>
 <script src="dist/animations.min.js?v=2"></script>

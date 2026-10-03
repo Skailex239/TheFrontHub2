@@ -1023,6 +1023,7 @@ function redirectToProfileIfRequested() {
 }
 
 let refreshInterval=null,prevRunCount=0,totalRunsCount=0;
+let _tfhGamesTotal=0,_tfhPlayersTotal=0; // v5.22 — vrais compteurs de la base (route=totals)
 let _lastETag=null,_processDataCache=null;
 
 function showProgressBar(){const b=document.getElementById('loading-bar');if(b){b.style.opacity='1';b.style.width='0%'}}
@@ -1816,14 +1817,32 @@ function renderAll(){
   }
 }
 function updateStats(){
-  document.getElementById("stat-runs").textContent=totalRunsCount.toLocaleString(LOCALE());
+  // v5.22 — « Parties » affiche le VRAI total de la base (route=totals,
+  // cache 5 min) dès qu'il est arrivé ; sinon repli sur le total speedruns.
+  document.getElementById("stat-runs").textContent=(_tfhGamesTotal||totalRunsCount).toLocaleString(LOCALE());
   document.getElementById("stat-maps").textContent=allMaps.length;
-  document.getElementById("stat-players").textContent=Object.keys(playerStats).length;
+  document.getElementById("stat-players").textContent=_tfhPlayersTotal||Object.keys(playerStats).length;
   const bt=allMaps.length?Math.min(...allMaps.map(m=>m.best)):0;
   document.getElementById("stat-best").textContent=bt>0?formatTime(bt):"—";
   const badge=document.getElementById("map-count-badge");
   if(badge)badge.textContent=allMaps.length;
 }
+/* v5.22 — compteurs réels de la base (parties/joueurs) — 1 requête/cache 5 min.
+ * Avant : la carte « Parties » affichait le nombre de SPEEDRUNS (43 k / 26 k)
+ * alors que la base en contient des millions. */
+(function fetchTfhTotals(){
+  try{
+    fetch('/api/games-api.php?route=totals',{cache:'no-store'})
+      .then(r=>r.ok?r.json():null)
+      .then(d=>{
+        if(!d||!d.ok) return;
+        if(Number(d.games)>0) _tfhGamesTotal=Number(d.games);
+        if(Number(d.players)>0) _tfhPlayersTotal=Number(d.players);
+        updateStats();
+      })
+      .catch(()=>{});
+  }catch(e){}
+})();
 function updateLastUpdate(){
   const lang = window.currentLanguage || 'fr';
   const localeStr = lang === 'en' ? 'en-US' : 'fr-FR';

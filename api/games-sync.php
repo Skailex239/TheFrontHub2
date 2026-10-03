@@ -341,8 +341,12 @@ tfh_add_col($pdo, 'tfh_g_games',   'config_json',       "`config_json` MEDIUMTEX
 tfh_add_col($pdo, 'tfh_g_games',   'v5_done',           "`v5_done` TINYINT(1) NOT NULL DEFAULT 0 AFTER `config_json`");
 tfh_add_col($pdo, 'tfh_g_games',   'turns_done',        "`turns_done` TINYINT(1) NOT NULL DEFAULT 0 AFTER `v5_done`");
 tfh_add_col($pdo, 'tfh_g_games',   'turns_tries',       "`turns_tries` TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER `turns_done`");
+/* v5.22 — classification speedrun vérifiée (0 = ligne enrichie avant le fix
+ * reclassify, jamais passée par classify_speedrun) */
+tfh_add_col($pdo, 'tfh_g_games',   'speedrun_checked',  "`speedrun_checked` TINYINT(1) NOT NULL DEFAULT 0 AFTER `turns_tries`");
 tfh_add_idx($pdo, 'tfh_g_games',   'idx_ggames_v5',     "`idx_ggames_v5` (`v5_done`, `started_at`)");
 tfh_add_idx($pdo, 'tfh_g_games',   'idx_ggames_turns',  "`idx_ggames_turns` (`turns_done`, `started_at`)");
+tfh_add_idx($pdo, 'tfh_g_games',   'idx_ggames_srcheck', "`idx_ggames_srcheck` (`v5_done`, `speedrun_checked`)");
 tfh_add_col($pdo, 'tfh_g_players', 'last_clan_tag',     "`last_clan_tag` VARCHAR(16) NULL AFTER `last_username`");
 
 $pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_clans (
@@ -885,8 +889,15 @@ function norm_cosmetics(mixed $c): ?string {
     }
     foreach (['crown', 'skin'] as $k) {
         $v = $c[$k] ?? null;
-        if (is_array($v)) $v = $v['name'] ?? null;
-        if (is_string($v) && $v !== '') $out[$k] = $v;
+        if (is_array($v)) {
+            $nm = $v['name'] ?? null;
+            if (is_string($nm) && $nm !== '') {
+                /* v5.22 : conserve l'URL CDN fournie par l'API (rendu vitrine
+                 * indépendant du cache catalogue serveur). */
+                $out[$k] = isset($v['url']) && is_string($v['url']) && $v['url'] !== ''
+                    ? ['name' => $nm, 'url' => cut($v['url'], 200)] : $nm;
+            }
+        } elseif (is_string($v) && $v !== '') $out[$k] = $v;
     }
     if (isset($c['effects']) && is_array($c['effects'])) {
         $effs = [];
@@ -927,7 +938,10 @@ function agg_cosmetics_wear(PDO $pdo, string $cosJson, string $pid, string $at):
         ON DUPLICATE KEY UPDATE times_worn = times_worn + 1, last_worn = VALUES(last_worn)');
     $items = [];
     foreach (['flag', 'crown', 'skin'] as $k) {
-        if (isset($c[$k]) && is_string($c[$k]) && $c[$k] !== '') $items[] = [$k, $c[$k]];
+        $v = $c[$k] ?? null;
+        /* v5.22 : accepte "name" (string) ou {"name":…, "url":…} */
+        if (is_string($v) && $v !== '') $items[] = [$k, $v];
+        elseif (is_array($v) && isset($v['name']) && is_string($v['name']) && $v['name'] !== '') $items[] = [$k, $v['name']];
     }
     if (isset($c['pattern']['name']) && is_string($c['pattern']['name']) && $c['pattern']['name'] !== '') {
         $items[] = ['pattern', $c['pattern']['name']];
@@ -1025,8 +1039,8 @@ function ingest_game(PDO $pdo, string $gameId, array $detail, array $listMeta, a
             (game_id, started_at, ended_at, duration_s, game_type, game_mode, ranked_type, player_teams,
              game_map, map_size, difficulty, bots, num_players, max_players, lobby_fill_time,
              winner_kind, winner_public_id, winner_username_id, speedrun_category, speedrun_duration_s, mods, git_commit,
-             version, num_turns, config_json, v5_done)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)');
+             version, num_turns, config_json, v5_done, speedrun_checked)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,1)');
         $ins->execute([
             $gameId,
             ms_to_dt($startMs),
@@ -1376,17 +1390,46 @@ function enrich_game(PDO $pdo, string $gameId, array $detail, array &$unameCache
     $board = rating_board($rt, $pt);
     $nowDt = ms_to_dt($startMs);
 
+    /* v5.22 — CLASSIFICATION SPEEDRUN à l'enrichissement (avant : uniquement
+     * à l'ingestion → les millions de lignes de l'archive profonde restaient
+     * à jamais hors speedruns). classify_speedrun consomme exactement
+     * {config, players, winner, duration, start, end} — tous présents ici. */
+    [$srCatE, $srDurE, , $modsCsvE] = classify_speedrun($info);
+    $endMsE = isset($info['end']) && is_numeric($info['end']) ? (int)$info['end']
+            : ($durationS !== null ? $startMs + $durationS * 1000 : null);
+    $mapE = isset($cfgG['gameMap']) && is_string($cfgG['gameMap']) && $cfgG['gameMap'] !== '' ? cut($cfgG['gameMap'], 48) : null;
+
     $gitcE = cut((string)($detail['gitCommit'] ?? ''), 16);
     $pdo->beginTransaction();
     try {
-        /* v5.16 : version réelle (tags) + git_commit complété (lignes liste-seule) */
+        /* v5.16 : version réelle (tags) + git_commit complété (lignes liste-seule)
+         * v5.22 : + carte/format/difficulté/bots/mods/durée/ended_at/speedrun
+         * (COALESCE : ne jamais écraser une valeur déjà juste) + speedrun_checked. */
         $pdo->prepare("UPDATE tfh_g_games SET version = ?, num_turns = ?, config_json = ?, v5_done = 1,
-            git_commit = IF(? <> '', ?, git_commit) WHERE game_id = ?")
+            git_commit = IF(? <> '', ?, git_commit),
+            ended_at = COALESCE(ended_at, ?),
+            duration_s = COALESCE(duration_s, ?),
+            game_map = COALESCE(game_map, ?),
+            map_size = COALESCE(map_size, ?),
+            difficulty = COALESCE(difficulty, ?),
+            bots = COALESCE(bots, ?),
+            mods = ?,
+            speedrun_category = ?, speedrun_duration_s = ?,
+            speedrun_checked = 1
+            WHERE game_id = ?")
             ->execute([
                 of_version_for($startMs, $gitcE),
                 isset($info['num_turns']) && is_numeric($info['num_turns']) ? (int)$info['num_turns'] : null,
                 $cfgG ? json_encode($cfgG, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : null,
                 $gitcE, $gitcE,
+                $endMsE !== null ? ms_to_dt($endMsE) : null,
+                $durationS,
+                $mapE,
+                isset($cfgG['gameMapSize']) ? cut((string)$cfgG['gameMapSize'], 16) : null,
+                isset($cfgG['difficulty']) ? cut((string)$cfgG['difficulty'], 16) : null,
+                isset($cfgG['bots']) && is_numeric($cfgG['bots']) ? (int)$cfgG['bots'] : null,
+                $modsCsvE,
+                $srCatE, $srDurE,
                 $gameId,
             ]);
 
@@ -1431,6 +1474,92 @@ function enrich_game(PDO $pdo, string $gameId, array $detail, array &$unameCache
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $e;
     }
+}
+
+/** v5.22 — Rattrapage LOCAL des speedruns (zéro appel API).
+ *
+ * Les lignes enrichies AVANT le fix « enrich → classify » (v5_done=1,
+ * speedrun_checked=0) n'ont jamais été classifiées. On les classifie ici à
+ * partir des données DÉJÀ stockées :
+ *   - config_json  → config (Public/FFA/bots/mods/compact/anti-cheat) ;
+ *   - roster       → joueurs (nombre = humains, gagnant = won=1 + username) ;
+ *   - duration_s   → durée (l'ingestion la stockait ; l'enrich historique
+ *                    parfois non → catégorie laissée NULL mais ligne marquée
+ *                    vérifiée pour ne pas re-scanner, carte/bots complétés).
+ * Retour [traitées, restantes]. Se termine définitivement (state=1) à sec. */
+function reclassify_phase(PDO $pdo, array $cfg): array {
+    if (state_get($pdo, 'sr_reclassify_done') === '1') return [0, 0];
+    phase_mark($pdo, 'reclassify');
+    $batch = min(3000, max(50, (int)($cfg['reclassify_batch'] ?? 1500)));
+
+    $st = $pdo->prepare('SELECT game_id, config_json, duration_s FROM tfh_g_games
+        WHERE v5_done = 1 AND speedrun_checked = 0 AND config_json IS NOT NULL
+        LIMIT ' . $batch);
+    $st->execute();
+    $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+    if (!$rows) {
+        // Lignes sans config (rares) : marquées vérifiées sans classification.
+        $pdo->exec('UPDATE tfh_g_games SET speedrun_checked = 1
+            WHERE v5_done = 1 AND speedrun_checked = 0 AND config_json IS NULL');
+        // Lignes sans config_json restantes ? → terminé.
+        $left = (int)$pdo->query('SELECT COUNT(*) FROM tfh_g_games WHERE v5_done = 1 AND speedrun_checked = 0')->fetchColumn();
+        if ($left === 0) { state_set($pdo, 'sr_reclassify_done', '1'); log_line('[reclassify] ✅ terminé'); }
+        return [0, $left];
+    }
+
+    $rosterSt = $pdo->prepare('SELECT r.client_id, r.won, u.username
+        FROM tfh_g_roster r LEFT JOIN tfh_g_usernames u ON u.id = r.username_id
+        WHERE r.game_id = ?');
+    $upd = $pdo->prepare('UPDATE tfh_g_games SET
+        game_map = COALESCE(game_map, ?), map_size = COALESCE(map_size, ?),
+        difficulty = COALESCE(difficulty, ?), bots = COALESCE(bots, ?),
+        mods = COALESCE(mods, ?),
+        speedrun_category = ?, speedrun_duration_s = ?, speedrun_checked = 1
+        WHERE game_id = ?');
+
+    $done = 0;
+    foreach ($rows as $r) {
+        $cfgG = json_decode((string)$r['config_json'], true);
+        if (!is_array($cfgG)) {
+            $upd->execute([null, null, null, null, null, null, null, $r['game_id']]);
+            $done++;
+            continue;
+        }
+        $rosterSt->execute([$r['game_id']]);
+        $players = $rosterSt->fetchAll(PDO::FETCH_ASSOC);
+        $playersArr = [];
+        $winnerCid = null;
+        foreach ($players as $p) {
+            $cid = (string)$p['client_id'];
+            $playersArr[] = ['clientID' => $cid, 'username' => (string)($p['username'] ?? '')];
+            if ($winnerCid === null && (int)$p['won'] === 1) $winnerCid = $cid;
+        }
+        $pseudo = [
+            'config' => $cfgG,
+            'players' => $playersArr,
+            'winner' => $winnerCid !== null ? ['player', $winnerCid] : null,
+            'duration' => $r['duration_s'] !== null ? (int)$r['duration_s'] : null,
+        ];
+        [$srCat, $srDur, , $modsCsv] = classify_speedrun($pseudo);
+        // duration_s NULL (lignes enrichies historiques) → classification
+        // impossible sans durée : on complète carte/format/bots et on marque
+        // vérifiée pour ne pas re-scanner ces lignes à chaque tick.
+        if ($srCat !== null && $r['duration_s'] === null) $srCat = null;
+        $upd->execute([
+            isset($cfgG['gameMap']) && is_string($cfgG['gameMap']) ? cut($cfgG['gameMap'], 48) : null,
+            isset($cfgG['gameMapSize']) ? cut((string)$cfgG['gameMapSize'], 16) : null,
+            isset($cfgG['difficulty']) ? cut((string)$cfgG['difficulty'], 16) : null,
+            isset($cfgG['bots']) && is_numeric($cfgG['bots']) ? (int)$cfgG['bots'] : null,
+            $modsCsv,
+            $srCat, $srDur,
+            $r['game_id'],
+        ]);
+        $done++;
+    }
+
+    $left = (int)$pdo->query('SELECT COUNT(*) FROM tfh_g_games WHERE v5_done = 1 AND speedrun_checked = 0')->fetchColumn();
+    if ($left === 0) { state_set($pdo, 'sr_reclassify_done', '1'); log_line('[reclassify] ✅ terminé'); }
+    return [$done, $left];
 }
 
 /** Phase d'enrichissement : re-détaille les parties antérieures à la v5. Retour [faites, restantes]. */
@@ -2829,6 +2958,16 @@ try {
     [$enrDone, $enrLeft] = enrich_phase($pdo, $cfg, $deadline, $unameCache);
     if ($enrDone > 0) log_line("[enrich] $enrDone partie(s) enrichie(s) — restantes : $enrLeft");
 } catch (Throwable $e) { log_line('[enrich] ⚠️ ' . cut($e->getMessage(), 140)); }
+
+// 5-bis) v5.22 — Rattrapage local des speedruns (ZÉRO appel API) : classifie
+// les lignes déjà enrichies avant le fix (v5_done=1, jamais passées par
+// classify_speedrun) à partir de config_json + roster stockés.
+try {
+    if (microtime(true) < $deadline) {
+        [$rcDone, $rcLeft] = reclassify_phase($pdo, $cfg);
+        if ($rcDone > 0) log_line("[reclassify] $rcDone partie(s) classée(s) — restantes : $rcLeft");
+    }
+} catch (Throwable $e) { log_line('[reclassify] ⚠️ ' . cut($e->getMessage(), 140)); }
 
 // 6) v5 — Rating Glicko-2 (3 boards, curseur chronologique)
 try { if (microtime(true) < $deadline) rating_phase($pdo, $cfg, $deadline); } catch (Throwable $e) { log_line('[rating] ⚠️ ' . cut($e->getMessage(), 140)); }
