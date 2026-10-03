@@ -353,6 +353,23 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* ═══ v5.24 — swap aperçu→live sans « reset » ═══
+ * Au refresh, l'aperçu statique (déjà décoré : pseudos hub + badge vérifié +
+ * skins + bannières) est remplacé par le rendu live IDENTIQUE → le passage
+ * ne doit RIEN montrer. .no-anim neutralise les animations d'entrée des
+ * lignes et les transitions reveal des panneaux pour TOUT re-rendu qui suit
+ * le premier (swap, late flush, progressive live, recherche, pagination). */
+.dash-view.no-anim .dash-row { animation: none !important; }
+.dash-view.no-anim .dash-panel,
+.dash-view.no-anim .dash-panel-header,
+.dash-view.no-anim .reveal {
+  transition: none !important;
+  animation: none !important;
+}
+/* Panneaux déjà visibles dès le swap (pas de fondu reveal rejoué) */
+.dash-view.no-anim .dash-panel.reveal,
+.dash-view.no-anim .dash-panel-header.reveal { opacity: 1; transform: none; }
+
 /* ── Podium (rangs 1-3) : accent gauche orange ── */
 .dash-row-podium {
   padding-left: 14px;
@@ -1018,6 +1035,12 @@
   margin: 0 0 14px;
   font-size: 12px;
   color: var(--fg-muted);
+}
+/* v5.24 — version « en direct » de la note (rendu live) : mêmes dimensions
+   que .dash-preview-note → zéro décalage vertical au swap aperçu→live. */
+.dash-live-note .dash-preview-dot {
+  background: #22c55e;
+  animation: dash-preview-pulse 1.6s ease-in-out infinite;
 }
 .dash-preview-dot {
   flex: 0 0 auto;
