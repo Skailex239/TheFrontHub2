@@ -107,7 +107,7 @@ async function loadWorldMap() {
 async function loadAtlas() {
   try {
     const [mapsRes, worldFeatures] = await Promise.all([
-      fetch("atlas-data/maps_data.json", { cache: "force-cache" }), loadWorldMap()
+      fetch("atlas-data/maps_data.json?v=132", { cache: "force-cache" }), loadWorldMap()
     ]);
     if (!mapsRes.ok) throw new Error(`HTTP ${mapsRes.status}`);
     mapsData = await mapsRes.json();

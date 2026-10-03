@@ -1,20 +1,12 @@
 /**
- * lobby-live.js — v5.19 — Bandeau LIVE du lobby TheFrontHub.
+ * lobby-live.js — v5.21 — Alertes du lobby TheFrontHub.
  *
  * Module compagnon de lobby.js (qui publie l'event window « tfh:lobby:update »
- * à chaque snapshot/counts). Il ajoute au-dessus des cartes :
+ * à chaque snapshot/counts). v5.21 : SUR DEMANDE DU PROPRIÉTAIRE, le bandeau
+ * « Parties analysées », les « Stats des cartes », les chips de mode et la
+ * courbe « Joueurs dans le lobby » sont RETIRÉS — il ne reste que l'essentiel :
  *
- *   1. Compteur global « parties analysées » → total accumulé 24/7 côté
- *      serveur (cron games-sync → MySQL → api/games-api.php route=maps).
- *      Le compteur tourne même quand personne ne regarde : à l'arrivée sur
- *      la page, il démarre de TOUT l'historique collecté (count-up animé),
- *      pas de zéro.
- *   2. Stats des cartes (maps) → top des cartes par parties collectées,
- *      liste défilante (top 10 visible, scroll pour la suite), filtres
- *      Toujours / 7 jours / 24 h, rafraîchie toutes les 90 s.
- *   3. Stats par mode        → chips FFA / Team / Spécial / Classé (parties + joueurs)
- *   4. Courbe d'activité     → canvas, historique 24 h en localStorage, ranges 1h/6h/24h
- *   5. Alertes (bell 18/22)  → notification navigateur + son WebAudio quand
+ *   1. Alertes (bell)        → notification navigateur + son WebAudio quand
  *                              une partie correspondant aux filtres s'ouvre
  *                              (ou atteint le seuil « joueurs min. »), ou
  *                              quand un lobby surveillé (« préviens-moi
@@ -22,7 +14,7 @@
  *                              v5.20.1 anti-spam : regroupement + 1 alerte
  *                              « nouvelles parties » max par minute, une
  *                              partie ne sonne jamais deux fois.
- *   6. Suivi « ma partie »   → clic sur une carte = tu lances la partie ;
+ *   2. Suivi « ma partie »   → clic sur une carte = tu lances la partie ;
  *                              dès que le flux voit qu'elle démarre (pleine,
  *                              compte à rebours écoulé ou sortie de liste),
  *                              le chat de la partie s'ouvre (lobby-chat.js).
@@ -41,14 +33,7 @@
   /* ── Constantes ──────────────────────────────────────────────────────── */
   const LS_ALERTS = "tfh_lobby_alerts_v1";
   const LS_WATCH  = "tfh_lobby_watch_v1";
-  const LS_HIST   = "tfh_lobby_hist_v1";
   const LS_MINE   = "tfh_lobby_mine_v1";      // parties que JE lance (chat auto)
-  const LS_MAPS_P = "tfh_lobby_maps_period_v1";
-  const MAPS_API  = "api/games-api.php";
-  const MAPS_POLL_MS    = 90_000;             // rafraîchissement stats cartes
-  const SAMPLE_MIN_MS   = 20_000;             // 1 échantillon courbe / 20 s max
-  const HIST_TTL        = 24 * 3600_000;      // fenêtre historique : 24 h
-  const HIST_MAX_POINTS = 3_000;
   const WATCH_TTL       = 3 * 3600_000;       // une surveillance expire après 3 h
   const WATCH_GONE_MS   = 5 * 60_000;         // partie absente > 5 min → dé-surveillance
   const MINE_TTL        = 3 * 3600_000;       // suivi « ma partie » expire après 3 h
@@ -71,9 +56,7 @@
   const settings = Object.assign({ enabled: false, mode: "all", minPlayers: 0 }, load(LS_ALERTS, {}));
   let watch   = load(LS_WATCH, {});       // { gameId: { map, mode, addedAt, lastSeen } }
   for (const w of Object.values(watch)) w.armedAt = 0; // ré-armé par session (anti re-bip au rechargement)
-  let history = load(LS_HIST, []);        // [[ts, players, games], …]
   let mine    = load(LS_MINE, {});        // { gameId: { map, addedAt, lastSeen } }
-  let mapsPeriod = load(LS_MAPS_P, "all"); // all | 7d | 24h
   const firedFull = new Set();            // ids déjà notifiés « pleine » (session)
   let seenIds = null;                     // ids du snapshot complet précédent (détection nouvelles)
   // v5.20.1 — état anti-spam des alertes « nouvelles parties »
@@ -82,314 +65,10 @@
   let lastNewAlert = 0;                   // ts du dernier bip « nouvelles parties »
   let alertedIds = new Set();             // une partie n'alerte JAMAIS 2 fois par session
   let lastCounts = new Map();             // id → numClients au passage précédent (détection de seuil)
-  let lastSample = 0;
-  let range = 6;                          // heures affichées (1 | 6 | 24)
 
   /* ── DOM ─────────────────────────────────────────────────────────────── */
   let strip = null;
   let els = {};
-
-  function cssVar(name, fb) {
-    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    return v || fb;
-  }
-
-  /* ══════════════════════════════════════════════════════════════════════
-     Utilitaires
-     ══════════════════════════════════════════════════════════════════════ */
-
-  const nf = (() => {
-    try { return new Intl.NumberFormat(); } catch { return null; }
-  })();
-  function fmtNum(n) {
-    if (n == null || !isFinite(n)) return "—";
-    return nf ? nf.format(Math.round(n)) : String(Math.round(n));
-  }
-
-  /** « il y a … » depuis un timestamp UTC « YYYY-MM-DD HH:MM:SS » (MySQL). */
-  function agoSince(utcStamp) {
-    const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(String(utcStamp || ""));
-    if (!m) return "";
-    const d = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
-    if (isNaN(d)) return "";
-    const s = Math.max(0, Math.round((Date.now() - d) / 1000));
-    if (s < 60) return T("lobby.ago_s", `${s} s`, { n: s });
-    if (s < 3600) { const n = Math.floor(s / 60); return T("lobby.ago_min", `${n} min`, { n }); }
-    if (s < 86400) { const n = Math.floor(s / 3600); return T("lobby.ago_h", `${n} h`, { n }); }
-    const n = Math.floor(s / 86400);
-    return T("lobby.ago_d", `${n} j`, { n });
-  }
-
-  function fmtDuration(sec) {
-    const s = Number(sec);
-    if (!s || s <= 0) return null;
-    if (s < 90) return Math.round(s) + " s";
-    const m = Math.round(s / 60);
-    return m + " min";
-  }
-
-  /* ══════════════════════════════════════════════════════════════════════
-     Métriques live (chips + courbe)
-     ══════════════════════════════════════════════════════════════════════ */
-
-  function computeMetrics(games) {
-    let players = 0, total = 0, ranked = 0;
-    const perMode = { ffa: { g: 0, p: 0 }, team: { g: 0, p: 0 }, special: { g: 0, p: 0 } };
-    for (const k of MODES) {
-      for (const g of games[k] || []) {
-        const cfg = g.gameConfig || {};
-        const n = Number(g.numClients) || 0;
-        players += n; total++;
-        perMode[k].g++; perMode[k].p += n;
-        if (cfg.rankedType) ranked++;
-      }
-    }
-    return { players, total, ranked, perMode };
-  }
-
-  function animateNum(el, from, to, dur = 380) {
-    if (from === to) { el.textContent = fmtNum(to); return; }
-    const t0 = performance.now();
-    const step = (now) => {
-      const p = Math.min(1, (now - t0) / dur);
-      const eased = 1 - Math.pow(1 - p, 3);
-      el.textContent = fmtNum(from + (to - from) * eased);
-      if (p < 1) requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
-  }
-
-  /* ══════════════════════════════════════════════════════════════════════
-     Stats par mode (chips)
-     ══════════════════════════════════════════════════════════════════════ */
-
-  const MODE_LABEL = {
-    ffa: () => T("lobby.filter_ffa", "FFA"),
-    team: () => T("lobby.filter_team", "Team"),
-    special: () => T("lobby.filter_special", "Spécial"),
-    ranked: () => T("lobby.ranked_short", "Classé"),
-  };
-
-  function renderModes(m) {
-    if (!els.modes) return;
-    const parts = [];
-    for (const k of MODES) {
-      if (m.perMode[k].g > 0) {
-        parts.push(`<span class="llive-chip"><b>${esc(MODE_LABEL[k]())}</b> ${m.perMode[k].g} · ${m.perMode[k].p} <span class="llive-chip-p">${esc(T("lobby.players_unit", "jrs"))}</span></span>`);
-      }
-    }
-    if (m.ranked > 0) {
-      parts.push(`<span class="llive-chip is-ranked"><b>${esc(MODE_LABEL.ranked())}</b> ${m.ranked}</span>`);
-    }
-    els.modes.innerHTML = parts.join("");
-  }
-
-  /* ══════════════════════════════════════════════════════════════════════
-     Stats des cartes — alimentées par la collecte continue du serveur
-     (cron games-sync → MySQL → api/games-api.php?route=maps&scope=all).
-     Le compteur cumule 24/7 : un visiteur qui arrive voit le total accumulé.
-     ══════════════════════════════════════════════════════════════════════ */
-
-  let mapsTimer = null;
-  let mapsBusy = false;
-  let mapsTotalShown = 0;      // dernière valeur affichée (pour le count-up)
-  let mapsFirstPaint = false;
-
-  async function fetchMaps() {
-    if (mapsBusy || !els.mapsList) return;
-    mapsBusy = true;
-    try {
-      const res = await fetch(`${MAPS_API}?route=maps&scope=all&period=${encodeURIComponent(mapsPeriod)}`, {
-        cache: "no-store",
-      });
-      const data = await res.json().catch(() => null);
-      if (data && data.ok) renderMaps(data);
-      else if (els.mapsSub) els.mapsSub.textContent = T("lobby.maps_err", "Stats indisponibles pour le moment — nouvelle tentative bientôt.");
-    } catch {
-      if (els.mapsSub) els.mapsSub.textContent = T("lobby.maps_err", "Stats indisponibles pour le moment — nouvelle tentative bientôt.");
-    } finally {
-      mapsBusy = false;
-    }
-  }
-
-  function totalForPeriod(d) {
-    if (mapsPeriod === "24h") return d.totalGames24h != null ? d.totalGames24h : d.totalGames;
-    if (mapsPeriod === "7d") return d.totalGames7d != null ? d.totalGames7d : d.totalGames;
-    return d.totalGames;
-  }
-
-  function renderMaps(d) {
-    if (!els.mapsList) return;
-    const total = totalForPeriod(d) || 0;
-
-    // Gros compteur animé — au 1er affichage, il monte de 0 vers le total
-    // accumulé côté serveur (« dès que j'arrive, c'est là où le compteur en est »)
-    if (els.mapsTotal) {
-      if (!mapsFirstPaint) {
-        animateNum(els.mapsTotal, 0, total, 900);
-        mapsFirstPaint = true;
-      } else if (total !== mapsTotalShown) {
-        animateNum(els.mapsTotal, mapsTotalShown, total, 600);
-      }
-      mapsTotalShown = total;
-    }
-
-    // Sous-ligne : preuve de collecte (dernière partie collectée il y a …)
-    if (els.mapsSub) {
-      const ago = agoSince(d.newestGame);
-      els.mapsSub.innerHTML = ago
-        ? `${esc(T("lobby.maps_sub", "Collecte en continu"))} · ${esc(T("lobby.maps_newest", "dernière partie {ago}", { ago }))}`
-        : esc(T("lobby.maps_sub", "Collecte en continu"));
-    }
-
-    // Liste défilante — top cartes par parties collectées
-    const maps = Array.isArray(d.maps) ? d.maps : [];
-    const base = Math.max(1, d.listedGames || maps.reduce((s, m) => s + (m.games || 0), 0));
-    if (!maps.length) {
-      els.mapsList.innerHTML = `<li class="llive-map-empty">${esc(T("lobby.maps_empty", "Les stats arrivent avec les prochaines parties collectées…"))}</li>`;
-      return;
-    }
-    els.mapsList.innerHTML = maps.map((m, i) => {
-      const share = Math.max(2, Math.min(100, Math.round(((m.games || 0) / base) * 100)));
-      const meta = [];
-      if (m.players != null && m.players > 0) meta.push(`${fmtNum(m.players)} ${T("lobby.players_unit", "jrs")}`);
-      const dur = fmtDuration(m.avgDurationS);
-      if (dur) meta.push(dur);
-      return `<li class="llive-map-row${i < 3 ? " is-top" : ""}">
-        <span class="llive-map-rank">${i + 1}</span>
-        <span class="llive-map-name" title="${esc(m.map)}">${esc(m.map)}</span>
-        <span class="llive-map-bar" aria-hidden="true"><i style="width:${share}%"></i></span>
-        <span class="llive-map-games">${fmtNum(m.games)}</span>
-        <span class="llive-map-meta">${esc(meta.join(" · "))}</span>
-      </li>`;
-    }).join("");
-  }
-
-  function startMaps() {
-    fetchMaps();
-    mapsTimer = setInterval(() => {
-      if (!document.hidden) fetchMaps();
-    }, MAPS_POLL_MS);
-  }
-
-  /* ══════════════════════════════════════════════════════════════════════
-     Courbe d'activité (canvas)
-     ══════════════════════════════════════════════════════════════════════ */
-
-  function sampleHistory(m) {
-    const now = Date.now();
-    if (now - lastSample < SAMPLE_MIN_MS) return;
-    lastSample = now;
-    history.push([now, m.players, m.total]);
-    const cutoff = now - HIST_TTL;
-    while (history.length && history[0][0] < cutoff) history.shift();
-    if (history.length > HIST_MAX_POINTS) history = history.slice(-HIST_MAX_POINTS);
-    save(LS_HIST, history);
-    drawCurve();
-  }
-
-  function drawCurve() {
-    const cv = els.curve;
-    if (!cv || !cv.isConnected) return;
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    const wCss = cv.clientWidth || cv.parentElement.clientWidth || 600;
-    const hCss = 150;
-    if (cv.width !== Math.round(wCss * dpr) || cv.height !== Math.round(hCss * dpr)) {
-      cv.width = Math.round(wCss * dpr);
-      cv.height = Math.round(hCss * dpr);
-    }
-    const ctx = cv.getContext("2d");
-    if (!ctx) return;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, wCss, hCss);
-
-    const now = Date.now();
-    const from = now - range * 3600_000;
-    const pts = history.filter((p) => p[0] >= from);
-    const fgMuted = cssVar("--fg-muted", "#71717A");
-    const border = cssVar("--border", "#E4E4E7");
-    const accent = cssVar("--accent", "#FF6B00");
-    const accentSubtle = cssVar("--accent-subtle", "#FFF4ED");
-    const fg = cssVar("--fg", "#18181B");
-
-    ctx.font = "11px " + cssVar("--f", "Inter, sans-serif");
-
-    if (pts.length < 2) {
-      ctx.fillStyle = fgMuted;
-      ctx.textAlign = "center";
-      ctx.fillText(T("lobby.curve_warmup", "Les données s'accumulent — la courbe se dessine dans quelques minutes."), wCss / 2, hCss / 2);
-      if (els.curveEmpty) els.curveEmpty.hidden = true;
-      return;
-    }
-    if (els.curveEmpty) els.curveEmpty.hidden = true;
-
-    let maxY = 0;
-    for (const p of pts) maxY = Math.max(maxY, p[1]);
-    maxY = Math.max(8, Math.ceil((maxY * 1.15) / 8) * 8);
-    const padL = 30, padR = 10, padT = 12, padB = 20;
-    const iw = wCss - padL - padR, ih = hCss - padT - padB;
-    const x = (t) => padL + ((t - from) / (now - from)) * iw;
-    const y = (v) => padT + ih - (v / maxY) * ih;
-
-    // Grille + labels Y
-    ctx.strokeStyle = border;
-    ctx.fillStyle = fgMuted;
-    ctx.lineWidth = 1;
-    ctx.textAlign = "right";
-    const steps = 4;
-    for (let i = 0; i <= steps; i++) {
-      const v = Math.round((maxY / steps) * i);
-      const yy = y(v);
-      ctx.beginPath();
-      ctx.moveTo(padL, yy); ctx.lineTo(wCss - padR, yy);
-      ctx.globalAlpha = 0.5;
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-      ctx.fillText(String(v), padL - 6, yy + 3);
-    }
-
-    // Aire + ligne
-    ctx.beginPath();
-    ctx.moveTo(x(pts[0][0]), y(pts[0][1]));
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(x(pts[i][0]), y(pts[i][1]));
-    const last = pts[pts.length - 1];
-    ctx.lineTo(x(last[0]), padT + ih);
-    ctx.lineTo(x(pts[0][0]), padT + ih);
-    ctx.closePath();
-    const grad = ctx.createLinearGradient(0, padT, 0, padT + ih);
-    grad.addColorStop(0, accentSubtle);
-    grad.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.moveTo(x(pts[0][0]), y(pts[0][1]));
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(x(pts[i][0]), y(pts[i][1]));
-    ctx.strokeStyle = accent;
-    ctx.lineWidth = 2;
-    ctx.lineJoin = "round";
-    ctx.stroke();
-
-    // Point « maintenant »
-    ctx.beginPath();
-    ctx.arc(x(last[0]), y(last[1]), 3.5, 0, Math.PI * 2);
-    ctx.fillStyle = accent;
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(x(last[0]), y(last[1]), 6.5, 0, Math.PI * 2);
-    ctx.strokeStyle = accent;
-    ctx.globalAlpha = 0.35;
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-
-    // Labels X (il y a « range » h / maintenant)
-    ctx.fillStyle = fgMuted;
-    ctx.textAlign = "left";
-    ctx.fillText(`-${range}h`, padL, hCss - 6);
-    ctx.textAlign = "right";
-    ctx.fillStyle = fg;
-    ctx.fillText(T("lobby.curve_now", "maintenant"), wCss - padR, hCss - 6);
-  }
 
   /* ══════════════════════════════════════════════════════════════════════
      Son (WebAudio — deux notes douces, pas de fichier)
@@ -664,7 +343,10 @@
   }
 
   /* ══════════════════════════════════════════════════════════════════════
-     UI — construction du bandeau
+     UI — construction du bandeau alertes (v5.21 : compteur « Parties
+     analysées », stats des cartes, chips de mode et courbe « Joueurs dans
+     le lobby » retirés sur demande du propriétaire — ne reste que les
+     alertes, discrètes, en haut des cartes)
      ══════════════════════════════════════════════════════════════════════ */
 
   const bellSvg = (fill) =>
@@ -677,16 +359,9 @@
     strip = document.createElement("section");
     strip.id = "lobby-live-strip";
     strip.className = "llive-strip";
-    strip.setAttribute("aria-label", T("lobby.ll_aria", "Statistiques du lobby en direct"));
+    strip.setAttribute("aria-label", T("lobby.alert_title", "Alertes parties"));
     strip.innerHTML = `
       <div class="llive-row">
-        <div class="llive-tile llive-tile-total">
-          <span class="llive-tile-num" data-role="maps-total">0</span>
-          <span class="llive-tile-label">
-            <span class="llive-live-dot" aria-hidden="true"></span>
-            ${esc(T("lobby.maps_total_label", "Parties analysées"))}
-          </span>
-        </div>
         <div class="llive-tile llive-tile-bell">
           <button type="button" class="llive-bell" data-role="ll-bell" aria-expanded="false"
                   title="${esc(T("lobby.alert_title", "Alertes parties"))}" aria-label="${esc(T("lobby.alert_title", "Alertes parties"))}">
@@ -720,33 +395,6 @@
         </div>
         <p class="llive-panel-hint">${esc(T("lobby.alert_hint", "Prévenu quand une partie correspondante s'ouvre (ou atteint le seuil de joueurs) — regroupé : 1 alerte max par minute. Garde cet onglet ouvert."))}</p>
         <div class="llive-watch-list" data-role="ll-watch"></div>
-      </div>
-      <section class="llive-maps" aria-label="${esc(T("lobby.maps_title", "Stats des cartes"))}">
-        <div class="llive-maps-head">
-          <h3>${esc(T("lobby.maps_title", "Stats des cartes"))}</h3>
-          <div class="llive-curve-range llive-maps-range" role="group" aria-label="${esc(T("lobby.maps_range_aria", "Période des stats cartes"))}">
-            <button type="button" data-period="all" class="${mapsPeriod === "all" ? "is-active" : ""}">${esc(T("lobby.maps_period_all", "Toujours"))}</button>
-            <button type="button" data-period="7d" class="${mapsPeriod === "7d" ? "is-active" : ""}">${esc(T("lobby.maps_period_7d", "7 jours"))}</button>
-            <button type="button" data-period="24h" class="${mapsPeriod === "24h" ? "is-active" : ""}">${esc(T("lobby.maps_period_24h", "24 h"))}</button>
-          </div>
-        </div>
-        <p class="llive-maps-sub" data-role="maps-sub">${esc(T("lobby.maps_sub", "Collecte en continu"))}</p>
-        <ol class="llive-maps-list" data-role="maps-list">
-          <li class="llive-map-empty">${esc(T("lobby.maps_loading", "Chargement des stats des cartes…"))}</li>
-        </ol>
-      </section>
-      <div class="llive-modes" data-role="ll-modes" aria-live="off"></div>
-      <div class="llive-curve-card">
-        <div class="llive-curve-head">
-          <h3>${esc(T("lobby.curve_title", "Joueurs dans le lobby"))}</h3>
-          <div class="llive-curve-range" role="group" aria-label="${esc(T("lobby.curve_range_aria", "Période affichée"))}">
-            <button type="button" data-range="1">1h</button>
-            <button type="button" data-range="6" class="is-active">6h</button>
-            <button type="button" data-range="24">24h</button>
-          </div>
-        </div>
-        <canvas data-role="ll-curve" aria-label="${esc(T("lobby.curve_canvas_aria", "Courbe du nombre de joueurs dans le lobby"))}" role="img"></canvas>
-        <div class="llive-curve-empty" data-role="ll-curve-empty" hidden></div>
       </div>`;
 
     viewEl.parentNode.insertBefore(strip, viewEl);
@@ -759,12 +407,6 @@
       mode:      strip.querySelector("[data-role=ll-mode]"),
       min:       strip.querySelector("[data-role=ll-min]"),
       watchList: strip.querySelector("[data-role=ll-watch]"),
-      modes:     strip.querySelector("[data-role=ll-modes]"),
-      curve:     strip.querySelector("[data-role=ll-curve]"),
-      curveEmpty: strip.querySelector("[data-role=ll-curve-empty]"),
-      mapsTotal: strip.querySelector("[data-role=maps-total]"),
-      mapsSub:   strip.querySelector("[data-role=maps-sub]"),
-      mapsList:  strip.querySelector("[data-role=maps-list]"),
     };
 
     // État initial des contrôles
@@ -809,27 +451,6 @@
       settings.minPlayers = v;
       save(LS_ALERTS, settings);
     });
-    strip.querySelector(".llive-curve-range:not(.llive-maps-range)").addEventListener("click", (e) => {
-      const btn = e.target.closest("[data-range]");
-      if (!btn) return;
-      range = Number(btn.dataset.range) || 6;
-      strip.querySelectorAll(".llive-curve-range:not(.llive-maps-range) button").forEach((b) =>
-        b.classList.toggle("is-active", b === btn));
-      drawCurve();
-    });
-    strip.querySelector(".llive-maps-range").addEventListener("click", (e) => {
-      const btn = e.target.closest("[data-period]");
-      if (!btn) return;
-      mapsPeriod = btn.dataset.period;
-      if (!["all", "7d", "24h"].includes(mapsPeriod)) mapsPeriod = "all";
-      save(LS_MAPS_P, mapsPeriod);
-      strip.querySelectorAll(".llive-maps-range button").forEach((b) =>
-        b.classList.toggle("is-active", b === btn));
-      if (els.mapsList) {
-        els.mapsList.innerHTML = `<li class="llive-map-empty">${esc(T("lobby.maps_loading", "Chargement des stats des cartes…"))}</li>`;
-      }
-      fetchMaps();
-    });
 
     // Ouverture/fermeture de surveillance depuis les cartes (lobby.js émet)
     window.addEventListener("tfh:lobby:watch-toggle", (e) => {
@@ -838,16 +459,8 @@
       toggleWatch(id);
     });
 
-    // Thème → redessine (couleurs lues des CSS vars)
-    const themeObserver = new MutationObserver(() => drawCurve());
-    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-theme"] });
-    themeObserver.observe(document.body, { attributes: true, attributeFilter: ["class", "data-theme"] });
-    window.addEventListener("resize", () => drawCurve());
-
     renderBell();
     renderWatchList();
-    drawCurve();
-    startMaps();
   }
 
   function renderBell() {
@@ -922,13 +535,10 @@
     const detail = e.detail || {};
     currentGames = detail.games || currentGames;
     buildStrip();
-    const m = computeMetrics(currentGames);
-    renderModes(m);
-    sampleHistory(m);
-    // v5.20.2 — snapshot DÉGRADÉ (parties terminées, pas de live) : on met à
-    // jour les compteurs/la courbe, mais le moteur d'alertes et le suivi
-    // « ma partie » restent éteints — bip/notification pour une partie déjà
-    // terminée = spam sans objet (l'utilisateur ne peut plus la rejoindre).
+    // v5.20.2 — snapshot DÉGRADÉ (parties terminées, pas de live) : le moteur
+    // d'alertes et le suivi « ma partie » restent éteints — bip/notification
+    // pour une partie déjà terminée = spam sans objet (l'utilisateur ne peut
+    // plus la rejoindre).
     if (!detail.degraded) {
       runAlertEngine({
         games: currentGames,

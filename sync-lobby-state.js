@@ -48,14 +48,17 @@ const __dirname = path.dirname(__filename);
 const STATE_FILE = path.join(__dirname, "lobby_state.json");
 
 const LEGACY_WS_URL = "wss://openfront.io/w0/lobbies?platform=web";
-// ⚠️ Choix Skailex : FORCED_WS_URL = green.openfront.io — serveur ACTIF de la
-// prod OpenFront (cluster.json 2026-09-14 : green state=open a33efb78, blue
-// draining). USE_CLUSTER_JSON = false → toujours green, jamais blue/openfront.
+// ⚠️ v5.21 — FIX « lobby vide » : FORCED_WS_URL = green + résolution
+// désactivée datait du 2026-09-14 (green open, blue draining). OpenFront a
+// depuis BASCULÉ : blue est actif, green draine → le cron interrogeait un
+// serveur mourant (aucune partie) et écrivait un lobby_state.json VIDE.
+// Désormais cluster.json est consulté à chaque run (serveurs « open »
+// d'abord) ; repli blue → legacy openfront.io si l'endpoint est indisponible.
 // v5.17 (2026-09-30) : le challenge CF devant les hôtes de jeu filtre sur
 // l'UA — Chrome complet requis (testé : OPEN + frames reçues). ?platform=web
 // aligne la requête sur le client officiel.
-const FORCED_WS_URL = "wss://green.openfront.io/w0/lobbies?platform=web";
-const USE_CLUSTER_JSON = false;
+const FORCED_WS_URL = "wss://blue.openfront.io/w0/lobbies?platform=web";
+const USE_CLUSTER_JSON = true;
 const CLUSTER_JSON_URL = "https://api.openfront.io/cluster.json?site=openfront.io";
 const API_BASE = "https://api.openfront.io";
 // v5.17 : le challenge CF filtre aussi le TLS — Node/OpenSSL est 403 même
@@ -109,13 +112,12 @@ function apiHeaders() {
 }
 
 // ── Résolution de l'URL WebSocket du lobby (Server list v2) ─────────────
-// Essaie GET /cluster.json?site=openfront.io (nouveau système v34, timeout
-// court). En cas de succès : wss://<host>/w0/lobbies (premier serveur non
-// draining/fenced). Sinon (404 "Unknown site", réseau, etc.) : URL legacy.
+// Essaie GET /cluster.json?site=openfront.io (v34, timeout
+// court). En cas de succès : wss://<host>/w0/lobbies (serveur « open »).
+// Sinon (404 "Unknown site", réseau, etc.) : repli blue (v5.21).
 async function resolveLobbyWsUrl() {
   if (!USE_CLUSTER_JSON) {
-    // Choix Skailex : green.openfront.io forcé — aucune résolution dynamique.
-    log(`Hôte lobby forcé : green.openfront.io (cluster.json désactivé)`);
+    log(`Hôte lobby forcé : ${FORCED_WS_URL} (cluster.json désactivé)`);
     return FORCED_WS_URL;
   }
   try {
@@ -127,8 +129,8 @@ async function resolveLobbyWsUrl() {
     });
     clearTimeout(t);
     if (!res.ok) {
-      log(`cluster.json: HTTP ${res.status} → fallback legacy (endpoint v2 dormant ?)`);
-      return LEGACY_WS_URL;
+      log(`cluster.json: HTTP ${res.status} → repli ${FORCED_WS_URL}`);
+      return FORCED_WS_URL; // v5.21 : blue d'abord (actif), l'legacy en dernier recours
     }
     const data = await res.json();
     const servers = data && data.servers ? Object.values(data.servers) : [];
@@ -136,15 +138,15 @@ async function resolveLobbyWsUrl() {
       servers.find((s) => s && s.host && s.state === "open") ||
       servers.find((s) => s && s.host && !s.state);
     if (!pick || !pick.host) {
-      warn(`cluster.json sans serveur utilisable → fallback legacy`);
-      return LEGACY_WS_URL;
+      warn(`cluster.json sans serveur utilisable → repli ${FORCED_WS_URL}`);
+      return FORCED_WS_URL;
     }
     const url = `wss://${pick.host}/w0/lobbies?platform=web`;
     log(`cluster.json v2: hôte résolu ${pick.host} (version=${pick.version || "?"}, state=${pick.state || "?"})`);
     return url;
   } catch (e) {
-    warn(`cluster.json indisponible (${e.message}) → fallback legacy`);
-    return LEGACY_WS_URL;
+    warn(`cluster.json indisponible (${e.message}) → repli ${FORCED_WS_URL}`);
+    return FORCED_WS_URL;
   }
 }
 

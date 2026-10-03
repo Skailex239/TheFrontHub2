@@ -781,7 +781,8 @@
    ════════════════════════════════════════════════════════════════════════ */
 
 .llive-strip{margin:0 0 14px;display:flex;flex-direction:column;gap:10px}
-.llive-row{display:grid;grid-template-columns:1fr auto;gap:10px}
+/* v5.21 : ne reste que la tuile alertes → rangée à contenu auto (compacte) */
+.llive-row{display:flex;justify-content:flex-start;gap:10px}
 .llive-tile{
   display:flex;flex-direction:column;align-items:flex-start;gap:2px;
   background:var(--bg-subtle,#fafafa);border:1px solid var(--border,#e4e4e7);
@@ -1132,7 +1133,7 @@
 
 /* ── Mobile ── */
 @media (max-width:640px){
-  .llive-row{grid-template-columns:1fr auto}
+  .llive-row{justify-content:flex-start}
   .llive-tile-num{font-size:22px}
   .llive-maps-list{max-height:240px}
   .llive-map-meta{display:none}
