@@ -954,6 +954,13 @@ function showcaseCosVisual(c) {
     const nm = String(c.name || "");
     if (cat && cat[nm]) url = cat[nm];
   }
+  // v5.23 — patterns sans bitmap en base (« aléatoires » sans image) :
+  // le catalogue officiel fournit le bitmap officiel (name → pattern).
+  if (!url && !patternData && String(c.category || "").toLowerCase() === "pattern") {
+    const pats = window.__ofCosmeticsPatterns;
+    const nm = String(c.name || "");
+    if (pats && pats[nm]) patternData = pats[nm];
+  }
   return { url, label, patternData };
 }
 
@@ -1103,6 +1110,8 @@ function renderShowcaseFromData(data) {
   paintAvatarFromCosmetics(worn);
   // v5.22 — si des cartes n'ont pas d'image (cache serveur incomplet), charge
   // le catalogue officiel en fond puis re-rend la vitrine quand il arrive.
+  // v5.23 : inclut les PATTERNS sans bitmap (le catalogue officiel fournit
+  // le bitmap officiel — ex: « jr_piracy » présent en base sans patternData).
   if (worn.some((c) => c && !c.url && !c.patternData &&
       !/^https?:\/\//i.test(String(c.name || "")) &&
       !/^\/flags\//i.test(String(c.name || "")))) {
@@ -1155,8 +1164,19 @@ function loadCosmeticsCatalogue() {
         }
       });
     });
-    if (!Object.keys(map).length) return;
-    window.__ofCosmeticsMap = map;
+    // v5.23 — bitmaps officiels des motifs (name → pattern) : répare les
+    // vitrines dont la base n'a PAS le patternData (fallback emoji avant).
+    const pats = {};
+    flatten(d.patterns).forEach((v) => {
+      if (v && typeof v.name === "string" && typeof v.pattern === "string" && v.pattern) {
+        pats[v.name] = v.pattern;
+      }
+    });
+    const hasUrls = Object.keys(map).length > 0;
+    const hasPatterns = Object.keys(pats).length > 0;
+    if (!hasUrls && !hasPatterns) return;
+    if (hasUrls) window.__ofCosmeticsMap = map;
+    if (hasPatterns) window.__ofCosmeticsPatterns = pats;
     if (_lastShowcaseData) renderShowcaseFromData(_lastShowcaseData);
   }).catch(() => { _cosmeticsMapLoading = false; });
 }

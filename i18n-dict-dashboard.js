@@ -6,7 +6,8 @@
 // éléments communs réutilisés (nav.*, footer.*, auth.*, modal.close → i18n.js).
 window.__TFH_I18N_PARTIALS__ = window.__TFH_I18N_PARTIALS__ || {};
 window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr || {}, {
-  "dash.preview_note": "Aperçu du classement (top 100 classé) — actualisation en direct…",
+  "dash.preview_note": "Aperçu du classement (top 100) — actualisation en direct…",
+  "dash.preview_offline": "Connexion au classement en direct impossible — aperçu de la dernière synchronisation ({date}). Rechargez la page dans quelques instants.",
   "dash.preview_weekly_sub": "Disponible dans un instant…",
   // ── Chrome de page (dashboard.html) ─────────────────────────────────
   "dash.skip": "Aller au contenu principal",
@@ -112,7 +113,8 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
 
 });
 window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en || {}, {
-  "dash.preview_note": "Leaderboard preview (ranked top 100) — refreshing live…",
+  "dash.preview_note": "Leaderboard preview (top 100) — refreshing live…",
+  "dash.preview_offline": "Could not reach the live leaderboard — preview from the last sync ({date}). Please reload in a moment.",
   "dash.preview_weekly_sub": "Available in a moment…",
   // ── Page chrome (dashboard.html) ────────────────────────────────────
   "dash.skip": "Skip to main content",
