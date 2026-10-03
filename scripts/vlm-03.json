@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "Voici la description concise des deux captures :\n\n**1) Onglet Classement**\nTableau de classement 1v1 (option 2v2 disponible) affichant les joueurs avec leurs statistiques : rang, pseudo, Elo actuel (en vert), Elo max, ratio V/D (victoires/défaites en vert/rouge) et taux de victoire (badge vert). Un filtre par pseudo est présent. Les données sont chargées, lisible, sans bug visuel apparent.\n\n**2) Onglet Atlas**\nGalerie « Atlas des cartes » présentant 132 cartes sous forme de vignettes (mini-cartes du monde, Europe, Amériques...). Des filtres par catégories géographiques/thématiques (Mises en avant, Nouveautés, Continents, Pays, etc.) avec compteurs sont visibles. Chaque carte affiche son nom, son niveau d'étoile, sa catégorie et le nombre de nations.\n\n**État général :** Tout semble **propre et correctement chargé** sur les deux vues. L'interface est cohérente (thème sombre), les textes sont lisibles, les badges/colorations fonctionnent, et aucune coupure d'image ou glitch n'est visible.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791015335,
+  "id": "2026100316153120fb66930f534423",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "2026100316153120fb66930f534423",
+  "usage": {
+    "completion_tokens": 272,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 1827,
+    "prompt_tokens_details": {
+      "cached_tokens": 2
+    },
+    "total_tokens": 2099
+  }
+}

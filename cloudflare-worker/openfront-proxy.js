@@ -1,58 +1,84 @@
 /**
- * Cloudflare Worker — Proxy CORS + WebSocket proxy vers OpenFront.
+ * Cloudflare Worker — Proxy CORS + WebSocket pour OpenFront.
+ * v2 « fusion » (2026-10-03) : l'ancien proxy + les nouvelles routes.
  *
- * Routes :
- *   GET /<path>           → proxy HTTP vers https://api.openfront.io/<path>
+ * ROUTES :
  *   GET /lobby-ws         → proxy WebSocket vers wss://<hôte jeu>/w{0-19}/lobbies
- *                           (hôte résolu via Server list v2 : cluster.json)
+ *                           (hôte résolu DYNAMIQUEMENT via cluster.json — voir FIX v2)
  *   GET /matchmaking-ws   → proxy WebSocket vers wss://api.openfront.io/matchmaking/join?...
+ *   GET /lobbies          → NOUVEAU : lobbies publics en JSON (instantané décodé
+ *                           côté serveur, flux zbin, cache 2,5 s + secours stale)
+ *   GET /leaderboard      → NOUVEAU : classements 1v1 + 2v2 (cache 60 s)
+ *   GET /cluster          → NOUVEAU : état des serveurs de jeu (cache 60 s)
+ *   GET /cosmetics        → NOUVEAU : catalogue cosmétiques compacté (cache 6 h)
+ *   GET /player/:id       → NOUVEAU : profil d'un joueur (cache 5 min)
+ *   GET /player/:id/games → NOUVEAU : dernières parties d'un joueur (cache 5 min)
+ *   GET /all              → NOUVEAU : leaderboard + cluster + cosmétiques en un appel
+ *   GET /  ·  /health     → NOUVEAU : état du worker (JSON)
+ *   GET /<path>           → proxy HTTP vers https://api.openfront.io/<path>
+ *                           (inchangé — les appels existants du site continuent de marcher)
  *
- * Le proxy WS side-steps le blocage Cloudflare cross-origin en se connectant
- * côté serveur (depuis le Worker, qui est same-origin pour OpenFront).
+ * ⚠️ FIX v2 (le bug du lobby vide) :
+ *   L'ancienne version forçait FORCED_HOST = "green.openfront.io" avec la
+ *   résolution dynamique désactivée (bascule du 2026-09-14 : green était
+ *   « open », blue « draining »). Depuis, les serveurs ont basculé :
+ *   blue est actif, green draine. Le site restait donc connecté à un serveur
+ *   mort → « aucune partie en attente ». Désormais l'hôte est résolu à chaque
+ *   connexion via cluster.json (serveurs « open » d'abord), avec repli
+ *   blue → green → openfront.io legacy. Plus jamais de breaker manuel.
  *
- * ⚠️ SÉCURITÉ (audit 2026) : ce Worker injecte le header x-skailex-access
- * (accès API privilégié) sur CHAQUE requête. Il était ouvert à toutes les
- * origines (Access-Control-Allow-Origin: *) — n'importe quel site pouvait
- * l'utiliser comme passerelle anonyme vers l'API OpenFront avec ton exemption.
- * Il est désormais restreint aux origines officielles (liste ALLOWED_ORIGINS).
- *
- * ── Server list v2 (v34) ─────────────────────────────────────────────
- * L'hôte upstream de /lobby-ws est résolu dynamiquement :
- *   GET https://api.openfront.io/cluster.json?site=<CLUSTER_SITE>
- *   → 200 { latest, servers: { lettre: { host, numWorkers, version, state } } }
- *     → on choisit un serveur dont state != draining/fenced
- *   → 404 « Unknown site » (endpoint dormant, avant la bascule v34)
- *     → fallback legacy wss://openfront.io/w{0-19}/lobbies
- * Cache mémoire 30 s pour ne pas marteler l'API. Le site fonctionne donc
- * AVANT et APRÈS la bascule sans redéploiement du Worker.
+ * ⚠️ SÉCURITÉ (audit 2026, conservée) : ce Worker peut injecter le header
+ * x-skailex-access (accès API privilégié) sur les requêtes vers api.openfront.io.
+ * Il n'est consommable QUE par les origines officielles (ALLOWED_ORIGINS),
+ * plus les previews de l'agent (*.space-z.ai, pour le mode « worker URL »
+ * du tableau de bord v6). Le header n'est envoyé que si le secret
+ * SKAILEX_ACCESS_TOKEN est configuré.
  *
  * Configuration (Dashboard Cloudflare → Worker → Settings → Variables) :
  *   SKAILEX_ACCESS_TOKEN   — token d'accès (déjà en place, secret)
- *   ALLOWED_ORIGINS        — (optionnel) liste d'origines séparées par des
- *                            virgules, ex: "https://thefronthub.com,https://mon-dev.local"
- *                            Par défaut : origines officielles du site ci-dessous.
- *   ALLOW_ALL_ORIGINS      — (optionnel, déconseillé) "1" pour réouvrir à tout.
- *                            UNIQUEMENT pour déboguer, jamais en production.
+ *   ALLOWED_ORIGINS        — (optionnel) origines séparées par des virgules
+ *   ALLOW_ALL_ORIGINS      — (optionnel, déconseillé) "1" pour tout ouvrir
+ *
+ * Le protocole des lobbies est un flux binaire « zbin » (dépôt officiel
+ * OpenFrontIO). Les routes /lobby-ws (relais transparent, décodage côté
+ * navigateur) et /lobbies (décodage côté serveur) partagent le même schéma.
+ * Zéro dépendance externe.
  */
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 0. Configuration
+// ─────────────────────────────────────────────────────────────────────────────
 
 const SKAILEX_ACCESS_TOKEN = process.env.SKAILEX_ACCESS_TOKEN || "";
 const API_BASE = "https://api.openfront.io";
 
-// ── Allowlist d'origines (audit sécurité) ───────────────────────────────
-// Ce worker relaie des requêtes avec ton token d'exemption : il ne doit
-// être consommable QUE par tes propres sites.
+// Ordre de repli si cluster.json est injoignable : blue puis green.
+const FALLBACK_SERVERS = ["blue.openfront.io", "green.openfront.io"];
+// Dernier recours absolu (pool legacy d'avant la v34).
+const LEGACY_LOBBY_HOST = "openfront.io";
+
+const CLUSTER_TTL_MS = 30000;   // cache de la liste des serveurs
+const LOBBY_CACHE_MS = 2500;    // anti-hammer sur /lobbies
+const API_TIMEOUT_MS = 12000;
+const WS_TIMEOUT_MS = 6000;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. Allowlist d'origines (audit sécurité, conservée)
+// ─────────────────────────────────────────────────────────────────────────────
+
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://thefronthub.com",
   "https://www.thefronthub.com",
-  "https://dev.thefronthub.com",   // pré-production (v5.15.1 — sans elle :
-                                   // 403 sans CORS → « Failed to fetch » sur
-                                   // TOUTES les requêtes OpenFront du site dev)
+  "https://dev.thefronthub.com",   // pré-production
   "https://skailex239.github.io",   // miroir GitHub Pages
   "http://localhost:3000",         // dev local
   "http://localhost:5500",         // dev local (live server)
   "http://127.0.0.1:3000",
   "http://127.0.0.1:5500",
 ];
+
+// Suffixes autorisés ( previews de l'agent : https://preview-<id>.space-z.ai ).
+const DEFAULT_ALLOWED_SUFFIXES = [".space-z.ai"];
 
 const ALLOW_ALL_ORIGINS = process.env.ALLOW_ALL_ORIGINS === "1";
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
@@ -62,9 +88,13 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
 
 function isOriginAllowed(origin) {
   if (ALLOW_ALL_ORIGINS) return true;            // mode debug explicite
-  if (!origin) return false;                     // requêtes sans Origin (curl, server-side) → refusées
+  if (!origin) return false;                     // curl / server-side → refusé
   const list = ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS : DEFAULT_ALLOWED_ORIGINS;
-  return list.includes(origin);
+  if (list.indexOf(origin) !== -1) return true;
+  for (let i = 0; i < DEFAULT_ALLOWED_SUFFIXES.length; i++) {
+    if (origin.endsWith(DEFAULT_ALLOWED_SUFFIXES[i])) return true;
+  }
+  return false;
 }
 
 /** Réponse CORS dont l'origine est validée (jamais "*"). */
@@ -78,116 +108,857 @@ function corsHeadersFor(origin) {
   };
 }
 
-// Pool legacy complet : OpenFront sert numWorkers=20 depuis le déploiement
-// du 2026-09-04 (les 20 workers exposent la même liste de lobbies).
-const LOBBY_WORKERS = Array.from({ length: 20 }, (_, i) => `w${i}`);
-
-// ── Hôte de lobby — choix Skailex ──────────────────────────────────────
-// FORCED_HOST = green.openfront.io : serveur ACTIF de la prod OpenFront
-// (cluster.json 2026-09-14 : d/green state=open version a33efb78,
-// c/blue state=draining). Le site se connecte donc toujours à green.
-// USE_CLUSTER_JSON = true repasserait en résolution dynamique cluster.json
-// (Server list v2, cache 30 s) — à n'utiliser que si green devient instable.
-const FORCED_HOST = "green.openfront.io";
-const USE_CLUSTER_JSON = false;
-
-// ── Server list v2 : résolution de l'hôte de jeu (cache mémoire 30 s) ──
-const CLUSTER_SITE = "openfront.io";
-const CLUSTER_TTL_MS = 30_000;
-let clusterCache = { hosts: null, at: 0 }; // hosts = null → legacy
-
-async function resolveLobbyHosts() {
-  const now = Date.now();
-  if (now - clusterCache.at < CLUSTER_TTL_MS) return clusterCache.hosts;
-  let hosts = null; // fallback legacy par défaut
-  try {
-    const res = await fetch(
-      `${API_BASE}/cluster.json?site=${encodeURIComponent(CLUSTER_SITE)}`,
-      {
-        headers: {
-          Accept: "application/json",
-          "User-Agent": "skailex",
-          "x-skailex-access": SKAILEX_ACCESS_TOKEN,
-        },
-        cf: { cacheTtl: 0 },
-      },
-    );
-    if (res.ok) {
-      const data = await res.json();
-      const list = data && data.servers
-        ? Object.values(data.servers)
-            .filter((s) => s && s.host && s.state !== "draining" && s.state !== "fenced")
-            .map((s) => s.host)
-        : [];
-      if (list.length) hosts = list;
-    }
-    // 404 « Unknown site » ou réponse invalide → hosts reste null (legacy)
-  } catch (e) {
-    // réseau/erreur → legacy
-  }
-  clusterCache = { hosts, at: now };
-  return hosts;
-}
-
 /** Réponse 403 générique (sans détails internes). */
-function forbidden(origin) {
+function forbidden() {
   return new Response(JSON.stringify({ error: "Forbidden origin" }), {
     status: 403,
     headers: { "Content-Type": "application/json" },
   });
 }
 
+function jsonResponse(body, status, origin) {
+  const headers = {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+  };
+  if (origin) {
+    var k;
+    for (k in corsHeadersFor(origin)) headers[k] = corsHeadersFor(origin)[k];
+  }
+  return new Response(JSON.stringify(body), { status: status || 200, headers: headers });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. Résolution des serveurs de jeu (cluster.json, cache 30 s)
+// ─────────────────────────────────────────────────────────────────────────────
+
+let clusterCache = { at: 0, servers: null };
+
+async function apiHeaders() {
+  const h = {
+    Accept: "application/json, text/plain, */*",
+    "User-Agent": "skailex",
+  };
+  if (SKAILEX_ACCESS_TOKEN) h["x-skailex-access"] = SKAILEX_ACCESS_TOKEN;
+  return h;
+}
+
+async function apiJson(path) {
+  const res = await fetch(API_BASE + path, {
+    headers: await apiHeaders(),
+    signal: AbortSignal.timeout(API_TIMEOUT_MS),
+    cf: { cacheTtl: 0 },
+  });
+  if (!res.ok) throw new Error("api.openfront.io HTTP " + res.status + " sur " + path);
+  return await res.json();
+}
+
+/**
+ * Liste des serveurs de jeu, pré-triée : « open » d'abord (ordre alphabétique),
+ * puis les autres (draining/fenced) en fin de liste. Si cluster.json échoue,
+ * on retombe sur blue puis green. Chaque entrée : { host, numWorkers, version, state }.
+ */
+async function getClusterServers() {
+  const now = Date.now();
+  if (clusterCache.servers && now - clusterCache.at < CLUSTER_TTL_MS) {
+    return clusterCache.servers;
+  }
+  let servers = null;
+  try {
+    const data = await apiJson("/cluster.json?site=" + encodeURIComponent("openfront.io"));
+    const entries = [];
+    const raw = (data && data.servers) || {};
+    Object.keys(raw).forEach(function (name) {
+      const s = raw[name] || {};
+      const host = s.host || name;
+      if (!host) return;
+      entries.push({
+        host: String(host),
+        numWorkers: Number(s.numWorkers || 20),
+        version: String(s.version || ""),
+        state: String(s.state || "open"),
+      });
+    });
+    const open = entries.filter(function (s) { return s.state === "open"; });
+    const rest = entries.filter(function (s) { return s.state !== "open"; });
+    open.sort(function (a, b) { return a.host < b.host ? -1 : 1; });
+    rest.sort(function (a, b) { return a.host < b.host ? -1 : 1; });
+    if (open.length) servers = open.concat(rest);
+    else if (entries.length) servers = entries;
+  } catch (e) {
+    // cluster.json injoignable → repli
+  }
+  if (!servers) {
+    servers = FALLBACK_SERVERS.map(function (host) {
+      return { host: host, numWorkers: 20, version: "", state: "fallback" };
+    });
+  }
+  clusterCache = { at: now, servers: servers };
+  return servers;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. Décodeur zbin compact (flux lobbies)
+// ─────────────────────────────────────────────────────────────────────────────
+//  Règles du format (dépôt officiel zbin/, tests golden) :
+//   - objets : en-tête de bits (LSB d'abord) puis corps des champs DANS
+//     L'ORDRE DE DÉCLARATION ; chaque champ prend : un bit de présence si
+//     optionnel, un bit « null » si nullable, un bit de valeur si booléen.
+//   - varint : LEB128 non signé ; float : 64 bits little-endian ;
+//     chaîne : varint longueur + UTF-8 ; énum : varint ordinal ; union :
+//     varint tag + variante ; tableau : varint nombre + éléments.
+
+const UTF8 = new TextDecoder("utf-8", { fatal: true });
+
+const ZBIN_ENUMS = {
+  gameMap: [
+    "Achiran", "Aegean", "Africa", "Alps", "Amazon River", "Antarctica",
+    "ArchipelagoSea", "Arctic", "Asia", "Australia", "Bab el-Mandeb Strait", "Baikal",
+    "Baikal Nuke Wars", "Baja California", "Balkans", "Balkhash", "Baltics", "Bering Sea",
+    "Bering Strait", "Between Two Seas", "Black Sea", "Bosphorus Straits", "Branching Paths", "Britannia",
+    "Britannia Classic", "Canary Islands", "Cape Cod", "Cape Of Good Hope", "Caribbean", "Caspian Sea",
+    "Caucasus", "Central America", "Channel Islands", "China", "Chopping Block", "Clearwater Lakes",
+    "Conakry", "Crimea", "Danish Straits", "Deglaciated Antarctica", "Didier", "Didier France",
+    "Dyslexdria", "East Asia", "Europe", "Europe Classic", "Falkland Islands", "Faroe Islands",
+    "Finger Lakes", "Four Islands", "France", "Gateway to the Atlantic", "Germany", "Giant World Map",
+    "Great Lakes", "Gulf Of Guinea", "Gulf Of Mexico", "Gulf of St. Lawrence", "Halkidiki", "Hawaii",
+    "Hecate Strait", "Hong Kong", "Horn Of Africa", "Iceland", "Indian Subcontinent", "Irish Sea",
+    "Italia", "Japan", "Juan De Fuca Strait", "Korea", "Labyrinth", "Las Vegas Strip",
+    "Lemnos", "Levant", "Lisbon", "Los Angeles", "Luna", "Madagascar",
+    "Manicouagan", "Mare Nostrum", "Mars", "Mena", "Middle East", "MilkyWay",
+    "Mississippi River", "Montreal", "More Than Luck", "New York City", "New Zealand", "Nile Delta",
+    "North America", "Northwest Passage", "Oceania", "Onion", "Pangaea", "Passage",
+    "Pluto", "Pulicat Lake", "Qing China", "Rio de Janeiro", "Russia", "San Francisco",
+    "Scandinavia", "Sierpinski", "Sol", "South America", "SoutheastAsia", "Strait of Gibraltar",
+    "Strait of Hormuz", "Strait Of Malacca", "Surrounded", "Svalmel", "Taiwan Strait", "The Box",
+    "Tierra Del Fuego", "Titan", "Tourney 2 Teams", "Tourney 3 Teams", "Tourney 4 Teams", "Tourney 8 Teams",
+    "Traders Dream", "Two Lakes", "United States", "Vancouver Island", "Venice", "Vietnam",
+    "Warship Warship", "World", "World Inverted", "Yangtze River", "Yellow Sea", "Yenisei",
+  ],
+  difficulty: ["Easy", "Medium", "Hard", "Impossible"],
+  gameType: ["Singleplayer", "Public", "Private"],
+  gameMode: ["Free For All", "Team"],
+  rankedType: ["1v1", "2v2"],
+  gameMapSize: ["Compact", "Normal"],
+  unitType: [
+    "Transport", "Warship", "Shell", "SAMMissile", "Port", "Atom Bomb",
+    "Hydrogen Bomb", "Trade Ship", "Missile Silo", "Defense Post",
+    "SAM Launcher", "City", "MIRV", "MIRV Warhead", "Train", "Factory",
+  ],
+  publicGameType: ["ffa", "team", "special", "hosted"],
+  accent: ["gold", "blue", "green", "red"],
+};
+
+function ZbReader(u8) {
+  this.b = u8;
+  this.p = 0;
+  this.dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+}
+ZbReader.prototype.left = function () { return this.b.length - this.p; };
+ZbReader.prototype.u8 = function () {
+  if (this.p >= this.b.length) throw new Error("zbin: fin de trame inattendue");
+  return this.b[this.p++];
+};
+ZbReader.prototype.uint = function () {
+  var r = 0, m = 1;
+  for (;;) {
+    var b = this.u8();
+    r += (b & 0x7f) * m;
+    if ((b & 0x80) === 0) break;
+    m *= 128;
+    if (m > 9007199254740992) throw new Error("zbin: varint trop grand");
+  }
+  return r;
+};
+ZbReader.prototype.f64 = function () {
+  if (this.left() < 8) throw new Error("zbin: fin de trame inattendue");
+  var v = this.dv.getFloat64(this.p, true);
+  this.p += 8;
+  return v;
+};
+ZbReader.prototype.str = function () {
+  var n = this.uint();
+  if (this.left() < n) throw new Error("zbin: fin de trame inattendue");
+  var s = UTF8.decode(this.b.subarray(this.p, this.p + n));
+  this.p += n;
+  return s;
+};
+ZbReader.prototype.header = function (n) {
+  var out = new Array(n);
+  for (var i = 0; i < n; i++) out[i] = this.u8();
+  return out;
+};
+ZbReader.prototype.end = function () {
+  if (this.left() !== 0) throw new Error("zbin: octets en trop après la valeur");
+};
+
+var zbit = function (h, i) { return (h[i >> 3] >> (i & 7)) & 1; };
+
+// Fabrique un décodeur d'objet zbin à partir d'une spec de champs.
+//   champ : [clé, genre, opts] — genres : "u" varint · "f" float64 ·
+//   "s" chaîne · "b" booléen · "e" énum · "o" objet · "a" tableau ·
+//   "un" union · "c" littéral · "rec" record.
+function zbObject(fields) {
+  var bitCount = 0;
+  var plan = fields.map(function (f) {
+    var key = f[0], kind = f[1], opts = f[2] || {};
+    var p = { key: key, kind: kind, opts: opts };
+    p.pres = opts.opt ? bitCount++ : -1;
+    p.nulB = opts.nul ? bitCount++ : -1;
+    p.valB = kind === "b" ? bitCount++ : -1;
+    return p;
+  });
+  var hBytes = Math.ceil(bitCount / 8);
+  return function (r) {
+    var h = r.header(hBytes);
+    var out = {};
+    for (var i = 0; i < plan.length; i++) {
+      var p = plan[i];
+      if (p.pres >= 0 && zbit(h, p.pres) === 0) continue;
+      if (p.nulB >= 0 && zbit(h, p.nulB) === 1) { out[p.key] = null; continue; }
+      var o = p.opts;
+      switch (p.kind) {
+        case "b": out[p.key] = zbit(h, p.valB) === 1; break;
+        case "c": out[p.key] = o.c; break;
+        case "u": out[p.key] = r.uint(); break;
+        case "f": out[p.key] = r.f64(); break;
+        case "s": out[p.key] = r.str(); break;
+        case "e": out[p.key] = o.values[r.uint()]; break;
+        case "o": out[p.key] = o.sub(r); break;
+        case "a": {
+          var n = r.uint();
+          var arr = new Array(n);
+          for (var j = 0; j < n; j++) arr[j] = o.sub(r);
+          out[p.key] = arr;
+          break;
+        }
+        case "un": {
+          var tag = r.uint();
+          var v = o.variants[tag];
+          if (!v) throw new Error("zbin: variante d'union inconnue " + tag);
+          if (v.c !== undefined) out[p.key] = v.c;
+          else if (v.u) out[p.key] = r.uint();
+          else if (v.e) out[p.key] = v.e[r.uint()];
+          else if (v.s) out[p.key] = r.str();
+          break;
+        }
+        case "rec": {
+          var rn = r.uint();
+          var rec = {};
+          for (var k = 0; k < rn; k++) {
+            var key = o.strKeys ? r.str() : o.enumKeys[r.uint()];
+            rec[key] = o.sub(r);
+          }
+          out[p.key] = rec;
+          break;
+        }
+        default:
+          throw new Error("zbin: genre inconnu " + p.kind);
+      }
+    }
+    return out;
+  };
+}
+
+var zbStr = function (r) { return r.str(); };
+var zbUint = function (r) { return r.uint(); };
+var zbUnitType = function (r) { return ZBIN_ENUMS.unitType[r.uint()]; };
+
+// Schéma GameConfig (dépôt officiel — ordre de déclaration exact).
+var zbGameConfig = zbObject([
+  ["gameMap", "e", { values: ZBIN_ENUMS.gameMap }],
+  ["difficulty", "e", { values: ZBIN_ENUMS.difficulty }],
+  ["donateGold", "b"],
+  ["donateTroops", "b"],
+  ["gameType", "e", { values: ZBIN_ENUMS.gameType }],
+  ["gameMode", "e", { values: ZBIN_ENUMS.gameMode }],
+  ["rankedType", "e", { values: ZBIN_ENUMS.rankedType, opt: true }],
+  ["gameMapSize", "e", { values: ZBIN_ENUMS.gameMapSize }],
+  ["doomsdayClock", "o", { opt: true, sub: zbObject([
+    ["enabled", "b", { opt: true }],
+    ["speed", "e", { values: ["slow", "normal", "fast", "veryfast"], opt: true }],
+  ]) }],
+  ["overtime", "o", { opt: true, sub: zbObject([
+    ["enabled", "b", { opt: true }],
+    ["startMinutes", "u", { opt: true }],
+  ]) }],
+  ["publicGameModifiers", "o", { opt: true, sub: zbObject([
+    ["isCompact", "b", { opt: true }],
+    ["isRandomSpawn", "b", { opt: true }],
+    ["isCrowded", "b", { opt: true }],
+    ["isHardNations", "b", { opt: true }],
+    ["startingGold", "u", { opt: true }],
+    ["goldMultiplier", "f", { opt: true }],
+    ["isAlliancesDisabled", "b", { opt: true }],
+    ["isPortsDisabled", "b", { opt: true }],
+    ["isNukesDisabled", "b", { opt: true }],
+    ["isSAMsDisabled", "b", { opt: true }],
+    ["isPeaceTime", "b", { opt: true }],
+    ["isWaterNukes", "b", { opt: true }],
+    ["isDoomsdayClock", "b", { opt: true }],
+  ]) }],
+  ["nations", "un", { variants: [{ u: 1 }, { e: ["default", "disabled"] }] }],
+  ["bots", "u"],
+  ["infiniteGold", "b"],
+  ["infiniteTroops", "b"],
+  ["instantBuild", "b"],
+  ["disableNavMesh", "b", { opt: true }],
+  ["disableAlliances", "b", { opt: true, nul: true }],
+  ["disableClanTags", "b", { opt: true }],
+  ["liveStatsEnabled", "b", { opt: true }],
+  ["anonymizeNames", "b", { opt: true }],
+  ["nameReveals", "a", { opt: true, sub: zbStr }],
+  ["nameRevealPublicIds", "a", { opt: true, sub: zbStr }],
+  ["waterNukes", "b", { opt: true, nul: true }],
+  ["randomSpawn", "b"],
+  ["maxPlayers", "u", { opt: true }],
+  ["allowedPublicIds", "a", { opt: true, sub: zbStr }],
+  ["trusted", "b", { opt: true }],
+  ["maxTimerValue", "u", { opt: true, nul: true }],
+  ["customAllianceDuration", "u", { opt: true, nul: true }],
+  ["startDelay", "u", { opt: true, nul: true }],
+  ["spawnImmunityDuration", "u", { opt: true, nul: true }],
+  ["disabledUnits", "a", { opt: true, sub: zbUnitType }],
+  ["playerTeams", "un", { opt: true, variants: [
+    { u: 1 }, { c: "Duos" }, { c: "Trios" }, { c: "Quads" }, { c: "Humans Vs Nations" },
+  ] }],
+  ["goldMultiplier", "f", { opt: true, nul: true }],
+  ["startingGold", "u", { opt: true, nul: true }],
+  ["hostCheats", "o", { opt: true, sub: zbObject([
+    ["infiniteGold", "b", { opt: true }],
+    ["infiniteTroops", "b", { opt: true }],
+    ["goldMultiplier", "f", { opt: true, nul: true }],
+    ["startingGold", "u", { opt: true, nul: true }],
+  ]) }],
+  ["pool", "o", { opt: true, sub: zbObject([
+    ["id", "s"],
+    ["siblings", "a", { sub: zbStr }],
+  ]) }],
+]);
+
+// Schéma PublicGameInfo (ordre de déclaration exact).
+var zbGameInfo = zbObject([
+  ["gameID", "s"],
+  ["numClients", "u"],
+  ["startsAt", "u", { opt: true }],
+  ["gameConfig", "o", { opt: true, sub: zbGameConfig }],
+  ["publicGameType", "e", { values: ZBIN_ENUMS.publicGameType }],
+  ["label", "s", { opt: true }],
+  ["accent", "e", { values: ZBIN_ENUMS.accent, opt: true }],
+  ["featured", "b", { opt: true }],
+  ["autoStartAt", "u", { opt: true }],
+  ["custom", "b", { opt: true }],
+]);
+
+// Schéma PublicLobbyMessage : union discriminée { full | counts }.
+var zbFull = zbObject([
+  ["type", "c", { c: "full" }],
+  ["serverTime", "u"],
+  ["games", "rec", { enumKeys: ZBIN_ENUMS.publicGameType, sub: function (r) {
+    var n = r.uint();
+    var arr = new Array(n);
+    for (var i = 0; i < n; i++) arr[i] = zbGameInfo(r);
+    return arr;
+  } }],
+  ["gitCommit", "s", { opt: true }],
+  ["active", "b", { opt: true }],
+]);
+
+var zbCounts = zbObject([
+  ["type", "c", { c: "counts" }],
+  ["serverTime", "u"],
+  ["counts", "rec", { strKeys: true, sub: zbUint }],
+]);
+
+/** Décode une trame binaire zbin du flux lobbies. */
+function decodeLobbyFrame(bytes) {
+  var r = new ZbReader(bytes);
+  var tag = r.uint();
+  var msg;
+  if (tag === 0) msg = zbFull(r);
+  else if (tag === 1) msg = zbCounts(r);
+  else throw new Error("zbin: tag de message lobbies inconnu (" + tag + ")");
+  r.end();
+  return msg;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. /lobbies — instantané JSON (WebSocket côté serveur + décodage zbin)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Cache mémoire : { clé: { data, fetchedAt, inflight } }
+const mem = new Map();
+
+async function memFetch(key, ttlMs, loader) {
+  const now = Date.now();
+  let e = mem.get(key);
+  if (!e) {
+    e = { data: null, fetchedAt: 0, inflight: null };
+    mem.set(key, e);
+  }
+  if (e.data !== null && now - e.fetchedAt < ttlMs) {
+    return { data: e.data, fetchedAt: e.fetchedAt };
+  }
+  if (e.inflight) return await e.inflight;
+  e.inflight = (async () => {
+    const data = await loader();
+    e.data = data;
+    e.fetchedAt = Date.now();
+    return { data, fetchedAt: e.fetchedAt };
+  })().finally(() => {
+    e.inflight = null;
+  });
+  return await e.inflight;
+}
+
+// Handshake WS sortant : deux profils d'en-têtes (nu d'abord — passe la
+// passerelle sans maquillage ; puis UA navigateur en repli).
+async function wsHandshake(url, withBrowserUa) {
+  const headers = {
+    Upgrade: "websocket",
+    Origin: "https://openfront.io",
+  };
+  if (withBrowserUa) {
+    headers["User-Agent"] =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+    headers["Accept-Language"] = "en-US,en;q=0.9";
+  }
+  return await fetch(url, {
+    headers: headers,
+    signal: AbortSignal.timeout(WS_TIMEOUT_MS),
+  });
+}
+
+async function wsLobbyFull(server) {
+  const workerIndex = server.numWorkers > 0
+    ? Math.floor(Math.random() * server.numWorkers)
+    : 0;
+  const url = "https://" + server.host + "/w" + workerIndex + "/lobbies?platform=web";
+  let res = await wsHandshake(url, false);
+  if (res.status !== 101 || !res.webSocket) {
+    try {
+      res = await wsHandshake(url, true);
+    } catch (e) {
+      /* on garde la première réponse pour le message d'erreur */
+    }
+  }
+  if (res.status !== 101 || !res.webSocket) {
+    throw new Error("pas de WebSocket sur " + server.host + " (HTTP " + res.status + ")");
+  }
+  const ws = res.webSocket;
+  ws.binaryType = "arraybuffer";
+  ws.accept();
+
+  return await new Promise(function (resolve, reject) {
+    let settled = false;
+    function finish(fn, arg) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { ws.close(); } catch (e) { /* ignore */ }
+      fn(arg);
+    }
+    const timer = setTimeout(function () {
+      finish(reject, new Error("aucune trame full reçue de " + server.host));
+    }, WS_TIMEOUT_MS);
+    ws.addEventListener("message", function (ev) {
+      Promise.resolve().then(async function () {
+        try {
+          let raw = null;
+          if (ev.data instanceof ArrayBuffer) raw = ev.data;
+          else if (ev.data && typeof ev.data.arrayBuffer === "function") {
+            raw = await ev.data.arrayBuffer();
+          }
+          if (!raw) throw new Error("trame non binaire");
+          const msg = decodeLobbyFrame(new Uint8Array(raw));
+          if (msg.type === "full") finish(resolve, msg);
+        } catch (err) {
+          finish(reject, err instanceof Error ? err : new Error(String(err)));
+        }
+      });
+    });
+    ws.addEventListener("error", function () {
+      finish(reject, new Error("erreur WebSocket vers " + server.host));
+    });
+    ws.addEventListener("close", function (ev) {
+      finish(reject, new Error("connexion fermée (" + (ev && ev.code ? ev.code : "?") + ") avant la trame full"));
+    });
+  });
+}
+
+function toLobbyInfo(raw, bucket) {
+  const cfg = (raw && raw.gameConfig) || {};
+  return {
+    gameID: String(raw.gameID || ""),
+    numClients: Number(raw.numClients || 0),
+    startsAt: typeof raw.startsAt === "number" ? raw.startsAt : undefined,
+    autoStartAt: typeof raw.autoStartAt === "number" ? raw.autoStartAt : undefined,
+    publicGameType: String(raw.publicGameType || bucket),
+    custom: raw.custom === true,
+    featured: raw.featured === true,
+    queued: false,
+    label: raw.label || undefined,
+    gameConfig: {
+      gameMap: cfg.gameMap ? String(cfg.gameMap) : undefined,
+      gameMode: cfg.gameMode ? String(cfg.gameMode) : undefined,
+      maxPlayers: typeof cfg.maxPlayers === "number" ? cfg.maxPlayers : undefined,
+      difficulty: cfg.difficulty ? String(cfg.difficulty) : undefined,
+      gameType: cfg.gameType ? String(cfg.gameType) : undefined,
+      playerTeams: typeof cfg.playerTeams === "number" ? cfg.playerTeams : null,
+      nations: typeof cfg.nations === "number" ? cfg.nations : undefined,
+      initialCoins: typeof cfg.startingGold === "number" ? cfg.startingGold : undefined,
+    },
+  };
+}
+
+let lobbyInflight = null;
+let lobbyStale = null; // dernier instantané connu (sert de secours)
+
+async function fetchLobbySnapshot() {
+  const now = Date.now();
+  if (lobbyStale && now - lobbyStale.generatedAt < LOBBY_CACHE_MS) {
+    return lobbyStale;
+  }
+  if (lobbyInflight) return await lobbyInflight;
+  lobbyInflight = (async () => {
+    const servers = await getClusterServers();
+    let lastError = "aucun serveur joignable";
+    for (const srv of servers) {
+      try {
+        const full = await wsLobbyFull(srv);
+        const games = [];
+        Object.keys(full.games || {}).forEach(function (bucket) {
+          const list = full.games[bucket] || [];
+          for (let i = 0; i < list.length; i++) {
+            const info = toLobbyInfo(list[i], bucket);
+            if (info.gameID) games.push(info);
+          }
+        });
+        games.sort(function (a, b) {
+          const rank = function (t) { return t === "ffa" ? 0 : t === "team" ? 1 : 2; };
+          const ra = rank(a.publicGameType);
+          const rb = rank(b.publicGameType);
+          if (ra !== rb) return ra - rb;
+          return b.numClients - a.numClients;
+        });
+        const snapshot = {
+          connected: true,
+          serverHost: srv.host,
+          serverState: srv.state,
+          numWorkers: srv.numWorkers,
+          version: srv.version,
+          serverTime: Number(full.serverTime || Date.now()),
+          lastFullAt: Date.now(),
+          lastFrameAt: Date.now(),
+          lastError: undefined,
+          reconnects: 0,
+          generatedAt: Date.now(),
+          games: games,
+        };
+        lobbyStale = snapshot;
+        return snapshot;
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+      }
+    }
+    if (lobbyStale) {
+      const staleCopy = {};
+      Object.keys(lobbyStale).forEach(function (k) { staleCopy[k] = lobbyStale[k]; });
+      staleCopy.connected = false;
+      staleCopy.lastError = "secours: " + lastError;
+      return staleCopy;
+    }
+    throw new Error(lastError);
+  })().finally(() => {
+    lobbyInflight = null;
+  });
+  return await lobbyInflight;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. Cosmétiques compactés
+// ─────────────────────────────────────────────────────────────────────────────
+
+function firstPaletteNames(v, max) {
+  const cps = v && v.colorPalettes;
+  if (!Array.isArray(cps)) return [];
+  return cps
+    .slice(0, max || 8)
+    .map(function (c) { return typeof c === "string" ? c : String((c && c.name) || ""); })
+    .filter(Boolean);
+}
+
+function compactCosmetics(raw) {
+  const groups = { patterns: [], flags: [], crowns: [], skins: [], effects: [], palettes: [] };
+  const push = function (arr, v, category) {
+    arr.push({
+      name: String(v.name || ""),
+      rarity: String(v.rarity || "common"),
+      artist: v.artist ? String(v.artist) : undefined,
+      priceHard: typeof v.priceHard === "number" ? v.priceHard : undefined,
+      url: typeof v.url === "string" ? v.url : undefined,
+      pattern: typeof v.pattern === "string" ? v.pattern : undefined,
+      palettes: firstPaletteNames(v),
+      category: category,
+    });
+  };
+  Object.keys(raw.patterns || {}).forEach(function (name) {
+    const v = raw.patterns[name];
+    push(groups.patterns, Object.assign({}, v, { name: v.name || name }), "pattern");
+  });
+  Object.keys(raw.flags || {}).forEach(function (name) {
+    const v = raw.flags[name];
+    push(groups.flags, Object.assign({}, v, { name: v.name || name }), "flag");
+  });
+  Object.keys(raw.crowns || {}).forEach(function (name) {
+    const v = raw.crowns[name];
+    push(groups.crowns, Object.assign({}, v, { name: v.name || name }), "crown");
+  });
+  Object.keys(raw.skins || {}).forEach(function (name) {
+    const v = raw.skins[name];
+    push(groups.skins, Object.assign({}, v, { name: v.name || name }), "skin");
+  });
+  Object.keys(raw.effects || {}).forEach(function (category) {
+    const group = raw.effects[category] || {};
+    Object.keys(group).forEach(function (name) {
+      const v = group[name];
+      push(groups.effects, Object.assign({}, v, { name: v.name || name }), "effect:" + category);
+    });
+  });
+  Object.keys(raw.colorPalettes || {}).forEach(function (name) {
+    const v = raw.colorPalettes[name] || {};
+    groups.palettes.push({
+      name: v.name || name,
+      primaryColor: String(v.primaryColor || "#000000"),
+      secondaryColor: String(v.secondaryColor || "#ffffff"),
+    });
+  });
+  return groups;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. Proxy WebSocket transparent (relais /lobby-ws et /matchmaking-ws)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ───────────────────────────────────────────────────────────────
+// GET /lobby-snapshot — ouvre le WS upstream, capture la 1ère trame
+// « full » et la renvoie en JSON : { frame: <base64 zbin>, ts: <ms>,
+// host: "<hôte>" }. Timeout 6 s → 504. v2 : hôte résolu dynamiquement
+// (cluster.json, open d'abord, repli pool legacy openfront.io).
+// ───────────────────────────────────────────────────────────────
+async function handleLobbySnapshot(request) {
+  const origin = request.headers.get("Origin") || "";
+  const cors = { "Content-Type": "application/json" };
+  const extra = corsHeadersFor(origin);
+  Object.keys(extra).forEach(function (k) { cors[k] = extra[k]; });
+
+  const finish = function (status, body) {
+    return new Response(JSON.stringify(body), { status: status, headers: cors });
+  };
+
+  try {
+    const servers = (await getClusterServers()).slice();
+    servers.push({ host: LEGACY_LOBBY_HOST, numWorkers: 20 });
+    let lastError = "aucun upstream disponible";
+    for (let i = 0; i < servers.length; i++) {
+      const host = servers[i].host;
+      const n = servers[i].numWorkers > 0 ? servers[i].numWorkers : 20;
+      const w = Math.floor(Math.random() * n);
+      const upstreamUrl = "wss://" + host + "/w" + w + "/lobbies?platform=web";
+      let upstreamResp;
+      try {
+        upstreamResp = await fetch(upstreamUrl, {
+          headers: {
+            "Origin": "https://openfront.io",
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+              "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9,fr;q=0.8",
+          },
+        });
+      } catch (err) {
+        lastError = "WS fetch failed (" + host + "): " +
+          (err && err.message ? err.message : String(err));
+        continue;
+      }
+      const upstreamWs = upstreamResp.webSocket;
+      if (!upstreamWs) {
+        lastError = "upstream " + host + " a refusé le WebSocket (HTTP " +
+          upstreamResp.status + ")";
+        continue;
+      }
+      upstreamWs.accept();
+      return await new Promise(function (resolve) {
+        let settled = false;
+        const done = function (status, body) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          try { upstreamWs.close(); } catch (e) { /* ignore */ }
+          resolve(finish(status, body));
+        };
+        const timer = setTimeout(
+          function () { done(504, { error: "snapshot timeout" }); }, 6000);
+        upstreamWs.addEventListener("message", function (e) {
+          if (settled) return;
+          try {
+            const bytes = new Uint8Array(e.data);
+            // zbin binaire → base64 (safe JSON). Tag 0 = « full » ;
+            // on ignore les frames « counts » (tag 1) qui précéderaient.
+            if (bytes.length > 0 && bytes[0] !== 0) return;
+            let bin = "";
+            for (let i = 0; i < bytes.length; i++) {
+              bin += String.fromCharCode(bytes[i]);
+            }
+            done(200, { frame: btoa(bin), ts: Date.now(), host: host });
+          } catch (err) {
+            done(502, { error: "frame error: " + err.message });
+          }
+        });
+        upstreamWs.addEventListener("close", function () {
+          done(502, { error: "upstream closed early" });
+        });
+        upstreamWs.addEventListener("error", function () {
+          done(502, { error: "upstream error" });
+        });
+      });
+    }
+    return finish(502, { error: lastError });
+  } catch (err) {
+    return finish(502, {
+      error: "WS fetch failed",
+      message: err && err.message ? err.message : String(err),
+    });
+  }
+}
+
+/**
+ * Proxifie une connexion WebSocket entrante vers une URL upstream.
+ * `resolveUpstream` renvoie une URL (string) OU une liste de candidates
+ * (on essaie chacune jusqu'à réussite du handshake).
+ */
+async function proxyWebSocket(request, resolveUpstream) {
+  const upgrade = request.headers.get("Upgrade");
+  if (!upgrade || upgrade.toLowerCase() !== "websocket") {
+    return new Response("Expected WebSocket", { status: 426 });
+  }
+
+  const candidates = await resolveUpstream();
+  const list = Array.isArray(candidates) ? candidates : [candidates];
+  let lastError = "aucun upstream disponible";
+
+  for (let i = 0; i < list.length; i++) {
+    const upstreamUrl = list[i];
+    try {
+      // ⚠️ API Cloudflare Workers : on fetch l'URL wss:// et Cloudflare gère
+      // l'Upgrade. Origin requis pour les checks OpenFront. On tente d'abord
+      // le profil historique (UA court), puis sans UA.
+      let upstreamResp = await fetch(upstreamUrl, {
+        headers: {
+          "Origin": "https://openfront.io",
+          // v5.17 : le challenge CF filtre sur l'UA — « Mozilla/5.0 » nu
+          // est flagué bot (403). UA Chrome complet + Accept-Language.
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+          "Accept-Language": "en-US,en;q=0.9,fr;q=0.8",
+        },
+      });
+      if (!upstreamResp.webSocket) {
+        try {
+          upstreamResp = await fetch(upstreamUrl, {
+            headers: { "Origin": "https://openfront.io" },
+          });
+        } catch (e) { /* on garde la première réponse */ }
+      }
+      const upstreamWs = upstreamResp.webSocket;
+      if (!upstreamWs) {
+        lastError = "upstream " + upstreamUrl + " a refusé le WebSocket (HTTP " + upstreamResp.status + ")";
+        continue;
+      }
+
+      // Create client-facing WebSocket pair
+      const pair = new WebSocketPair();
+      const clientWs = pair[0];
+      const serverWs = pair[1];
+
+      upstreamWs.accept();
+      serverWs.accept();
+
+      // Forward upstream → client (binary safe)
+      upstreamWs.addEventListener("message", function (e) {
+        try { serverWs.send(e.data); } catch (err) {}
+      });
+      // Forward client → upstream (rarement utile pour le lobby, mais safe)
+      serverWs.addEventListener("message", function (e) {
+        try { upstreamWs.send(e.data); } catch (err) {}
+      });
+
+      const closeBoth = function () {
+        try { upstreamWs.close(); } catch (err) {}
+        try { serverWs.close(); } catch (err) {}
+      };
+      upstreamWs.addEventListener("close", closeBoth);
+      serverWs.addEventListener("close", closeBoth);
+      upstreamWs.addEventListener("error", closeBoth);
+      serverWs.addEventListener("error", closeBoth);
+
+      return new Response(null, { status: 101, webSocket: clientWs });
+    } catch (err) {
+      lastError = "upstream " + upstreamUrl + " : " + (err && err.message ? err.message : String(err));
+    }
+  }
+
+  return new Response(
+    JSON.stringify({ error: "WS proxy failed", message: lastError }),
+    { status: 502, headers: { "Content-Type": "application/json" } }
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. Routes
+// ─────────────────────────────────────────────────────────────────────────────
+
+const startedAt = Date.now();
+
 export default {
   async fetch(request) {
     const url = new URL(request.url);
 
-    // ── Contrôle d'origine (audit sécurité) ──
-    // Requis AVANT tout traitement : le worker relaie un token privilégié.
+    // ── Contrôle d'origine (audit sécurité) — requis AVANT tout traitement ──
     const origin = request.headers.get("Origin") || "";
     if (!isOriginAllowed(origin)) {
-      return forbidden(origin);
+      return forbidden();
     }
 
-    // ───────────────────────────────────────────────────────────
-    // WebSocket proxy: /lobby-ws
-    //   Client connects: wss://openfront-proxy.diofortnite3.workers.dev/lobby-ws
-    //   Worker connects: wss://green.openfront.io/w{0-19}/lobbies (hôte forcé)
-    //   Worker bridges   both sides (binary frames passthrough).
-    // ───────────────────────────────────────────────────────────
-    if (url.pathname === "/lobby-ws") {
-      return proxyWebSocket(request, async () => {
-        // Choix Skailex : hôte green.openfront.io forcé (USE_CLUSTER_JSON = false).
-        const hosts = USE_CLUSTER_JSON ? await resolveLobbyHosts() : null;
-        const host = hosts
-          ? hosts[Math.floor(Math.random() * hosts.length)]
-          : FORCED_HOST;
-        const w = LOBBY_WORKERS[Math.floor(Math.random() * LOBBY_WORKERS.length)];
-        // ?platform=web : même signature que le client officiel (métriques serveur)
-        return `wss://${host}/${w}/lobbies?platform=web`;
+    const path = url.pathname.replace(/\/+$/, "") || "/";
+
+    // ───────────────────────────────────────────────────────────────────
+    // WebSocket proxy: /lobby-ws  (FIX v2 : hôte résolu dynamiquement)
+    //   Client connects: wss://open-proxy.<compte>.workers.dev/lobby-ws
+    //   Worker connects: wss://<hôte actif>/w{0-19}/lobbies (cluster.json)
+    // ───────────────────────────────────────────────────────────────────
+    if (path === "/lobby-ws") {
+      return proxyWebSocket(request, async function () {
+        const servers = await getClusterServers();
+        const candidates = [];
+        for (let i = 0; i < servers.length; i++) {
+          const srv = servers[i];
+          const n = srv.numWorkers > 0 ? srv.numWorkers : 20;
+          const w = Math.floor(Math.random() * n);
+          candidates.push("wss://" + srv.host + "/w" + w + "/lobbies?platform=web");
+        }
+        // Repli absolu : pool legacy openfront.io.
+        candidates.push("wss://" + LEGACY_LOBBY_HOST + "/w" + Math.floor(Math.random() * 20) + "/lobbies?platform=web");
+        return candidates;
       });
     }
 
-    // ───────────────────────────────────────────────────────────
-    // GET /lobby-snapshot — one-shot snapshot du lobby en JSON
-    //   (v5.17) Le challenge CF sur les hôtes de jeu bloque le TLS non
-    //   navigateur (Node/OpenSSL = 403 même avec UA Chrome complet) : le
-    //   sync o2switch ne peut plus ouvrir le WS directement. Ce endpoint
-    //   fait le trajet CF→CF (fetch Workers, UA Chrome) : il ouvre le WS
-    //   upstream, capture la première frame « full » et la renvoie en
-    //   base64. Le sync la décode côté serveur avec lobby-wire.js.
-    // ───────────────────────────────────────────────────────────
-    if (url.pathname === "/lobby-snapshot") {
-      return handleLobbySnapshot(request);
-    }
-
-    // /matchmaking-ws?mode=1v1  → wss://api.openfront.io/matchmaking/join?instance_id=tfh-monitor&mode=1v1
-    // ⚠️ FIX v34 : le matchmaking est servi par l'API (api.<domain>), PAS par le
-    // master de jeu — l'ancien upstream wss://openfront.io/matchmaking/join
-    // ne correspond à aucun endpoint du jeu.
-    if (url.pathname === "/matchmaking-ws") {
-      return proxyWebSocket(request, () => {
+    // /matchmaking-ws?mode=1v1 → wss://api.openfront.io/matchmaking/join?...
+    if (path === "/matchmaking-ws") {
+      return proxyWebSocket(request, function () {
         const mode = url.searchParams.get("mode") || "1v1";
-        return `wss://api.openfront.io/matchmaking/join?instance_id=tfh-monitor&mode=${encodeURIComponent(mode)}`;
+        return "wss://api.openfront.io/matchmaking/join?instance_id=tfh-monitor&mode=" + encodeURIComponent(mode);
       });
     }
 
@@ -198,22 +969,138 @@ export default {
 
     // ── Only allow GET ──
     if (request.method !== "GET") {
-      return new Response(JSON.stringify({ error: "Method not allowed" }), {
-        status: 405,
-        headers: { "Content-Type": "application/json", ...corsHeadersFor(origin) },
-      });
+      return jsonResponse({ error: "Method not allowed" }, 405, origin);
     }
 
-    // ── HTTP proxy: /<path> → https://api.openfront.io/<path> ──
-    const targetUrl = `${API_BASE}${url.pathname}${url.search}`;
+    // ───────────────────────────────────────────────────────────
+    // GET /lobby-snapshot — one-shot (v5.17, conservé pour le sync
+    //   o2switch) : 1ère trame « full » en base64, décodée côté serveur
+    //   par sync-lobby-state.js (lobby-wire.js). v2 : hôte dynamique
+    //   via cluster.json (open d'abord) — fin du FORCED_HOST figé.
+    // ───────────────────────────────────────────────────────────
+    if (path === "/lobby-snapshot") {
+      return handleLobbySnapshot(request);
+    }
+
+    // ── Santé du worker ──
+    if (path === "/" || path === "/health") {
+      let lobbies = 0;
+      let lobbyError = undefined;
+      try {
+        const snap = await fetchLobbySnapshot();
+        lobbies = snap.games.length;
+      } catch (err) {
+        lobbyError = err instanceof Error ? err.message : String(err);
+      }
+      return jsonResponse({
+        ok: true,
+        service: "openfront-proxy",
+        version: "v2",
+        uptimeMs: Date.now() - startedAt,
+        lobbies: lobbies,
+        lobbyError: lobbyError,
+        endpoints: [
+          "/lobby-ws", "/matchmaking-ws", "/lobby-snapshot", "/lobbies", "/leaderboard", "/cluster",
+          "/cosmetics", "/player/:id", "/player/:id/games", "/all", "/<path> (proxy)",
+        ],
+      }, 200, origin);
+    }
+
+    // ── Lobbies en JSON (instantané décodé côté serveur) ──
+    if (path === "/lobbies" || path === "/lobby") {
+      try {
+        const snapshot = await fetchLobbySnapshot();
+        return jsonResponse(snapshot, 200, origin);
+      } catch (err) {
+        return jsonResponse({
+          connected: false,
+          serverHost: "",
+          serverState: "",
+          numWorkers: 0,
+          version: "",
+          serverTime: Date.now(),
+          lastFullAt: 0,
+          lastFrameAt: 0,
+          lastError: err instanceof Error ? err.message : String(err),
+          reconnects: 0,
+          generatedAt: Date.now(),
+          games: [],
+        }, 200, origin);
+      }
+    }
+
+    // ── Classements 1v1 + 2v2 ──
+    if (path === "/leaderboard") {
+      const r = await memFetch("leaderboard", 60000, function () {
+        return apiJson("/leaderboard/ranked");
+      });
+      return jsonResponse(r, 200, origin);
+    }
+
+    // ── État des serveurs de jeu ──
+    if (path === "/cluster") {
+      const r = await memFetch("cluster", 60000, function () {
+        return apiJson("/cluster.json?site=openfront.io");
+      });
+      return jsonResponse(r, 200, origin);
+    }
+
+    // ── Cosmétiques compactés ──
+    if (path === "/cosmetics") {
+      const r = await memFetch("cosmetics", 21600000, async function () {
+        return compactCosmetics(await apiJson("/cosmetics.json"));
+      });
+      return jsonResponse(r, 200, origin);
+    }
+
+    // ── Agrégat (chargement atomique) ──
+    if (path === "/all" || path === "/dashboard") {
+      const parts = await Promise.all([
+        memFetch("leaderboard", 60000, function () {
+          return apiJson("/leaderboard/ranked");
+        }),
+        memFetch("cluster", 60000, function () {
+          return apiJson("/cluster.json?site=openfront.io");
+        }),
+        memFetch("cosmetics", 21600000, async function () {
+          return compactCosmetics(await apiJson("/cosmetics.json"));
+        }),
+      ]);
+      return jsonResponse({
+        generatedAt: Date.now(),
+        apiOk: parts[0].data !== null,
+        leaderboard: parts[0],
+        cluster: parts[1],
+        cosmetics: parts[2],
+      }, 200, origin);
+    }
+
+    // ── Joueur : profil ──
+    let m = path.match(/^\/player\/([A-Za-z0-9_-]{4,32})$/);
+    if (m) {
+      const r = await memFetch("player:" + m[1], 300000, function () {
+        return apiJson("/public/player/" + encodeURIComponent(m[1]));
+      });
+      return jsonResponse(r, 200, origin);
+    }
+
+    // ── Joueur : dernières parties ──
+    m = path.match(/^\/player\/([A-Za-z0-9_-]{4,32})\/games$/);
+    if (m) {
+      const r = await memFetch("games:" + m[1], 300000, function () {
+        return apiJson("/public/player/" + encodeURIComponent(m[1]) + "/games");
+      });
+      return jsonResponse(r, 200, origin);
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    // HTTP proxy: /<path> → https://api.openfront.io/<path> (inchangé)
+    // ───────────────────────────────────────────────────────────────────
+    const targetUrl = API_BASE + url.pathname + url.search;
     try {
       const upstream = await fetch(targetUrl, {
         method: "GET",
-        headers: {
-          Accept: "application/json",
-          "User-Agent": "skailex",
-          "x-skailex-access": SKAILEX_ACCESS_TOKEN,
-        },
+        headers: await apiHeaders(),
         cf: { cacheTtl: 0 },
       });
 
@@ -225,164 +1112,15 @@ export default {
         headers: {
           "Content-Type": contentType,
           "Cache-Control": "no-store",
-          ...corsHeadersFor(origin),
+          "Vary": "Origin",
+          "Access-Control-Allow-Origin": origin,
         },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown proxy error";
-      return new Response(
-        JSON.stringify({ error: "Proxy fetch failed", message }),
-        {
-          status: 502,
-          headers: { "Content-Type": "application/json", ...corsHeadersFor(origin) },
-        }
-      );
+      return jsonResponse({ error: "Proxy fetch failed", message: message }, 502, origin);
     }
   },
 };
 
-/**
- * GET /lobby-snapshot — ouvre le WS upstream, capture la 1ère frame
- * « full » (snapshot lobbies) et la renvoie en JSON :
- *   { frame: <base64 zbin>, ts: <ms>, host: "<hôte>" }
- * Le consommateur (sync-lobby-state.js) décode `frame` avec lobby-wire.js.
- * Timeout 6 s → 504. Le challenge CF côté OpenFront est satisfait par le
- * fetch Workers (trajet CF→CF) avec un UA Chrome complet — cf. proxyWebSocket.
- */
-async function handleLobbySnapshot(request) {
-  const origin = request.headers.get("Origin") || "";
-  const host = FORCED_HOST;
-  const w = LOBBY_WORKERS[Math.floor(Math.random() * LOBBY_WORKERS.length)];
-  const upstreamUrl = `wss://${host}/${w}/lobbies?platform=web`;
-  const cors = { "Content-Type": "application/json", ...corsHeadersFor(origin) };
-
-  const finish = (status, body) =>
-    new Response(JSON.stringify(body), { status, headers: cors });
-
-  try {
-    const upstreamResp = await fetch(upstreamUrl, {
-      headers: {
-        "Origin": "https://openfront.io",
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-          "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9,fr;q=0.8",
-      },
-    });
-
-    const upstreamWs = upstreamResp.webSocket;
-    if (!upstreamWs) {
-      return finish(502, { error: "Upstream WS failed" });
-    }
-
-    upstreamWs.accept();
-    return await new Promise((resolve) => {
-      let settled = false;
-      const done = (status, body) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        try { upstreamWs.close(); } catch (e) { /* ignore */ }
-        resolve(finish(status, body));
-      };
-      const timer = setTimeout(() => done(504, { error: "snapshot timeout" }), 6000);
-      upstreamWs.addEventListener("message", (e) => {
-        if (settled) return;
-        try {
-          const bytes = new Uint8Array(e.data);
-          // zbin frame binaire → base64 (safe JSON). Tag 0 = "full" ;
-          // on ignore les premières frames "counts" (tag 1) si elles
-          // arrivaient avant le full (le serveur prime avec un full).
-          if (bytes.length > 0 && bytes[0] !== 0) return;
-          let bin = "";
-          for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-          done(200, { frame: btoa(bin), ts: Date.now(), host });
-        } catch (err) {
-          done(502, { error: "frame error: " + err.message });
-        }
-      });
-      upstreamWs.addEventListener("close", () => done(502, { error: "upstream closed early" }));
-      upstreamWs.addEventListener("error", () => done(502, { error: "upstream error" }));
-    });
-  } catch (err) {
-    return finish(502, { error: "WS fetch failed", message: err.message });
-  }
-}
-
-/**
- * Proxifie une connexion WebSocket entrante vers une URL upstream.
- * L'URL upstream peut être déterminée dynamiquement (résolution Server list
- * v2, pick d'un worker aléatoire) grâce à la fonction `resolveUpstream`
- * (synchrone ou async).
- */
-async function proxyWebSocket(request, resolveUpstream) {
-  const upgrade = request.headers.get("Upgrade");
-  if (!upgrade || upgrade.toLowerCase() !== "websocket") {
-    return new Response("Expected WebSocket", { status: 426 });
-  }
-
-  const upstreamUrl = await resolveUpstream();
-
-  try {
-    // ⚠️ API Cloudflare Workers pour les WebSockets :
-    //   On fetch l'URL wss:// SANS header Upgrade manuel (Cloudflare le fait).
-    //   On doit passer l'header Origin pour passer les checks OpenFront.
-    // v5.17 (2026-09-30) : le challenge CF devant les hôtes de jeu filtre sur
-    //   l'UA — un UA nu "Mozilla/5.0" est flagué bot (403 cf-mitigated:challenge
-    //   → 502 ici). Un UA Chrome COMPLET passe (testé depuis Node : OPEN + frames
-    //   reçues, Origin sans importance). On envoie donc le même UA que le client
-    //   officiel, + ?platform=web comme lui.
-    const upstreamResp = await fetch(upstreamUrl, {
-      headers: {
-        "Origin": "https://openfront.io",
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-          "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9,fr;q=0.8",
-      },
-    });
-
-    const upstreamWs = upstreamResp.webSocket;
-    if (!upstreamWs) {
-      return new Response(
-        JSON.stringify({ error: "Upstream WS failed" }),
-        { status: 502, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    // Create client-facing WebSocket pair
-    const pair = new WebSocketPair();
-    const [clientWs, serverWs] = [pair[0], pair[1]];
-
-    upstreamWs.accept();
-    serverWs.accept();
-
-    // Forward upstream → client (binary safe)
-    upstreamWs.addEventListener("message", (e) => {
-      try { serverWs.send(e.data); } catch {}
-    });
-    // Forward client → upstream (rarement utile pour le lobby, mais safe)
-    serverWs.addEventListener("message", (e) => {
-      try { upstreamWs.send(e.data); } catch {}
-    });
-
-    const closeBoth = () => {
-      try { upstreamWs.close(); } catch {}
-      try { serverWs.close(); } catch {}
-    };
-    upstreamWs.addEventListener("close", closeBoth);
-    serverWs.addEventListener("close", closeBoth);
-    upstreamWs.addEventListener("error", closeBoth);
-    serverWs.addEventListener("error", closeBoth);
-
-    return new Response(null, { status: 101, webSocket: clientWs });
-  } catch (err) {
-    return new Response(
-      JSON.stringify({ error: "WS proxy failed", message: err.message }),
-      {
-        status: 502,
-        headers: { "Content-Type": "application/json" },
-      }
-    );
-  }
-}
+export { decodeLobbyFrame };

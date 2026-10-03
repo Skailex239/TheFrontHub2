@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "Voici une description concise des deux onglets :\n\n**Onglet Atlas :**\n*   **Cartes affichées :** 4 cartes complètes visibles (Monde, Europe, Amérique du Nord, Amérique du Sud) + le début d'une 5e.\n*   **Vignettes :** Entièrement chargées (images de cartes géographiques nettes).\n*   **Recherche :** Barre de recherche présente et fonctionnelle.\n*   **Squelettes :** Aucun squelette de chargement visible ; l'interface est rendue.\n*   **Erreurs :** Une notification rouge « 1 Issue » persiste en bas à gauche.\n\n**Onglet Skins :**\n*   **Cartes affichées :** 4 fiches cosmétiques complètes visibles (`_battleships_`, `_biohazard_3`, `_clown_time_`, `_crown_`).\n*   **Vignettes :** Entièrement chargées (icônes de motifs/palettes claires).\n*   **Recherche/Filtres :** Filtre par rareté et recherche par nom/artiste présents.\n*   **Squelettes :** Aucun squelette de chargement visible.\n*   **Erreurs :** La même notification « 1 Issue » reste affichée.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791015050,
+  "id": "2026100316104774ce77542acf44d4",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "2026100316104774ce77542acf44d4",
+  "usage": {
+    "completion_tokens": 290,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 1838,
+    "prompt_tokens_details": {
+      "cached_tokens": 2
+    },
+    "total_tokens": 2128
+  }
+}
