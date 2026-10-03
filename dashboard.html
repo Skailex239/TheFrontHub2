@@ -27,8 +27,8 @@
 
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=94" as="style">
-<link rel="preload" href="dashboard.css?v=23" as="style">
-<link rel="preload" href="dist/dashboard.min.js?v=25" as="script" crossorigin>
+<link rel="preload" href="dashboard.css?v=24" as="style">
+<link rel="preload" href="dist/dashboard.min.js?v=26" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=10" as="script" crossorigin>
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
@@ -41,13 +41,13 @@
 <link rel="stylesheet" href="auth.css?v=21">
 <link rel="stylesheet" href="toast.css">
 <link rel="stylesheet" href="animations.css?v=6">
-<link rel="stylesheet" href="dashboard.css?v=23">
+<link rel="stylesheet" href="dashboard.css?v=24">
 <style>.skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}</style>
 <script type="module" src="dist/icons.min.js?v=10"></script>
 <link rel="stylesheet" href="ads.css?v=2">
 
 <!-- i18n : dict de page (synchrone, avant i18n.js) + moteur + sélecteur de langue -->
-<script src="dist/i18n-dict-dashboard.min.js?v=5"></script>
+<script src="dist/i18n-dict-dashboard.min.js?v=6"></script>
 <script src="dist/i18n-dict-widgets.min.js?v=3"></script>
 <script src="dist/i18n.min.js?v=9" defer></script>
 <script src="dist/lang-switcher.min.js?v=2" defer></script>
@@ -210,10 +210,38 @@
            Données dashboard_scores du 2026-10-03 — semaine depuis le lundi 28 septembre 2026 — barème live : FFA casual ×10, FFA classé ×1, Team casual ×5, Team classé ×1. -->
       <div class="dash-static-preview" data-preview-date="2026-10-03">
         <p class="dash-preview-note"><span class="dash-preview-dot" aria-hidden="true"></span><span data-i18n="dash.preview_note">Aperçu du classement (top 100) — actualisation en direct…</span></p>
+      <div class="dash-intro" inert>
+        <p class="dash-intro-sub" data-i18n="dash.intro_sub">TheFrontHub synchronise automatiquement votre historique de parties et vos statistiques OpenFront, visualise vos conquêtes et classe vos performances à l'échelle mondiale.</p>
+        <button type="button" class="dash-help-btn" aria-label="Voir le barème des points" aria-expanded="false" tabindex="-1">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </button>
+        <div class="dash-help-popover" role="dialog" aria-label="Barème des points">
+          <div class="dash-help-popover-header">Barème des points</div>
+          <ul class="dash-help-popover-list">
+            <li><span class="dash-help-mode">FFA</span><span class="dash-help-pts">+10 pts</span></li>
+            <li><span class="dash-help-mode">Team</span><span class="dash-help-pts">+5 pts</span></li>
+            <li><span class="dash-help-mode">classé (1v1)</span><span class="dash-help-pts">+1 pt</span></li>
+            <li><span class="dash-help-mode">classé (2v2)</span><span class="dash-help-pts">+1 pt</span></li>
+          </ul>
+          <p class="dash-help-note">Le classé rapporte juste 1 pt, pas en plus du casual.</p>
+        </div>
+      </div>
+      <div class="dash-toolbar" inert>
+        <div class="dash-search">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.3" y2="16.3"/></svg>
+          <input type="search" placeholder="Rechercher un joueur…" autocomplete="off" spellcheck="false" aria-label="Rechercher un joueur dans le classement" tabindex="-1">
+        </div>
+        <div class="dash-filters" role="group" aria-label="Filtrer par mode de jeu">
+          <button type="button" class="dash-filter active" data-filter="all" aria-pressed="true" tabindex="-1">Tous</button>
+          <button type="button" class="dash-filter" data-filter="ffa" aria-pressed="false" tabindex="-1">FFA</button>
+          <button type="button" class="dash-filter" data-filter="team" aria-pressed="false" tabindex="-1">Team</button>
+        </div>
+      </div>
         <div class="dash-grid">
           <section class="dash-panel dash-panel-preview">
             <div class="dash-panel-header">
               <h2 class="dash-panel-title" data-i18n="dash.panel_global">Top joueurs — Toutes saisons</h2>
+              <span class="dash-panel-sub">Classement cumulé · 191 joueurs</span>
             </div>
             <div class="dash-panel-body">
               <div class="dash-list" data-lenis-prevent>
@@ -1423,6 +1451,7 @@
           <section class="dash-panel dash-panel-preview dash-panel-preview-weekly">
             <div class="dash-panel-header">
               <h2 class="dash-panel-title" data-i18n="dash.panel_weekly">Top joueurs — Cette semaine</h2>
+              <span class="dash-panel-sub">Depuis le lundi 28 septembre 2026 · 138 joueurs actifs</span>
             </div>
             <div class="dash-panel-body">
               <div class="dash-list" data-lenis-prevent>
@@ -2731,7 +2760,7 @@
 
 <script type="module" src="banners.js?v=4"></script>
 <script src="verified.js?v=1"></script>
-<script type="module" src="dist/dashboard.min.js?v=25"></script>
+<script type="module" src="dist/dashboard.min.js?v=26"></script>
 <script src="dist/toast.min.js?v=2"></script>
 <script src="dist/lenis.min.js?v=7"></script>
 <script src="dist/animations.min.js?v=2"></script>

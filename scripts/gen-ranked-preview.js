@@ -99,6 +99,8 @@ async function loadRanked() {
  * Top depuis dashboard_scores.json (même barème que le rendu live).
  * @param {object} data  contenu de dashboard_scores.json
  * @param {boolean} weekly  false = global (carrière), true = cette semaine
+ * @returns {{rows: Array, total: number}}  rows = top 100, total = joueurs à
+ *   points > 0 (pour le sous-titre « N joueurs », comme le rendu live).
  */
 function buildTopFromScores(data, weekly) {
   const players = data.players || [];
@@ -120,11 +122,11 @@ function buildTopFromScores(data, weekly) {
         ffa: (p.ffa_casual || 0) + (p.ffa_ranked || 0),
         team: (p.team_casual || 0) + (p.team_ranked || 0),
       };
-  return players
+  const rows = players
     .map((p) => ({ publicId: p.publicId, name: p.username || p.publicId, points: ptsOf(p), ...winsOf(p) }))
     .filter((e) => e.points > 0)
-    .sort((a, b) => b.points - a.points)
-    .slice(0, TOP_N);
+    .sort((a, b) => b.points - a.points);
+  return { rows: rows.slice(0, TOP_N), total: rows.length };
 }
 
 /** Ancien mode : top classé depuis ranked.json (1v1 ×1 + 2v2 ×1). */
@@ -150,11 +152,11 @@ function buildTopFromRanked(data) {
     e.team += p.wins || 0;
     if (nm && nm !== p.public_id) e.name = nm;
   }
-  return [...byPid.values()]
+  const rows = [...byPid.values()]
     .map((e) => ({ publicId: e.publicId, name: e.name, points: e.ffa * SCORE_RANKED_FALLBACK.ffa + e.team * SCORE_RANKED_FALLBACK.team, ffa: e.ffa, team: e.team }))
     .filter((e) => e.points > 0)
-    .sort((a, b) => b.points - a.points)
-    .slice(0, TOP_N);
+    .sort((a, b) => b.points - a.points);
+  return { rows: rows.slice(0, TOP_N), total: rows.length };
 }
 
 /* ── Rendu HTML (markup IDENTIQUE au rendu live renderRanking) ───────── */
@@ -212,25 +214,62 @@ function frWeekLabel(weekStartIso) {
   }
 }
 
-function buildPreview({ globalRows, weeklyRows, scoresMeta }) {
+function buildPreview({ globalRows, weeklyRows, scoresMeta, globalTotal, weeklyTotal, weekLabel }) {
   const generated = new Date().toISOString().slice(0, 10);
   // Panneau hebdo : lignes réelles si le top hebdo est dispo, sinon squelettes.
   const weeklyHasData = weeklyRows && weeklyRows.length > 0;
   const weeklyBody = weeklyHasData ? listHtml(weeklyRows, true) : skeletonListHtml();
   const weeklySub = weeklyHasData
-    ? ""
+    ? // v5.24 — sous-titre identique au rendu live (updateLists) → le header
+      // du panel a la même hauteur au swap (zéro saut de layout).
+      `\n              <span class="dash-panel-sub">Depuis le ${esc(weekLabel || "lundi")} · ${fmtPoints(weeklyTotal || 0)} joueurs actifs</span>`
     : `\n              <span class="dash-panel-sub" data-i18n="dash.preview_weekly_sub">Disponible dans un instant…</span>`;
   const weeklyAria = weeklyHasData ? "" : ' aria-hidden="true"';
+  // v5.24 — l'aperçu inclut AUSSI l'intro + la toolbar (recherche + filtres) :
+  // le rendu live les contient, leur absence faisait « sauter » la page au
+  // swap (contenu remonté puis redescendu = impression de reset). Le markup
+  // est IDENTIQUE au rendu live (dashboard.js render()), SANS les ids
+  // fonctionnels et avec inert : rien n'est interactif tant que le rendu
+  // live n'a pas pris le relais (il remplace tout de toute façon).
+  const introToolbar = `      <div class="dash-intro" inert>
+        <p class="dash-intro-sub" data-i18n="dash.intro_sub">TheFrontHub synchronise automatiquement votre historique de parties et vos statistiques OpenFront, visualise vos conquêtes et classe vos performances à l'échelle mondiale.</p>
+        <button type="button" class="dash-help-btn" aria-label="Voir le barème des points" aria-expanded="false" tabindex="-1">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </button>
+        <div class="dash-help-popover" role="dialog" aria-label="Barème des points">
+          <div class="dash-help-popover-header">Barème des points</div>
+          <ul class="dash-help-popover-list">
+            <li><span class="dash-help-mode">FFA</span><span class="dash-help-pts">+10 pts</span></li>
+            <li><span class="dash-help-mode">Team</span><span class="dash-help-pts">+5 pts</span></li>
+            <li><span class="dash-help-mode">classé (1v1)</span><span class="dash-help-pts">+1 pt</span></li>
+            <li><span class="dash-help-mode">classé (2v2)</span><span class="dash-help-pts">+1 pt</span></li>
+          </ul>
+          <p class="dash-help-note">Le classé rapporte juste 1 pt, pas en plus du casual.</p>
+        </div>
+      </div>
+      <div class="dash-toolbar" inert>
+        <div class="dash-search">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.3" y2="16.3"/></svg>
+          <input type="search" placeholder="Rechercher un joueur…" autocomplete="off" spellcheck="false" aria-label="Rechercher un joueur dans le classement" tabindex="-1">
+        </div>
+        <div class="dash-filters" role="group" aria-label="Filtrer par mode de jeu">
+          <button type="button" class="dash-filter active" data-filter="all" aria-pressed="true" tabindex="-1">Tous</button>
+          <button type="button" class="dash-filter" data-filter="ffa" aria-pressed="false" tabindex="-1">FFA</button>
+          <button type="button" class="dash-filter" data-filter="team" aria-pressed="false" tabindex="-1">Team</button>
+        </div>
+      </div>`;
   return `${MARK_START}
       <!-- Aperçu PRÉ-GÉNÉRÉ par scripts/gen-ranked-preview.js (ne pas éditer à la main).
            Remplacé par le classement live dès que dashboard_scores.json.gz + l'API sont chargés.
            ${scoresMeta} — barème live : FFA casual ×10, FFA classé ×1, Team casual ×5, Team classé ×1. -->
       <div class="dash-static-preview" data-preview-date="${generated}">
         <p class="dash-preview-note"><span class="dash-preview-dot" aria-hidden="true"></span><span data-i18n="dash.preview_note">Aperçu du classement (top 100) — actualisation en direct…</span></p>
+${introToolbar}
         <div class="dash-grid">
           <section class="dash-panel dash-panel-preview">
             <div class="dash-panel-header">
               <h2 class="dash-panel-title" data-i18n="dash.panel_global">Top joueurs — Toutes saisons</h2>
+              <span class="dash-panel-sub">Classement cumulé · ${fmtPoints(globalTotal || 0)} joueurs</span>
             </div>
             <div class="dash-panel-body">
               <div class="dash-list" data-lenis-prevent>
@@ -266,15 +305,18 @@ async function main() {
       const scores = await loadScores();
       const globalTop = buildTopFromScores(scores, false);
       const weeklyTop = buildTopFromScores(scores, true);
-      if (globalTop.length === 0) throw new Error("scores sans joueurs à points > 0");
+      if (globalTop.rows.length === 0) throw new Error("scores sans joueurs à points > 0");
       const updated = (scores.lastUpdate || "").slice(0, 10) || "date inconnue";
       const weekLabel = scores.weekStart ? frWeekLabel(scores.weekStart) : "";
       preview = buildPreview({
-        globalRows: listHtml(globalTop, true),
-        weeklyRows: weeklyTop,
+        globalRows: listHtml(globalTop.rows, true),
+        weeklyRows: weeklyTop.rows,
+        globalTotal: globalTop.total,
+        weeklyTotal: weeklyTop.total,
+        weekLabel,
         scoresMeta: `Données dashboard_scores du ${updated}${weekLabel ? ` — semaine depuis le ${weekLabel}` : ""}`,
       });
-      console.log(`  ✓ Top global : ${globalTop.length} joueurs · top hebdo : ${weeklyTop.length} joueurs (barème live)`);
+      console.log(`  ✓ Top global : ${globalTop.rows.length} joueurs (${globalTop.total} au total) · top hebdo : ${weeklyTop.rows.length} (${weeklyTop.total}) (barème live)`);
     } catch (e) {
       console.warn(`  ⚠ dashboard_scores indisponible (${e.message}) — fallback ranked.json`);
     }
@@ -282,13 +324,16 @@ async function main() {
     if (!preview) {
       const data = await loadRanked();
       const top = buildTopFromRanked(data);
-      if (top.length === 0) throw new Error("ranked.json vide ou format inattendu");
+      if (top.rows.length === 0) throw new Error("ranked.json vide ou format inattendu");
       preview = buildPreview({
-        globalRows: listHtml(top, false),
+        globalRows: listHtml(top.rows, false),
         weeklyRows: null,
+        globalTotal: top.total,
+        weeklyTotal: 0,
+        weekLabel: "",
         scoresMeta: `Données ranked.json du ${new Date().toISOString().slice(0, 10)}`,
       });
-      console.log(`  ✓ Top classé : ${top.length} joueurs (fallback ranked.json, hebdo = squelette)`);
+      console.log(`  ✓ Top classé : ${top.rows.length} joueurs (fallback ranked.json, hebdo = squelette)`);
     }
     const next = html.slice(0, startIx) + preview + html.slice(endIx + MARK_END.length);
     fs.writeFileSync(TARGET, next);
