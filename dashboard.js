@@ -1719,6 +1719,14 @@ document.addEventListener("click", (e) => {
 
 (async function init() {
   try {
+    // v5.23 — Préchargements lancés DÈS LE DÉPART, en parallèle du fetch
+    // scores.gz (avant : séquentiel → skins/aliases/ranked.json payaient
+    // leur latence APRÈS le téléchargement des scores, et l'aperçu statique
+    // restait à l'écran plusieurs secondes de trop). atomicPreload() garde
+    // son garde-fou 3 s — démarré plus tôt, il règle donc plus tôt.
+    const atomicP = atomicPreload();
+    const rankedP = loadRankedJson();
+
     // Phase 0 : Charger dashboard_scores.json.gz (pré-calculé par la sync)
     // → rendu INSTANTANÉ, pas d'appel API live
     let scoresLoaded = false;
@@ -1763,11 +1771,14 @@ document.addEventListener("click", (e) => {
           }
 
           // Load ranked.json for ELO display + ranked wins merge
-          await loadRankedJson();
+          // (v5.23 : déjà en cours depuis le début — await quasi gratuit)
+          await rankedP;
           _mergedViews = buildMergedViews();
           // v5.21 — rendu ATOMIQUE : skins + aliases (pseudos hub + badges)
           // attendus AVANT le premier rendu → tout arrive d'un coup.
-          await atomicPreload();
+          // v5.23 : le garde-fou 3 s a démarré au début du chargement →
+          // au pire on rend à fetch-scores + 0 s au lieu de +3 s.
+          await atomicP;
           mergeAndRender();
           scoresLoaded = true;
           _liveFetchDone = true;
@@ -1788,9 +1799,11 @@ document.addEventListener("click", (e) => {
     // Fallback : ancien système (ranked.json + live API)
     // Phase 1 : Charger ranked.json → v5.21 : rendu ATOMIQUE (skins actifs
     // + aliases attendus avant le premier rendu, garde-fou 3 s).
-    await loadRankedJson();
+    // v5.23 : ranked.json + skins/aliases sont déjà en cours depuis le début
+    // (lancés en parallèle du fetch scores.gz) → awaits quasi gratuits ici.
+    await rankedP;
     _mergedViews = buildMergedViews();
-    await atomicPreload();
+    await atomicP;
     render();
 
     // Phase 3 : Charger les stats live pour chaque joueur connecté
@@ -1815,15 +1828,27 @@ document.addEventListener("click", (e) => {
   }
 })();
 
-/* v5.22 — Garde-fou : si l'aperçu statique est toujours seul affiché après
- * 7 s (toutes les sources de données en échec), on force un rendu honnête
- * (« Aucune donnée disponible ») au lieu de laisser un top 100 figé prendre
- * la page. Si les données sont arrivées entre-temps, c'est un no-op. */
+/* v5.23 — Garde-fou : si l'aperçu statique est toujours seul affiché après
+ * 7 s (toutes les sources de données en échec), on bascule la note d'aperçu
+ * en mode « hors ligne » au lieu de vider la page : depuis v5.23 l'aperçu
+ * contient les DEUX panneaux (global + hebdo) pré-générés depuis le dernier
+ * sync → c'est une vraie photo du classement, bien plus utile qu'un
+ * « Aucune donnée disponible ». Si les données sont arrivées entre-temps,
+ * l'aperçu a déjà été remplacé → no-op. */
 setTimeout(function () {
   if (document.querySelector("#dashboard-view .dash-static-preview")) {
     _previewTimedOut = true;
-    try { render(); } catch (e) { /* état déjà cohérent */ }
-    console.warn("[dashboard] preview timeout — données live indisponibles après 7 s");
+    try {
+      const note = document.querySelector("#dashboard-view .dash-preview-note span[data-i18n]");
+      if (note) {
+        const date = document.querySelector("#dashboard-view .dash-static-preview")?.dataset?.previewDate || "";
+        note.removeAttribute("data-i18n");
+        note.textContent = T("dash.preview_offline", "Connexion au classement en direct impossible — aperçu de la dernière synchronisation ({date}). Rechargez la page dans quelques instants.").replace("{date}", date);
+      }
+      const dot = document.querySelector("#dashboard-view .dash-preview-dot");
+      if (dot) dot.style.animation = "none";
+    } catch (e) { /* état déjà cohérent */ }
+    console.warn("[dashboard] preview timeout — données live indisponibles après 7 s (mode hors ligne, aperçu conservé)");
   }
 }, 7000);
 
