@@ -1,16 +1,17 @@
 /**
- * lobby-live.js — v5.28 — Alertes du lobby TheFrontHub.
+ * lobby-live.js — v5.29 — Filtre des parties + alertes du lobby TheFrontHub.
  *
  * Module compagnon de lobby.js (qui publie l'event window « tfh:lobby:update »
- * à chaque snapshot/counts). v5.21 : le bandeau ne garde que l'essentiel
- * (alertes + suivi « ma partie »). v5.22 : filtre d'alerte + cartes.
- * v5.28 — FILTRE OFFICIEL OPENFRONT (reprend 1:1 le DetailedGameViewFilters
- * du dépôt openfrontio/OpenFrontIO, cf. capture du proprio) :
+ * à chaque snapshot/counts). v5.21 : le bandeau ne garde que l'essentiel.
+ * v5.22 : filtre d'alerte + cartes. v5.28 : filtre OFFICIEL OpenFront
+ * (DetailedGameViewFilters). v5.29 — LE FILTRE FILTRE VRAIMENT L'AFFICHAGE :
  *
- *   1. Alertes (bell)        → notification navigateur + son WebAudio quand
- *                              une partie correspondant AUX FILTRES s'ouvre
- *                              (ou atteint « joueurs présents min »), ou
- *                              quand un lobby surveillé devient pleine.
+ *   1. FILTRE (entonnoir)     → les parties qui cochent le filtre s'affichent
+ *                              dans le lobby, les autres sont MASQUÉES
+ *                              (sections + bandeau « prochaine partie »).
+ *                              Le prédicat est exposé à lobby.js via
+ *                              window.TFH_LOBBY_FILTER + event
+ *                              « tfh:lobby:filter-changed » à chaque changement.
  *                              FILTRES (multi-sélections, vide = tout) :
  *                              • TYPE DE SALON   : FFA / Équipes / HvN
  *                              • SOURCE          : Public / Hébergé
@@ -21,9 +22,19 @@
  *                              • Masquer les salons vides + Réinitialiser
  *                              • PROFILS sauvegardés (max 20, comme OF)
  *                              • sélection de CARTES (atlas, vignettes ?v=2)
- *                              v5.20.1 anti-spam conservé : regroupement +
- *                              1 alerte « nouvelles parties » max par minute.
- *   2. Suivi « ma partie »   → clic sur une carte = tu lances la partie ;
+ *   2. ALERTE (optionnelle)   → au-dessus du filtre : son + notification
+ *                              DÈS QU'UNE partie qui coche le filtre s'ouvre
+ *                              (ou atteint « joueurs présents min »).
+ *                              v5.29 : FIABILITÉ — plus de trou noir de 60 s :
+ *                              les parties ouvertes en rafale sont regroupées
+ *                              sur 5 s, puis CHAQUE lot sonne. Une partie qui
+ *                              démarre vite n'absorbe plus l'alerte des autres.
+ *                              Son plus long (~2 s, carillon 2×3 notes) et
+ *                              plus fort (gain ×2). Au moment où on ACTIVE
+ *                              l'alerte, les parties qui correspondent déjà
+ *                              au filtre sonnent immédiatement (preuve que
+ *                              ça marche), ensuite seules les NOUVELLES.
+ *   3. Suivi « ma partie »    → clic sur une carte = tu lances la partie ;
  *                              dès que le flux voit qu'elle démarre, le chat
  *                              de la partie s'ouvre (lobby-chat.js).
  *
@@ -51,11 +62,13 @@
   const WATCH_GONE_MS   = 5 * 60_000;         // partie absente > 5 min → dé-surveillance
   const MINE_TTL        = 3 * 3600_000;       // suivi « ma partie » expire après 3 h
   const MINE_GONE_MS    = 8_000;              // absente d'un snapshot complet > 8 s → démarrée
-  // v5.20.1 — anti-spam alertes : le serveur OpenFront renvoie un snapshot
-  // « full » dès que quelque chose change hors des comptes de joueurs (partie
-  // créée, partie lancée, startsAt qui bouge…) — souvent plusieurs fois par
-  // minute. Sans garde, CHAQUE nouvelle partie sonnait : alarme continue.
-  const NEW_ALERT_COOLDOWN_MS = 60_000; // 1 bip/notification « nouvelles parties » max / minute
+  // v5.29 — FIABILITÉ DE L'ALERTE : l'ancien cooldown de 60 s créait un trou
+  // noir — les parties ouvertes pendant le délai n'étaient annoncées QU'À LA
+  // FIN du cooldown, et celles déjà lancées (les FFA partent vite) étaient
+  // purement et simplement SUPPRIMÉES du lot → « l'alerte ne marche qu'une
+  // fois ». Désormais : regroupement sur 5 s seulement, et AUCUNE alerte
+  // détectée n'est jamais jetée — chaque lot déclenche le son.
+  const NEW_ALERT_MERGE_MS = 5_000; // parties ouvertes en rafale → 1 son par lot de 5 s
   const ALERTED_MAX     = 400;          // plafond du Set de dédup session
   const MODES = ["ffa", "team", "special"];
 
@@ -118,7 +131,7 @@
   let els = {};
 
   /* ══════════════════════════════════════════════════════════════════════
-     Son (WebAudio — deux notes douces, pas de fichier)
+     Son (WebAudio — carillon 2×3 notes, plus LONG et plus FORT en v5.29)
      ══════════════════════════════════════════════════════════════════════ */
 
   let audioCtx = null;
@@ -136,19 +149,36 @@
     const ctx = ensureAudio();
     if (!ctx) return;
     try {
-      const t0 = ctx.currentTime + 0.01;
-      [[880, 0.00, 0.14], [1318.5, 0.16, 0.24]].forEach(([freq, off, dur]) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "sine";
-        osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0.0001, t0 + off);
-        gain.gain.exponentialRampToValueAtTime(0.16, t0 + off + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + off + dur);
-        osc.connect(gain).connect(ctx.destination);
-        osc.start(t0 + off);
-        osc.stop(t0 + off + dur + 0.05);
-      });
+      // v5.29 — carillon plus long (~2,1 s au total) et plus fort :
+      // 2 répétitions de 3 notes ascendantes (G5 → Do6 → Mi6), octave
+      // basse en triangle pour la richesse, gain crête 0,32 (≈ +6 dB vs
+      // l'ancien 0,16). Les FFA partent vite : le son doit se faire entendre.
+      const NOTES = [[784, 0.00, 0.34], [1046.5, 0.30, 0.38], [1318.5, 0.60, 0.62]];
+      const PEAK = 0.32;
+      const t0 = ctx.currentTime + 0.02;
+      for (const rep of [0, 1]) {
+        const base = t0 + rep * 1.15;
+        for (const [freq, off, dur] of NOTES) {
+          const osc = ctx.createOscillator();
+          const sub = ctx.createOscillator();
+          const gain = ctx.createGain();
+          const subGain = ctx.createGain();
+          osc.type = "sine";
+          osc.frequency.value = freq;
+          sub.type = "triangle";
+          sub.frequency.value = freq / 2;
+          subGain.gain.value = 0.45;
+          gain.gain.setValueAtTime(0.0001, base + off);
+          gain.gain.exponentialRampToValueAtTime(PEAK, base + off + 0.03);
+          gain.gain.setValueAtTime(PEAK, base + off + Math.max(0.03, dur * 0.55));
+          gain.gain.exponentialRampToValueAtTime(0.0001, base + off + dur);
+          osc.connect(gain);
+          sub.connect(subGain).connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(base + off); sub.start(base + off);
+          osc.stop(base + off + dur + 0.05); sub.stop(base + off + dur + 0.05);
+        }
+      }
     } catch { /* audio indisponible : silencieux */ }
   }
 
@@ -236,8 +266,11 @@
     return true;
   }
 
-  /** Une partie passe-t-elle TOUS les filtres (modèle officiel + cartes) ? */
-  function matchesFilters(g) {
+  /** Une partie passe-t-elle TOUS les filtres (modèle officiel + cartes) ?
+   *  `bucket` (optionnel) : section lobby.js d'origine (ffa/team/special) —
+   *  sert à annoter la partie si le moteur d'alertes ne l'a pas encore vue. */
+  function matchesFilters(g, bucket) {
+    if (bucket && !g.__tfhBucket) g.__tfhBucket = bucket;
     const facts = lobbyFacts(g);
     if (settings.modes.length > 0 && !settings.modes.includes(facts.mode)) return false;
     if (settings.sources.length > 0 && !settings.sources.includes(facts.source)) return false;
@@ -253,6 +286,42 @@
     const sel = Array.isArray(settings.maps) ? settings.maps : [];
     if (sel.length && !sel.includes(mapSlugOf((g.gameConfig || {}).gameMap))) return false;
     return true;
+  }
+
+  /** Au moins UN critère de filtre actif ? (dès qu'un critère est posé, le
+   *  lobby n'affiche PLUS que les parties qui le cochent — v5.29). */
+  function hasActiveCriteria(s) {
+    const f = s || settings;
+    return !!(
+      (Array.isArray(f.modes) && f.modes.length) ||
+      (Array.isArray(f.sources) && f.sources.length) ||
+      (Array.isArray(f.teamConfigs) && f.teamConfigs.length) ||
+      f.hideEmpty === true ||
+      (Array.isArray(f.maps) && f.maps.length) ||
+      f.minJoined != null || f.maxJoined != null ||
+      f.minCapacity != null || f.maxCapacity != null ||
+      f.minTeamSize != null || f.maxTeamSize != null
+    );
+  }
+
+  /* ── v5.29 — PONT VERS LOBBY.JS : le filtre filtre l'AFFICHAGE ──────────
+   *  lobby.js consulte window.TFH_LOBBY_FILTER à chaque rendu : les parties
+   *  qui cochent le filtre s'affichent, les autres sont masquées. Chaque
+   *  changement de filtre (chips, bornes, cartes, profil, reset) émet
+   *  « tfh:lobby:filter-changed » → re-rendu immédiat de la liste. */
+  window.TFH_LOBBY_FILTER = {
+    active: () => hasActiveCriteria(),
+    matches: (g, bucket) => matchesFilters(g, bucket),
+  };
+
+  /** Persiste `settings` + répercute partout (UI, résumé, lobby.js). */
+  function commitFilters() {
+    save(LS_ALERTS, settings);
+    syncFilterUI();
+    updateMapsSummary();
+    updateFilterSummary();
+    renderBell(); // v5.29 : l'entonnoir se remplit/ se vide selon le filtre
+    try { window.dispatchEvent(new CustomEvent("tfh:lobby:filter-changed", {})); } catch { /* ignore */ }
   }
 
   function annotateBuckets(games) {
@@ -309,34 +378,51 @@
     if (pendingFresh.length > 30) pendingFresh.shift(); // garde-fou mémoire
   }
 
-  /** Émet AU PLUS UN bip + une notification agrégée toutes les NEW_ALERT_COOLDOWN_MS. */
-  function flushNewAlerts() {
+  /** Émet AU PLUS UN son + une notification agrégée par lot de 5 s.
+   *  v5.29 : plus JAMAIS de suppression — une partie détectée est annoncée
+   *  même si elle a déjà démarré entre-temps (les FFA partent en quelques
+  *  secondes : l'info reste utile, et c'est LA plainte n°1 du proprio). */
+  function flushNewAlerts(force) {
     if (newAlertTimer) { clearTimeout(newAlertTimer); newAlertTimer = null; }
     if (!pendingFresh.length) return;
     if (!settings.enabled) { pendingFresh = []; return; }
-    const wait = NEW_ALERT_COOLDOWN_MS - (Date.now() - lastNewAlert);
-    if (wait > 0) {
-      // Trop tôt : on garde en attente, flush automatique à la fin du cooldown.
-      newAlertTimer = setTimeout(flushNewAlerts, wait + 50);
-      return;
+    if (!force) {
+      const wait = NEW_ALERT_MERGE_MS - (Date.now() - lastNewAlert);
+      if (wait > 0) {
+        // Rafale en cours : on garde en attente, flush à la fin de la fenêtre.
+        newAlertTimer = setTimeout(flushNewAlerts, wait + 50);
+        return;
+      }
     }
-    // Au moment du flush, ne citer que les parties ENCORE ouvertes
-    // (inutile de prévenir d'une partie déjà lancée depuis 30 s).
-    const alive = pendingFresh.filter((p) => findGameById(currentGames, p.id));
+    const batch = pendingFresh;
     pendingFresh = [];
-    if (!alive.length) return;
     lastNewAlert = Date.now();
     beep();
-    const g0 = alive[0];
-    const extra = alive.length - 1;
+    const g0 = batch[0];
+    const extra = batch.length - 1;
     notify(
       extra > 0
-        ? T("lobby.alert_new_many_title", `${alive.length} nouvelles parties ! 🎮`, { n: alive.length })
+        ? T("lobby.alert_new_many_title", `${batch.length} nouvelles parties ! 🎮`, { n: batch.length })
         : T("lobby.alert_new_title", "Nouvelle partie ! 🎮"),
       T("lobby.alert_new_body", `${g0.map} vient de s'ouvrir`, { map: g0.map }) +
         (extra > 0 ? " " + T("lobby.alert_new_extra", `(+${extra} autre${extra > 1 ? "s" : ""})`, { n: extra }) : ""),
       "tfh-new-" + g0.id
     );
+  }
+
+  /** v5.29 — au moment où on ACTIVE l'alerte (ou qu'on applique un profil) :
+   *  les parties qui correspondent DÉJÀ au filtre sonnent immédiatement —
+   *  l'utilisateur voit/entend tout de suite que la chaîne filtre→alerte
+   *  fonctionne. Une seule notification agrégée, sans attendre 5 s. */
+  function announceCurrentMatches() {
+    if (!settings.enabled) return;
+    const matching = allGames(currentGames).filter((g) => matchesFilters(g));
+    if (!matching.length) return;
+    for (const g of matching) {
+      const id = String(g.gameID || g.id);
+      if (!alertedIds.has(id)) queueFreshAlert(g, id);
+    }
+    flushNewAlerts(true);
   }
 
   function runMyGameEngine(detail) {
@@ -421,11 +507,12 @@
     if (watchDirty) { save(LS_WATCH, watch); renderWatchList(); }
     syncCardBells();
 
-    // 2) Alertes « nouvelles parties » — avec anti-spam complet (v5.20.1) :
+    // 2) Alertes « nouvelles parties » — fiable (v5.29) :
     //      • une partie ne déclenche AU PLUS UNE alerte par session ;
     //      • déclencheurs : création d'une partie qui passe les filtres, OU
     //        franchissement du seuil « joueurs min. » (de < min à ≥ min) ;
-    //      • regroupement : 1 bip + 1 notification agrégée max / minute.
+    //      • regroupement : les parties ouvertes en rafale (même fenêtre de
+    //        5 s) font UN son agrégé — mais AUCUNE n'est jamais jetée.
     const prevSeen = seenIds;
     if (detail.full) {
       seenIds = new Set(allGames(games).map((g) => String(g.gameID || g.id)));
@@ -466,8 +553,10 @@
      alertes, discrètes, en haut des cartes)
      ══════════════════════════════════════════════════════════════════════ */
 
-  const bellSvg = (fill) =>
-    `<svg viewBox="0 0 24 24" width="18" height="18" fill="${fill ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`;
+  /** v5.29 — entonnoir : la tuile s'appelle « Filtre » (c'est d'abord un
+   *  filtre d'affichage ; l'alerte est une couche activable par-dessus). */
+  const funnelSvg = (active) =>
+    `<svg viewBox="0 0 24 24" width="18" height="18" fill="${active ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>`;
 
   function buildStrip() {
     const viewEl = document.getElementById("lobby-view");
@@ -476,31 +565,26 @@
     strip = document.createElement("section");
     strip.id = "lobby-live-strip";
     strip.className = "llive-strip";
-    strip.setAttribute("aria-label", T("lobby.alert_title", "Alertes parties"));
+    strip.setAttribute("aria-label", T("lobby.alert_title", "Filtre des parties"));
     strip.innerHTML = `
       <div class="llive-row">
         <div class="llive-tile llive-tile-bell">
           <button type="button" class="llive-bell" data-role="ll-bell" aria-expanded="false"
-                  title="${esc(T("lobby.alert_title", "Alertes parties"))}" aria-label="${esc(T("lobby.alert_title", "Alertes parties"))}">
-            ${bellSvg(false)}
+                  title="${esc(T("lobby.alert_title", "Filtre des parties"))}" aria-label="${esc(T("lobby.alert_title", "Filtre des parties"))}">
+            ${funnelSvg(false)}
             <span class="llive-bell-badge" data-role="ll-badge" hidden>0</span>
           </button>
-          <span class="llive-tile-label">${esc(T("lobby.alert_tile_label", "Alertes"))}</span>
+          <span class="llive-tile-label">${esc(T("lobby.alert_tile_label", "Filtre"))}</span>
         </div>
       </div>
       <div class="llive-panel" data-role="ll-panel" hidden>
-        <div class="llive-toggle-line">
-          <label class="llive-toggle">
-            <input type="checkbox" data-role="ll-enabled">
-            <span class="llive-toggle-track" aria-hidden="true"></span>
-            <span>${esc(T("lobby.alert_enable", "Alertes actives (notification + son)"))}</span>
-          </label>
-          <button type="button" class="llive-test-sound" data-role="ll-test"
-                  title="${esc(T("lobby.alert_test_title", "Tester le son de l'alerte"))}">
-            🔊 ${esc(T("lobby.alert_test", "Test"))}
-          </button>
+        <!-- v5.29 — entête : le panneau s'appelle FILTRE, l'alerte est une
+             couche en bas. Le résumé dit combien de parties sont masquées. -->
+        <div class="llive-head">
+          <span class="llive-head-title">${esc(T("lobby.f_panel_title", "Filtre des parties"))}</span>
+          <span class="llive-summary" data-role="ll-filter-summary"></span>
         </div>
-        <!-- v5.28 — filtre OFFICIEL OpenFront (cf. DetailedGameViewModal) -->
+        <!-- filtre OFFICIEL OpenFront (cf. DetailedGameViewModal) -->
         <div class="llive-filters">
           <div class="llive-frow">
             <fieldset class="llive-field">
@@ -607,7 +691,21 @@
           <button type="button" class="llive-prof-btn" data-role="ll-prof-save">${esc(T("lobby.f_profile_save", "Sauvegarder"))}</button>
           <button type="button" class="llive-prof-btn" data-role="ll-prof-del">${esc(T("lobby.f_profile_delete", "Supprimer"))}</button>
         </div>
-        <p class="llive-panel-hint">${esc(T("lobby.alert_hint", "Prévenu quand une partie correspondante s'ouvre (ou atteint le seuil de joueurs) — regroupé : 1 alerte max par minute. Garde cet onglet ouvert."))}</p>
+        <!-- v5.29 — la couche ALERTE vient APRÈS le filtre : d'abord on filtre
+             l'affichage, ensuite on peut sonner quand une partie correspond. -->
+        <div class="llive-alert-line">
+          <span class="llive-maps-label">${esc(T("lobby.alert_section_title", "Alerte"))}</span>
+          <label class="llive-toggle">
+            <input type="checkbox" data-role="ll-enabled">
+            <span class="llive-toggle-track" aria-hidden="true"></span>
+            <span>${esc(T("lobby.alert_enable", "Alerte activée — son + notification"))}</span>
+          </label>
+          <button type="button" class="llive-test-sound" data-role="ll-test"
+                  title="${esc(T("lobby.alert_test_title", "Tester le son de l'alerte"))}">
+            🔊 ${esc(T("lobby.alert_test", "Test"))}
+          </button>
+        </div>
+        <p class="llive-panel-hint">${esc(T("lobby.alert_hint", "Les parties qui cochent le filtre s'affichent, les autres sont masquées. Active l'alerte pour être prévenu (son + notification) dès qu'une partie correspondante s'ouvre. Garde cet onglet ouvert."))}</p>
         <div class="llive-watch-list" data-role="ll-watch"></div>
       </div>`;
 
@@ -619,6 +717,7 @@
       panel:     strip.querySelector("[data-role=ll-panel]"),
       enabled:   strip.querySelector("[data-role=ll-enabled]"),
       test:      strip.querySelector("[data-role=ll-test]"),
+      filterSummary: strip.querySelector("[data-role=ll-filter-summary]"),
       // v5.28 — filtre officiel : groupes de chips + bornes min/max
       chips: {
         modes:       strip.querySelector("[data-role=ll-modes]"),
@@ -656,6 +755,7 @@
     syncFilterUI();
     refreshProfilesUI();
     updateMapsSummary();
+    updateFilterSummary();
 
     // ── Interactions ──
     els.bell.addEventListener("click", () => {
@@ -678,9 +778,14 @@
         if ("Notification" in window && Notification.permission === "default") {
           Notification.requestPermission().catch(() => { /* ignore */ });
         }
-        window.showToast?.(T("lobby.alert_on_toast", "Alertes activées — notification + son"), "success", 3500, "bell");
+        window.showToast?.(T("lobby.alert_on_toast", "Alerte activée — son + notification"), "success", 3500, "bell");
+        // v5.29 — preuve immédiate : les parties qui correspondent DÉJÀ au
+        // filtre sonnent tout de suite (1 notification agrégée). Ensuite,
+        // seules les NOUVELLES parties déclenchent le son.
+        announceCurrentMatches();
       } else {
-        window.showToast?.(T("lobby.alert_off_toast", "Alertes désactivées"), "info", 2500);
+        pendingFresh = []; // alerte coupée : vide la file en attente
+        window.showToast?.(T("lobby.alert_off_toast", "Alerte désactivée"), "info", 2500);
       }
       renderBell();
     });
@@ -697,8 +802,7 @@
         const arr = new Set(settings[key]);
         if (arr.has(v)) arr.delete(v); else arr.add(v);
         settings[key] = [...arr];
-        save(LS_ALERTS, settings);
-        syncFilterUI();
+        commitFilters(); // v5.29 : sauvegarde + re-rendu du lobby filtré
       });
     }
     for (const [key, input] of Object.entries(els.ranges)) {
@@ -711,20 +815,18 @@
           settings[key] = Number.isFinite(n) && n >= 0 ? n : null;
         }
         input.value = settings[key] == null ? "" : String(settings[key]);
-        save(LS_ALERTS, settings);
+        commitFilters(); // v5.29
       });
     }
     els.hideEmpty.addEventListener("change", () => {
       settings.hideEmpty = els.hideEmpty.checked;
-      save(LS_ALERTS, settings);
+      commitFilters(); // v5.29
     });
     els.reset.addEventListener("click", () => {
       // Réinitialise les FILTRES (l'état des alertes enabled est conservé)
       const keepEnabled = settings.enabled;
       Object.assign(settings, JSON.parse(JSON.stringify(DEFAULT_FILTERS)), { enabled: keepEnabled });
-      save(LS_ALERTS, settings);
-      syncFilterUI();
-      updateMapsSummary();
+      commitFilters(); // v5.29
       window.showToast?.(T("lobby.f_reset_toast", "Filtres réinitialisés"), "info", 2500);
     });
     els.profSelect.addEventListener("change", () => {
@@ -735,9 +837,8 @@
       const f = normalizeFilters(profiles[name]);
       const keepEnabled = settings.enabled; // les profils filtrent, l'alarme reste telle quelle
       Object.assign(settings, f, { enabled: keepEnabled });
-      save(LS_ALERTS, settings);
-      syncFilterUI();
-      updateMapsSummary();
+      commitFilters(); // v5.29
+      announceCurrentMatches(); // si l'alerte est active : son immédiat si des parties cochent déjà
       window.showToast?.(T("lobby.f_profile_applied", `Profil « ${name} » appliqué`, { name }), "success", 3000);
     });
     els.profSave.addEventListener("click", () => {
@@ -781,17 +882,15 @@
         cb.closest(".llive-map-item")?.classList.add("is-on");
       });
       settings.maps = [...sel];
-      save(LS_ALERTS, settings);
-      updateMapsSummary();
+      commitFilters(); // v5.29
     });
     els.mapsNone.addEventListener("click", () => {
       settings.maps = [];
-      save(LS_ALERTS, settings);
+      commitFilters(); // v5.29
       els.mapsList.querySelectorAll("input[type=checkbox]").forEach((cb) => {
         cb.checked = false;
         cb.closest(".llive-map-item")?.classList.remove("is-on");
       });
-      updateMapsSummary();
     });
 
     // Ouverture/fermeture de surveillance depuis les cartes (lobby.js émet)
@@ -913,9 +1012,35 @@
     const n = Object.keys(watch).length;
     els.badge.hidden = n === 0;
     els.badge.textContent = String(n);
-    els.bell.classList.toggle("has-alerts", settings.enabled);
-    els.bell.innerHTML = bellSvg(settings.enabled || n > 0);
+    const filtering = hasActiveCriteria();
+    // v5.29 — entonnoir : rempli quand le filtre (affichage) est actif ;
+    // halo « has-alerts » quand l'ALERTE (son) est activée.
+    els.bell.classList.toggle("has-alerts", !!settings.enabled);
+    els.bell.classList.toggle("is-filtering", filtering);
+    els.bell.innerHTML = funnelSvg(filtering);
     if (els.badge.parentNode !== els.bell) els.bell.appendChild(els.badge);
+  }
+
+  /** v5.29 — ligne de résumé de l'entête du panneau : « Filtre actif —
+   *  N partie(s) masquée(s) » ou « Aucun filtre actif ». Fraîchie à chaque
+   *  snapshot (les comptes bougent) et à chaque changement de filtre. */
+  function updateFilterSummary() {
+    if (!els.filterSummary) return;
+    const active = hasActiveCriteria();
+    strip?.classList.toggle("is-filtering", active);
+    if (!active) {
+      els.filterSummary.textContent = T("lobby.f_inactive_summary", "Aucun filtre actif — toutes les parties s'affichent");
+      els.filterSummary.classList.remove("is-active");
+      return;
+    }
+    const games = allGames(currentGames);
+    const visible = games.filter((g) => matchesFilters(g)).length;
+    const hidden = games.length - visible;
+    els.filterSummary.textContent = hidden > 0
+      ? T("lobby.f_active_hidden", `${hidden} partie${hidden > 1 ? "s" : ""} masquée${hidden > 1 ? "s" : ""}`, { n: hidden, s: hidden > 1 ? "s" : "" })
+      : T("lobby.f_active_ok", "tout correspond au filtre");
+    els.filterSummary.classList.add("is-active");
+    els.filterSummary.title = T("lobby.f_active_title", "Filtre actif — les parties qui ne le cochent pas sont masquées");
   }
 
   function renderWatchList() {
@@ -1015,9 +1140,8 @@
         const s = new Set(settings.maps);
         if (cb.checked) s.add(cb.value); else s.delete(cb.value);
         settings.maps = [...s];
-        save(LS_ALERTS, settings);
+        commitFilters(); // v5.29
         cb.closest(".llive-map-item")?.classList.toggle("is-on", cb.checked);
-        updateMapsSummary();
       });
     });
   }
@@ -1050,6 +1174,7 @@
     const detail = e.detail || {};
     currentGames = detail.games || currentGames;
     buildStrip();
+    updateFilterSummary(); // v5.29 : le compte de parties masquées suit le flux
     // v5.20.2 — snapshot DÉGRADÉ (parties terminées, pas de live) : le moteur
     // d'alertes et le suivi « ma partie » restent éteints — bip/notification
     // pour une partie déjà terminée = spam sans objet (l'utilisateur ne peut
@@ -1066,6 +1191,12 @@
   function boot() {
     buildStrip();
     window.addEventListener("tfh:lobby:update", onUpdate);
+    // v5.29 — filtre persisté (localStorage) : prévient lobby.js d'un
+    // re-rendu initial filtré (l'événement part APRÈS l'exposition de
+    // window.TFH_LOBBY_FILTER,lobby.js est déjà à l'écoute).
+    if (hasActiveCriteria()) {
+      try { window.dispatchEvent(new CustomEvent("tfh:lobby:filter-changed", {})); } catch { /* ignore */ }
+    }
   }
 
   if (document.readyState === "loading") {

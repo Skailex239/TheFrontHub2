@@ -601,7 +601,10 @@ function t(key, params = {}) {
   const dict = translations[currentLanguage] || translations.fr;
   let text = dict[key] ?? (translations.fr[key] ?? key);
   for (const [k, v] of Object.entries(params)) {
-    text = text.replace(`{${k}}`, v);
+    // v5.29 — split/join : remplace TOUTES les occurrences du placeholder
+    // (l'ancien replace() ne traitait que la 1re — « {n} partie{s} masquée{s} »
+    // laissait un {s} brut à l'écran).
+    text = text.split(`{${k}}`).join(v);
   }
   return text;
 }

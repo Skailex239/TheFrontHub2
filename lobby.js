@@ -1,5 +1,11 @@
 // lobby.js — Lobby TheFrontHub (v5 — B+ + favoris & remplissage + hooks v5.18)
 //
+// v5.29 : FILTRE DES PARTIES (avec lobby-live.js) — le filtre (entonnoir)
+//   filtre VRAIMENT l'affichage : les parties qui le cochent s'affichent
+//   (sections + bandeau « prochaine partie »), les autres sont masquées.
+//   Prédicat exposé par lobby-live.js (window.TFH_LOBBY_FILTER) + event
+//   « tfh:lobby:filter-changed » → re-rendu immédiat à chaque changement.
+//
 // v5.18 : hooks pour lobby-live.js (compteurs live, courbe d'activité, stats
 // par mode, alertes) et lobby-chat.js (chat communautaire par partie) :
 //   - ingestFull/ingestCounts émettent window event « tfh:lobby:update »
@@ -442,6 +448,24 @@ function announceFavoriteGames(isNew) {
 function serverNow() {
   if (!state.serverTime) return 0;
   return state.serverTime + (Date.now() - state.serverTimeAt);
+}
+
+/* ── v5.29 — FILTRE DES PARTIES (lobby-live.js) ─────────────────────
+ *  Le filtre n'est plus réservé aux alertes : les parties qui le cochent
+ *  s'affichent, les autres sont MASQUÉES (sections + bandeau prochaine
+ *  partie). lobby-live.js expose window.TFH_LOBBY_FILTER et émet
+ *  « tfh:lobby:filter-changed » à chaque changement. */
+function customFilter() {
+  const lf = window.TFH_LOBBY_FILTER;
+  if (lf && typeof lf.active === "function" && typeof lf.matches === "function" && lf.active()) return lf;
+  return null;
+}
+
+function passesCustomFilter(g, bucket, lf) {
+  const f = lf || customFilter();
+  if (!f) return true;
+  try { return f.matches(g, bucket) !== false; }
+  catch { return true; } // un filtre cassé ne doit jamais vider la page
 }
 
 function setSource(source) {
@@ -1294,15 +1318,24 @@ function render(isFull) {
   if (!buildSkeleton()) return;
   renderDegradedPanel(); // sync le bloc « aperçu » à chaque passe de rendu
 
-  // Liste VISIBLE par section (le filtre « fav » ne garde que les cartes favorites)
+  // Liste VISIBLE par section :
+  //   • filtre « fav » → cartes favorites uniquement (compte requis)
+  //   • v5.29 — FILTRE DES PARTIES (lobby-live.js) → seules les parties qui
+  //     cochent le filtre s'affichent, les autres sont masquées.
   const filtering = state.filter === "fav";
+  const lf = customFilter();
+  const customActive = !!lf;
   const visible = {};
+  const hiddenCount = {};
   let total = 0;
   for (const sec of SECTIONS) {
     const list = state.games[sec.key] || [];
-    visible[sec.key] = filtering
-      ? list.filter((g) => state.favorites.has(mapSlug((g.gameConfig || {}).gameMap || "")))
-      : list;
+    visible[sec.key] = list.filter((g) => {
+      if (filtering && !state.favorites.has(mapSlug((g.gameConfig || {}).gameMap || ""))) return false;
+      if (customActive && !passesCustomFilter(g, sec.key, lf)) return false;
+      return true;
+    });
+    hiddenCount[sec.key] = list.length - visible[sec.key].length;
     total += visible[sec.key].length;
   }
   const emptyEl = document.getElementById("lobby-empty");
@@ -1317,6 +1350,16 @@ function render(isFull) {
         <div class="lobby-loading">
           <div class="spinner"></div>
           <p>${esc(T("lobby.connecting", "Connexion aux serveurs OpenFront…"))}</p>
+        </div>`;
+    } else if (customActive) {
+      // v5.29 — le FILTRE ne garde aucune partie : message dédié (ne jamais
+      // laisser croire que le flux est en panne alors que c'est le filtre).
+      emptyEl.hidden = false;
+      emptyEl.innerHTML = `
+        <div class="lobby-empty-inner">
+          <div class="lobby-empty-icon"><i data-icon="target" data-icon-size="32"></i></div>
+          <h3>${T("lobby.empty_filter_title", "Aucune partie ne correspond au filtre")}</h3>
+          <p>${T("lobby.empty_filter_text", `Modifie ou réinitialise le filtre (entonnoir en haut) pour revoir toutes les parties.`)}</p>
         </div>`;
     } else if (filtering) {
       emptyEl.hidden = false;
@@ -1375,7 +1418,8 @@ function render(isFull) {
 
   // Hero : la prochaine partie à démarrer (toutes catégories) — v5.20.2 :
   // sans objet en mode dégradé (parties déjà terminées, pas de « prochaine »)
-  if (isFull && !state.degradedCards) renderHero();
+  // v5.29 : le bandeau respecte le FILTRE (prochaine partie qui le coche).
+  if (isFull && !state.degradedCards) renderHero(lf);
   // Le bandeau « Prochaine partie » n'a pas de sens filtré sur les favoris
   if (filtering) {
     const heroEl = document.getElementById("lobby-hero");
@@ -1385,13 +1429,23 @@ function render(isFull) {
   for (const sec of SECTIONS) {
     const games = visible[sec.key];
     const countEl = document.getElementById(`lobby-count-${sec.key}`);
-    if (countEl) countEl.textContent = games.length ? `${games.length}` : "";
+    if (countEl) {
+      countEl.textContent = games.length ? `${games.length}` : "";
+      // v5.29 — transparence : combien de parties sont masquées par le filtre
+      const hid = customActive ? hiddenCount[sec.key] : 0;
+      countEl.title = hid > 0
+        ? T("lobby.count_hidden_title", `${hid} partie${hid > 1 ? "s" : ""} masquée${hid > 1 ? "s" : ""} par le filtre`, { n: hid, s: hid > 1 ? "s" : "" })
+        : "";
+    }
 
     const track = document.getElementById(`lobby-track-${sec.key}`);
     if (!track) continue;
 
     if (games.length === 0) {
-      const msg = filtering
+      const msg = customActive
+        ? T("lobby.track_empty_filter", `Aucune partie ${esc(sec.label.toLowerCase())} ne correspond au filtre`,
+            { mode: esc(T("lobby.sec_" + sec.key, sec.label).toLowerCase()) })
+        : filtering
         ? T("lobby.fav_empty_title", "Aucune partie sur tes cartes favorites")
         : T("lobby.track_empty", `Aucune partie ${esc(sec.label.toLowerCase())} en attente`,
             { mode: esc(T("lobby.sec_" + sec.key, sec.label).toLowerCase()) });
@@ -1446,13 +1500,23 @@ function render(isFull) {
   renderStatus();
 }
 
-/** Grande carte "prochaine partie" (celle qui démarre le plus tôt). */
-function renderHero() {
+/** Grande carte "prochaine partie" (celle qui démarre le plus tôt).
+ *  v5.29 : respecte le FILTRE des parties (entonnoir) — le bandeau montre
+ *  la prochaine partie qui le coche, jamais une partie masquée. */
+function renderHero(lf) {
   const hero = document.getElementById("lobby-hero");
   if (!hero) return;
-  const all = [
-    ...state.games.ffa, ...state.games.team, ...state.games.special,
-  ].filter((g) => Number(g.startsAt) > 0);
+  const buckets = [
+    ["ffa", state.games.ffa], ["team", state.games.team], ["special", state.games.special],
+  ];
+  let all = [];
+  for (const [key, list] of buckets) {
+    for (const g of list) {
+      if (!(Number(g.startsAt) > 0)) continue;
+      if (lf && !passesCustomFilter(g, key, lf)) continue;
+      all.push(g);
+    }
+  }
   if (all.length === 0) { hero.hidden = true; hero.innerHTML = ""; return; }
 
   const next = all.reduce((a, b) => (Number(a.startsAt) < Number(b.startsAt) ? a : b));
@@ -1540,6 +1604,18 @@ function renderStatus() {
             `${total} partie${total > 1 ? "s" : ""} en attente · ${players} joueur${players > 1 ? "s" : ""}`,
             { total, players, gs: total > 1 ? "s" : "", ps: players > 1 ? "s" : "" })
         : "";
+      // v5.29 — filtre actif : ajoute combien de parties sont masquées
+      if (total > 0 && customFilter()) {
+        const buckets = [["ffa", state.games.ffa], ["team", state.games.team], ["special", state.games.special]];
+        let hid = 0;
+        for (const [key, list] of buckets) {
+          for (const g of list) if (!passesCustomFilter(g, key)) hid++;
+        }
+        if (hid > 0) {
+          stats.textContent += " · " + T("lobby.stats_hidden",
+            `${hid} masquée${hid > 1 ? "s" : ""} par le filtre`, { n: hid, s: hid > 1 ? "s" : "" });
+        }
+      }
     }
   }
 }
@@ -1709,6 +1785,12 @@ function boot() {
   buildSkeleton();
   render(true);
   startClock();
+
+  // v5.29 — FILTRE DES PARTIES (lobby-live.js) : à chaque changement de
+  // filtre (chips, bornes, cartes, profil, reset), la liste est re-rendue
+  // immédiatement — les parties qui cochent s'affichent, les autres partent.
+  window.addEventListener("tfh:lobby:filter-changed", () => scheduleRender(true));
+  window.addEventListener("tfh:lobby:filter-changed", renderStatus);
 
   // Étoile favori + cloche « prévenir » + bulle chat : délégation au niveau
   // de la vue — ces clics ne doivent JAMAIS suivre le lien de la carte.
