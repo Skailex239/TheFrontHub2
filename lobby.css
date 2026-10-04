@@ -966,6 +966,89 @@
 .llive-chip-p{color:var(--fg-subtle,#a1a1aa);font-size:11px}
 .llive-chip.is-ranked{border-color:var(--accent-border,#ffd4b8);background:var(--accent-subtle,#fff4ed);color:var(--accent,#ff6b00)}
 .llive-chip.is-ranked b{color:var(--accent,#ff6b00)}
+
+/* ── v5.28 — Filtre officiel OpenFront (type de salon, source, joueurs par
+   équipe, nombre d'équipes, bornes min/max, masquer vides, profils) ───── */
+.llive-filters{display:flex;flex-direction:column;gap:12px}
+.llive-frow{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+  gap:10px 18px;align-items:start;
+}
+.llive-frow-tail{
+  display:flex;grid-template-columns:none;align-items:center;
+  justify-content:space-between;gap:10px;flex-wrap:wrap;
+}
+.llive-field{border:none;margin:0;padding:0;min-width:0}
+.llive-field legend{
+  padding:0;margin-bottom:6px;
+  font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--fg-muted,#71717a);
+}
+.llive-chips{display:flex;flex-wrap:wrap;gap:6px}
+.llive-chips button{
+  font:inherit;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--fg-secondary,#3f3f46);background:var(--bg-subtle,#fafafa);
+  border:1px solid var(--border,#e4e4e7);border-radius:var(--radius-pill,999px);
+  padding:6px 12px;min-height:30px;cursor:pointer;
+  transition:border-color .15s ease,background .15s ease,color .15s ease,transform .1s ease;
+}
+.llive-chips button:hover{border-color:var(--accent-border,#ffd4b8);color:var(--accent,#ff6b00)}
+.llive-chips button:active{transform:scale(.96)}
+.llive-chips button.is-on{
+  background:var(--accent-subtle,#fff4ed);border-color:var(--accent,#ff6b00);color:var(--accent,#ff6b00);
+}
+.llive-chips button:focus-visible{outline:2px solid var(--accent,#ff6b00);outline-offset:2px}
+.llive-chips-num button{min-width:34px;padding:6px 8px;justify-content:center;font-variant-numeric:tabular-nums}
+.llive-range{display:flex;align-items:center;gap:6px}
+.llive-range span{color:var(--fg-subtle,#a1a1aa);font-weight:700}
+.llive-range input{
+  width:72px;font:inherit;font-size:13px;color:var(--fg,#18181b);
+  background:var(--bg,#fff);border:1px solid var(--border,#e4e4e7);
+  border-radius:var(--radius-md,8px);padding:6px 8px;
+}
+.llive-range input:focus-visible{outline:2px solid var(--accent,#ff6b00);outline-offset:1px;border-color:var(--accent,#ff6b00)}
+.llive-check{
+  display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;
+  color:var(--fg,#18181b);cursor:pointer;
+}
+.llive-check input{width:16px;height:16px;accent-color:var(--accent,#ff6b00);cursor:pointer}
+.llive-reset{
+  font:inherit;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--fg-secondary,#3f3f46);background:var(--bg-subtle,#fafafa);
+  border:1px solid var(--border,#e4e4e7);border-radius:var(--radius-md,8px);
+  padding:8px 16px;cursor:pointer;
+}
+.llive-reset:hover{border-color:var(--accent-border,#ffd4b8);color:var(--accent,#ff6b00)}
+.llive-profiles{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding-top:10px;border-top:1px solid var(--border,#e4e4e7);
+}
+.llive-profiles select{
+  flex:1 1 170px;min-width:150px;font:inherit;font-size:13px;color:var(--fg,#18181b);
+  background:var(--bg,#fff);border:1px solid var(--border,#e4e4e7);
+  border-radius:var(--radius-md,8px);padding:7px 8px;
+}
+.llive-profiles input{
+  flex:1 1 170px;min-width:150px;font:inherit;font-size:13px;color:var(--fg,#18181b);
+  background:var(--bg,#fff);border:1px solid var(--border,#e4e4e7);
+  border-radius:var(--radius-md,8px);padding:7px 10px;
+}
+.llive-profiles input:focus-visible,.llive-profiles select:focus-visible{
+  outline:2px solid var(--accent,#ff6b00);outline-offset:1px;border-color:var(--accent,#ff6b00);
+}
+.llive-prof-btn{
+  font:inherit;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--fg-secondary,#3f3f46);background:var(--bg-subtle,#fafafa);
+  border:1px solid var(--border,#e4e4e7);border-radius:var(--radius-md,8px);
+  padding:7px 14px;cursor:pointer;
+}
+.llive-prof-btn:hover{border-color:var(--accent-border,#ffd4b8);color:var(--accent,#ff6b00)}
+.llive-prof-btn:disabled{opacity:.45;cursor:not-allowed}
+.llive-prof-btn:disabled:hover{border-color:var(--border,#e4e4e7);color:var(--fg-secondary,#3f3f46)}
+@media (max-width:560px){
+  .llive-frow{grid-template-columns:1fr}
+  .llive-range input{width:64px}
+}
 .llive-curve-card{
   background:var(--bg-subtle,#fafafa);border:1px solid var(--border,#e4e4e7);
   border-radius:var(--radius-lg,12px);padding:12px 14px 8px;

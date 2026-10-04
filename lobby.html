@@ -28,7 +28,7 @@
 
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=94" as="style">
-<link rel="preload" href="lobby.css?v=24" as="style">
+<link rel="preload" href="lobby.css?v=25" as="style">
 <link rel="preload" href="dist/lobby-wire.min.js?v=7" as="script">
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
@@ -38,13 +38,13 @@
 <link rel="stylesheet" href="auth.css?v=21">
 <link rel="stylesheet" href="toast.css">
 <link rel="stylesheet" href="animations.css?v=6">
-<link rel="stylesheet" href="lobby.css?v=24">
+<link rel="stylesheet" href="lobby.css?v=25">
 <link rel="stylesheet" href="ads.css?v=2">
 <style>.skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}</style>
 <script type="module" src="dist/icons.min.js?v=10"></script>
 
 <!-- i18n : dict de page (synchrone, avant i18n.js) + moteur + sélecteur de langue -->
-<script src="dist/i18n-dict-lobby.min.js?v=11"></script>
+<script src="dist/i18n-dict-lobby.min.js?v=12"></script>
 <script src="dist/i18n-dict-widgets.min.js?v=3"></script>
 <script src="dist/i18n.min.js?v=9" defer></script>
 <script src="dist/lang-switcher.min.js?v=2" defer></script>
@@ -284,9 +284,9 @@
 <div id="toast-container"></div>
 
 <script src="dist/lobby-wire.min.js?v=7"></script>
-<script type="module" src="dist/lobby.min.js?v=21"></script>
+<script type="module" src="dist/lobby.min.js?v=22"></script>
 <!-- v5.18/19 : bandeau live (stats cartes/courbe/alertes) + chat communautaire (topbar) -->
-<script src="dist/lobby-live.min.js?v=8" defer></script>
+<script src="dist/lobby-live.min.js?v=9" defer></script>
 <script src="dist/lobby-chat.min.js?v=4" defer></script>
 <script type="module" src="dist/auth-ui.min.js?v=4"></script>
 <script src="dist/toast.min.js?v=2"></script>
@@ -296,7 +296,7 @@
   // Service Worker — offline + cache stale-while-revalidate
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=40').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=41').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>

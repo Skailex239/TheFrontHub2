@@ -1,23 +1,28 @@
 /**
- * lobby-live.js — v5.22 — Alertes du lobby TheFrontHub.
+ * lobby-live.js — v5.28 — Alertes du lobby TheFrontHub.
  *
  * Module compagnon de lobby.js (qui publie l'event window « tfh:lobby:update »
  * à chaque snapshot/counts). v5.21 : le bandeau ne garde que l'essentiel
- * (alertes + suivi « ma partie »). v5.22 — FILTRE D'ALERTE COMPLET (demande
- * du propriétaire, inspiré du filtre de lobby d'OpenFront) :
+ * (alertes + suivi « ma partie »). v5.22 : filtre d'alerte + cartes.
+ * v5.28 — FILTRE OFFICIEL OPENFRONT (reprend 1:1 le DetailedGameViewFilters
+ * du dépôt openfrontio/OpenFrontIO, cf. capture du proprio) :
  *
  *   1. Alertes (bell)        → notification navigateur + son WebAudio quand
  *                              une partie correspondant AUX FILTRES s'ouvre
- *                              (ou atteint le seuil « joueurs min. »), ou
+ *                              (ou atteint « joueurs présents min »), ou
  *                              quand un lobby surveillé devient pleine.
- *                              FILTRES : mode (toutes/ffa/team/spécial),
- *                              joueurs min., format (tous/compact/normal),
- *                              classé (tous/non classé/1v1/2v2) et SÉLECTION
- *                              DE CARTES multiple (132 cartes, avec recherche,
- *                              vignettes, « toutes/aucune »).
+ *                              FILTRES (multi-sélections, vide = tout) :
+ *                              • TYPE DE SALON   : FFA / Équipes / HvN
+ *                              • SOURCE          : Public / Hébergé
+ *                              • JOUEURS PAR ÉQ. : Duos / Trios / Quatuors
+ *                              • NOMBRE D'ÉQUIPES: 2..8
+ *                              • bornes min/max  : joueurs présents,
+ *                                capacité, taille de l'équipe
+ *                              • Masquer les salons vides + Réinitialiser
+ *                              • PROFILS sauvegardés (max 20, comme OF)
+ *                              • sélection de CARTES (atlas, vignettes ?v=2)
  *                              v5.20.1 anti-spam conservé : regroupement +
- *                              1 alerte « nouvelles parties » max par minute,
- *                              une partie ne sonne jamais deux fois.
+ *                              1 alerte « nouvelles parties » max par minute.
  *   2. Suivi « ma partie »   → clic sur une carte = tu lances la partie ;
  *                              dès que le flux voit qu'elle démarre, le chat
  *                              de la partie s'ouvre (lobby-chat.js).
@@ -34,8 +39,12 @@
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
   /* ── Constantes ──────────────────────────────────────────────────────── */
-  const LS_ALERTS = "tfh_lobby_alerts_v2";      // v5.22 : filtres étendus
-  const LS_ALERTS_V1 = "tfh_lobby_alerts_v1";   // migration depuis l'ancien format
+  const LS_ALERTS = "tfh_lobby_alerts_v3";      // v5.28 : filtre officiel OpenFront
+  const LS_ALERTS_V2 = "tfh_lobby_alerts_v2";   // migration depuis l'ancien format
+  const LS_ALERTS_V1 = "tfh_lobby_alerts_v1";   // (rétro-compat)
+  const LS_PROFILES = "tfh_lobby_alert_profiles_v1"; // v5.28 : profils de filtres
+  const MAX_PROFILES = 20;               // comme OpenFront (DetailedGameViewFilters)
+  const MAX_PROFILE_NAME = 32;
   const LS_WATCH  = "tfh_lobby_watch_v1";
   const LS_MINE   = "tfh_lobby_mine_v1";      // parties que JE lance (chat auto)
   const WATCH_TTL       = 3 * 3600_000;       // une surveillance expire après 3 h
@@ -57,17 +66,41 @@
   };
   const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* quota */ } };
 
-  // v5.22 — migration douce depuis tfh_lobby_alerts_v1 (enabled/mode/minPlayers)
+  // v5.28 — modèle de filtres OFFICIEL OpenFront (DetailedGameViewFilters.ts) :
+  // tableaux vides = aucune restriction ; bornes null = aucune restriction.
+  const DEFAULT_FILTERS = {
+    enabled: false, maps: [],
+    modes: [],        // "ffa" | "teams" | "hvn"
+    sources: [],      // "public" | "hosted"
+    teamConfigs: [],  // "Duos" | "Trios" | "Quads" | "2".."8" (valeurs officielles)
+    hideEmpty: false,
+    minJoined: null, maxJoined: null,
+    minCapacity: null, maxCapacity: null,
+    minTeamSize: null, maxTeamSize: null,
+  };
+
+  // Migration douce : v1/v2 (enabled/mode/minPlayers/maps/compact/ranked) → v3
   let _alertStore = load(LS_ALERTS, null);
   if (!_alertStore) {
-    const v1 = load(LS_ALERTS_V1, null);
-    if (v1 && typeof v1 === "object") _alertStore = Object.assign({}, v1);
+    const v2 = load(LS_ALERTS_V2, null) || load(LS_ALERTS_V1, null);
+    if (v2 && typeof v2 === "object") _alertStore = v2;
   }
-  const settings = Object.assign(
-    { enabled: false, mode: "all", minPlayers: 0, maps: [], compact: "any", ranked: "any" },
-    _alertStore || {}
-  );
+  const settings = Object.assign({}, DEFAULT_FILTERS, _alertStore || {});
+  if (_alertStore) {
+    if ((!Array.isArray(settings.modes) || !settings.modes.length) && settings.mode === "ffa") settings.modes = ["ffa"];
+    if ((!Array.isArray(settings.modes) || !settings.modes.length) && settings.mode === "team") settings.modes = ["teams", "hvn"];
+    if (settings.minJoined == null && Number(settings.minPlayers) > 0) settings.minJoined = Math.round(Number(settings.minPlayers));
+  }
+  delete settings.mode; delete settings.minPlayers; delete settings.compact; delete settings.ranked; // clés v1/v2
   if (!Array.isArray(settings.maps)) settings.maps = [];
+  for (const k of ["modes", "sources", "teamConfigs"]) if (!Array.isArray(settings[k])) settings[k] = [];
+  for (const k of ["minJoined", "maxJoined", "minCapacity", "maxCapacity", "minTeamSize", "maxTeamSize"]) {
+    // NB : Number(null) === 0 → test explicite de null/"" avant conversion
+    const v = settings[k];
+    if (v == null || v === "") { settings[k] = null; continue; }
+    const n = Number(v);
+    settings[k] = Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+  }
   let watch   = load(LS_WATCH, {});       // { gameId: { map, mode, addedAt, lastSeen } }
   for (const w of Object.values(watch)) w.armedAt = 0; // ré-armé par session (anti re-bip au rechargement)
   let mine    = load(LS_MINE, {});        // { gameId: { map, addedAt, lastSeen } }
@@ -145,42 +178,81 @@
       : "";
   }
 
-  /** La partie est-elle au format « Compact » ? (modificateur ou taille de map) */
-  function isCompactGame(g) {
-    const cfg = g.gameConfig || {};
-    return !!(cfg.publicGameModifiers && cfg.publicGameModifiers.isCompact) ||
-      cfg.gameMapSize === "Compact";
+  /* ── v5.28 — FAITS + FILTRE OFFICIEL (port de DetailedGameViewFilters.ts) ── */
+
+  /** Format d'équipe nommé → taille (constantes officielles OpenFront). */
+  const NAMED_TEAM_SIZES = { duos: 2, trios: 3, quads: 4, quatuors: 4 };
+  const NAMED_TEAM_CONFIG = { duos: "Duos", trios: "Trios", quads: "Quads", quatuors: "Quads" };
+
+  /** Valeurs officielles Game.ts : GameMode.FFA = "Free For All", Team = "Team",
+   *  HumansVsNations = "Humans Vs Nations". */
+  function isHvNValue(v) {
+    return typeof v === "string" && v.trim().toLowerCase() === "humans vs nations";
   }
 
-  /** Une partie passe-t-elle TOUS les filtres d'alerte (mode, joueurs min.,
-   *  format compact, classé, cartes sélectionnées) ? */
-  function matchesFilters(g) {
+  /** Chaque dérivable d'un lobby pour filtrer/afficher (cf. lobbyFacts officiel). */
+  function lobbyFacts(g) {
     const cfg = g.gameConfig || {};
-    if (settings.minPlayers > 0 && (Number(g.numClients) || 0) < settings.minPlayers) return false;
-    // Mode (toutes / ffa / team / spécial / classé)
-    if (settings.mode === "ranked") {
-      if (!cfg.rankedType) return false;
-    } else if (settings.mode !== "all") {
-      const bucket = g.publicGameType === "special" ? "special" : (isTeam(g) ? "team" : "ffa");
-      if (settings.mode !== bucket) return false;
+    const capacity = Number(cfg.maxPlayers) > 0 ? Number(cfg.maxPlayers) : null;
+    const joined = Number(g.numClients) || 0;
+    const source = g.publicGameType === "hosted" ? "hosted" : "public";
+    const pt = cfg.playerTeams;
+    const teamMode = cfg.gameMode === "Team" || g.__tfhBucket === "team";
+
+    if (!teamMode) {
+      return { mode: "ffa", source, joined, capacity, teamConfig: null, teamCount: null, teamSize: null };
     }
-    // Classé : indépendant du mode (non classé / 1v1 / 2v2)
-    if (settings.ranked === "unranked" && cfg.rankedType) return false;
-    if (settings.ranked === "1v1" && cfg.rankedType !== "1v1") return false;
-    if (settings.ranked === "2v2" && cfg.rankedType !== "2v2") return false;
-    // Format
-    const compact = isCompactGame(g);
-    if (settings.compact === "only" && !compact) return false;
-    if (settings.compact === "none" && compact) return false;
-    // Cartes (sélection multiple — vide = toutes)
-    const sel = Array.isArray(settings.maps) ? settings.maps : [];
-    if (sel.length && !sel.includes(mapSlugOf(cfg.gameMap))) return false;
+    if (isHvNValue(pt)) {
+      return { mode: "hvn", source, joined, capacity, teamConfig: null, teamCount: null, teamSize: null };
+    }
+    if (typeof pt === "number" && pt > 0) {
+      return {
+        mode: "teams", source, joined, capacity,
+        teamConfig: String(pt), teamCount: pt,
+        teamSize: capacity !== null ? Math.floor(capacity / pt) : null,
+      };
+    }
+    if (typeof pt === "string") {
+      const key = pt.trim().toLowerCase();
+      const size = NAMED_TEAM_SIZES[key];
+      if (size !== undefined) {
+        return {
+          mode: "teams", source, joined, capacity,
+          teamConfig: NAMED_TEAM_CONFIG[key], teamSize: size,
+          teamCount: capacity !== null ? Math.floor(capacity / size) : null,
+        };
+      }
+    }
+    return { mode: "teams", source, joined, capacity, teamConfig: null, teamCount: null, teamSize: null };
+  }
+
+  /** Une borne active exclut les lobbies qui n'affichent pas la valeur
+   *  (comportement officiel : pas de passe-droite silencieux). */
+  function withinRange(value, min, max) {
+    if (min == null && max == null) return true;
+    if (value == null) return false;
+    if (min != null && value < min) return false;
+    if (max != null && value > max) return false;
     return true;
   }
 
-  function isTeam(g) {
-    // catégorie portée par le tableau source : ffa | team | special
-    return g.__tfhBucket === "team";
+  /** Une partie passe-t-elle TOUS les filtres (modèle officiel + cartes) ? */
+  function matchesFilters(g) {
+    const facts = lobbyFacts(g);
+    if (settings.modes.length > 0 && !settings.modes.includes(facts.mode)) return false;
+    if (settings.sources.length > 0 && !settings.sources.includes(facts.source)) return false;
+    if (settings.teamConfigs.length > 0) {
+      if (facts.teamConfig === null) return false;
+      if (!settings.teamConfigs.includes(facts.teamConfig)) return false;
+    }
+    if (settings.hideEmpty && facts.joined === 0) return false;
+    if (!withinRange(facts.joined, settings.minJoined, settings.maxJoined)) return false;
+    if (!withinRange(facts.capacity, settings.minCapacity, settings.maxCapacity)) return false;
+    if (!withinRange(facts.teamSize, settings.minTeamSize, settings.maxTeamSize)) return false;
+    // Cartes (sélection multiple — vide = toutes)
+    const sel = Array.isArray(settings.maps) ? settings.maps : [];
+    if (sel.length && !sel.includes(mapSlugOf((g.gameConfig || {}).gameMap))) return false;
+    return true;
   }
 
   function annotateBuckets(games) {
@@ -359,7 +431,8 @@
       seenIds = new Set(allGames(games).map((g) => String(g.gameID || g.id)));
       for (const k of lastCounts.keys()) if (!seenIds.has(k)) lastCounts.delete(k);
     }
-    const wantMin = Math.max(0, Math.round(Number(settings.minPlayers) || 0));
+    // v5.28 : seuil « joueurs présents min » du filtre officiel (bornes min/max)
+    const wantMin = Math.max(0, Math.round(Number(settings.minJoined) || 0));
     for (const g of allGames(games)) {
       const id = String(g.gameID || g.id);
       const n = Number(g.numClients) || 0;
@@ -427,38 +500,84 @@
             🔊 ${esc(T("lobby.alert_test", "Test"))}
           </button>
         </div>
-        <div class="llive-panel-row">
-          <label>
-            <span>${esc(T("lobby.alert_mode", "Mode"))}</span>
-            <select data-role="ll-mode">
-              <option value="all">${esc(T("lobby.filter_all", "Toutes"))}</option>
-              <option value="ffa">${esc(T("lobby.filter_ffa", "FFA"))}</option>
-              <option value="team">${esc(T("lobby.filter_team", "Team"))}</option>
-              <option value="special">${esc(T("lobby.filter_special", "Spécial"))}</option>
-              <option value="ranked">${esc(T("lobby.ranked_short", "Classé"))}</option>
-            </select>
-          </label>
-          <label>
-            <span>${esc(T("lobby.alert_min", "Joueurs min."))}</span>
-            <input type="number" min="0" max="60" data-role="ll-min">
-          </label>
-          <label>
-            <span>${esc(T("lobby.alert_compact", "Format"))}</span>
-            <select data-role="ll-compact">
-              <option value="any">${esc(T("lobby.alert_compact_any", "Tous"))}</option>
-              <option value="only">${esc(T("lobby.alert_compact_only", "Compact"))}</option>
-              <option value="none">${esc(T("lobby.alert_compact_none", "Normal"))}</option>
-            </select>
-          </label>
-          <label>
-            <span>${esc(T("lobby.alert_ranked", "Classé"))}</span>
-            <select data-role="ll-ranked">
-              <option value="any">${esc(T("lobby.alert_compact_any", "Tous"))}</option>
-              <option value="unranked">${esc(T("lobby.alert_ranked_no", "Non classé"))}</option>
-              <option value="1v1">1v1</option>
-              <option value="2v2">2v2</option>
-            </select>
-          </label>
+        <!-- v5.28 — filtre OFFICIEL OpenFront (cf. DetailedGameViewModal) -->
+        <div class="llive-filters">
+          <div class="llive-frow">
+            <fieldset class="llive-field">
+              <legend>${esc(T("lobby.f_room_type", "Type de salon"))}</legend>
+              <div class="llive-chips" data-role="ll-modes" role="group"
+                   aria-label="${esc(T("lobby.f_room_type", "Type de salon"))}">
+                <button type="button" data-v="ffa" aria-pressed="false">${esc(T("lobby.f_ffa", "Chacun pour soi"))}</button>
+                <button type="button" data-v="teams" aria-pressed="false">${esc(T("lobby.f_teams", "Équipes"))}</button>
+                <button type="button" data-v="hvn" aria-pressed="false">${esc(T("lobby.f_hvn", "Humains vs Nations"))}</button>
+              </div>
+            </fieldset>
+            <fieldset class="llive-field">
+              <legend>${esc(T("lobby.f_source", "Source"))}</legend>
+              <div class="llive-chips" data-role="ll-sources" role="group"
+                   aria-label="${esc(T("lobby.f_source", "Source"))}">
+                <button type="button" data-v="public" aria-pressed="false">${esc(T("lobby.f_public", "Public"))}</button>
+                <button type="button" data-v="hosted" aria-pressed="false">${esc(T("lobby.f_hosted", "Hébergé"))}</button>
+              </div>
+            </fieldset>
+          </div>
+          <div class="llive-frow">
+            <fieldset class="llive-field">
+              <legend>${esc(T("lobby.f_players_per_team", "Joueurs par équipe"))}</legend>
+              <div class="llive-chips" data-role="ll-named" role="group"
+                   aria-label="${esc(T("lobby.f_players_per_team", "Joueurs par équipe"))}">
+                <button type="button" data-v="Duos" aria-pressed="false">${esc(T("lobby.f_duos", "Duos"))}</button>
+                <button type="button" data-v="Trios" aria-pressed="false">${esc(T("lobby.f_trios", "Trios"))}</button>
+                <button type="button" data-v="Quads" aria-pressed="false">${esc(T("lobby.f_quads", "Quatuors"))}</button>
+              </div>
+            </fieldset>
+            <fieldset class="llive-field">
+              <legend>${esc(T("lobby.f_team_count", "Nombre d'équipes"))}</legend>
+              <div class="llive-chips llive-chips-num" data-role="ll-counts" role="group"
+                   aria-label="${esc(T("lobby.f_team_count", "Nombre d'équipes"))}">
+                ${[2,3,4,5,6,7,8].map((n) => `<button type="button" data-v="${n}" aria-pressed="false">${n}</button>`).join("")}
+              </div>
+            </fieldset>
+          </div>
+          <div class="llive-frow llive-frow-ranges">
+            <fieldset class="llive-field">
+              <legend>${esc(T("lobby.f_joined", "Joueurs présents"))}</legend>
+              <div class="llive-range">
+                <input type="number" min="0" max="300" inputmode="numeric" placeholder="${esc(T("lobby.f_min", "Min"))}"
+                       data-role="ll-min-joined" aria-label="${esc(T("lobby.f_joined_min_aria", "Joueurs présents minimum"))}">
+                <span aria-hidden="true">–</span>
+                <input type="number" min="0" max="300" inputmode="numeric" placeholder="${esc(T("lobby.f_max", "Max"))}"
+                       data-role="ll-max-joined" aria-label="${esc(T("lobby.f_joined_max_aria", "Joueurs présents maximum"))}">
+              </div>
+            </fieldset>
+            <fieldset class="llive-field">
+              <legend>${esc(T("lobby.f_capacity", "Capacité"))}</legend>
+              <div class="llive-range">
+                <input type="number" min="0" max="300" inputmode="numeric" placeholder="${esc(T("lobby.f_min", "Min"))}"
+                       data-role="ll-min-capacity" aria-label="${esc(T("lobby.f_capacity_min_aria", "Capacité minimum"))}">
+                <span aria-hidden="true">–</span>
+                <input type="number" min="0" max="300" inputmode="numeric" placeholder="${esc(T("lobby.f_max", "Max"))}"
+                       data-role="ll-max-capacity" aria-label="${esc(T("lobby.f_capacity_max_aria", "Capacité maximum"))}">
+              </div>
+            </fieldset>
+            <fieldset class="llive-field">
+              <legend>${esc(T("lobby.f_team_size", "Taille de l'équipe"))}</legend>
+              <div class="llive-range">
+                <input type="number" min="0" max="100" inputmode="numeric" placeholder="${esc(T("lobby.f_min", "Min"))}"
+                       data-role="ll-min-teamsize" aria-label="${esc(T("lobby.f_team_size_min_aria", "Taille d'équipe minimum"))}">
+                <span aria-hidden="true">–</span>
+                <input type="number" min="0" max="100" inputmode="numeric" placeholder="${esc(T("lobby.f_max", "Max"))}"
+                       data-role="ll-max-teamsize" aria-label="${esc(T("lobby.f_team_size_max_aria", "Taille d'équipe maximum"))}">
+              </div>
+            </fieldset>
+          </div>
+          <div class="llive-frow llive-frow-tail">
+            <label class="llive-check">
+              <input type="checkbox" data-role="ll-hideempty">
+              <span>${esc(T("lobby.f_hide_empty", "Masquer les salons vides"))}</span>
+            </label>
+            <button type="button" class="llive-reset" data-role="ll-reset">${esc(T("lobby.f_reset", "Réinitialiser"))}</button>
+          </div>
         </div>
         <div class="llive-maps">
           <div class="llive-maps-head">
@@ -479,6 +598,15 @@
                  aria-label="${esc(T("lobby.alert_maps", "Cartes à surveiller"))}"></div>
           </div>
         </div>
+        <div class="llive-profiles">
+          <span class="llive-maps-label">${esc(T("lobby.f_profiles", "Profils"))}</span>
+          <select data-role="ll-prof-select" aria-label="${esc(T("lobby.f_profiles", "Profils"))}"></select>
+          <input type="text" maxlength="32" data-role="ll-prof-name"
+                 placeholder="${esc(T("lobby.f_profile_name", "Nom du profil"))}"
+                 aria-label="${esc(T("lobby.f_profile_name", "Nom du profil"))}">
+          <button type="button" class="llive-prof-btn" data-role="ll-prof-save">${esc(T("lobby.f_profile_save", "Sauvegarder"))}</button>
+          <button type="button" class="llive-prof-btn" data-role="ll-prof-del">${esc(T("lobby.f_profile_delete", "Supprimer"))}</button>
+        </div>
         <p class="llive-panel-hint">${esc(T("lobby.alert_hint", "Prévenu quand une partie correspondante s'ouvre (ou atteint le seuil de joueurs) — regroupé : 1 alerte max par minute. Garde cet onglet ouvert."))}</p>
         <div class="llive-watch-list" data-role="ll-watch"></div>
       </div>`;
@@ -491,10 +619,27 @@
       panel:     strip.querySelector("[data-role=ll-panel]"),
       enabled:   strip.querySelector("[data-role=ll-enabled]"),
       test:      strip.querySelector("[data-role=ll-test]"),
-      mode:      strip.querySelector("[data-role=ll-mode]"),
-      min:       strip.querySelector("[data-role=ll-min]"),
-      compact:   strip.querySelector("[data-role=ll-compact]"),
-      ranked:    strip.querySelector("[data-role=ll-ranked]"),
+      // v5.28 — filtre officiel : groupes de chips + bornes min/max
+      chips: {
+        modes:       strip.querySelector("[data-role=ll-modes]"),
+        sources:     strip.querySelector("[data-role=ll-sources]"),
+        named:       strip.querySelector("[data-role=ll-named]"),
+        counts:      strip.querySelector("[data-role=ll-counts]"),
+      },
+      ranges: {
+        minJoined:   strip.querySelector("[data-role=ll-min-joined]"),
+        maxJoined:   strip.querySelector("[data-role=ll-max-joined]"),
+        minCapacity: strip.querySelector("[data-role=ll-min-capacity]"),
+        maxCapacity: strip.querySelector("[data-role=ll-max-capacity]"),
+        minTeamSize: strip.querySelector("[data-role=ll-min-teamsize]"),
+        maxTeamSize: strip.querySelector("[data-role=ll-max-teamsize]"),
+      },
+      hideEmpty: strip.querySelector("[data-role=ll-hideempty]"),
+      reset:     strip.querySelector("[data-role=ll-reset]"),
+      profSelect: strip.querySelector("[data-role=ll-prof-select]"),
+      profName:   strip.querySelector("[data-role=ll-prof-name]"),
+      profSave:   strip.querySelector("[data-role=ll-prof-save]"),
+      profDel:    strip.querySelector("[data-role=ll-prof-del]"),
       mapsHead:  strip.querySelector("[data-role=ll-maps-summary]").parentNode,
       mapsSummary: strip.querySelector("[data-role=ll-maps-summary]"),
       mapsToggle:  strip.querySelector("[data-role=ll-maps-toggle]"),
@@ -508,10 +653,8 @@
 
     // État initial des contrôles
     els.enabled.checked = !!settings.enabled;
-    els.mode.value = settings.mode || "all";
-    els.min.value = String(settings.minPlayers || 0);
-    els.compact.value = settings.compact || "any";
-    els.ranked.value = settings.ranked || "any";
+    syncFilterUI();
+    refreshProfilesUI();
     updateMapsSummary();
 
     // ── Interactions ──
@@ -541,24 +684,82 @@
       }
       renderBell();
     });
-    els.mode.addEventListener("change", () => {
-      settings.mode = els.mode.value;
+    // v5.28 — interactions du filtre officiel : chips multi-sélection,
+    // bornes min/max, « masquer les salons vides », réinitialisation, profils.
+    const CHIP_KEYS = { modes: "modes", sources: "sources", named: "teamConfigs", counts: "teamConfigs" };
+    for (const [role, key] of Object.entries(CHIP_KEYS)) {
+      const box = els.chips[role];
+      if (!box) continue;
+      box.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-v]");
+        if (!btn) return;
+        const v = btn.dataset.v;
+        const arr = new Set(settings[key]);
+        if (arr.has(v)) arr.delete(v); else arr.add(v);
+        settings[key] = [...arr];
+        save(LS_ALERTS, settings);
+        syncFilterUI();
+      });
+    }
+    for (const [key, input] of Object.entries(els.ranges)) {
+      if (!input) continue;
+      input.addEventListener("change", () => {
+        const raw = String(input.value).trim();
+        if (raw === "") { settings[key] = null; }
+        else {
+          const n = Math.floor(Number(raw));
+          settings[key] = Number.isFinite(n) && n >= 0 ? n : null;
+        }
+        input.value = settings[key] == null ? "" : String(settings[key]);
+        save(LS_ALERTS, settings);
+      });
+    }
+    els.hideEmpty.addEventListener("change", () => {
+      settings.hideEmpty = els.hideEmpty.checked;
       save(LS_ALERTS, settings);
     });
-    els.min.addEventListener("change", () => {
-      const v = Math.max(0, Math.min(60, Math.round(Number(els.min.value) || 0)));
-      els.min.value = String(v);
-      settings.minPlayers = v;
+    els.reset.addEventListener("click", () => {
+      // Réinitialise les FILTRES (l'état des alertes enabled est conservé)
+      const keepEnabled = settings.enabled;
+      Object.assign(settings, JSON.parse(JSON.stringify(DEFAULT_FILTERS)), { enabled: keepEnabled });
       save(LS_ALERTS, settings);
+      syncFilterUI();
+      updateMapsSummary();
+      window.showToast?.(T("lobby.f_reset_toast", "Filtres réinitialisés"), "info", 2500);
     });
-    // v5.22 — filtres étendus
-    els.compact.addEventListener("change", () => {
-      settings.compact = els.compact.value;
+    els.profSelect.addEventListener("change", () => {
+      const name = els.profSelect.value;
+      if (!name) return;
+      const profiles = loadProfiles();
+      if (!Object.prototype.hasOwnProperty.call(profiles, name)) return;
+      const f = normalizeFilters(profiles[name]);
+      const keepEnabled = settings.enabled; // les profils filtrent, l'alarme reste telle quelle
+      Object.assign(settings, f, { enabled: keepEnabled });
       save(LS_ALERTS, settings);
+      syncFilterUI();
+      updateMapsSummary();
+      window.showToast?.(T("lobby.f_profile_applied", `Profil « ${name} » appliqué`, { name }), "success", 3000);
     });
-    els.ranked.addEventListener("change", () => {
-      settings.ranked = els.ranked.value;
-      save(LS_ALERTS, settings);
+    els.profSave.addEventListener("click", () => {
+      const stored = saveProfile(els.profName.value, settings);
+      if (!stored) {
+        window.showToast?.(T("lobby.f_profile_bad_name", "Donne un nom au profil (max 20 profils)"), "error", 3500);
+        return;
+      }
+      els.profName.value = "";
+      refreshProfilesUI(stored);
+      window.showToast?.(T("lobby.f_profile_saved", `Profil « ${stored} » sauvegardé`, { name: stored }), "success", 3000);
+    });
+    els.profDel.addEventListener("click", () => {
+      const name = els.profSelect.value;
+      if (!name) {
+        window.showToast?.(T("lobby.f_profile_none_selected", "Aucun profil sélectionné"), "info", 2500);
+        return;
+      }
+      if (deleteProfile(name)) {
+        refreshProfilesUI("");
+        window.showToast?.(T("lobby.f_profile_deleted", `Profil « ${name} » supprimé`, { name }), "info", 3000);
+      }
     });
     els.test.addEventListener("click", () => {
       ensureAudio(); // geste utilisateur : débloque l'audio
@@ -602,6 +803,109 @@
 
     renderBell();
     renderWatchList();
+  }
+
+  /* ── v5.28 — synchro UI + profils de filtres (cf. DetailedGameViewFilters) ── */
+
+  /** Répercute `settings` sur tous les contrôles du panneau (chips, bornes,
+   *  cases). Les groupes vides = aucune restriction (rien d'enfoncé). */
+  function syncFilterUI() {
+    if (!els.panel) return;
+    for (const box of Object.values(els.chips)) {
+      if (!box) continue;
+      const key = box === els.chips.modes ? "modes"
+        : box === els.chips.sources ? "sources" : "teamConfigs";
+      const arr = Array.isArray(settings[key]) ? settings[key] : [];
+      box.querySelectorAll("button[data-v]").forEach((btn) => {
+        const on = arr.includes(btn.dataset.v);
+        btn.setAttribute("aria-pressed", String(on));
+        btn.classList.toggle("is-on", on);
+      });
+    }
+    for (const [key, input] of Object.entries(els.ranges)) {
+      if (input) input.value = settings[key] == null ? "" : String(settings[key]);
+    }
+    if (els.hideEmpty) els.hideEmpty.checked = settings.hideEmpty === true;
+  }
+
+  const TEAM_CONFIG_ALLOWED = ["Duos", "Trios", "Quads", "2", "3", "4", "5", "6", "7", "8"];
+
+  /** Coerce une entrée non fiable (localStorage, anciens builds) en filtre
+   *  utilisable — port du normalizeFilters officiel. */
+  function normalizeFilters(raw) {
+    const f = JSON.parse(JSON.stringify(DEFAULT_FILTERS));
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return f;
+    const arr = (v, allowed) => (Array.isArray(v)
+      ? [...new Set(v.filter((x) => typeof x === "string" && allowed.includes(x)))] : []);
+    f.modes = arr(raw.modes, ["ffa", "teams", "hvn"]);
+    f.sources = arr(raw.sources, ["public", "hosted"]);
+    f.teamConfigs = arr(raw.teamConfigs, TEAM_CONFIG_ALLOWED);
+    f.hideEmpty = raw.hideEmpty === true;
+    for (const k of ["minJoined", "maxJoined", "minCapacity", "maxCapacity", "minTeamSize", "maxTeamSize"]) {
+      const v = raw[k];
+      if (v == null || v === "") { f[k] = null; continue; }
+      const n = Number(v);
+      f[k] = Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+    }
+    f.maps = Array.isArray(raw.maps) ? raw.maps.filter((x) => typeof x === "string").slice(0, 500) : [];
+    return f;
+  }
+
+  /** Profils : enregistrement SANS prototype (noms arbitraires sûrs), comme
+   *  l'officiel — `profiles["__proto__"]` ne peut pas polluer. */
+  function emptyProfiles() { return Object.create(null); }
+
+  function hasProfile(profiles, name) {
+    return Object.prototype.hasOwnProperty.call(profiles, name);
+  }
+
+  function loadProfiles() {
+    const raw = load(LS_PROFILES, null);
+    const profiles = emptyProfiles();
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return profiles;
+    for (const [name, val] of Object.entries(raw)) {
+      if (hasProfile(raw, name) && val && typeof val === "object") {
+        profiles[name] = normalizeFilters(val);
+      }
+    }
+    return profiles;
+  }
+
+  function persistProfiles(profiles) { save(LS_PROFILES, profiles); }
+
+  /** Sauvegarde (ou écrase) un profil. Retourne le nom stocké ou null. */
+  function saveProfile(name, filters) {
+    const trimmed = String(name || "").trim().slice(0, MAX_PROFILE_NAME);
+    if (!trimmed) return null;
+    const profiles = loadProfiles();
+    if (!hasProfile(profiles, trimmed) && Object.keys(profiles).length >= MAX_PROFILES) return null;
+    const f = normalizeFilters(filters);
+    delete f.enabled; // un profil = des filtres, pas l'état de l'alarme
+    profiles[trimmed] = f;
+    persistProfiles(profiles);
+    return trimmed;
+  }
+
+  function deleteProfile(name) {
+    const profiles = loadProfiles();
+    if (!hasProfile(profiles, name)) return false;
+    delete profiles[name];
+    persistProfiles(profiles);
+    return true;
+  }
+
+  /** Reconstruit le <select> des profils ; sélectionne `selectedName` (ou rien). */
+  function refreshProfilesUI(selectedName) {
+    if (!els.profSelect) return;
+    const profiles = loadProfiles();
+    const names = Object.keys(profiles).sort((a, b) => a.localeCompare(b, "fr"));
+    const current = selectedName !== undefined
+      ? selectedName
+      : (names.includes(els.profSelect.value) ? els.profSelect.value : "");
+    els.profSelect.innerHTML =
+      `<option value="">${esc(T("lobby.f_profile_none", "Aucun profil"))}</option>` +
+      names.map((n) => `<option value="${esc(n)}"${n === current ? " selected" : ""}>${esc(n)}</option>`).join("");
+    els.profDel.disabled = !current;
   }
 
   function renderBell() {
@@ -701,7 +1005,7 @@
         <label class="llive-map-item${sel.has(m.slug) ? " is-on" : ""}">
           <input type="checkbox" value="${esc(m.slug)}"${sel.has(m.slug) ? " checked" : ""}>
           <img class="llive-map-thumb" alt="" loading="lazy" draggable="false"
-               src="atlas-data/thumbnails/${esc(m.slug)}.webp"
+               src="atlas-data/thumbnails/${esc(m.slug)}.webp?v=2"
                onerror="this.style.visibility='hidden'">
           <span class="llive-map-name">${esc(m.name)}</span>
         </label>`).join("")
