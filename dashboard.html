@@ -27,8 +27,8 @@
 
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=94" as="style">
-<link rel="preload" href="dashboard.css?v=24" as="style">
-<link rel="preload" href="dist/dashboard.min.js?v=26" as="script" crossorigin>
+<link rel="preload" href="dashboard.css?v=25" as="style">
+<link rel="preload" href="dist/dashboard.min.js?v=31" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=10" as="script" crossorigin>
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
@@ -41,7 +41,10 @@
 <link rel="stylesheet" href="auth.css?v=21">
 <link rel="stylesheet" href="toast.css">
 <link rel="stylesheet" href="animations.css?v=6">
-<link rel="stylesheet" href="dashboard.css?v=24">
+<link rel="stylesheet" href="dashboard.css?v=25">
+<!-- v5.25 — gate « tout d'un coup » : sans JS, le dashboard doit quand même
+     s'afficher (le rideau dash-booting n'a de sens qu'avec le JS qui le lève). -->
+<noscript><style>#dashboard-view.dash-booting{opacity:1!important;pointer-events:auto!important}</style></noscript>
 <style>.skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}</style>
 <script type="module" src="dist/icons.min.js?v=10"></script>
 <link rel="stylesheet" href="ads.css?v=2">
@@ -202,8 +205,13 @@
       </div>
     </header>
 
-    <!-- Zone de rendu du tableau de bord -->
-    <section class="dash-view" id="dashboard-view">
+    <!-- Zone de rendu du tableau de bord.
+         v5.25 — dash-booting : le dashboard reste invisible (opacity 0, layout
+         conservé) tant que données + cosmétiques ne sont pas prêts, puis
+         s'affiche D'UN COUP, décoré, sans aucune animation. Rideau levé par
+         dashboard.js (1ᵉʳ rendu complet ou 3 s) + filet inline à 3,5 s +
+         <noscript> ci-dessus. -->
+    <section class="dash-view dash-booting" id="dashboard-view">
       <!-- TFH:RANKED_PREVIEW:START -->
       <!-- Aperçu PRÉ-GÉNÉRÉ par scripts/gen-ranked-preview.js (ne pas éditer à la main).
            Remplacé par le classement live dès que dashboard_scores.json.gz + l'API sont chargés.
@@ -2760,15 +2768,22 @@
 
 <script type="module" src="banners.js?v=4"></script>
 <script src="verified.js?v=1"></script>
-<script type="module" src="dist/dashboard.min.js?v=26"></script>
+<script type="module" src="dist/dashboard.min.js?v=31"></script>
 <script src="dist/toast.min.js?v=2"></script>
 <script src="dist/lenis.min.js?v=7"></script>
 <script src="dist/animations.min.js?v=2"></script>
 <script type="module" src="dist/tutorial.min.js?v=7"></script>
 <script>
+  // v5.25 — filet de sécurité INDÉPENDANT de dashboard.js : même si le bundle
+  // échoue à charger/éxécuter, le dashboard s'affiche au bout de 3,5 s max
+  // (comportement dégradé = l'aperçu statique brut, comme avant le gate).
+  setTimeout(function () {
+    var v = document.getElementById('dashboard-view');
+    if (v) v.classList.remove('dash-booting');
+  }, 3500);
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=36').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=37').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>

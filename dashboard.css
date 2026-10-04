@@ -370,6 +370,34 @@
 .dash-view.no-anim .dash-panel.reveal,
 .dash-view.no-anim .dash-panel-header.reveal { opacity: 1; transform: none; }
 
+/* ═══ v5.25 — gate « tout d'un coup » ═══
+ * Le dashboard démarre INVISIBLE (classe .dash-booting posée dans le HTML) :
+ * tant que les données + cosmétiques (pseudos hub, badge vérifié, skins,
+ * bannières) ne sont pas prêts, RIEN n'est montré — donc aucune cascade
+ * « pseudos puis badges puis skins puis bannières ». À la levée du rideau
+ * (dashboard.js au 1ᵉʳ rendu complet, filets de sécurité 3 s JS / 3,5 s
+ * inline / <noscript>) : UNE peinture complète, sans transition (pas de
+ * fondu — l'apparition doit être instantanée) et sans décalage de layout
+ * (opacity, PAS display:none → la hauteur de page ne saute pas). */
+#dashboard-view.dash-booting {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* L'aperçu statique est une PHOTO du classement : ses lignes ne rejouent
+ * PAS l'animation dash-row-in (décalages 0,02 s→0,10 s = cascade visible à
+ * chaque refresh avant même que le JS ne décore) et ses panneaux ne font
+ * pas de fondu reveal (animations.js leur ajoute .reveal au boot). */
+.dash-static-preview .dash-row { animation: none !important; }
+.dash-static-preview .dash-panel,
+.dash-static-preview .dash-panel-header,
+.dash-static-preview .reveal {
+  transition: none !important;
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+}
+
 /* ── Podium (rangs 1-3) : accent gauche orange ── */
 .dash-row-podium {
   padding-left: 14px;
