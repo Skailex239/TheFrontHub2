@@ -303,7 +303,10 @@ function showToast(msg, type = "info", duration = 4000) {
 /** Charge ranked.json (ranked wins carrière pour top 100 1v1 + 2v2). */
 async function loadRankedJson() {
   try {
-    const res = await fetch("ranked.json", { cache: "no-store" });
+    /* v5.27 — sans cache:"no-store" : le SW (v10, SWR) répond INSTANTANÉMENT
+     * depuis son cache au refresh et revalide en fond. La fraîcheur explicite
+     * est assurée par revalidateFreshData() après le 1ᵉʳ rendu. */
+    const res = await fetch("ranked.json");
     if (res.ok) {
       _rankedData = await res.json();
       if (_rankedData?.updatedAt) updateLastUpdateLabel(_rankedData.updatedAt);
@@ -317,7 +320,9 @@ async function loadRankedJson() {
 /** Charge la liste des joueurs connectés depuis l'API MySQL public-aliases. */
 async function loadConnectedPlayers() {
   try {
-    const res = await fetch("/api/public-aliases.php", { cache: "no-store" });
+    /* v5.27 — SWR : réponse cache instantanée (badges/skins dès le boot) +
+     * revalidation réseau en fond par le SW. */
+    const res = await fetch("/api/public-aliases.php");
     if (!res.ok) {
       console.warn(`[dashboard] API public-aliases: HTTP ${res.status}`);
       return;
@@ -1318,6 +1323,69 @@ function mergeAndRender() {
   }
 }
 
+/* ═══ v5.27 — Revalidation explicite post-rendu ══════════════════════
+ * Le 1ᵉʳ rendu part du cache SW (SWR — instantané au refresh). ~10 s après
+ * l'affichage, on re-télécharge scores.gz + la page hebdo en réseau
+ * (cache:'no-store' / « ?_= » → le SW revalide ET met à jour son cache pour
+ * la prochaine visite). Si les données ont changé, les listes sont mises à
+ * jour EN PLACE (updateLists, .no-anim déjà posé, scrollTop préservé) —
+ * JAMAIS de rebuild global ni d'animation : rien ne « bouge » visuellement
+ * sauf les valeurs réellement modifiées côté serveur. */
+function ingestScoresData(scoresData) {
+  if (!scoresData || !Array.isArray(scoresData.players) || scoresData.players.length === 0) return false;
+  for (const p of scoresData.players) {
+    _liveStats[p.publicId] = {
+      username: p.username,
+      global: {
+        ffaCasualWins: p.ffa_casual || 0,
+        ffaRankedWins: p.ffa_ranked || 0,
+        teamCasualWins: p.team_casual || 0,
+        teamRankedWins: p.team_ranked || 0,
+      },
+      weekly: { ffaCasualWins: p.weekly_ffa_casual || 0, ffaRankedWins: p.weekly_ffa_ranked || 0, teamCasualWins: p.weekly_team_casual || 0, teamRankedWins: p.weekly_team_ranked || 0 },
+      elo: p.elo,
+      peak_elo: p.peak_elo,
+      fetchedAt: Date.now(),
+    };
+    if (p.prev_weekly_ffa_casual != null || p.prev_weekly_team_casual != null) {
+      _prevWeekly.set(p.publicId, {
+        ffaCasualWins: p.prev_weekly_ffa_casual || 0,
+        ffaRankedWins: p.prev_weekly_ffa_ranked || 0,
+        teamCasualWins: p.prev_weekly_team_casual || 0,
+        teamRankedWins: p.prev_weekly_team_ranked || 0,
+      });
+    }
+  }
+  return true;
+}
+
+async function revalidateScoresFresh() {
+  try {
+    const res = await fetch("dashboard_scores.json.gz?_=" + Date.now(), { cache: "no-store" });
+    if (!res.ok) return;
+    const ds = new DecompressionStream("gzip");
+    const scoresData = await new Response(res.body.pipeThrough(ds)).json();
+    if (ingestScoresData(scoresData)) {
+      mergeAndRender();          // en place si le rendu existe (updateLists)
+      decorateCosmeticsInPlace(view); // idempotent — badges/pseudos à jour
+      updateLastUpdateLabel(Date.now());
+      console.log("[dashboard] v5.27 — scores revalidés en arrière-plan (listes mises à jour en place)");
+    }
+  } catch (e) {
+    console.warn("[dashboard] revalidation scores:", e?.message || e);
+  }
+}
+
+function revalidateFreshData() {
+  // 10 s : le premier rendu est stable depuis longtemps, aucune course avec
+  // le boot (atomicPreload/auth/weekly sont terminés ou capés avant 3,5 s).
+  setTimeout(() => {
+    if (document.hidden) return; // onglet en fond : la prochaine visite revalidera
+    revalidateScoresFresh();
+    fetchWeeklyPage({ reset: true, fresh: true }).catch(() => {});
+  }, 10000);
+}
+
 /* ── Récompense Plutonium (preview) ──
  * Icône : tracé officiel Plutonium d'OpenFront.io (atome vert), réutilisé
  * à l'identique depuis tournois-icons.js (PLUTONIUM_PATH, viewBox 1200×1200,
@@ -1506,7 +1574,7 @@ function panelBodyHtml(fullView, shown, me, weekly) {
  * des victoires, paginée par 50 (« Afficher plus ») et searchable côté
  * serveur. Fallback : si l'API n'est pas prête, l'ancienne vue
  * (_mergedViews.weekly) reste affichée — zéro régression. */
-async function fetchWeeklyPage({ reset = false } = {}) {
+async function fetchWeeklyPage({ reset = false, fresh = false } = {}) {
   if (_weeklyApi.loading) return;
   _weeklyApi.loading = true;
   const seq = ++_weeklySearchSeq;
@@ -1515,8 +1583,11 @@ async function fetchWeeklyPage({ reset = false } = {}) {
   try {
     const url = `/api/games-api.php?route=weekly&mode=${encodeURIComponent(_pointFilter)}&limit=50&offset=${offset}`
       + (_searchQuery ? `&q=${encodeURIComponent(_searchQuery)}` : "")
-      + (mePid ? `&me=${encodeURIComponent(mePid)}` : "");
-    const res = await fetch(url, { cache: "no-store" });
+      + (mePid ? `&me=${encodeURIComponent(mePid)}` : "")
+      + (fresh ? `&_=${Date.now()}` : "");
+    /* v5.27 — boot : SWR (cache instantané, revalidation SW en fond).
+     * fresh : revalidation explicite post-rendu (réseau obligatoire). */
+    const res = await fetch(url, fresh ? { cache: "no-store" } : {});
     const j = await res.json();
     if (seq !== _weeklySearchSeq) return; // une frappe plus récente a supplanté cette requête
     if (j && j.ok) {
@@ -2081,7 +2152,10 @@ document.addEventListener("click", (e) => {
     // → rendu INSTANTANÉ, pas d'appel API live
     let scoresLoaded = false;
     try {
-      const res = await fetch("dashboard_scores.json.gz", { cache: "no-store" });
+      /* v5.27 — SWR : au refresh, le SW répond depuis son cache → le rendu
+       * live complet (badges + skins + bannières) part en ~1 s au lieu
+       * d'attendre le téléchargement réseau complet du gzip. */
+      const res = await fetch("dashboard_scores.json.gz");
       if (res.ok) {
         const ds = new DecompressionStream("gzip");
         const decompressed = res.body.pipeThrough(ds);
@@ -2089,36 +2163,9 @@ document.addEventListener("click", (e) => {
         if (scoresData && scoresData.players && scoresData.players.length > 0) {
           console.log(`[dashboard] ⚡ Scores pré-calculés chargés: ${scoresData.players.length} joueurs (${scoresData.lastUpdate})`);
 
-          // Remplir _liveStats avec les scores pré-calculés pour réutiliser buildMergedViews
-          for (const p of scoresData.players) {
-            _liveStats[p.publicId] = {
-              username: p.username,
-              global: {
-                ffaCasualWins: p.ffa_casual || 0,
-                ffaRankedWins: p.ffa_ranked || 0,
-                teamCasualWins: p.team_casual || 0,
-                teamRankedWins: p.team_ranked || 0,
-              },
-              weekly: { ffaCasualWins: p.weekly_ffa_casual || 0, ffaRankedWins: p.weekly_ffa_ranked || 0, teamCasualWins: p.weekly_team_casual || 0, teamRankedWins: p.weekly_team_ranked || 0 },
-              elo: p.elo,
-              peak_elo: p.peak_elo,
-              fetchedAt: Date.now(),
-            };
-            // Semaine précédente (rang final) → flèches ↑/↓ du panel hebdo.
-            // Clés IDENTIQUES à celles de pointsFor() (ffaCasualWins…) pour
-            // pouvoir recalculer les points de la semaine passée avec le
-            // même barème (et le même filtre FFA/Team).
-            // Absente si le gzip n'a pas encore été régénéré par la sync
-            // → map vide → pas de flèches (graceful, pas de bug).
-            if (p.prev_weekly_ffa_casual != null || p.prev_weekly_team_casual != null) {
-              _prevWeekly.set(p.publicId, {
-                ffaCasualWins: p.prev_weekly_ffa_casual || 0,
-                ffaRankedWins: p.prev_weekly_ffa_ranked || 0,
-                teamCasualWins: p.prev_weekly_team_casual || 0,
-                teamRankedWins: p.prev_weekly_team_ranked || 0,
-              });
-            }
-          }
+          // Remplir _liveStats + _prevWeekly (même ingestion que la
+          // revalidation v5.27) pour réutiliser buildMergedViews.
+          ingestScoresData(scoresData);
 
           // Load ranked.json for ELO display + ranked wins merge
           // (v5.23 : déjà en cours depuis le début — await quasi gratuit)
@@ -2153,6 +2200,9 @@ document.addEventListener("click", (e) => {
           decorateCosmeticsInPlace(view);
           // v5.25 — LEVÉE DU RIDEAU : un seul affichage, complet et décoré.
           revealDashboard();
+          // v5.27 — revalidation réseau en fond (scores.gz + hebdo) : le rendu
+          // vient du cache SWR, la fraîcheur s'applique EN PLACE sans animation.
+          revalidateFreshData();
           scoresLoaded = true;
           _liveFetchDone = true;
           _liveFetchProgress = 1; // prevent progress bar
@@ -2190,6 +2240,8 @@ document.addEventListener("click", (e) => {
     decorateCosmeticsInPlace(view);
     // v5.25 — premier rendu du fallback posé → levée du rideau.
     revealDashboard();
+    // v5.27 — revalidation réseau en fond (comme le chemin principal).
+    revalidateFreshData();
 
     // Phase 3 : Charger les stats live pour chaque joueur connecté
     if (_connectedPlayers.length > 0) {
