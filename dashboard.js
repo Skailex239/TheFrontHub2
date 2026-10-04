@@ -139,6 +139,21 @@ if (typeof window !== "undefined" && window.TFHVerified) {
   });
 }
 let currentUser = null;     // { name, publicId, avatar, uid, email }
+/* v5.26 — signal « profil auth prêt » : le callback Firebase lit Firestore
+ * (publicId → ligne « TOI » + paramètre me= de l'API hebdo). Tant que ce
+ * profil n'est pas connu, le premier rendu ne peut pas être DÉFINITIF — la
+ * ligne TOI / le me= arriveraient APRÈS la peinture = cascade qui fait
+ * bouger le leaderboard. init() attend donc ce signal avant de lancer la
+ * 1ʳᵉ page hebdo et de lever le rideau : pseudos hub + badge vérifié +
+ * skins + bannières + ligne TOI + top hebdo = LA MÊME peinture, unique.
+ * Cap 2 s : Firebase/Firestore répondent normalement en < 500 ms ; au-delà
+ * on peint sans le profil et le correctif s'applique en place (jamais un
+ * rebuild). */
+let _authReadyResolve = null;
+const _authReadyP = new Promise((resolve) => {
+  _authReadyResolve = resolve;
+  setTimeout(resolve, 2000);
+});
 let _ownershipCode = null;
 let _ownershipPublicId = null;
 let _ownershipUsername = null;
@@ -768,6 +783,19 @@ async function loadLiveStats() {
   if (_liveFetchProgress > 0) mergeAndRender();
 
   // ── 3. Fetch tous les joueurs en parallèle (exemption = 8 concurrent) ──
+  // v5.26 — les rendus « progressifs » sont COALESCÉS sur un rAF : 6 fetchs
+  // qui atterrissent dans la même frame ne doivent déclencher qu'UN SEUL
+  // updateLists (avant : 6 wipes innerHTML en rafale = micro-cascade des
+  // bannières et du scroll dans le fallback).
+  let _liveRenderQueued = false;
+  const queueLiveRender = () => {
+    if (_liveRenderQueued) return;
+    _liveRenderQueued = true;
+    requestAnimationFrame(() => {
+      _liveRenderQueued = false;
+      mergeAndRender();
+    });
+  };
   const fetchOne = async (player) => {
     try {
       const entry = await fetchPlayerStats(player);
@@ -779,7 +807,7 @@ async function loadLiveStats() {
       console.warn(`[dashboard] live fetch failed for ${player.publicId}:`, e.message);
     }
     _liveFetchProgress++;
-    mergeAndRender(); // rendu progressif après chaque joueur
+    queueLiveRender(); // rendu coalescé (1/frame max)
   };
 
   // Lancer tous les fetchs en parallèle
@@ -1575,15 +1603,23 @@ function updateLists() {
   const fill = (bodyId, subId, fullView, weekly, baseSub) => {
     const body = document.getElementById(bodyId);
     if (!body) return;
+    // v5.26 — le remplacement innerHTML ne doit ni réinitialiser le scroll
+    // interne de la liste (max-height 640 px), ni laisser une frame SANS
+    // bannières entre le wipe et la déco async (clignotement 0→4→0 vu dans
+    // le fallback). Scroll mémorisé, bannières peintes SYNCHRONEMENT depuis
+    // le cache (_cachedBannerMap), la map bulk fraîche complète ensuite.
+    const keepScroll = body.scrollTop;
     const mePid = currentUser?.publicId || null;
     /* v5.13 — panel hebdo : quand l'API « tous les joueurs » est prête,
      * on affiche SES données (paginées) au lieu de la vue fusionnée locale. */
     if (weekly && _weeklyApi.ready) {
       body.innerHTML = weeklyApiBodyHtml(searching);
       if (window.hydrateIcons) window.hydrateIcons(body);
+      paintBannersInPlace(body); // v5.26 — peinture synchrone (aucune frame sans bannière)
       if (window.TFHBanners && typeof window.TFHBanners.decorate === "function") {
         window.TFHBanners.decorate(body);
       }
+      if (body.scrollTop !== keepScroll) body.scrollTop = keepScroll;
       const moreBtn = body.querySelector("#dash-weekly-more");
       if (moreBtn) {
         moreBtn.addEventListener("click", () => {
@@ -1611,9 +1647,11 @@ function updateLists() {
     const { shown, total } = computeShown(fullView);
     body.innerHTML = panelBodyHtml(fullView, shown, me, weekly);
     if (window.hydrateIcons) window.hydrateIcons(body);
+    paintBannersInPlace(body); // v5.26 — peinture synchrone (aucune frame sans bannière)
     if (window.TFHBanners && typeof window.TFHBanners.decorate === "function") {
       window.TFHBanners.decorate(body); // bannières pixel art des pseudos
     }
+    if (body.scrollTop !== keepScroll) body.scrollTop = keepScroll;
     const sub = document.getElementById(subId);
     if (sub) {
       if (searching) {
@@ -1710,6 +1748,7 @@ onAuthStateChanged(auth, async (user) => {
       refreshMeRows(); // retrait de la ligne TOI
       fetchWeeklyPage({ reset: true }); // purge la ligne TOI de l'API
     }
+    _authReadyResolve?.(); // v5.26 — boot : profil absent connu, lever le gate
     return;
   }
   currentUser = { uid: user.uid, avatar: user.photoURL, email: user.email };
@@ -1730,7 +1769,14 @@ onAuthStateChanged(auth, async (user) => {
     // Ligne TOI : re-rend les listes si les données sont déjà affichées
     refreshMeRows();
     // v5.13 — re-fetch hebdo avec me=publicId (ligne TOI au-delà du top 50)
-    fetchWeeklyPage({ reset: true });
+    // v5.26 — PAS au boot : au démarrage, init() lance la 1ʳᵉ page hebdo
+    // APRÈS ce signal (donc avec me=publicId) → une seule requête, un seul
+    // rendu, la ligne TOI est dans la 1ʳᵉ peinture. On ne re-fetch ici que
+    // si une page hebdo / un rendu existe déjà (login RÉEL, changement de
+    // compte) — sinon c'était un 2ᵉ re-rendu du panneau de droite = la
+    // « petite cascade qui fait bouger le leaderboard » après le paint.
+    if (_firstRenderDone || _weeklyApi.ready) fetchWeeklyPage({ reset: true });
+    _authReadyResolve?.(); // v5.26 — boot : profil connu (publicId dispo)
   } else {
     // Premier login sans profil : on affiche le badge + ouvre le setup modal
     currentUser.name = user.displayName || T("dash.default_player", "Joueur");
@@ -1747,9 +1793,11 @@ onAuthStateChanged(auth, async (user) => {
         // Petit délai pour laisser le toast se figurer
         showToast(T("dash.toast_welcome_setup", "Bienvenue ! Finalisez votre profil pour accéder à vos stats."), "info", 3500);
         setTimeout(() => { window.location.href = "profile.html"; }, 1200);
+        _authReadyResolve?.(); // v5.26 — boot : état connu (redirection en cours)
         return;
       }
     }
+    _authReadyResolve?.(); // v5.26 — boot : état connu (profil sans publicId)
   }
 });
 
@@ -2076,20 +2124,25 @@ document.addEventListener("click", (e) => {
           // (v5.23 : déjà en cours depuis le début — await quasi gratuit)
           await rankedP;
           _mergedViews = buildMergedViews();
+          // v5.26 — attendre le profil auth (cap 2 s interne, déjà écoulé en
+          // général pendant le téléchargement des scores) AVANT la 1ʳᵉ page
+          // hebdo : la requête part avec me=publicId → la ligne TOI est dans
+          // la 1ʳᵉ peinture, et l'auth ne déclenchera plus de re-fetch/re-rendu
+          // correctif APRÈS l'affichage (c'était la « petite cascade qui fait
+          // bouger tout le leaderboard » pour un utilisateur connecté).
+          await _authReadyP;
           // v5.24 — le swap aperçu→live attend AUSSI la 1ʳᵉ page du top
           // hebdo « tous les joueurs » (API) : avant, l'API arrivait APRÈS le
           // swap et re-rendait le panneau de droite (2ᵉ reset visible).
-          // Cap 5 s : si l'API traîne, on swap quand même (l'aperçu hebdo
-          // pré-généré couvre l'écran, et l'API finira par s'afficher sans
-          // animation grâce à .no-anim).
           const weeklyP = fetchWeeklyPage({ reset: true }).catch(() => {});
-          // v5.25 — cap 2,5 s (atomicPreload règle à 2 s) : le swap aperçu→live
-          // ET la levée du rideau se font TOUJOURS sous les 2,5 s — le contenu
-          // n'est jamais retenu caché plus longtemps. Ce qui arrive après est
-          // appliqué sans animation / en place.
+          // v5.26 — cap 3 s aligné sur le filet JS : le rideau attend les
+          // cosmétiques (atomic ≤ 2 s) ET la 1ʳᵉ page hebdo API → une seule
+          // peinture définitive. Si l'API dépasse 3 s, on peint quand même
+          // (l'aperçu hebdo pré-généré couvre l'écran) ; la page API
+          // s'appliquera ensuite en place, sans animation (.no-anim).
           await Promise.race([
             Promise.all([atomicP, weeklyP]),
-            new Promise((resolve) => setTimeout(resolve, 2500)),
+            new Promise((resolve) => setTimeout(resolve, 3000)),
           ]);
           // v5.21 — rendu ATOMIQUE : skins + aliases (pseudos hub + badges)
           // attendus avant le swap → tout arrive d'un coup, sans animation.
@@ -2123,6 +2176,15 @@ document.addEventListener("click", (e) => {
     await rankedP;
     _mergedViews = buildMergedViews();
     await atomicP;
+    // v5.26 — le fallback est ATOMIQUE aussi : profil auth + 1ʳᵉ page hebdo
+    // attendus AVANT le rendu/la levée du rideau → une seule peinture, la
+    // ligne TOI et le top hebdo inclus, rien ne bouge après.
+    await _authReadyP;
+    const weeklyP = fetchWeeklyPage({ reset: true }).catch(() => {});
+    await Promise.race([
+      Promise.all([atomicP, weeklyP]),
+      new Promise((resolve) => setTimeout(resolve, 3000)),
+    ]);
     render();
     // v5.25 — déco complète du 1ᵉʳ rendu (bannières cache inclues) avant levée.
     decorateCosmeticsInPlace(view);
@@ -2141,9 +2203,9 @@ document.addEventListener("click", (e) => {
       _liveFetchDone = true;
     }
 
-    // v5.13 — top hebdo « tous les joueurs » (API, paginé) — les deux chemins
-    // d'init passent ici ou par le return ci-dessus.
-    fetchWeeklyPage({ reset: true });
+    // v5.13/v5.26 — top hebdo « tous les joueurs » : déjà fetché (avec me=)
+    // AVANT le rendu dans les DEUX chemins (main + fallback) → plus aucun
+    // fetch hebdo post-affichage ici (c'était un 2ᵉ re-rendu du panneau).
   } catch (e) {
     console.error("[dashboard] init failed:", e);
     revealDashboard(); // v5.25 — ne JAMAIS laisser le rideau fermé sur une erreur

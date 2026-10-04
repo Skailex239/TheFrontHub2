@@ -8,6 +8,14 @@
    v6 : skins VIP (prism, cyberpunk, gold…) sur les pseudos.
    ════════════════════════════════════════════════════════════════ */
 
+/* v5.26 — zéro décalage horizontal : la gouttière de la scrollbar est
+ * RÉSERVÉE en permanence (la page dashboard est toujours plus haute que
+ * l'écran, donc la gouttière serait de toute façon occupée). Conséquence :
+ * la levée du rideau (dash-booting) et le swap aperçu→live ne peuvent plus
+ * décaler TOUTE la page d'un aller-retour de scrollbar — le leaderboard
+ * n'est plus jamais « bougé » horizontalement. */
+html { scrollbar-gutter: stable; }
+
 .dash-view {
   padding: 24px;
   max-width: none;
