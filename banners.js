@@ -210,7 +210,10 @@ export function renderBannerUrl(banner, theme) {
    ════════════════════════════════════════════════════════════════ */
 
 async function apiGet(url) {
-  const res = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+  /* v5.27 — sans cache:"no-store" : le SW (v10, SWR) sert le cache local
+   * instantanément au refresh (bannières peintes dès le 1ᵉʳ rendu) et
+   * revalide en fond. */
+  const res = await fetch(url, { credentials: "same-origin" });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(body.message || `HTTP ${res.status}`);

@@ -25,7 +25,9 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 min
 const cacheTimestamps = new Map();
 
 async function apiGet(url) {
-  const res = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+  /* v5.27 — sans cache:"no-store" : le SW (v10, SWR) sert le cache local
+   * instantanément au refresh (skins dès le boot) et revalide en fond. */
+  const res = await fetch(url, { credentials: "same-origin" });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(body.message || `HTTP ${res.status}`);
