@@ -856,6 +856,9 @@
 }
 .llive-bell:hover{color:var(--accent,#ff6b00);border-color:var(--accent-border,#ffd4b8)}
 .llive-bell.has-alerts{color:var(--accent,#ff6b00);border-color:var(--accent-border,#ffd4b8);background:var(--accent-subtle,#fff4ed)}
+/* v5.29 — filtre d'affichage actif : l'entonnoir passe à l'accent */
+.llive-bell.is-filtering{color:var(--accent,#ff6b00);border-color:var(--accent-border,#ffd4b8)}
+.llive-strip.is-filtering .llive-tile-bell{border-color:var(--accent-border,#ffd4b8)}
 .llive-bell-badge{
   position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;padding:0 4px;
   border-radius:var(--radius-pill,999px);background:var(--accent,#ff6b00);color:#fff;
@@ -905,6 +908,18 @@
 .llive-watch-chip button:hover{color:var(--red,#ef4444)}
 /* ── v5.22 — filtre d'alerte complet ─────────────────────────────────── */
 .llive-toggle-line{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+/* v5.29 — entête du panneau FILTRE + ligne de résumé */
+.llive-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.llive-head-title{font-size:13px;font-weight:800;color:var(--fg,#18181b);text-transform:uppercase;letter-spacing:.05em}
+.llive-summary{font-size:12px;font-weight:600;color:var(--fg-muted,#71717a)}
+.llive-summary.is-active{color:var(--accent,#ff6b00)}
+/* v5.29 — couche ALERTE (sous le filtre : d'abord filtrer, ensuite sonner) */
+.llive-alert-line{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  border-top:1px solid var(--border,#e4e4e7);padding-top:10px;
+}
+.llive-alert-line .llive-maps-label{margin-right:2px}
+.llive-alert-line .llive-toggle{flex:1 1 auto;min-width:200px}
 .llive-test-sound{
   display:inline-flex;align-items:center;gap:4px;font:inherit;font-size:12px;font-weight:600;
   padding:5px 10px;border-radius:var(--radius-pill,999px);cursor:pointer;
