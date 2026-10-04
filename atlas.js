@@ -48,8 +48,9 @@ function escapeHtml(s) {
 function jsq(v) {
   return escapeHtml(JSON.stringify(String(v ?? "")));
 }
-function getThumbUrl(slug) { return `atlas-data/thumbnails/${slug}.webp`; }
-function getMapUrl(slug) { return `atlas-data/maps/${slug}.webp`; }
+// v5.28 — ?v=2 : vignettes officielles OpenFront (fond surface #0a1628, comme le vrai jeu)
+function getThumbUrl(slug) { return `atlas-data/thumbnails/${slug}.webp?v=2`; }
+function getMapUrl(slug) { return `atlas-data/maps/${slug}.webp?v=2`; }
 function getFlagUrl(flag) { return `atlas-data/flags/${flag}.svg`; }
 
 function projectEq(lng, lat, w, h) {

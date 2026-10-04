@@ -249,7 +249,8 @@ function mapSlug(mapName) {
  * via l'attribut data-gh + onerror (voir IMG_THUMB_ONERROR). */
 function mapThumb(mapName) {
   const slug = mapSlug(mapName);
-  return slug ? `atlas-data/thumbnails/${slug}.webp` : "";
+  // ?v=2 : vignettes officielles OpenFront (fond surface #0a1628, comme le vrai jeu)
+  return slug ? `atlas-data/thumbnails/${slug}.webp?v=2` : "";
 }
 
 /** Repli distant de la miniature (repo GitHub OpenFrontIO, CDN public). */

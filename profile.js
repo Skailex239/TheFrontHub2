@@ -56,7 +56,8 @@ function mapSlugOfName(name) {
  *  d'erreur global ci-dessous (v5.22). */
 function mapThumbUrl(name) {
   const slug = mapSlugOfName(name);
-  return slug ? `atlas-data/thumbnails/${slug}.webp` : null;
+  // ?v=2 : vignettes officielles OpenFront (fond surface #0a1628, comme le vrai jeu)
+  return slug ? `atlas-data/thumbnails/${slug}.webp?v=2` : null;
 }
 
 /* v5.22 — repli automatique des vignettes locales → dépôt GitHub OpenFrontIO
