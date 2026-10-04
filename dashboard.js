@@ -127,9 +127,33 @@ let _weeklySearchDebounce = null;
  * (poll 60 s) → on re-rend les listes quand le registre change. app.js
  * n'est pas chargé sur le dashboard : le dashboard s'abonne lui-même. */
 if (typeof window !== "undefined" && window.TFHVerified) {
-  window.TFHVerified.onChange(() => { updateLists(); });
+  window.TFHVerified.onChange(() => {
+    /* v5.25 — les aliases (donc les badges vérifiés) viennent de changer :
+     * application EN PLACE (badges ajoutés aux lignes existantes) quand le
+     * rendu live existe — plus de rebuild de listes à chaque notification. */
+    if (_firstRenderDone && document.getElementById("dash-body-global")) {
+      decorateCosmeticsInPlace(view);
+    } else {
+      updateLists();
+    }
+  });
 }
 let currentUser = null;     // { name, publicId, avatar, uid, email }
+/* v5.26 — signal « profil auth prêt » : le callback Firebase lit Firestore
+ * (publicId → ligne « TOI » + paramètre me= de l'API hebdo). Tant que ce
+ * profil n'est pas connu, le premier rendu ne peut pas être DÉFINITIF — la
+ * ligne TOI / le me= arriveraient APRÈS la peinture = cascade qui fait
+ * bouger le leaderboard. init() attend donc ce signal avant de lancer la
+ * 1ʳᵉ page hebdo et de lever le rideau : pseudos hub + badge vérifié +
+ * skins + bannières + ligne TOI + top hebdo = LA MÊME peinture, unique.
+ * Cap 2 s : Firebase/Firestore répondent normalement en < 500 ms ; au-delà
+ * on peint sans le profil et le correctif s'applique en place (jamais un
+ * rebuild). */
+let _authReadyResolve = null;
+const _authReadyP = new Promise((resolve) => {
+  _authReadyResolve = resolve;
+  setTimeout(resolve, 2000);
+});
 let _ownershipCode = null;
 let _ownershipPublicId = null;
 let _ownershipUsername = null;
@@ -145,7 +169,12 @@ const LIVE_CACHE_KEY = "dash_live_stats_v4"; // v4 : clés ffaCasualWins… (anc
  * ce cache permet de décorer l'aperçu DÈS LE PREMIER TICK JS, avant même
  * les fetch — pseudos + badges + skins + bannières d'un coup. */
 const COSMETICS_CACHE_KEY = "dash_cosmetics_v1";
-const COSMETICS_CACHE_TTL = 30 * 60 * 1000; // 30 min — même fraîcheur que le cache live
+/* v5.25 — TTL 7 jours (stale-while-revalidate) : au refresh, même des heures
+ * ou des jours après la dernière visite, le cache hydrate TOUT DE SUITE les
+ * pseudos hub + badges + skins + bannières (décoration de l'aperçu au 1ᵉʳ
+ * tick JS). La revalidation réseau (atomicPreload) corrige ensuite EN PLACE
+ * ce qui a changé — plus jamais d'affichage qui se complète par vagues. */
+const COSMETICS_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 jours
 let _cachedBannerMap = new Map(); // publicId (minuscules) → bannerId (repli si l'API bannières tarde/échoue)
 const LIVE_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 const WEEKLY_MS = 7 * 24 * 60 * 60 * 1000; // conservé pour compat arrière
@@ -368,19 +397,28 @@ function getSkinForPlayer(publicId, username) {
   return null;
 }
 
-/* ═══ v5.24 — Cache cosmétiques + décoration IN PLACE de l'aperçu ═══
- * Le proprio au refresh : « les pseudos s'affichent mais le badge vérifié
- * et les cosmétiques ne peuvent pas s'afficher en même temps ».
- * Causes : (1) l'aperçu statique ne porte NI badge NI skin NI bannière ;
- * (2) aliases / skins / bannières arrivent en 3 vagues qui re-rendent.
- * Fix en 3 temps :
- *   1. hydrateCosmeticsCache() : le cache localStorage hydrate hub-names +
- *      vérifiés + skins + bannières DÈS LE DÉBUT de l'init.
- *   2. decoratePreviewInPlace() : patche les lignes de l'aperçu SANS
- *      re-rendu (zéro animation, zéro déplacement) — pseudo hub, classe
- *      skin, badge vérifié, bannière pixel art.
- *   3. Le swap aperçu→live s'affiche SANS animation (classe .no-anim) :
- *      aperçu décoré et rendu live sont identiques → passage invisible. */
+/* ═══ v5.25 — Cache cosmétiques + décoration IN PLACE + gate « tout d'un coup » ═══
+ * Le proprio au refresh : « il y a toujours le même reset qui survient et qui
+ * déclenche l'animation quand les pseudos s'affichent — ça peut pas s'afficher
+ * en même temps, le badge vérifié et les cosmétiques ».
+ * Causes : (1) l'aperçu statique est PEINT par le navigateur sans badge ni
+ * skin ni bannière, puis décoré par JS = vagues visibles ; (2) aliases /
+ * skins / bannières arrivent en 3 vagues qui re-rendent ; (3) le swap
+ * aperçu→live reconstruit tout le innerHTML (le « reset »).
+ * Fix v5.25 :
+ *   1. GATE : #dashboard-view.dash-booting (opacity 0, layout conservé) — le
+ *      dashboard n'est peint qu'UNE FOIS, complet et décoré (données +
+ *      cosmétiques), puis le rideau se lève. Trois filets de sécurité
+ *      garantissent que le contenu ne reste jamais caché (3 s JS,
+ *      3,5 s inline HTML, noscript).
+ *   2. hydrateCosmeticsCache() (TTL 7 j, stale-while-revalidate) : le cache
+ *      localStorage hydrate hub-names + vérifiés + skins + bannières DÈS LE
+ *      DÉBUT de l'init — au refresh, la décoration est instantanée.
+ *   3. decorateCosmeticsInPlace() : TOUT cosmétique retardataire (late flush,
+ *      aliases, bannières) est appliqué EN PLACE sur les lignes existantes
+ *      (aperçu ou rendu live) — plus AUCUN rebuild pour des cosmétiques.
+ *   4. mergeAndRender() ne reconstruit plus que les corps des listes après le
+ *      premier rendu — plus de innerHTML global au fil des fetch. */
 
 function saveCosmeticsCache() {
   try {
@@ -448,15 +486,17 @@ function hydrateCosmeticsCache() {
 }
 
 /**
- * v5.24 — Décore l'APERÇU STATIQUE en place (si encore affiché) : pseudo hub,
- * classe skin, badge vérifié (structure .dash-player-line IDENTIQUE au rendu
- * live) + bannières pixel art. Idempotent, zéro re-rendu, zéro animation.
- * Retourne true si l'aperçu était présent.
+ * v5.25 — Décoration IN PLACE d'un scope (aperçu statique OU rendu live) :
+ * pseudo hub, classe skin, badge vérifié (structure .dash-player-line
+ * IDENTIQUE au rendu live) + bannières pixel art. Idempotent, zéro re-rendu,
+ * zéro animation, zéro déplacement de layout. C'est LE seul mécanisme
+ * d'application des cosmétiques retardataires : on ne reconstruit JAMAIS les
+ * lignes (un rebuild = le « reset » visible devant l'utilisateur).
  */
-function decoratePreviewInPlace() {
-  const preview = view.querySelector(".dash-static-preview");
-  if (!preview) return false;
-  preview.querySelectorAll(".dash-player-name[data-pfb-pid]").forEach((nameEl) => {
+function decorateCosmeticsInPlace(scope) {
+  const root = scope || view;
+  if (!root || !root.querySelectorAll) return false;
+  root.querySelectorAll(".dash-player-name[data-pfb-pid]").forEach((nameEl) => {
     const pid = nameEl.getAttribute("data-pfb-pid");
     if (!pid) return;
     // 1. Pseudo hub (même pseudo partout) — texte remplacé sur place
@@ -473,30 +513,32 @@ function decoratePreviewInPlace() {
     const isVerified = window.TFHVerified && typeof window.TFHVerified.isVerifiedPid === "function" && window.TFHVerified.isVerifiedPid(pid);
     const parent = nameEl.parentElement;
     if (isVerified && parent && !parent.querySelector(".tfh-vbadge")) {
-      const line = document.createElement("span");
-      line.className = "dash-player-line";
-      parent.insertBefore(line, nameEl);
-      line.appendChild(nameEl);
-      line.insertAdjacentHTML("beforeend", window.TFHVerified.badgeHtml(pid, { native: true }));
+      const line = parent.classList.contains("dash-player-line") ? parent : null;
+      if (!line) {
+        const wrap = document.createElement("span");
+        wrap.className = "dash-player-line";
+        parent.insertBefore(wrap, nameEl);
+        wrap.appendChild(nameEl);
+        wrap.insertAdjacentHTML("beforeend", window.TFHVerified.badgeHtml(pid, { native: true }));
+      } else {
+        line.insertAdjacentHTML("beforeend", window.TFHVerified.badgeHtml(pid, { native: true }));
+      }
     }
   });
-  paintPreviewBanners(preview);
+  paintBannersInPlace(root);
   return true;
 }
 
-/** Bannières pixel art sur les lignes de l'aperçu : map bulk banners.js si
- * dispo, sinon repli sur le cache localStorage (_cachedBannerMap). */
-function paintPreviewBanners(preview) {
+/** Bannières pixel art sur les lignes d'un scope : 1ᵉʳ passage SYNCHRONE
+ * depuis le cache localStorage (_cachedBannerMap — bannières présentes dès la
+ * 1ʳᵉ peinture), puis 2ᵉ passage async avec la map bulk fraîche (corrige /
+ * complète, idempotent via la classe .pfb-on). */
+function paintBannersInPlace(scope) {
   if (!window.TFHBanners || typeof window.TFHBanners.paintBanner !== "function") return;
-  const fetchMap = window.TFHBanners.fetchActiveBannerMap;
-  const p = typeof fetchMap === "function"
-    ? Promise.resolve().then(() => fetchMap()).catch(() => null)
-    : Promise.resolve(null);
-  p.then((m) => {
-    if (!preview.isConnected) return; // swap aperçu→live entre-temps
-    const map = (m && m.size > 0) ? m : _cachedBannerMap;
+  const paintRows = (map) => {
+    if (!scope || !scope.isConnected) return; // swap aperçu→live entre-temps
     if (!map || map.size === 0) return;
-    preview.querySelectorAll("[data-pfb-row]").forEach((row) => {
+    scope.querySelectorAll("[data-pfb-row]").forEach((row) => {
       if (row.classList.contains("pfb-on")) return;
       const pidEl = row.querySelector("[data-pfb-pid]");
       const pid = pidEl ? pidEl.getAttribute("data-pfb-pid") : null;
@@ -504,7 +546,20 @@ function paintPreviewBanners(preview) {
       const bid = map.get(String(pid).toLowerCase());
       if (bid) window.TFHBanners.paintBanner(row, bid);
     });
-  });
+  };
+  // 1ᵉʳ passage SYNCHRONE : pas d'attente réseau → la 1ʳᵉ peinture a les
+  // bannières du cache (au refresh, jamais de bannières qui « arrivent après »).
+  if (_cachedBannerMap.size > 0) paintRows(_cachedBannerMap);
+  // 2ᵉ passage async : map bulk fraîche (60 s) — corrige/complète, idempotent.
+  const fetchMap = window.TFHBanners.fetchActiveBannerMap;
+  if (typeof fetchMap === "function") {
+    Promise.resolve().then(() => fetchMap()).catch(() => null).then((m) => {
+      if (m && m.size > 0) {
+        _cachedBannerMap = new Map(m);
+        paintRows(_cachedBannerMap);
+      }
+    });
+  }
 }
 
 /**
@@ -728,6 +783,19 @@ async function loadLiveStats() {
   if (_liveFetchProgress > 0) mergeAndRender();
 
   // ── 3. Fetch tous les joueurs en parallèle (exemption = 8 concurrent) ──
+  // v5.26 — les rendus « progressifs » sont COALESCÉS sur un rAF : 6 fetchs
+  // qui atterrissent dans la même frame ne doivent déclencher qu'UN SEUL
+  // updateLists (avant : 6 wipes innerHTML en rafale = micro-cascade des
+  // bannières et du scroll dans le fallback).
+  let _liveRenderQueued = false;
+  const queueLiveRender = () => {
+    if (_liveRenderQueued) return;
+    _liveRenderQueued = true;
+    requestAnimationFrame(() => {
+      _liveRenderQueued = false;
+      mergeAndRender();
+    });
+  };
   const fetchOne = async (player) => {
     try {
       const entry = await fetchPlayerStats(player);
@@ -739,7 +807,7 @@ async function loadLiveStats() {
       console.warn(`[dashboard] live fetch failed for ${player.publicId}:`, e.message);
     }
     _liveFetchProgress++;
-    mergeAndRender(); // rendu progressif après chaque joueur
+    queueLiveRender(); // rendu coalescé (1/frame max)
   };
 
   // Lancer tous les fetchs en parallèle
@@ -951,7 +1019,7 @@ function render() {
       if (window.TFHBanners && typeof window.TFHBanners.decorate === "function") {
         window.TFHBanners.decorate(view);
       }
-      decoratePreviewInPlace(); // v5.24 — badges + skins sur l'aperçu (idempotent)
+      decorateCosmeticsInPlace(view); // v5.25 — badges + skins sur l'aperçu (idempotent)
       return;
     }
     view.innerHTML = `
@@ -1176,6 +1244,23 @@ function render() {
  * simple updateLists (corps des listes) si le rendu live est déjà en place,
  * + décoration en place de l'aperçu sinon. Fini le « reset » qui rejouait
  * les animations à chaque arrivée tardive. */
+/* ═══ v5.25 — Gate « tout d'un coup » ═══
+ * Le dashboard (#dashboard-view.dash-booting) reste INVISIBLE (opacity 0,
+ * layout conservé — CSS dashboard.css) tant que le premier rendu complet
+ * n'est pas prêt. À la levée du rideau : les DEUX panneaux sont peints avec
+ * pseudos hub + badge vérifié + skins + bannières, SANS aucune animation —
+ * une seule peinture, jamais de vagues. Sécurités :
+ *   • dashboard.js lève le rideau dès son 1ᵉʳ rendu complet (ou après 3 s) ;
+ *   • un setTimeout INLINE dans dashboard.html le lève à 3,5 s même si
+ *     dashboard.js plante ;
+ *   • <noscript> dans dashboard.html force l'affichage sans JS. */
+let _bootRevealed = false;
+function revealDashboard() {
+  if (_bootRevealed || !view) return;
+  _bootRevealed = true;
+  view.classList.remove("dash-booting");
+}
+
 let _atomicLateFlush = false;
 function atomicPreload() {
   const skinsP = loadVipSkins().catch(() => {});
@@ -1183,39 +1268,54 @@ function atomicPreload() {
   // v5.24 — bannières bulk (1 requête pour TOUS les pseudos) préchargées en
   // même temps → la 1ʳᵉ peinture a TOUT : pseudos + badges + skins + bannières.
   const bannersP = (window.TFHBanners && typeof window.TFHBanners.fetchActiveBannerMap === "function")
-    ? window.TFHBanners.fetchActiveBannerMap().catch(() => {})
+    ? window.TFHBanners.fetchActiveBannerMap()
+        // v5.25 — la map reçue est stockée TOUT DE SUIT dans le cache local :
+        // paintBannersInPlace() peint alors les bannières SYNCHRONEMENT depuis
+        // ce cache → présentes à la 1ʳᵉ peinture (pas 2 ms après le rideau).
+        .then((m) => { if (m && m.size > 0) _cachedBannerMap = new Map(m); return m; })
+        .catch(() => {})
     : Promise.resolve();
+  // v5.25 — garde-fou 2 s (aligné sur le cap d'init 2,5 s) : tout ce qui est
+  // arrivé à 2 s décore le premier rendu ; les retardataires sont appliqués
+  // EN PLACE (decorateCosmeticsInPlace), jamais par un re-rendu.
   return Promise.race([
     Promise.allSettled([skinsP, aliasesP, bannersP]).then(() => true),
-    new Promise((resolve) => setTimeout(() => resolve(false), 3000)),
+    new Promise((resolve) => setTimeout(() => resolve(false), 2000)),
   ]).then((onTime) => {
     if (onTime) {
-      // Tout est arrivé avant le garde-fou : persistance + déco de l'aperçu
-      // (no-op si le rendu live est déjà en place).
+      // Tout est arrivé avant le garde-fou : persistance + déco du scope
+      // affiché (aperçu OU rendu live — no-op si rien à décorer).
       saveCosmeticsCacheWithBanners();
-      decoratePreviewInPlace();
+      decorateCosmeticsInPlace(view);
     } else {
       _atomicLateFlush = true;
       Promise.allSettled([skinsP, aliasesP, bannersP]).then(() => {
         if (_atomicLateFlush) {
           _atomicLateFlush = false;
           saveCosmeticsCacheWithBanners();
-          // v5.24 — correctif SANS re-rendu global : déco de l'aperçu si le
-          // swap n'a pas eu lieu, sinon simple re-rendu des corps de listes
-          // (pas d'animation rejouée, la toolbar et le scroll restent en place).
-          const stillPreview = decoratePreviewInPlace();
-          if (!stillPreview && (_firstRenderDone || view.querySelector(".dash-grid"))) updateLists();
-          else if (!stillPreview) mergeAndRender();
+          // v5.25 — correctif EN PLACE uniquement : badges + skins + bannières
+          // + pseudos hub ajoutés aux lignes EXISTANTES (aperçu ou rendu live).
+          // JAMAIS de rebuild (updateLists / mergeAndRender) pour des
+          // cosmétiques — c'était la cascade « badge qui arrive après ».
+          decorateCosmeticsInPlace(view);
         }
       });
     }
   });
 }
 
-/** Merge + render (utilisé après chaque fetch live pour mise à jour progressive). */
+/** Merge + render (utilisé après chaque fetch live pour mise à jour progressive).
+ * v5.25 — dès que le premier rendu est en place (_firstRenderDone), on ne
+ * reconstruit PLUS QUE LES CORPS des deux listes (updateLists). Fini les
+ * re-rendus GLOBAUX (innerHTML de toute la vue) au fil des fetch : c'était
+ * le « reset » visible devant l'utilisateur. */
 function mergeAndRender() {
   _mergedViews = buildMergedViews();
-  render();
+  if (_firstRenderDone && document.getElementById("dash-body-global")) {
+    updateLists();
+  } else {
+    render();
+  }
 }
 
 /* ── Récompense Plutonium (preview) ──
@@ -1503,15 +1603,23 @@ function updateLists() {
   const fill = (bodyId, subId, fullView, weekly, baseSub) => {
     const body = document.getElementById(bodyId);
     if (!body) return;
+    // v5.26 — le remplacement innerHTML ne doit ni réinitialiser le scroll
+    // interne de la liste (max-height 640 px), ni laisser une frame SANS
+    // bannières entre le wipe et la déco async (clignotement 0→4→0 vu dans
+    // le fallback). Scroll mémorisé, bannières peintes SYNCHRONEMENT depuis
+    // le cache (_cachedBannerMap), la map bulk fraîche complète ensuite.
+    const keepScroll = body.scrollTop;
     const mePid = currentUser?.publicId || null;
     /* v5.13 — panel hebdo : quand l'API « tous les joueurs » est prête,
      * on affiche SES données (paginées) au lieu de la vue fusionnée locale. */
     if (weekly && _weeklyApi.ready) {
       body.innerHTML = weeklyApiBodyHtml(searching);
       if (window.hydrateIcons) window.hydrateIcons(body);
+      paintBannersInPlace(body); // v5.26 — peinture synchrone (aucune frame sans bannière)
       if (window.TFHBanners && typeof window.TFHBanners.decorate === "function") {
         window.TFHBanners.decorate(body);
       }
+      if (body.scrollTop !== keepScroll) body.scrollTop = keepScroll;
       const moreBtn = body.querySelector("#dash-weekly-more");
       if (moreBtn) {
         moreBtn.addEventListener("click", () => {
@@ -1539,9 +1647,11 @@ function updateLists() {
     const { shown, total } = computeShown(fullView);
     body.innerHTML = panelBodyHtml(fullView, shown, me, weekly);
     if (window.hydrateIcons) window.hydrateIcons(body);
+    paintBannersInPlace(body); // v5.26 — peinture synchrone (aucune frame sans bannière)
     if (window.TFHBanners && typeof window.TFHBanners.decorate === "function") {
       window.TFHBanners.decorate(body); // bannières pixel art des pseudos
     }
+    if (body.scrollTop !== keepScroll) body.scrollTop = keepScroll;
     const sub = document.getElementById(subId);
     if (sub) {
       if (searching) {
@@ -1626,11 +1736,19 @@ function updateAuthUI(user) {
 
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
+    // v5.25 — état déconnecté : ne RIEN faire au démarrage (le callback initial
+    // de Firebase passe ici alors que currentUser est déjà null — re-fetcher
+    // l'hebdo + refreshMeRows reconstruisait les corps des listes juste après
+    // le premier affichage = micro-cascade). On ne réagit qu'à une VRAIE
+    // déconnexion (transition user → null).
+    const hadUser = !!currentUser;
     currentUser = null;
     updateAuthUI(null);
-    // Retrait de la ligne TOI après déconnexion
-    refreshMeRows();
-    fetchWeeklyPage({ reset: true }); // v5.13 : purge la ligne TOI de l'API
+    if (hadUser) {
+      refreshMeRows(); // retrait de la ligne TOI
+      fetchWeeklyPage({ reset: true }); // purge la ligne TOI de l'API
+    }
+    _authReadyResolve?.(); // v5.26 — boot : profil absent connu, lever le gate
     return;
   }
   currentUser = { uid: user.uid, avatar: user.photoURL, email: user.email };
@@ -1651,7 +1769,14 @@ onAuthStateChanged(auth, async (user) => {
     // Ligne TOI : re-rend les listes si les données sont déjà affichées
     refreshMeRows();
     // v5.13 — re-fetch hebdo avec me=publicId (ligne TOI au-delà du top 50)
-    fetchWeeklyPage({ reset: true });
+    // v5.26 — PAS au boot : au démarrage, init() lance la 1ʳᵉ page hebdo
+    // APRÈS ce signal (donc avec me=publicId) → une seule requête, un seul
+    // rendu, la ligne TOI est dans la 1ʳᵉ peinture. On ne re-fetch ici que
+    // si une page hebdo / un rendu existe déjà (login RÉEL, changement de
+    // compte) — sinon c'était un 2ᵉ re-rendu du panneau de droite = la
+    // « petite cascade qui fait bouger le leaderboard » après le paint.
+    if (_firstRenderDone || _weeklyApi.ready) fetchWeeklyPage({ reset: true });
+    _authReadyResolve?.(); // v5.26 — boot : profil connu (publicId dispo)
   } else {
     // Premier login sans profil : on affiche le badge + ouvre le setup modal
     currentUser.name = user.displayName || T("dash.default_player", "Joueur");
@@ -1668,9 +1793,11 @@ onAuthStateChanged(auth, async (user) => {
         // Petit délai pour laisser le toast se figurer
         showToast(T("dash.toast_welcome_setup", "Bienvenue ! Finalisez votre profil pour accéder à vos stats."), "info", 3500);
         setTimeout(() => { window.location.href = "profile.html"; }, 1200);
+        _authReadyResolve?.(); // v5.26 — boot : état connu (redirection en cours)
         return;
       }
     }
+    _authReadyResolve?.(); // v5.26 — boot : état connu (profil sans publicId)
   }
 });
 
@@ -1929,6 +2056,10 @@ document.addEventListener("click", (e) => {
 
 (async function init() {
   try {
+    // v5.25 — sécurité : quoi qu'il arrive, le dashboard s'affiche au bout de
+    // 3 s (le setTimeout inline de dashboard.html est le filet à 3,5 s si
+    // dashboard.js lui-même ne s'exécute pas).
+    setTimeout(revealDashboard, 3000);
     // v5.24 — hydrate le cache cosmétiques AVANT tout : pseudos hub + joueurs
     // vérifiés + skins + bannières disponibles immédiatement (au refresh, le
     // badge vérifié et les cosmétiques sont là dès la décoration de l'aperçu,
@@ -1937,7 +2068,7 @@ document.addEventListener("click", (e) => {
     // v5.24 — déco IMMÉDIATE de l'aperçu avec le cache : au refresh, l'aperçu
     // affiché à l'écran porte déjà les pseudos hub + badges + skins + bannières
     // dès le premier tick JS (avant même que les API n'aient répondu).
-    decoratePreviewInPlace();
+    decorateCosmeticsInPlace(view);
     // v5.23 — Préchargements lancés DÈS LE DÉPART, en parallèle du fetch
     // scores.gz (avant : séquentiel → skins/aliases/ranked.json payaient
     // leur latence APRÈS le téléchargement des scores, et l'aperçu statique
@@ -1993,20 +2124,35 @@ document.addEventListener("click", (e) => {
           // (v5.23 : déjà en cours depuis le début — await quasi gratuit)
           await rankedP;
           _mergedViews = buildMergedViews();
+          // v5.26 — attendre le profil auth (cap 2 s interne, déjà écoulé en
+          // général pendant le téléchargement des scores) AVANT la 1ʳᵉ page
+          // hebdo : la requête part avec me=publicId → la ligne TOI est dans
+          // la 1ʳᵉ peinture, et l'auth ne déclenchera plus de re-fetch/re-rendu
+          // correctif APRÈS l'affichage (c'était la « petite cascade qui fait
+          // bouger tout le leaderboard » pour un utilisateur connecté).
+          await _authReadyP;
           // v5.24 — le swap aperçu→live attend AUSSI la 1ʳᵉ page du top
           // hebdo « tous les joueurs » (API) : avant, l'API arrivait APRÈS le
           // swap et re-rendait le panneau de droite (2ᵉ reset visible).
-          // Cap 5 s : si l'API traîne, on swap quand même (l'aperçu hebdo
-          // pré-généré couvre l'écran, et l'API finira par s'afficher sans
-          // animation grâce à .no-anim).
           const weeklyP = fetchWeeklyPage({ reset: true }).catch(() => {});
+          // v5.26 — cap 3 s aligné sur le filet JS : le rideau attend les
+          // cosmétiques (atomic ≤ 2 s) ET la 1ʳᵉ page hebdo API → une seule
+          // peinture définitive. Si l'API dépasse 3 s, on peint quand même
+          // (l'aperçu hebdo pré-généré couvre l'écran) ; la page API
+          // s'appliquera ensuite en place, sans animation (.no-anim).
           await Promise.race([
             Promise.all([atomicP, weeklyP]),
-            new Promise((resolve) => setTimeout(resolve, 5000)),
+            new Promise((resolve) => setTimeout(resolve, 3000)),
           ]);
           // v5.21 — rendu ATOMIQUE : skins + aliases (pseudos hub + badges)
           // attendus avant le swap → tout arrive d'un coup, sans animation.
           mergeAndRender();
+          // v5.25 — déco du rendu live AVANT la levée du rideau : bannières
+          // (passage synchrone depuis le cache), badges, skins — la première
+          // peinture visible est 100 % complète.
+          decorateCosmeticsInPlace(view);
+          // v5.25 — LEVÉE DU RIDEAU : un seul affichage, complet et décoré.
+          revealDashboard();
           scoresLoaded = true;
           _liveFetchDone = true;
           _liveFetchProgress = 1; // prevent progress bar
@@ -2030,7 +2176,20 @@ document.addEventListener("click", (e) => {
     await rankedP;
     _mergedViews = buildMergedViews();
     await atomicP;
+    // v5.26 — le fallback est ATOMIQUE aussi : profil auth + 1ʳᵉ page hebdo
+    // attendus AVANT le rendu/la levée du rideau → une seule peinture, la
+    // ligne TOI et le top hebdo inclus, rien ne bouge après.
+    await _authReadyP;
+    const weeklyP = fetchWeeklyPage({ reset: true }).catch(() => {});
+    await Promise.race([
+      Promise.all([atomicP, weeklyP]),
+      new Promise((resolve) => setTimeout(resolve, 3000)),
+    ]);
     render();
+    // v5.25 — déco complète du 1ᵉʳ rendu (bannières cache inclues) avant levée.
+    decorateCosmeticsInPlace(view);
+    // v5.25 — premier rendu du fallback posé → levée du rideau.
+    revealDashboard();
 
     // Phase 3 : Charger les stats live pour chaque joueur connecté
     if (_connectedPlayers.length > 0) {
@@ -2044,11 +2203,12 @@ document.addEventListener("click", (e) => {
       _liveFetchDone = true;
     }
 
-    // v5.13 — top hebdo « tous les joueurs » (API, paginé) — les deux chemins
-    // d'init passent ici ou par le return ci-dessus.
-    fetchWeeklyPage({ reset: true });
+    // v5.13/v5.26 — top hebdo « tous les joueurs » : déjà fetché (avec me=)
+    // AVANT le rendu dans les DEUX chemins (main + fallback) → plus aucun
+    // fetch hebdo post-affichage ici (c'était un 2ᵉ re-rendu du panneau).
   } catch (e) {
     console.error("[dashboard] init failed:", e);
+    revealDashboard(); // v5.25 — ne JAMAIS laisser le rideau fermé sur une erreur
     view.innerHTML = `<div class="dash-empty-state"><div class="dash-empty-icon"><i data-icon="warning"></i></div><h3>${T("dash.error_title", "Erreur")}</h3><p>${escapeHtml(e.message || T("dash.error_generic", "Chargement impossible."))}</p></div>`;
     if (window.hydrateIcons) window.hydrateIcons(view);
   }
