@@ -913,6 +913,19 @@
 .llive-head-title{font-size:13px;font-weight:800;color:var(--fg,#18181b);text-transform:uppercase;letter-spacing:.05em}
 .llive-summary{font-size:12px;font-weight:600;color:var(--fg-muted,#71717a)}
 .llive-summary.is-active{color:var(--accent,#ff6b00)}
+/* v5.32 — interrupteur du filtre (ON/OFF sans perdre la configuration).
+   Miroir de la ligne ALERTE : au-dessus des critères, bord bas au lieu de
+   bord haut (il est collé sous l'entête). */
+.llive-filter-line{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  border-bottom:1px solid var(--border,#e4e4e7);padding-bottom:10px;
+}
+.llive-filter-line .llive-toggle{flex:1 1 auto;min-width:200px}
+/* Filtre coupé : les blocs de critères restent éditables mais visuellement
+   « au repos » (la configuration est conservée, elle ne filtre plus). */
+.llive-strip.is-filter-off .llive-filters,
+.llive-strip.is-filter-off .llive-maps,
+.llive-strip.is-filter-off .llive-profiles{opacity:.55}
 /* v5.29 — couche ALERTE (sous le filtre : d'abord filtrer, ensuite sonner) */
 .llive-alert-line{
   display:flex;align-items:center;gap:12px;flex-wrap:wrap;

@@ -1,5 +1,5 @@
 /**
- * lobby-live.js — v5.31 — Filtre des parties + alertes du lobby TheFrontHub.
+ * lobby-live.js — v5.32 — Filtre des parties + alertes du lobby TheFrontHub.
  *
  * Module compagnon de lobby.js (qui publie l'event window « tfh:lobby:update »
  * à chaque snapshot/counts). v5.21 : le bandeau ne garde que l'essentiel.
@@ -63,6 +63,16 @@
  *   3. Suivi « ma partie »    → clic sur une carte = tu lances la partie ;
  *                              dès que le flux voit qu'elle démarre, le chat
  *                              de la partie s'ouvre (lobby-chat.js).
+ *   4. v5.32 — INTERRUPTEUR DU FILTRE : le filtre peut désormais être
+ *                              ACTIVÉ ou DÉSACTIVÉ sans perdre sa
+ *                              configuration (chips, bornes, cartes
+ *                              conservées). Désactivé = TOUTES les parties
+ *                              s'affichent (l'entonnoir se vide, le résumé
+ *                              l'annonce) ; réactivé = les critères
+ *                              sauvegardés re-filtrent l'affichage. La couche
+ *                              ALERTE reste indépendante (son propre
+ *                              interrupteur) : elle continue de surveiller
+ *                              les critères enregistrés.
  *
  * Chargé en script autonome (IIFE, defer). Zéro dépendance.
  */
@@ -141,6 +151,11 @@
     minJoined: null, maxJoined: null,
     minCapacity: null, maxCapacity: null,
     minTeamSize: null, maxTeamSize: null,
+    // v5.32 — interrupteur du filtre : true = les critères filtrent
+    // l'affichage ; false = suspendu (tout s'affiche, critères conservés).
+    // Absent (anciens builds) → true (rétro-compat : le filtrage existant
+    // ne doit pas disparaître après la mise à jour).
+    filterOn: true,
   };
 
   // Migration douce : v1/v2 (enabled/mode/minPlayers/maps/compact/ranked) → v3
@@ -157,6 +172,11 @@
   }
   delete settings.mode; delete settings.minPlayers; delete settings.compact; delete settings.ranked; // clés v1/v2
   if (!Array.isArray(settings.maps)) settings.maps = [];
+  // v5.32 — l'interrupteur du filtre : absent/false→booléen strict. Les
+  // anciens builds n'avaient pas la clé = filtre actif dès qu'un critère
+  // existait → undefined DOIT valoir true (sinon le filtrage existant
+  // disparaîtrait silencieusement après la mise à jour).
+  settings.filterOn = settings.filterOn !== false;
   for (const k of ["modes", "sources", "teamConfigs"]) if (!Array.isArray(settings[k])) settings[k] = [];
   for (const k of ["minJoined", "maxJoined", "minCapacity", "maxCapacity", "minTeamSize", "maxTeamSize"]) {
     // NB : Number(null) === 0 → test explicite de null/"" avant conversion
@@ -372,7 +392,10 @@
    *  changement de filtre (chips, bornes, cartes, profil, reset) émet
    *  « tfh:lobby:filter-changed » → re-rendu immédiat de la liste. */
   window.TFH_LOBBY_FILTER = {
-    active: () => hasActiveCriteria(),
+    // v5.32 — le filtre ne s'applique que si l'interrupteur est ON et qu'au
+    // moins un critère est posé. OFF = lobby.js affiche TOUT (critères
+    // conservés pour une réactivation sans reconfiguration).
+    active: () => settings.filterOn !== false && hasActiveCriteria(),
     matches: (g, bucket) => matchesFilters(g, bucket),
   };
 
@@ -384,6 +407,21 @@
     updateFilterSummary();
     renderBell(); // v5.29 : l'entonnoir se remplit/ se vide selon le filtre
     try { window.dispatchEvent(new CustomEvent("tfh:lobby:filter-changed", {})); } catch { /* ignore */ }
+  }
+
+  /** v5.32 — interrupteur du filtre (ON/OFF sans perdre la configuration).
+   *  OFF : TOUTES les parties s'affichent, l'entonnoir se vide, les critères
+   *  restent enregistrés ; ON : les critères re-filtrent l'affichage. La
+   *  couche alerte (settings.enabled) est INDÉPENDANTE et continue de
+   *  surveiller les critères enregistrés. */
+  function setFilterOn(on) {
+    settings.filterOn = on !== false;
+    save(LS_ALERTS, settings);
+    commitFilters();
+    window.showToast?.(settings.filterOn
+      ? T("lobby.filter_on_toast", "Filtre activé", {})
+      : T("lobby.filter_off_toast", "Filtre désactivé — toutes les parties s'affichent", {}),
+      settings.filterOn ? "success" : "info", 3000);
   }
 
   function annotateBuckets(games) {
@@ -712,6 +750,16 @@
           <span class="llive-head-title">${esc(T("lobby.f_panel_title", "Filtre des parties"))}</span>
           <span class="llive-summary" data-role="ll-filter-summary"></span>
         </div>
+        <!-- v5.32 — INTERRUPTEUR DU FILTRE : ON = les critères filtrent
+             l'affichage ; OFF = tout s'affiche, la configuration (chips,
+             bornes, cartes) est CONSERVÉE pour une réactivation immédiate. -->
+        <div class="llive-filter-line">
+          <label class="llive-toggle">
+            <input type="checkbox" data-role="ll-filter-on">
+            <span class="llive-toggle-track" aria-hidden="true"></span>
+            <span>${esc(T("lobby.filter_enable", "Filtre activé — masque les parties hors filtre"))}</span>
+          </label>
+        </div>
         <!-- filtre OFFICIEL OpenFront (cf. DetailedGameViewModal) -->
         <div class="llive-filters">
           <div class="llive-frow">
@@ -844,6 +892,7 @@
       bell:      strip.querySelector("[data-role=ll-bell]"),
       panel:     strip.querySelector("[data-role=ll-panel]"),
       enabled:   strip.querySelector("[data-role=ll-enabled]"),
+      filterOn:  strip.querySelector("[data-role=ll-filter-on]"), // v5.32
       test:      strip.querySelector("[data-role=ll-test]"),
       filterSummary: strip.querySelector("[data-role=ll-filter-summary]"),
       // v5.28 — filtre officiel : groupes de chips + bornes min/max
@@ -880,6 +929,7 @@
 
     // État initial des contrôles
     els.enabled.checked = !!settings.enabled;
+    if (els.filterOn) els.filterOn.checked = settings.filterOn !== false; // v5.32
     syncFilterUI();
     refreshProfilesUI();
     updateMapsSummary();
@@ -890,6 +940,8 @@
     // par UN SEUL gestionnaire document, posé plus bas — voir le bloc
     // « OUVERTURE/FERMETURE du panneau ».
 
+    // v5.32 — interrupteur du filtre : ON/OFF sans perdre la configuration.
+    els.filterOn.addEventListener("change", () => setFilterOn(els.filterOn.checked));
     els.enabled.addEventListener("change", () => {
       settings.enabled = els.enabled.checked;
       save(LS_ALERTS, settings);
@@ -948,9 +1000,13 @@
       commitFilters(); // v5.29
     });
     els.reset.addEventListener("click", () => {
-      // Réinitialise les FILTRES (l'état des alertes enabled est conservé)
+      // Réinitialise les FILTRES — l'état des alertes (enabled) ET de
+      // l'interrupteur du filtre (filterOn, v5.32) est conservé : ce sont
+      // des choix explicites de l'utilisateur, « Réinitialiser » ne porte
+      // que sur les critères.
       const keepEnabled = settings.enabled;
-      Object.assign(settings, JSON.parse(JSON.stringify(DEFAULT_FILTERS)), { enabled: keepEnabled });
+      const keepFilterOn = settings.filterOn !== false;
+      Object.assign(settings, JSON.parse(JSON.stringify(DEFAULT_FILTERS)), { enabled: keepEnabled, filterOn: keepFilterOn });
       commitFilters(); // v5.29
       window.showToast?.(T("lobby.f_reset_toast", "Filtres réinitialisés"), "info", 2500);
     });
@@ -961,7 +1017,8 @@
       if (!Object.prototype.hasOwnProperty.call(profiles, name)) return;
       const f = normalizeFilters(profiles[name]);
       const keepEnabled = settings.enabled; // les profils filtrent, l'alarme reste telle quelle
-      Object.assign(settings, f, { enabled: keepEnabled });
+      const keepFilterOn = settings.filterOn !== false; // v5.32 : idem pour l'interrupteur
+      Object.assign(settings, f, { enabled: keepEnabled, filterOn: keepFilterOn });
       commitFilters(); // v5.29
       announceCurrentMatches(); // si l'alerte est active : son immédiat si des parties cochent déjà
       window.showToast?.(T("lobby.f_profile_applied", `Profil « ${name} » appliqué`, { name }), "success", 3000);
@@ -1071,6 +1128,7 @@
       if (input) input.value = settings[key] == null ? "" : String(settings[key]);
     }
     if (els.hideEmpty) els.hideEmpty.checked = settings.hideEmpty === true;
+    if (els.filterOn) els.filterOn.checked = settings.filterOn !== false; // v5.32
   }
 
   const TEAM_CONFIG_ALLOWED = ["Duos", "Trios", "Quads", "2", "3", "4", "5", "6", "7", "8"];
@@ -1126,6 +1184,7 @@
     if (!hasProfile(profiles, trimmed) && Object.keys(profiles).length >= MAX_PROFILES) return null;
     const f = normalizeFilters(filters);
     delete f.enabled; // un profil = des filtres, pas l'état de l'alarme
+    delete f.filterOn; // v5.32 : ni l'état de l'interrupteur du filtre
     profiles[trimmed] = f;
     persistProfiles(profiles);
     return trimmed;
@@ -1158,7 +1217,9 @@
     const n = Object.keys(watch).length;
     els.badge.hidden = n === 0;
     els.badge.textContent = String(n);
-    const filtering = hasActiveCriteria();
+    // v5.32 — l'entonnoir n'est rempli que si le filtre est VRAIMENT appliqué
+    // (interrupteur ON + au moins un critère) ; OFF = entonnoir vide.
+    const filtering = settings.filterOn !== false && hasActiveCriteria();
     // v5.29 — entonnoir : rempli quand le filtre (affichage) est actif ;
     // halo « has-alerts » quand l'ALERTE (son) est activée.
     els.bell.classList.toggle("has-alerts", !!settings.enabled);
@@ -1172,6 +1233,17 @@
    *  snapshot (les comptes bougent) et à chaque changement de filtre. */
   function updateFilterSummary() {
     if (!els.filterSummary) return;
+    // v5.32 — interrupteur OFF : le filtre est suspendu, TOUTES les parties
+    // s'affichent (les critères restent enregistrés mais ne filtrent plus).
+    if (settings.filterOn === false) {
+      strip?.classList.toggle("is-filtering", false);
+      strip?.classList.toggle("is-filter-off", true);
+      els.filterSummary.textContent = T("lobby.filter_off_summary", "Filtre désactivé — toutes les parties s'affichent");
+      els.filterSummary.classList.remove("is-active");
+      els.filterSummary.title = T("lobby.filter_off_title", "Le filtre est coupé : la configuration est conservée, réactive l'interrupteur pour la réappliquer");
+      return;
+    }
+    strip?.classList.toggle("is-filter-off", false);
     const active = hasActiveCriteria();
     strip?.classList.toggle("is-filtering", active);
     if (!active) {
@@ -1365,7 +1437,9 @@
     // v5.29 — filtre persisté (localStorage) : prévient lobby.js d'un
     // re-rendu initial filtré (l'événement part APRÈS l'exposition de
     // window.TFH_LOBBY_FILTER,lobby.js est déjà à l'écoute).
-    if (hasActiveCriteria()) {
+    // v5.32 — uniquement si le filtre est VRAIMENT actif (interrupteur ON
+    // + critères) : OFF, aucune liste filtrée à peindre au démarrage.
+    if (window.TFH_LOBBY_FILTER && window.TFH_LOBBY_FILTER.active()) {
       try { window.dispatchEvent(new CustomEvent("tfh:lobby:filter-changed", {})); } catch { /* ignore */ }
     }
   }
