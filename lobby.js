@@ -244,10 +244,19 @@ function esc(v) {
 }
 
 /** Slug du dossier de map OpenFront ("Amazon River" → "amazonriver"). */
+// v5.30 — alias wire → atlas : l'enum wire « Tourney 2 Teams » slugifie en
+// « tourney2teams » alors que la clé atlas (vignettes locales) est « tourney1 ».
+const MAP_SLUG_ALIASES = {
+  tourney2teams: "tourney1",
+  tourney3teams: "tourney2",
+  tourney4teams: "tourney3",
+  tourney8teams: "tourney4",
+};
 function mapSlug(mapName) {
-  return typeof mapName === "string"
+  const s = typeof mapName === "string"
     ? mapName.toLowerCase().replace(/[\s_]/g, "").replace(/[^\w]/g, "")
     : "";
+  return MAP_SLUG_ALIASES[s] || s;
 }
 
 /** Miniature de map — miroir LOCAL d'abord (atlas-data/thumbnails, même

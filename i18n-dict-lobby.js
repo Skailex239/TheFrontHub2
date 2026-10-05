@@ -220,8 +220,10 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   "lobby.alert_mode": "Mode",
   "lobby.alert_min": "Joueurs min.",
   "lobby.alert_hint": "Les parties qui cochent le filtre s'affichent, les autres sont masquées. Active l'alerte pour être prévenu (son + notification) dès qu'une partie correspondante s'ouvre. Garde cet onglet ouvert.",
-  "lobby.alert_watching": "Lobbies surveillés (prévenir quand pleins)",
-  "lobby.alert_watch_hint": "Astuce : clique la cloche d'une carte pour être prévenu quand le lobby est plein.",
+  "lobby.alert_watching": "Lobbies surveillés (prévenir quand ils démarrent)",
+  "lobby.alert_watch_hint": "Astuce : clique la cloche d'une carte pour être prévenu quand le lobby démarre (plein ou compte à rebours).",
+  "lobby.alert_start_title": "Le lobby démarre ! 🎮",
+  "lobby.alert_start_body": "{map} vient de lancer la partie — file rejoindre !",
   "lobby.alert_full_title": "Lobby plein ! 🔔",
   "lobby.alert_full_body": "{map} est complète ({n}/{cap}) — file rejoindre !",
   "lobby.alert_new_title": "Nouvelle partie ! 🎮",
@@ -240,7 +242,7 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   "lobby.watch_add_aria": "Me prévenir quand ce lobby est plein",
   "lobby.watch_remove_title": "Ne plus surveiller ce lobby",
   "lobby.watch_remove_aria": "Ne plus surveiller",
-  "lobby.watch_on_toast": "OK ! Je te préviens dès que ce lobby est plein 🔔",
+  "lobby.watch_on_toast": "OK ! Je te préviens dès que ce lobby démarre 🔔",
   "lobby.watch_off_toast": "Surveillance retirée",
 
   // ── v5.19 — Suivi « ma partie » (chat auto au lancement) ─────────
@@ -508,8 +510,10 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
   "lobby.alert_mode": "Mode",
   "lobby.alert_min": "Min. players",
   "lobby.alert_hint": "Games matching the filter are shown, the others are hidden. Turn the alert on to be notified (sound + notification) whenever a matching game opens. Keep this tab open.",
-  "lobby.alert_watching": "Watched lobbies (notify when full)",
-  "lobby.alert_watch_hint": "Tip: click a card's bell to be notified when that lobby fills up.",
+  "lobby.alert_watching": "Watched lobbies (notify when they start)",
+  "lobby.alert_watch_hint": "Tip: click a card's bell to be notified when that lobby starts (full or countdown).",
+  "lobby.alert_start_title": "The lobby is starting! 🎮",
+  "lobby.alert_start_body": "{map} just launched — go join!",
   "lobby.alert_full_title": "Lobby full! 🔔",
   "lobby.alert_full_body": "{map} is complete ({n}/{cap}) — go join!",
   "lobby.alert_new_title": "New game! 🎮",
@@ -528,7 +532,7 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
   "lobby.watch_add_aria": "Notify me when this lobby is full",
   "lobby.watch_remove_title": "Stop watching this lobby",
   "lobby.watch_remove_aria": "Stop watching",
-  "lobby.watch_on_toast": "Got it! I'll ping you when this lobby fills up 🔔",
+  "lobby.watch_on_toast": "Got it! I'll ping you when this lobby starts 🔔",
   "lobby.watch_off_toast": "Watch removed",
 
   // ── v5.19 — My game tracking (auto chat on start) ─────────────────

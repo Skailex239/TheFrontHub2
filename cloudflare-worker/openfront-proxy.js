@@ -764,11 +764,16 @@ async function handleLobbySnapshot(request) {
       const host = servers[i].host;
       const n = servers[i].numWorkers > 0 ? servers[i].numWorkers : 20;
       const w = Math.floor(Math.random() * n);
-      const upstreamUrl = "wss://" + host + "/w" + w + "/lobbies?platform=web";
+      // v2.1 — API Cloudflare Workers : le WS SORTANT s'ouvre via fetch() sur
+      // une URL https:// avec l'entête « Upgrade: websocket » (la réponse
+      // 101 porte .webSocket). fetch("wss://…") est REFUSÉ par le runtime
+      // (« Fetch API cannot load: wss://… ») — le worker était muet.
+      const upstreamUrl = "https://" + host + "/w" + w + "/lobbies?platform=web";
       let upstreamResp;
       try {
         upstreamResp = await fetch(upstreamUrl, {
           headers: {
+            "Upgrade": "websocket",
             "Origin": "https://openfront.io",
             "User-Agent":
               "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
@@ -850,14 +855,15 @@ async function proxyWebSocket(request, resolveUpstream) {
   for (let i = 0; i < list.length; i++) {
     const upstreamUrl = list[i];
     try {
-      // ⚠️ API Cloudflare Workers : on fetch l'URL wss:// et Cloudflare gère
-      // l'Upgrade. Origin requis pour les checks OpenFront. On tente d'abord
-      // le profil historique (UA court), puis sans UA.
+      // ⚠️ API Cloudflare Workers (v2.1) : le WS sortant = fetch() sur une
+      // URL https:// + entête « Upgrade: websocket » — PAS fetch("wss://…")
+      // (refusé par le runtime : « Fetch API cannot load: wss://… »).
+      // Origin requis pour les checks OpenFront. UA Chrome complet (le
+      // « Mozilla/5.0 » nu est flagué bot 403 par le challenge CF).
       let upstreamResp = await fetch(upstreamUrl, {
         headers: {
+          "Upgrade": "websocket",
           "Origin": "https://openfront.io",
-          // v5.17 : le challenge CF filtre sur l'UA — « Mozilla/5.0 » nu
-          // est flagué bot (403). UA Chrome complet + Accept-Language.
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
@@ -867,7 +873,7 @@ async function proxyWebSocket(request, resolveUpstream) {
       if (!upstreamResp.webSocket) {
         try {
           upstreamResp = await fetch(upstreamUrl, {
-            headers: { "Origin": "https://openfront.io" },
+            headers: { "Upgrade": "websocket", "Origin": "https://openfront.io" },
           });
         } catch (e) { /* on garde la première réponse */ }
       }
@@ -946,19 +952,21 @@ export default {
           const srv = servers[i];
           const n = srv.numWorkers > 0 ? srv.numWorkers : 20;
           const w = Math.floor(Math.random() * n);
-          candidates.push("wss://" + srv.host + "/w" + w + "/lobbies?platform=web");
+          // v2.1 : https:// + Upgrade: websocket (fetch(wss://) est refusé)
+          candidates.push("https://" + srv.host + "/w" + w + "/lobbies?platform=web");
         }
         // Repli absolu : pool legacy openfront.io.
-        candidates.push("wss://" + LEGACY_LOBBY_HOST + "/w" + Math.floor(Math.random() * 20) + "/lobbies?platform=web");
+        candidates.push("https://" + LEGACY_LOBBY_HOST + "/w" + Math.floor(Math.random() * 20) + "/lobbies?platform=web");
         return candidates;
       });
     }
 
-    // /matchmaking-ws?mode=1v1 → wss://api.openfront.io/matchmaking/join?...
+    // /matchmaking-ws?mode=1v1 → api.openfront.io/matchmaking/join?...
     if (path === "/matchmaking-ws") {
       return proxyWebSocket(request, function () {
         const mode = url.searchParams.get("mode") || "1v1";
-        return "wss://api.openfront.io/matchmaking/join?instance_id=tfh-monitor&mode=" + encodeURIComponent(mode);
+        // v2.1 : https:// + Upgrade: websocket (fetch(wss://) est refusé)
+        return "https://api.openfront.io/matchmaking/join?instance_id=tfh-monitor&mode=" + encodeURIComponent(mode);
       });
     }
 

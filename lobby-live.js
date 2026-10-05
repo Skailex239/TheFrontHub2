@@ -1,5 +1,5 @@
 /**
- * lobby-live.js — v5.29 — Filtre des parties + alertes du lobby TheFrontHub.
+ * lobby-live.js — v5.30 — Filtre des parties + alertes du lobby TheFrontHub.
  *
  * Module compagnon de lobby.js (qui publie l'event window « tfh:lobby:update »
  * à chaque snapshot/counts). v5.21 : le bandeau ne garde que l'essentiel.
@@ -34,6 +34,17 @@
  *                              l'alerte, les parties qui correspondent déjà
  *                              au filtre sonnent immédiatement (preuve que
  *                              ça marche), ensuite seules les NOUVELLES.
+ *                              v5.30 : si l'alerte est activée AVANT l'arrivée
+ *                              du 1er snapshot, l'annonce « preuve » part dès
+ *                              que le flux arrive (trou noir supprimé).
+ *   2bis. CLOCHE D'UNE CARTE   → v5.30 : « prévenir quand le lobby démarre »
+ *                              et plus seulement quand il est PLEIN. OpenFront
+ *                              lance aussi les salons publics au COMPTE À
+ *                              REBOURS (souvent NON pleins) : le bip part
+ *                              dès que startsAt tombe à zéro, ou dès que la
+ *                              partie quitte le flux (~15 s). FINI le
+ *                              nettoyage silencieux au bout de 5 min qui
+ *                              laissait l'alerte « sans voix ».
  *   3. Suivi « ma partie »    → clic sur une carte = tu lances la partie ;
  *                              dès que le flux voit qu'elle démarre, le chat
  *                              de la partie s'ouvre (lobby-chat.js).
@@ -70,6 +81,23 @@
   // détectée n'est jamais jetée — chaque lot déclenche le son.
   const NEW_ALERT_MERGE_MS = 5_000; // parties ouvertes en rafale → 1 son par lot de 5 s
   const ALERTED_MAX     = 400;          // plafond du Set de dédup session
+  // v5.30 — cloche d'une carte : une partie surveillée qui quitte le flux
+  // (lobby lancé) doit sonner. 15 s d'absence consécutive = elle a démarré
+  // (les snapshots « full » reprennent tout l'état ; une seule frame perdue
+  // ne déclenche donc pas de faux bip). Au-delà de WATCH_GONE_MS sans avoir
+  // été vue « non pleine » dans la session → nettoyage silencieux (entrée
+  // d'une session précédente : ne PAS sonner des heures après coup).
+  const WATCH_GONE_START_MS = 15_000;
+  // v5.30 — alias wire → atlas : l'enum wire « Tourney 2 Teams » slugifie en
+  // « tourney2teams » alors que la clé atlas (vignettes + sélecteur) est
+  // « tourney1 ». Sans la table, sélectionner une carte Tourney filtrait
+  // TOUT (aucune partie affichée, aucune alerte).
+  const MAP_SLUG_ALIASES = {
+    tourney2teams: "tourney1",
+    tourney3teams: "tourney2",
+    tourney4teams: "tourney3",
+    tourney8teams: "tourney4",
+  };
   const MODES = ["ffa", "team", "special"];
 
   /* ── État persistant ─────────────────────────────────────────────────── */
@@ -125,6 +153,10 @@
   let lastNewAlert = 0;                   // ts du dernier bip « nouvelles parties »
   let alertedIds = new Set();             // une partie n'alerte JAMAIS 2 fois par session
   let lastCounts = new Map();             // id → numClients au passage précédent (détection de seuil)
+  // v5.30 — alerte activée avant l'arrivée du 1er snapshot : l'annonce « preuve »
+  // (parties qui cochent DÉJÀ le filtre) doit partir au 1er « full », sinon les
+  // parties présentes à cet instant ne sonneraient JAMAIS.
+  let announceOnFirstSnapshot = false;
 
   /* ── DOM ─────────────────────────────────────────────────────────────── */
   let strip = null;
@@ -201,11 +233,13 @@
     return String(cfg.gameMap || "?").slice(0, 24);
   }
 
-  /** Slug de map (même règle que lobby.js mapSlug — copie locale, zéro dépendance). */
+  /** Slug de map (même règle que lobby.js mapSlug — copie locale, zéro dépendance).
+   *  v5.30 : + alias Tourney (enum wire « Tourney 2 Teams » → clé atlas tourney1). */
   function mapSlugOf(mapName) {
-    return typeof mapName === "string"
+    const s = typeof mapName === "string"
       ? mapName.toLowerCase().replace(/[\s_]/g, "").replace(/[^\w]/g, "")
       : "";
+    return MAP_SLUG_ALIASES[s] || s;
   }
 
   /* ── v5.28 — FAITS + FILTRE OFFICIEL (port de DetailedGameViewFilters.ts) ── */
@@ -467,11 +501,21 @@
     const games = detail.games || {};
     annotateBuckets(games);
     const now = Date.now();
+    // v5.30 — startsAt est en horloge SERVEUR (comme pour le suivi « ma partie »)
+    const sNow = Number(detail.serverNow) > 0 ? Number(detail.serverNow) : now;
 
-    // 1) Surveillances : pleine ? expirée ? partie disparue ?
+    // 1) Surveillances (cloche d'une carte) : pleine ? démarre ? disparue ?
     //    v5.20.1 : une surveillance n'est « armée » qu'après avoir été vue
     //    NON pleine au moins une fois dans cette session — sinon, après un
     //    rechargement de page, un lobby DÉJÀ pleine redéclenchait le bip.
+    //    v5.30 — « prévenir quand le lobby DÉMARRE » : OpenFront lance aussi
+    //    les salons publics au compte à rebours, souvent NON pleins. Trois
+    //    déclencheurs sonnent désormais :
+    //      a) lobby PLEIN            (comme avant) ;
+    //      b) startsAt atteint       (auto-start au compte à rebours) ;
+    //      c) partie absente ≥ 15 s  (elle a quitté le flux = elle a démarré).
+    //    Fini le nettoyage silencieux : une carte surveillée ne peut plus
+    //    « partir sans faire de bruit ».
     let watchDirty = false;
     for (const id of Object.keys(watch)) {
       const w = watch[id];
@@ -480,6 +524,7 @@
         w.lastSeen = now;
         const cap = Number((g.gameConfig || {}).maxPlayers) || 0;
         const n = Number(g.numClients) || 0;
+        const startsAt = Number(g.startsAt) || 0;
         if (cap > 0 && n >= cap) {
           if (w.armedAt && !firedFull.has(id)) {
             firedFull.add(id);
@@ -492,16 +537,50 @@
           }
           delete watch[id]; // pleine (sonnée ou pas) : plus rien à surveiller
           watchDirty = true;
+        } else if (startsAt > 0 && startsAt <= sNow + 1500) {
+          // v5.30 — le compte à rebours touche à sa fin : le lobby démarre
+          // MAINTENANT (plein ou pas). On sonne et on dé-surveille.
+          firedFull.add(id);
+          delete watch[id];
+          watchDirty = true;
+          beep();
+          notify(
+            T("lobby.alert_start_title", "Le lobby démarre ! 🎮"),
+            T("lobby.alert_start_body", `${gameLabel(g)} vient de lancer la partie — file rejoindre !`, { map: gameLabel(g) }),
+            "tfh-start-" + id
+          );
         } else if (!w.armedAt) {
           w.armedAt = now; // vue non pleine → alerte armée pour cette session
           watchDirty = true;
         }
-      } else if (now - (w.lastSeen || w.addedAt || now) > WATCH_GONE_MS) {
-        delete watch[id]; // partie terminée / démarrée : nettoyage silencieux
-        watchDirty = true;
-      } else if (now - (w.addedAt || now) > WATCH_TTL) {
-        delete watch[id]; // expiration douce
-        watchDirty = true;
+      } else {
+        const absentFor = now - (w.lastSeen || 0);
+        if (
+          w.armedAt > 0 &&
+          absentFor >= WATCH_GONE_START_MS &&
+          absentFor <= WATCH_GONE_MS &&
+          now - (w.addedAt || now) <= WATCH_TTL
+        ) {
+          // v5.30 — vue « non pleine » il y a peu, absente depuis ≥ 15 s :
+          // elle a quitté le flux → le lobby a DÉMARRÉ. On sonne (au lieu de
+          // l'ancien nettoyage silencieux à 5 min, qui donnait l'impression
+          // que « l'alerte ne marche pas »).
+          firedFull.add(id);
+          delete watch[id];
+          watchDirty = true;
+          beep();
+          notify(
+            T("lobby.alert_start_title", "Le lobby démarre ! 🎮"),
+            T("lobby.alert_start_body", `${w.map || "Le lobby"} vient de lancer la partie — file rejoindre !`, { map: w.map || "Le lobby" }),
+            "tfh-start-" + id
+          );
+        } else if (now - (w.lastSeen || w.addedAt || now) > WATCH_GONE_MS) {
+          delete watch[id]; // partie terminée / entrée d'une session précédente
+          watchDirty = true;
+        } else if (now - (w.addedAt || now) > WATCH_TTL) {
+          delete watch[id]; // expiration douce
+          watchDirty = true;
+        }
       }
     }
     if (watchDirty) { save(LS_WATCH, watch); renderWatchList(); }
@@ -520,6 +599,11 @@
     }
     // v5.28 : seuil « joueurs présents min » du filtre officiel (bornes min/max)
     const wantMin = Math.max(0, Math.round(Number(settings.minJoined) || 0));
+    // v5.30 — annonce différée : l'alerte a été activée avant le 1er snapshot.
+    if (detail.full && announceOnFirstSnapshot && settings.enabled) {
+      announceOnFirstSnapshot = false;
+      announceCurrentMatches();
+    }
     for (const g of allGames(games)) {
       const id = String(g.gameID || g.id);
       const n = Number(g.numClients) || 0;
@@ -782,9 +866,14 @@
         // v5.29 — preuve immédiate : les parties qui correspondent DÉJÀ au
         // filtre sonnent tout de suite (1 notification agrégée). Ensuite,
         // seules les NOUVELLES parties déclenchent le son.
+        // v5.30 — si le flux n'est pas encore arrivé (0 partie connue),
+        // l'annonce part au 1er snapshot : les parties présentes à cet
+        // instant ne doivent pas rester muettes.
+        if (!allGames(currentGames).length) announceOnFirstSnapshot = true;
         announceCurrentMatches();
       } else {
         pendingFresh = []; // alerte coupée : vide la file en attente
+        announceOnFirstSnapshot = false;
         window.showToast?.(T("lobby.alert_off_toast", "Alerte désactivée"), "info", 2500);
       }
       renderBell();
@@ -1068,16 +1157,22 @@
       window.showToast?.(T("lobby.watch_off_toast", "Surveillance retirée"), "info", 2500);
     } else {
       const g = findGameById(currentGames, id);
+      // v5.30 — arme IMMÉDIATEMENT si la partie est présente et non pleine :
+      // le lobby peut devenir pleine (ou démarrer) entre deux frames du flux,
+      // et l'ancien armement « au 1er passage » avalait alors le bip. Le cas
+      // « rechargement de page » reste protégé : boot() remet armedAt à 0.
+      const cap = g ? Number((g.gameConfig || {}).maxPlayers) || 0 : 0;
+      const n = g ? Number(g.numClients) || 0 : 0;
       watch[id] = {
         map: g ? gameLabel(g) : "",
         mode: g ? modeLabelOf(g) : "",
         addedAt: Date.now(),
         lastSeen: Date.now(),
-        armedAt: 0, // armée au 1er passage « non pleine » de cette session
+        armedAt: g && (cap === 0 || n < cap) ? Date.now() : 0,
       };
       ensureAudio(); // geste utilisateur : audio prêt pour le bip « pleine »
       window.showToast?.(
-        T("lobby.watch_on_toast", "OK ! Je te préviens dès que ce lobby est plein 🔔"),
+        T("lobby.watch_on_toast", "OK ! Je te préviens dès que ce lobby démarre 🔔"),
         "success", 4000, "bell"
       );
     }
