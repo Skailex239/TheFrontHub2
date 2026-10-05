@@ -395,6 +395,16 @@ function isUrgentCountdown(txt) {
   return txt === T("lobby.cd_imminent", "Imminent") || txt === T("lobby.cd_ongoing", "En cours");
 }
 
+/** v5.31 — heure de lancement EFFECTIVE d'un lobby : `startsAt` (salons
+ *  programmés — le master colle un compte à rebours à la tête de file),
+ *  sinon `autoStartAt` (salons hébergés listés : échéance de lancement
+ *  automatique). Un salon public qui démarre parce qu'il est PLEIN n'a NI
+ *  l'un NI l'autre — il quitte simplement la liste (côté alertes, ce cas est
+ *  couvert par lobby-live.js : sortie de liste = partie lancée). */
+function effStartsAt(game) {
+  return Number(game.startsAt) || Number(game.autoStartAt) || 0;
+}
+
 function modeLabel(game) {
   const cfg = game.gameConfig || {};
   if (game.publicGameType === "special") return T("lobby.sec_special", "Spécial");
@@ -497,8 +507,8 @@ function ingestFull(msg) {
   // Tri : la partie qui démarre le plus tôt en premier (sans startsAt → fin)
   for (const k of Object.keys(state.games)) {
     state.games[k].sort((a, b) => {
-      const ta = Number(a.startsAt) || Infinity;
-      const tb = Number(b.startsAt) || Infinity;
+      const ta = effStartsAt(a) || Infinity;
+      const tb = effStartsAt(b) || Infinity;
       return ta - tb;
     });
   }
@@ -1308,7 +1318,7 @@ function updateCard(card, game, opts) {
   const tEl = $("[data-role=timer]", card);
   const txt = game.degraded
     ? T("lobby.cd_done", "Terminée")
-    : countdownText(Number(game.startsAt) || 0, serverNow());
+    : countdownText(effStartsAt(game), serverNow());
   if (tEl) {
     if (tEl.textContent !== txt) tEl.textContent = txt;
     tEl.classList.toggle("urgent", !game.degraded && isUrgentCountdown(txt));
@@ -1521,14 +1531,14 @@ function renderHero(lf) {
   let all = [];
   for (const [key, list] of buckets) {
     for (const g of list) {
-      if (!(Number(g.startsAt) > 0)) continue;
+      if (!(effStartsAt(g) > 0)) continue;
       if (lf && !passesCustomFilter(g, key, lf)) continue;
       all.push(g);
     }
   }
   if (all.length === 0) { hero.hidden = true; hero.innerHTML = ""; return; }
 
-  const next = all.reduce((a, b) => (Number(a.startsAt) < Number(b.startsAt) ? a : b));
+  const next = all.reduce((a, b) => (effStartsAt(a) < effStartsAt(b) ? a : b));
   const cfg = next.gameConfig || {};
   const mapName = cfg.gameMap || "?";
 
@@ -1567,7 +1577,7 @@ function renderHero(lf) {
   }
   const tEl = $("[data-role=hero-timer]", hero);
   if (tEl) {
-    const txt = countdownText(Number(next.startsAt) || 0, serverNow());
+    const txt = countdownText(effStartsAt(next), serverNow());
     tEl.textContent = txt;
     tEl.classList.toggle("urgent", isUrgentCountdown(txt));
   }
@@ -1758,7 +1768,7 @@ function startClock() {
         // écraserait sinon le libellé posé par updateCard toutes les secondes)
         const txt = game.degraded
           ? T("lobby.cd_done", "Terminée")
-          : countdownText(Number(game.startsAt) || 0, serverNow());
+          : countdownText(effStartsAt(game), serverNow());
         if (el.textContent !== txt) el.textContent = txt;
         el.classList.toggle("urgent", !game.degraded && isUrgentCountdown(txt));
       }
@@ -1773,7 +1783,7 @@ function startClock() {
       if (game) {
         const txt = game.degraded
           ? T("lobby.cd_done", "Terminée")
-          : countdownText(Number(game.startsAt) || 0, serverNow());
+          : countdownText(effStartsAt(game), serverNow());
         heroT.textContent = txt;
         heroT.classList.toggle("urgent", !game.degraded && isUrgentCountdown(txt));
       }

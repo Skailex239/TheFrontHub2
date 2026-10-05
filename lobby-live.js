@@ -1,5 +1,5 @@
 /**
- * lobby-live.js — v5.30 — Filtre des parties + alertes du lobby TheFrontHub.
+ * lobby-live.js — v5.31 — Filtre des parties + alertes du lobby TheFrontHub.
  *
  * Module compagnon de lobby.js (qui publie l'event window « tfh:lobby:update »
  * à chaque snapshot/counts). v5.21 : le bandeau ne garde que l'essentiel.
@@ -38,13 +38,28 @@
  *                              du 1er snapshot, l'annonce « preuve » part dès
  *                              que le flux arrive (trou noir supprimé).
  *   2bis. CLOCHE D'UNE CARTE   → v5.30 : « prévenir quand le lobby démarre »
- *                              et plus seulement quand il est PLEIN. OpenFront
- *                              lance aussi les salons publics au COMPTE À
- *                              REBOURS (souvent NON pleins) : le bip part
- *                              dès que startsAt tombe à zéro, ou dès que la
- *                              partie quitte le flux (~15 s). FINI le
- *                              nettoyage silencieux au bout de 5 min qui
- *                              laissait l'alerte « sans voix ».
+ *                              et plus seulement quand il est PLEIN. v5.31 —
+ *                              FIX « l'alerte ne marche pas » : le serveur
+ *                              OpenFront RETIRE le salon de la liste DÈS QU'IL
+ *                              est plein (phase Active, broadcast 500 ms) —
+ *                              le client ne voit donc JAMAIS « n ≥ cap », et
+ *                              l'ancien bip « plein » ne partait jamais ; pire,
+ *                              une cloche posée sur une carte pleine (données
+ *                              fraîches ou fallback) était ARMÉE À 0 puis
+ *                              SUPPRIMÉE en silence au snapshot suivant.
+ *                              Désormais :
+ *                              • armement IMMÉDIAT et INCONDITIONNEL au clic ;
+ *                              • PREUVE FULL : la partie était dans le snapshot
+ *                              complet précédent et le snapshot complet
+ *                              courant ne la contient plus → bip IMMÉDIAT
+ *                              (le lobby a démarré) ;
+ *                              • GARDE-FOU 1 s : les déclencheurs temporels
+ *                              (compte à rebours, absence ≥ 15 s) tournent
+ *                              même si AUCUNE frame n'arrive (horloge serveur
+ *                              interpolée) — fini le bip « jamais ou 5 min
+ *                              trop tard » quand le flux est calme ;
+ *                              • startsAt OU autoStartAt (salons hébergés)
+ *                              pris en compte pour le compte à rebours.
  *   3. Suivi « ma partie »    → clic sur une carte = tu lances la partie ;
  *                              dès que le flux voit qu'elle démarre, le chat
  *                              de la partie s'ouvre (lobby-chat.js).
@@ -88,6 +103,14 @@
   // été vue « non pleine » dans la session → nettoyage silencieux (entrée
   // d'une session précédente : ne PAS sonner des heures après coup).
   const WATCH_GONE_START_MS = 15_000;
+  // v5.31 — preuve « sortie de liste » sur snapshot complet : la frame full
+  // précédente doit dater de moins de 10 s pour être considérée comme un flux
+  // STABLE (une reconnexion / bascule proxy produit une frame full qui vient
+  // d'un AUTRE serveur : sa liste peut différer → pas de bip sur cette base).
+  const FULL_EVIDENCE_GAP_MS = 10_000;
+  // v5.31 — garde-fou : les déclencheurs temporels (compte à rebours, absence)
+  // tournent chaque seconde même si AUCUNE frame n'arrive.
+  const WATCHDOG_TICK_MS = 1_000;
   // v5.30 — alias wire → atlas : l'enum wire « Tourney 2 Teams » slugifie en
   // « tourney2teams » alors que la clé atlas (vignettes + sélecteur) est
   // « tourney1 ». Sans la table, sélectionner une carte Tourney filtrait
@@ -153,6 +176,11 @@
   let lastNewAlert = 0;                   // ts du dernier bip « nouvelles parties »
   let alertedIds = new Set();             // une partie n'alerte JAMAIS 2 fois par session
   let lastCounts = new Map();             // id → numClients au passage précédent (détection de seuil)
+  // v5.31 — horloge serveur interpolée + datation de la dernière frame full
+  // (le bip « sortie de liste » immédiat exige un flux complet STABLE).
+  let lastServerNow = 0;
+  let lastServerNowAt = 0;
+  let lastFullAt = 0;
   // v5.30 — alerte activée avant l'arrivée du 1er snapshot : l'annonce « preuve »
   // (parties qui cochent DÉJÀ le filtre) doit partir au 1er « full », sinon les
   // parties présentes à cet instant ne sonneraient JAMAIS.
@@ -477,10 +505,12 @@
         m.lastSeen = now;
         const cap = Number((g.gameConfig || {}).maxPlayers) || 0;
         const n = Number(g.numClients) || 0;
-        // OpenFront lance automatiquement un lobby public dès qu'il est plein,
-        // ou quand le compte à rebours (startsAt) tombe à zéro.
+        // OpenFront lance automatiquement un lobby public dès qu'il est plein
+        // (et le RETIRE aussitôt de la liste — v5.31), ou quand le compte à
+        // rebours (startsAt / autoStartAt) tombe à zéro.
+        const effStart = Number(g.startsAt) || Number(g.autoStartAt) || 0;
         if (cap > 0 && n >= cap) { dirty = true; fireMyGameStarted(id, g, "full"); }
-        else if (Number(g.startsAt) > 0 && Number(g.startsAt) <= sNow + 1500) { dirty = true; fireMyGameStarted(id, g, "countdown"); }
+        else if (effStart > 0 && effStart <= sNow + 1500) { dirty = true; fireMyGameStarted(id, g, "countdown"); }
       } else if (now - (m.lastSeen || m.addedAt) > MINE_GONE_MS) {
         // Plus vue depuis > 8 s (sur N'IMPORTE QUEL événement — les counts
         // patchent les parties existantes, ils ne retirent jamais une partie
@@ -501,21 +531,20 @@
     const games = detail.games || {};
     annotateBuckets(games);
     const now = Date.now();
-    // v5.30 — startsAt est en horloge SERVEUR (comme pour le suivi « ma partie »)
-    const sNow = Number(detail.serverNow) > 0 ? Number(detail.serverNow) : now;
+    // startsAt est en horloge SERVEUR : on utilise l'horloge publiée par
+    // lobby.js, sinon l'horloge serveur interpolée localement (v5.31 — le
+    // garde-fou 1 s tourne même sans frame, la comparaison doit rester juste).
+    const sNow = Number(detail.serverNow) > 0 ? Number(detail.serverNow)
+      : (lastServerNow > 0 ? lastServerNow + (now - lastServerNowAt) : now);
 
     // 1) Surveillances (cloche d'une carte) : pleine ? démarre ? disparue ?
-    //    v5.20.1 : une surveillance n'est « armée » qu'après avoir été vue
-    //    NON pleine au moins une fois dans cette session — sinon, après un
-    //    rechargement de page, un lobby DÉJÀ pleine redéclenchait le bip.
-    //    v5.30 — « prévenir quand le lobby DÉMARRE » : OpenFront lance aussi
-    //    les salons publics au compte à rebours, souvent NON pleins. Trois
-    //    déclencheurs sonnent désormais :
-    //      a) lobby PLEIN            (comme avant) ;
-    //      b) startsAt atteint       (auto-start au compte à rebours) ;
-    //      c) partie absente ≥ 15 s  (elle a quitté le flux = elle a démarré).
-    //    Fini le nettoyage silencieux : une carte surveillée ne peut plus
-    //    « partir sans faire de bruit ».
+    //    Quatre déclencheurs sonnent (v5.31) :
+    //      a) lobby PLEIN vu dans le flux (transitoire — 1 bip/session) ;
+    //      b) startsAt/autoStartAt atteint (auto-start au compte à rebours) ;
+    //      c) SORTIE DE LISTE sur snapshot complet (preuve immédiate) ;
+    //      d) partie absente ≥ 15 s (secours temporel, flux calme).
+    //    detail.fullEvidence : le snapshot complet courant est non vide et la
+    //    frame full précédente datait de < 10 s (flux stable) — voir onUpdate.
     let watchDirty = false;
     for (const id of Object.keys(watch)) {
       const w = watch[id];
@@ -524,9 +553,15 @@
         w.lastSeen = now;
         const cap = Number((g.gameConfig || {}).maxPlayers) || 0;
         const n = Number(g.numClients) || 0;
-        const startsAt = Number(g.startsAt) || 0;
+        // v5.31 — heure de lancement EFFECTIVE : startsAt (salons programmés)
+        // sinon autoStartAt (salons hébergés, échéance de lancement auto).
+        const startsAt = Number(g.startsAt) || Number(g.autoStartAt) || 0;
         if (cap > 0 && n >= cap) {
-          if (w.armedAt && !firedFull.has(id)) {
+          // v5.31 — vu PLEINE dans le flux (transitoire < 1 s côté serveur,
+          // ou snapshot fallback en retard) : on sonne UNE FOIS par session
+          // (firedFull), ARMÉE OU PAS — l'entrée restaurée après rechargement
+          // correspond à un lobby réellement plein = en train de démarrer.
+          if (!firedFull.has(id)) {
             firedFull.add(id);
             beep();
             notify(
@@ -538,7 +573,7 @@
           delete watch[id]; // pleine (sonnée ou pas) : plus rien à surveiller
           watchDirty = true;
         } else if (startsAt > 0 && startsAt <= sNow + 1500) {
-          // v5.30 — le compte à rebours touche à sa fin : le lobby démarre
+          // Le compte à rebours touche à sa fin : le lobby démarre
           // MAINTENANT (plein ou pas). On sonne et on dé-surveille.
           firedFull.add(id);
           delete watch[id];
@@ -555,16 +590,25 @@
         }
       } else {
         const absentFor = now - (w.lastSeen || 0);
-        if (
+        // v5.31 — la partie a QUITTÉ la liste : c'est ÇA, le lancement réel.
+        //   a) PREUVE FULL (IMMÉDIAT) : le snapshot complet précédent la
+        //      contenait et le snapshot complet courant ne la contient plus
+        //      (flux stable + snapshot non vide) → bip TOUT DE SUITE.
+        //      C'est le cas « lobby plein → partie lancée » : côté serveur le
+        //      salon est RETIRÉ de la liste dès qu'il est plein — le client
+        //      ne voit jamais « n ≥ cap ».
+        //   b) PREUVE TEMPORELLE (secours) : armée et absente depuis 15 s à
+        //      5 min → bip (frames complètes rares : fallback HTTP, flux calme).
+        const leftFullList =
+          detail.fullEvidence &&
+          seenIds !== null && seenIds.has(id) &&
+          absentFor <= WATCH_GONE_MS;
+        const goneAwhile =
           w.armedAt > 0 &&
           absentFor >= WATCH_GONE_START_MS &&
           absentFor <= WATCH_GONE_MS &&
-          now - (w.addedAt || now) <= WATCH_TTL
-        ) {
-          // v5.30 — vue « non pleine » il y a peu, absente depuis ≥ 15 s :
-          // elle a quitté le flux → le lobby a DÉMARRÉ. On sonne (au lieu de
-          // l'ancien nettoyage silencieux à 5 min, qui donnait l'impression
-          // que « l'alerte ne marche pas »).
+          now - (w.addedAt || now) <= WATCH_TTL;
+        if (leftFullList || goneAwhile) {
           firedFull.add(id);
           delete watch[id];
           watchDirty = true;
@@ -585,6 +629,9 @@
     }
     if (watchDirty) { save(LS_WATCH, watch); renderWatchList(); }
     syncCardBells();
+
+    // 1bis) Suivi « ma partie » (le tick 1 s le fait aussi tourner — v5.31)
+    runMyGameEngine({ games, serverNow: sNow });
 
     // 2) Alertes « nouvelles parties » — fiable (v5.29) :
     //      • une partie ne déclenche AU PLUS UNE alerte par session ;
@@ -618,9 +665,6 @@
       alertedIds = new Set([...alertedIds].slice(-ALERTED_MAX / 2));
     }
     flushNewAlerts();
-
-    // 3) Suivi « ma partie » → ouverture du chat au lancement
-    runMyGameEngine(detail);
   }
 
   function modeLabelOf(g) {
@@ -842,17 +886,9 @@
     updateFilterSummary();
 
     // ── Interactions ──
-    els.bell.addEventListener("click", () => {
-      const open = els.panel.hidden;
-      els.panel.hidden = !open;
-      els.bell.setAttribute("aria-expanded", String(open));
-    });
-    document.addEventListener("click", (e) => {
-      if (!els.panel.hidden && !e.target.closest(".llive-tile-bell") && !e.target.closest(".llive-panel")) {
-        els.panel.hidden = true;
-        els.bell.setAttribute("aria-expanded", "false");
-      }
-    });
+    // v5.31 : la bascule du panneau (entonnoir + clic extérieur) est gérée
+    // par UN SEUL gestionnaire document, posé plus bas — voir le bloc
+    // « OUVERTURE/FERMETURE du panneau ».
 
     els.enabled.addEventListener("change", () => {
       settings.enabled = els.enabled.checked;
@@ -980,6 +1016,27 @@
         cb.checked = false;
         cb.closest(".llive-map-item")?.classList.remove("is-on");
       });
+    });
+
+    // v5.31 — OUVERTURE/FERMETURE du panneau : UN SEUL gestionnaire document.
+    // L'ancienne paire « clic bouton + clic extérieur » pouvait se marcher
+    // dessus (ordre d'exécution, cible détachée quand renderBell() remplace
+    // le SVG de l'entonnoir pendant l'interaction) → « j'appuie sur le filtre
+    // et rien ne se passe ». Ici : clic dans la tuile = bascule ; clic hors
+    // tuile ET hors panneau = fermeture. Un seul chemin, aucune course.
+    document.addEventListener("click", (e) => {
+      const tgt = e.target;
+      const inTile = !!(tgt && typeof tgt.closest === "function" && tgt.closest(".llive-tile-bell"));
+      const inPanel = !!(tgt && typeof tgt.closest === "function" && tgt.closest(".llive-panel"));
+      if (!els.panel) return;
+      if (inTile) {
+        const open = els.panel.hidden;
+        els.panel.hidden = !open;
+        els.bell.setAttribute("aria-expanded", String(open));
+      } else if (!inPanel && !els.panel.hidden) {
+        els.panel.hidden = true;
+        els.bell.setAttribute("aria-expanded", "false");
+      }
     });
 
     // Ouverture/fermeture de surveillance depuis les cartes (lobby.js émet)
@@ -1157,18 +1214,19 @@
       window.showToast?.(T("lobby.watch_off_toast", "Surveillance retirée"), "info", 2500);
     } else {
       const g = findGameById(currentGames, id);
-      // v5.30 — arme IMMÉDIATEMENT si la partie est présente et non pleine :
-      // le lobby peut devenir pleine (ou démarrer) entre deux frames du flux,
-      // et l'ancien armement « au 1er passage » avalait alors le bip. Le cas
-      // « rechargement de page » reste protégé : boot() remet armedAt à 0.
-      const cap = g ? Number((g.gameConfig || {}).maxPlayers) || 0 : 0;
-      const n = g ? Number(g.numClients) || 0 : 0;
+      // v5.31 — armement IMMÉDIAT et INCONDITIONNEL : le clic EST l'intention
+      // (« préviens-moi quand CE lobby démarre »). L'ancien armement
+      // conditionnel (plein → armedAt = 0) rendait la cloche MUELLE sur une
+      // carte pleine — le moteur supprimait alors l'entrée au snapshot
+      // suivant, en silence. Le cas « rechargement de page » reste protégé :
+      // boot() remet armedAt à 0, et les entrées absentes > 5 min sont
+      // nettoyées sans bip.
       watch[id] = {
         map: g ? gameLabel(g) : "",
         mode: g ? modeLabelOf(g) : "",
         addedAt: Date.now(),
         lastSeen: Date.now(),
-        armedAt: g && (cap === 0 || n < cap) ? Date.now() : 0,
+        armedAt: Date.now(),
       };
       ensureAudio(); // geste utilisateur : audio prêt pour le bip « pleine »
       window.showToast?.(
@@ -1268,6 +1326,13 @@
   function onUpdate(e) {
     const detail = e.detail || {};
     currentGames = detail.games || currentGames;
+    const sNow = Number(detail.serverNow) || 0;
+    if (sNow > 0) { lastServerNow = sNow; lastServerNowAt = Date.now(); } // v5.31 : interpolation 1 s
+    // v5.31 — prevFullAt = date de la frame full PRÉCÉDENTE : le bip immédiat
+    // « sortie de liste » n'est valide que si la frame précédente datait de
+    // moins de FULL_EVIDENCE_GAP_MS (flux stable — pas une reconnexion).
+    const prevFullAt = lastFullAt;
+    if (detail.full) lastFullAt = Date.now();
     buildStrip();
     updateFilterSummary(); // v5.29 : le compte de parties masquées suit le flux
     // v5.20.2 — snapshot DÉGRADÉ (parties terminées, pas de live) : le moteur
@@ -1278,7 +1343,10 @@
       runAlertEngine({
         games: currentGames,
         full: !!detail.full,
-        serverNow: Number(detail.serverNow) || 0, // v5.20.1 : horloge serveur pour startsAt
+        serverNow: sNow, // v5.20.1 : horloge serveur pour startsAt
+        fullEvidence: !!detail.full &&
+          allGames(currentGames).length > 0 &&
+          prevFullAt > 0 && Date.now() - prevFullAt <= FULL_EVIDENCE_GAP_MS,
       });
     }
   }
@@ -1286,6 +1354,14 @@
   function boot() {
     buildStrip();
     window.addEventListener("tfh:lobby:update", onUpdate);
+    // v5.31 — GARDE-FOU 1 s : les déclencheurs TEMPORELS (compte à rebours
+    // atteint, absence ≥ 15 s) tournent même si AUCUNE frame n'arrive —
+    // l'ancien code ne tournait QUE sur événements : flux calme = bip en
+    // retard ou JAMAIS. full:false → pas de détection « nouvelles parties »
+    // ni de preuve « sortie de liste » ici (réservés aux vraies frames).
+    setInterval(() => {
+      runAlertEngine({ games: currentGames, full: false, serverNow: 0 });
+    }, WATCHDOG_TICK_MS);
     // v5.29 — filtre persisté (localStorage) : prévient lobby.js d'un
     // re-rendu initial filtré (l'événement part APRÈS l'exposition de
     // window.TFH_LOBBY_FILTER,lobby.js est déjà à l'écoute).
