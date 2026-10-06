@@ -1,10 +1,31 @@
-// lobby.js — Lobby TheFrontHub (v5 — B+ + favoris & remplissage)
+// lobby.js — Lobby TheFrontHub (v5 — B+ + favoris & remplissage + hooks v5.18)
+//
+// v5.29 : FILTRE DES PARTIES (avec lobby-live.js) — le filtre (entonnoir)
+//   filtre VRAIMENT l'affichage : les parties qui le cochent s'affichent
+//   (sections + bandeau « prochaine partie »), les autres sont masquées.
+//   Prédicat exposé par lobby-live.js (window.TFH_LOBBY_FILTER) + event
+//   « tfh:lobby:filter-changed » → re-rendu immédiat à chaque changement.
+//
+// v5.18 : hooks pour lobby-live.js (compteurs live, courbe d'activité, stats
+// par mode, alertes) et lobby-chat.js (chat communautaire par partie) :
+//   - ingestFull/ingestCounts émettent window event « tfh:lobby:update »
+//   - cartes : bouton cloche « prévenir quand pleine » (data-role=watch)
+//     et bulle chat (data-role=chat) — délégation dans boot()
+//   - clic sur une carte (lancement de partie) → émet « tfh:lobby:open-chat »
+//
+// v5.21 : SUR DEMANDE DU PROPRIÉTAIRE —
+//   - FIN de l'auto-défilement des carrousels (la « transition qui défile
+//     vers la droite » était horrible) : les pistes de cartes sont des
+//     listes horizontales à scroll MANUEL (doigt/trackpad/flèches).
+//   - Bandeau compagnon réduit aux ALERTES (lobby-live.js) : le compteur
+//     « Parties analysées », les « Stats des cartes », les chips de mode
+//     et la courbe « Joueurs dans le lobby » sont retirés.
 //
 // Bandeau compact « Prochaine partie », filtre segmenté
 // Toutes / FFA / Team / Spécial / Favoris, en-têtes de section au design
 // system (majuscules + filet) et cartes claires (vignette, timer flottant,
-// pills chips, barre de remplissage, compteur mono, étoile favori,
-// CTA « Rejoindre »), réparties en carrousels défilants.
+// pills chips, étoile favori, CTA « Rejoindre »), réparties en pistes
+// horizontales à scroll manuel.
 //
 // v5 :
 //   - FIN des cartes en double : chaque partie est rendue UNE seule fois
@@ -67,17 +88,31 @@ function mapDisplayName(raw) {
 const DIRECT_WORKERS = Array.from({ length: 20 }, (_, i) => `w${i}`);
 // Worker proxy Cloudflare existant (allowlist d'origines déjà configurée)
 const PROXY_WS_URL = "wss://openfront-proxy.diofortnite3.workers.dev/lobby-ws";
+// v5.33 — RELAIS HTTP du worker (/lobbies) : le worker maintient lui-même un
+// WS upstream et expose les games DÉCODÉES en JSON. Même quand l'upgrade
+// WebSocket du navigateur est impossible (challenge CF sur les hôtes de jeu,
+// pare-feu sortant, route /lobby-ws du worker en panne), ce relais HTTP
+// fournit du LIVE — fin de l'impasse « aucune partie en attente » quand la
+// chaîne WS direct+proxy tombe.
+const PROXY_HTTP_LOBBIES = PROXY_WS_URL
+  .replace("wss://", "https://")   // fetch() refuse wss:// (runtime/API fetch)
+  .replace("/lobby-ws", "/lobbies");
+const PROXY_HTTP_POLL_INTERVAL = 30_000; // live via relais HTTP : 30 s
+const PROXY_HTTP_TIMEOUT = 12_000;
+const PROXY_HTTP_MAX_FAILS = 3;          // 3 échecs → repli snapshot cron local
 const FALLBACK_JSON = "lobby_state.json";
 
 // ── Server list v2 (v34) — résolution dynamique des hôtes WS ──────────
 // À partir de la v34, le client peut lire GET api.<domain>/cluster.json?site=<host>
 // pour découvrir les hôtes de jeu (blue/green.openfront.io…).
-// ⚠️ Choix Skailex : FORCED_HOST = green.openfront.io — serveur ACTIF de la
-// prod OpenFront (cluster.json 2026-09-14 : green state=open a33efb78, blue
-// draining). Jamais blue., jamais openfront.io tant que green est ouvert.
-// USE_CLUSTER_JSON = true réactiverait la résolution dynamique cluster.json.
-const FORCED_HOST = "green.openfront.io";
-const USE_CLUSTER_JSON = false;
+// ⚠️ v5.21 — FIX « lobby vide » : FORCED_HOST = green + résolution désactivée
+// datait du 2026-09-14 (green open, blue draining). Depuis, OpenFront a
+// BASCULÉ : blue est actif, green draine → on se connectait à un serveur
+// mourant qui ne diffuse plus aucune partie en attente (« aucune partie en
+// attente » en permanence). Désormais : cluster.json à chaque (re)connexion
+// (serveurs « open » d'abord), repli blue → green si l'endpoint est indisponible.
+const FORCED_HOST = "blue.openfront.io"; // repli si cluster.json injoignable
+const USE_CLUSTER_JSON = true;
 const API_PROXY_META = document.querySelector('meta[name="openfront-api-proxy"]');
 const API_PROXY_BASE = (API_PROXY_META && API_PROXY_META.content || "").replace(/\/$/, "");
 const CLUSTER_SITE = "openfront.io";
@@ -88,7 +123,10 @@ let hostsRefreshInFlight = null;
 
 function legacyLobbyWsUrl() {
   const w = DIRECT_WORKERS[Math.floor(Math.random() * DIRECT_WORKERS.length)];
-  return `wss://${FORCED_HOST}/${w}/lobbies`;
+  // ?platform=web : même signature que le client officiel OpenFront
+  // (v5.17 : le challenge CF devant les hôtes de jeu filtre sur l'UA — un
+  // navigateur réel passe ; le paramètre aligne la requête sur le client jeu).
+  return `wss://${FORCED_HOST}/${w}/lobbies?platform=web`;
 }
 
 /** Récupère cluster.json v2 via le proxy CF → proxy Next → API directe. */
@@ -114,13 +152,6 @@ async function fetchClusterJson() {
 
 /** Rafraîchit la liste des hôtes (Server list v2) ; fallback legacy sinon. */
 function refreshLobbyHosts() {
-  if (!USE_CLUSTER_JSON) {
-    // Choix Skailex : green.openfront.io forcé — aucune résolution dynamique.
-    if (dynamicHosts) console.log(`[lobby] Hôte lobby forcé : ${FORCED_HOST} (cluster.json désactivé)`);
-    dynamicHosts = null;
-    dynamicHostsAt = Date.now();
-    return Promise.resolve();
-  }
   if (hostsRefreshInFlight) return hostsRefreshInFlight;
   if (dynamicHosts && Date.now() - dynamicHostsAt < HOSTS_TTL) {
     return Promise.resolve();
@@ -128,9 +159,12 @@ function refreshLobbyHosts() {
   hostsRefreshInFlight = (async () => {
     try {
       const data = await fetchClusterJson();
+      // v5.21 : serveurs « open » D'ABORD (le repli FORCED_HOST = blue reste
+      // en tête si cluster.json est vide — même logique que le worker v2).
       const hosts = data
         ? Object.values(data.servers || {})
             .filter((s) => s && s.host && s.state !== "draining" && s.state !== "fenced")
+            .sort((a, b) => (a.state === "open" ? -1 : 1) - (b.state === "open" ? -1 : 1))
             .map((s) => s.host)
         : [];
       if (hosts.length) {
@@ -139,8 +173,8 @@ function refreshLobbyHosts() {
         }
         dynamicHosts = hosts;
       } else {
-        if (dynamicHosts) console.log("[lobby] Server list v2 vide/absente → retour legacy (openfront.io)");
-        dynamicHosts = null; // endpoint dormant ou vide → legacy
+        if (dynamicHosts) console.log(`[lobby] Server list v2 vide/absente → repli ${FORCED_HOST}`);
+        dynamicHosts = null; // endpoint dormant ou vide → repli
       }
       dynamicHostsAt = Date.now();
     } finally {
@@ -155,13 +189,39 @@ function pickLobbyWsUrl() {
   const host = dynamicHosts
     ? dynamicHosts[Math.floor(Math.random() * dynamicHosts.length)]
     : FORCED_HOST;
-  return `wss://${host}/${w}/lobbies`;
+  return `wss://${host}/${w}/lobbies?platform=web`;
 }
 
 const WS_OPEN_TIMEOUT = 12_000;      // délai max avant de passer au niveau suivant
 const WS_RECONNECT_BASE = 1_000;     // backoff exponentiel
 const WS_RECONNECT_MAX = 15_000;
 const HTTP_POLL_INTERVAL = 60_000;   // fallback : refresh 60 s
+
+// ── Mode dégradé « aperçu des dernières parties » (v5.16.7) ──────────────
+// Depuis la mise à jour OpenFront du 2026-09-30, Cloudflare challenge
+// l'upgrade WebSocket des hôtes de jeu (cf-mitigated: challenge) : ni la
+// page, ni le proxy worker, ni le sync serveur ne peuvent plus ouvrir le
+// flux lobbies. L'API HTTP /public/games (games terminées) reste,
+// elle, accessible — on l'affiche en attendant la réouverture du WS.
+const PROXY_HTTP_URL = "https://openfront-proxy.diofortnite3.workers.dev";
+// v5.20.2 — source d'enrichissement du mode dégradé : la collecte continue du
+// hub (MySQL) connaît la CARTE de chaque partie (route=recent), ce que
+// /public/games d'OpenFront n'expose pas. Sans elle, l'aperçu n'affichait
+// AUCUNE vignette de carte — d'où « on ne voit plus les cartes ».
+const HUB_RECENT_API = "api/games-api.php";
+const DEGRADED_WINDOW_MS = 2 * 60 * 60_000;   // fenêtre : 2 h de parties
+const DEGRADED_POLL_INTERVAL = 120_000;       // refresh aperçu : 2 min
+const DEGRADED_MAX_ITEMS = 24;
+// v5.20.3 — tolérance au retard de la collecte hub (cron serveur, 5-15 min).
+// Constat terrain 2026-10-02 : le cron games-sync peut geler plusieurs heures
+// (rate-limit OpenFront, cron arrêté…) → les 30 dernières parties MySQL
+// sortaient TOUTES de la fenêtre 2 h → hubRows = 0 → l'aperçu retombait en
+// cartes SANS vignette (« ça fait toujours la même chose »). Dégradé propre :
+// au-delà de 2 h de retard, on montre quand même les plus récentes du hub
+// (elles ont leurs vignettes), sous quota, jusqu'à 12 h de retard. Passé ce
+// délai, on retombe sur le comportement v5.20.2 (fraîches seules).
+const DEGRADED_STALE_MAX_MS = 12 * 60 * 60_000; // retard hub toléré : 12 h
+const DEGRADED_MAPPED_QUOTA = 16;               // mini de cartes AVEC vignette
 const COUNTDOWN_TICK = 1_000;
 const MAX_CARDS_PER_ROW = 30;
 
@@ -196,19 +256,42 @@ function esc(v) {
 }
 
 /** Slug du dossier de map OpenFront ("Amazon River" → "amazonriver"). */
+// v5.30 — alias wire → atlas : l'enum wire « Tourney 2 Teams » slugifie en
+// « tourney2teams » alors que la clé atlas (vignettes locales) est « tourney1 ».
+const MAP_SLUG_ALIASES = {
+  tourney2teams: "tourney1",
+  tourney3teams: "tourney2",
+  tourney4teams: "tourney3",
+  tourney8teams: "tourney4",
+};
 function mapSlug(mapName) {
-  return typeof mapName === "string"
+  const s = typeof mapName === "string"
     ? mapName.toLowerCase().replace(/[\s_]/g, "").replace(/[^\w]/g, "")
     : "";
+  return MAP_SLUG_ALIASES[s] || s;
 }
 
-/** URL de la miniature de map (repo GitHub OpenFrontIO, CDN public). */
+/** Miniature de map — miroir LOCAL d'abord (atlas-data/thumbnails, même
+ * origine : rapide, fiable, pas de dépendance à GitHub), puis repli GitHub
+ * via l'attribut data-gh + onerror (voir IMG_THUMB_ONERROR). */
 function mapThumb(mapName) {
+  const slug = mapSlug(mapName);
+  // ?v=2 : vignettes officielles OpenFront (fond surface #0a1628, comme le vrai jeu)
+  return slug ? `atlas-data/thumbnails/${slug}.webp?v=2` : "";
+}
+
+/** Repli distant de la miniature (repo GitHub OpenFrontIO, CDN public). */
+function mapThumbRemote(mapName) {
   const slug = mapSlug(mapName);
   return slug
     ? `https://raw.githubusercontent.com/openfrontio/OpenFrontIO/main/resources/maps/${slug}/thumbnail.webp`
     : "";
 }
+
+/** v5.22 — chaîne de repli des vignettes : local → GitHub → suppression
+ * (l'initiale de la map prend le relais via .lobby-card-img-fallback). */
+const IMG_THUMB_ONERROR =
+  "if(this.dataset.gh){this.src=this.dataset.gh;this.removeAttribute('data-gh');}else{this.remove();}";
 
 /** "isCompact" → "Compact", pour l'affichage des pills de modificateurs. */
 function humanizeFlag(name) {
@@ -324,6 +407,16 @@ function isUrgentCountdown(txt) {
   return txt === T("lobby.cd_imminent", "Imminent") || txt === T("lobby.cd_ongoing", "En cours");
 }
 
+/** v5.31 — heure de lancement EFFECTIVE d'un lobby : `startsAt` (salons
+ *  programmés — le master colle un compte à rebours à la tête de file),
+ *  sinon `autoStartAt` (salons hébergés listés : échéance de lancement
+ *  automatique). Un salon public qui démarre parce qu'il est PLEIN n'a NI
+ *  l'un NI l'autre — il quitte simplement la liste (côté alertes, ce cas est
+ *  couvert par lobby-live.js : sortie de liste = partie lancée). */
+function effStartsAt(game) {
+  return Number(game.startsAt) || Number(game.autoStartAt) || 0;
+}
+
 function modeLabel(game) {
   const cfg = game.gameConfig || {};
   if (game.publicGameType === "special") return T("lobby.sec_special", "Spécial");
@@ -347,6 +440,9 @@ const state = {
   favorites: new Set(),    // slugs des cartes favorites (api/favorites.php)
   knownIds: null,          // Set des ids du dernier snapshot (détection nouvelles parties)
   hydrated: false,         // true après le 1er snapshot (le toast favori ne s'arme qu'ensuite)
+  recentGames: [],         // mode dégradé : dernières parties terminées (/public/games)
+  degradedCards: false,    // v5.20.2 : true = state.games contient les cartes d'aperçu (parties terminées)
+  hubLagMs: 0,             // v5.20.3 : retard constaté de la collecte hub (0 = à l'heure)
 };
 
 /** Retrouve une partie par son id, toutes catégories confondues. */
@@ -377,9 +473,30 @@ function announceFavoriteGames(isNew) {
   });
 }
 
-/** Horloge serveur interpolée localement (serverTime + temps écoulé). */
+/** Horloge serveur interpolée localement (serverTime + temps écoulé).
+ *  0 si le serveur n'a encore rien annoncé — les consommateurs retombent
+ *  alors sur leur horloge locale (guard Number(...) > 0). */
 function serverNow() {
+  if (!state.serverTime) return 0;
   return state.serverTime + (Date.now() - state.serverTimeAt);
+}
+
+/* ── v5.29 — FILTRE DES PARTIES (lobby-live.js) ─────────────────────
+ *  Le filtre n'est plus réservé aux alertes : les parties qui le cochent
+ *  s'affichent, les autres sont MASQUÉES (sections + bandeau prochaine
+ *  partie). lobby-live.js expose window.TFH_LOBBY_FILTER et émet
+ *  « tfh:lobby:filter-changed » à chaque changement. */
+function customFilter() {
+  const lf = window.TFH_LOBBY_FILTER;
+  if (lf && typeof lf.active === "function" && typeof lf.matches === "function" && lf.active()) return lf;
+  return null;
+}
+
+function passesCustomFilter(g, bucket, lf) {
+  const f = lf || customFilter();
+  if (!f) return true;
+  try { return f.matches(g, bucket) !== false; }
+  catch { return true; } // un filtre cassé ne doit jamais vider la page
 }
 
 function setSource(source) {
@@ -392,6 +509,7 @@ function ingestFull(msg) {
     state.serverTime = msg.serverTime;
     state.serverTimeAt = Date.now();
   }
+  state.degradedCards = false; // v5.20.2 : snapshot LIVE → les cartes d'aperçu partent
   const g = msg.games || {};
   state.games = {
     ffa: Array.isArray(g.ffa) ? g.ffa.filter((x) => x && (x.gameID || x.id)) : [],
@@ -401,8 +519,8 @@ function ingestFull(msg) {
   // Tri : la partie qui démarre le plus tôt en premier (sans startsAt → fin)
   for (const k of Object.keys(state.games)) {
     state.games[k].sort((a, b) => {
-      const ta = Number(a.startsAt) || Infinity;
-      const tb = Number(b.startsAt) || Infinity;
+      const ta = effStartsAt(a) || Infinity;
+      const tb = effStartsAt(b) || Infinity;
       return ta - tb;
     });
   }
@@ -420,6 +538,15 @@ function ingestFull(msg) {
   state.hydrated = true;
 
   state.updatedAt = Date.now();
+  // v5.18 — publie le snapshot aux modules compagnons (lobby-live.js : compteurs
+  // live / courbe / stats par mode / alertes ; lobby-chat.js : badges salons)
+  // v5.20.1 — serverNow : horloge serveur interpolée (les comparaisons startsAt
+  // côté alertes ne doivent PAS utiliser l'horloge du navigateur, décalage possible)
+  try {
+    window.dispatchEvent(new CustomEvent("tfh:lobby:update", {
+      detail: { games: state.games, source: state.source, full: true, serverNow: serverNow() },
+    }));
+  } catch { /* navigateurs très anciens : sans importance */ }
   scheduleRender(true);
 }
 
@@ -442,7 +569,15 @@ function ingestCounts(msg) {
       }
     }
   }
-  if (touched) scheduleRender(false); // maj légère : compteurs seulement
+  if (touched) {
+    // v5.18 — les compteurs de joueurs bougent : publie aux modules compagnons
+    try {
+      window.dispatchEvent(new CustomEvent("tfh:lobby:update", {
+        detail: { games: state.games, source: state.source, full: false, serverNow: serverNow() },
+      }));
+    } catch { /* ignore */ }
+    scheduleRender(false); // maj légère : compteurs seulement
+  }
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -502,6 +637,7 @@ function startWebSocket() {
     wsFailCount[level] = 0;
     state.connected = true;
     setSource(level);
+    stopDegradedMode();
     console.log(`[lobby] ✅ WebSocket ${level} connecté`);
     // Le serveur envoie immédiatement un snapshot "full" — rien à demander.
   };
@@ -567,11 +703,97 @@ function wsFailed(gen, level) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════
+   Niveau 2.5 — relais HTTP du worker (v5.33) : games DÉCODÉES en JSON
+   ════════════════════════════════════════════════════════════════════════
+   Le worker Cloudflare (openfront-proxy) maintient un WS upstream vers les
+   serveurs de jeu et expose GET /lobbies → { connected, serverTime, games:
+   [{gameID, numClients, startsAt, publicGameType, custom, featured,
+   gameConfig:{gameMap, gameMode, maxPlayers, …}}] }. Ce relais passe là où
+   l'upgrade WebSocket du navigateur échoue (challenge CF sur les hôtes de
+   jeu, route /lobby-ws du worker en panne, pare-feu sortant) : c'est un
+   LIVE complet, pas un cache. Placé ENTRE les échecs WS et le repli
+   lobby_state.json (snapshot cron local, potentiellement vide).
+   ════════════════════════════════════════════════════════════════════════ */
+
+let proxyHttpTimer = null;
+let proxyHttpAbort = null;
+let proxyHttpFails = 0;
+
+/** /lobbies (flat, publicGameType par game) → {ffa, team, special} (ingestFull). */
+function groupProxyGames(list) {
+  const grouped = { ffa: [], team: [], special: [] };
+  for (const g of list || []) {
+    if (!g || !(g.gameID || g.id)) continue;
+    const t = (g.publicGameType === "team" || g.publicGameType === "special")
+      ? g.publicGameType : "ffa";
+    grouped[t].push(g);
+  }
+  return grouped;
+}
+
+/** 1 poll du relais HTTP. Résout true si un snapshot LIVE a été ingéré. */
+async function pollProxyLobbies() {
+  if (proxyHttpAbort) { try { proxyHttpAbort.abort(); } catch { /* ignore */ } }
+  proxyHttpAbort = new AbortController();
+  const ctrl = proxyHttpAbort;
+  const timer = setTimeout(() => { try { ctrl.abort(); } catch { /* ignore */ } }, PROXY_HTTP_TIMEOUT);
+  try {
+    const res = await fetch(`${PROXY_HTTP_LOBBIES}?t=${Date.now()}`, {
+      cache: "no-store",
+      signal: ctrl.signal,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data || !Array.isArray(data.games)) throw new Error("réponse relais invalide");
+    if (data.connected === false && data.games.length === 0) {
+      throw new Error(data.lastError || "relais sans upstream");
+    }
+    proxyHttpFails = 0;
+    ingestFull({
+      serverTime: typeof data.serverTime === "number" ? data.serverTime : Date.now(),
+      games: groupProxyGames(data.games),
+    });
+    state.connected = true;
+    setSource("proxy-http");
+    stopDegradedMode();
+    return true;
+  } catch (e) {
+    if (e && e.name === "AbortError") return false;
+    proxyHttpFails++;
+    console.warn(`[lobby] relais HTTP indisponible (${proxyHttpFails}) :`, e && e.message);
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function stopProxyHttpPolling() {
+  if (proxyHttpTimer) { clearInterval(proxyHttpTimer); proxyHttpTimer = null; }
+  if (proxyHttpAbort) { try { proxyHttpAbort.abort(); } catch { /* ignore */ } proxyHttpAbort = null; }
+}
+
+/** Boucle de polling du relais HTTP ; bascule sur le snapshot cron local
+ *  après PROXY_HTTP_MAX_FAILS échecs consécutifs. */
+function startProxyHttpPolling() {
+  stopProxyHttpPolling();
+  proxyHttpTimer = setInterval(async () => {
+    const ok = await pollProxyLobbies();
+    if (!ok && proxyHttpFails >= PROXY_HTTP_MAX_FAILS) {
+      console.warn("[lobby] relais HTTP en panne → repli snapshot local (lobby_state.json)");
+      stopProxyHttpPolling();
+      startLocalFallbackPolling();
+    }
+  }, PROXY_HTTP_POLL_INTERVAL);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
    Niveau 3 — HTTP fallback (lobby_state.json, sync GitHub Actions 5 min)
    ════════════════════════════════════════════════════════════════════════ */
 
 let httpTimer = null;
 let httpAbort = null;
+let degradedTimer = null;
+let degradedInFlight = false;
 
 async function pollFallbackJson() {
   try {
@@ -590,35 +812,362 @@ async function pollFallbackJson() {
       });
       state.connected = true;
       setSource("fallback");
+      // Snapshot vide + WS bloqué → mode dégradé (aperçu dernières parties)
+      if (snapshotIsEmpty()) startDegradedMode();
+      else stopDegradedMode();
     } else if (data && typeof data === "object") {
       // JSON valide mais sans games (ancien format) → état vide plutôt qu'attente infinie
       ingestFull({ serverTime: Date.now(), games: {} });
       state.connected = true;
       setSource("fallback");
+      if (snapshotIsEmpty()) startDegradedMode();
     }
   } catch (e) {
     if (e.name === "AbortError") return;
     state.connected = false;
     setSource("offline");
+    // Snapshot injoignable mais le proxy HTTP OpenFront peut marcher →
+    // le mode dégradé (aperçu dernières parties) reste utile.
+    startDegradedMode();
   }
 }
 
 function startHttpFallback() {
   stopWebSocket();
+  // v5.33 — Niveau 2.5 d'abord : relais HTTP du worker (/lobbies) = LIVE
+  // même sans WebSocket. Le snapshot cron local (lobby_state.json) n'est
+  // consommé que si le relais lui-même est indisponible (3 échecs).
+  stopProxyHttpPolling();
+  pollProxyLobbies().then((ok) => {
+    if (ok) {
+      startProxyHttpPolling();
+    } else {
+      setSource("fallback");
+      startLocalFallbackPolling();
+    }
+  });
+  scheduleWsRetryFromFallback();
+}
+
+/** Repli N3 : polling du snapshot cron local lobby_state.json. */
+function startLocalFallbackPolling() {
+  stopProxyHttpPolling();
   setSource("fallback");
   pollFallbackJson();
   if (httpTimer) clearInterval(httpTimer);
   httpTimer = setInterval(pollFallbackJson, HTTP_POLL_INTERVAL);
+}
 
-  // Toutes les 5 min, on retente le WebSocket (le blocage peut être temporaire)
+/** Toutes les 5 min, on retente le WebSocket (le blocage peut être temporaire). */
+function scheduleWsRetryFromFallback() {
   setTimeout(() => {
-    if (state.source === "fallback") {
+    if (state.source === "fallback" || state.source === "proxy-http") {
       console.log("[lobby] Retente WebSocket après fallback…");
       wsFailCount = { direct: 0, proxy: 0 };
       if (httpTimer) { clearInterval(httpTimer); httpTimer = null; }
+      stopProxyHttpPolling();
       startWebSocket();
     }
   }, 5 * 60_000);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Mode dégradé — aperçu des dernières parties via l'API HTTP publique
+   (/public/games, games terminées) relayée par le proxy Cloudflare.
+   Le WS lobbies est bloqué côté OpenFront (challenge CF) : on montre de
+   vraies données à la place d'un panneau vide, et le retour du WS est
+   automatique dès qu'OpenFront rouvre (retente toutes les 5 min).
+   ════════════════════════════════════════════════════════════════════════ */
+
+/** API row → objet compatible avec l'affichage (mode, difficulté, durée…).
+ *  v5.20.2 : `enrich` (ligne route=recent du hub) apporte le nom de CARTE +
+ *  mapSize + rankedType — sans vignette, l'aperçu dégradé n'affichait rien. */
+function deriveRecentCard(g, enrich) {
+  const id = String(g.game || "");
+  if (!id) return null;
+  const startsAt = Date.parse(g.start);
+  const endsAt = Date.parse(g.end);
+  if (!Number.isFinite(startsAt) || !Number.isFinite(endsAt)) return null;
+  const mode = String(g.mode || "");
+  // Catégorisation like live : FFA / Team / Special
+  const isTeam = /team|2v2|duo/i.test(mode) || String(g.playerTeams || "") === "2";
+  const isSpecial = /special/i.test(String(g.type || ""));
+  const cfg = {
+    gameMap: "",
+    maxPlayers: Number(g.maxPlayers) || 0,
+    mode,
+    difficulty: String(g.difficulty || ""),
+  };
+  let rankedType = "";
+  if (enrich) {
+    if (enrich.map) cfg.gameMap = String(enrich.map);
+    if (enrich.mapSize) cfg.gameMapSize = String(enrich.mapSize);
+    if (enrich.rankedType && enrich.rankedType !== "unranked") rankedType = String(enrich.rankedType);
+    if (enrich.difficulty) cfg.difficulty = String(enrich.difficulty);
+    if (enrich.playerTeams) cfg.playerTeams = enrich.playerTeams;
+    if (enrich.numPlayers) cfg.maxPlayers = Number(enrich.maxPlayers) || cfg.maxPlayers;
+  }
+  if (rankedType) cfg.rankedType = rankedType;
+  return {
+    gameID: id,
+    degraded: true,
+    startsAt,
+    endedAt: endsAt,
+    durationS: Math.max(0, Math.round((endsAt - startsAt) / 1000)),
+    numClients: Number(g.numPlayers) || 0,
+    gameConfig: cfg,
+    mode,
+    difficulty: String(g.difficulty || ""),
+    bucket: isSpecial ? "special" : isTeam ? "team" : "ffa",
+  };
+}
+
+/** Ligne route=recent du HUB (collecte MySQL, 6 M+ parties) → carte d'aperçu.
+ *  Le hub connaît la carte + le mode exact — source PRIMAIRE de l'aperçu
+ *  dégradé (les vignettes s'affichent), /public/games ne servant qu'à
+ *  combler les toutes dernières minutes pas encore collectées. */
+function deriveHubCard(r) {
+  if (!r || !r.id) return null;
+  const startsAt = Number(r.startedAt) || 0;
+  const durationS = Number(r.durationS) || 0;
+  if (!startsAt || !durationS) return null;
+  const mode = String(r.mode || "");
+  const isTeam = /team|2v2|duo/i.test(mode) || String(r.playerTeams || "") === "2";
+  const isSpecial = /special/i.test(String(r.type || ""));
+  const cfg = {
+    gameMap: r.map ? String(r.map) : "",
+    gameMapSize: r.mapSize ? String(r.mapSize) : undefined,
+    maxPlayers: Number(r.numPlayers) || 0,
+    mode,
+    difficulty: String(r.difficulty || ""),
+  };
+  if (r.playerTeams) cfg.playerTeams = r.playerTeams;
+  if (r.rankedType && r.rankedType !== "unranked") cfg.rankedType = String(r.rankedType);
+  return {
+    gameID: String(r.id),
+    degraded: true,
+    startsAt,
+    endedAt: startsAt + durationS * 1000,
+    durationS,
+    numClients: Number(r.numPlayers) || 0,
+    gameConfig: cfg,
+    mode,
+    difficulty: String(r.difficulty || ""),
+    bucket: isSpecial ? "special" : isTeam ? "team" : "ffa",
+  };
+}
+
+/** Récupère les dernières parties terminées (2 h) : hub (cartes !) +
+ *  OpenFront /public/games (fraîcheur minute) fusionnées. v5.20.2.
+ *  v5.20.3 : robuste au RETARD du hub — si le cron serveur a pris du retard
+ *  (> 2 h), les parties MySQL sortent toutes de la fenêtre et l'aperçu
+ *  retombait en cartes sans vignette ; on étend alors la sélection aux plus
+ *  récentes du hub (jusqu'à 12 h) pour que les vignettes restent visibles. */
+async function pollRecentGames() {
+  if (degradedInFlight) return;
+  degradedInFlight = true;
+  const end = Date.now();
+  const start = end - DEGRADED_WINDOW_MS;
+  const publicUrl = `${PROXY_HTTP_URL}/public/games?start=${new Date(start).toISOString()}&end=${new Date(end).toISOString()}`;
+  // Hub : même origine (pas de CORS), collecte ≤ 5 min — apporte la carte.
+  const hubUrl = `${HUB_RECENT_API}?route=recent&limit=30`;
+  const [hubRes, publicRes] = await Promise.allSettled([
+    fetch(hubUrl, { cache: "no-store", credentials: "same-origin" }),
+    fetch(publicUrl, { cache: "no-store" }),
+  ]);
+  try {
+    // 1. Cartes du hub (avec vignettes de carte) — toutes dérivées, la
+    //    fenêtre 2 h est appliquée ensuite (v5.20.3 ; SQL = récentes d'abord).
+    const hubAll = [];
+    if (hubRes.status === "fulfilled" && hubRes.value.ok) {
+      const body = await hubRes.value.json().catch(() => null);
+      if (body && body.ok && Array.isArray(body.games)) {
+        for (const r of body.games) {
+          const c = deriveHubCard(r);
+          if (c) hubAll.push(c);
+        }
+      }
+    }
+    const hubRows = hubAll.filter((c) => c.startsAt >= start);
+    // 2. Parties toutes fraîches d'OpenFront (pas encore collectées par le hub)
+    const freshRows = [];
+    if (publicRes.status === "fulfilled" && publicRes.value.ok) {
+      const arr = await publicRes.value.json().catch(() => null);
+      if (Array.isArray(arr)) freshRows.push(...arr);
+    }
+    const hubIds = new Set(hubAll.map((c) => c.gameID));
+    const freshCards = [];
+    for (const g of freshRows) {
+      const id = String(g.game || "");
+      if (!id || hubIds.has(id)) continue; // déjà couvert par le hub (plus riche)
+      const c = deriveRecentCard(g, null);
+      if (c) freshCards.push(c);
+    }
+    // 3. Sélection + fusion — v5.20.3 : les cartes AVEC vignette sont
+    //    garanties au quota, même quand le hub a du retard.
+    let cards;
+    let hubLagMs = 0;
+    if (hubRows.length > 0) {
+      // Chemin nominal (hub à l'heure) : comportement v5.20.2.
+      cards = [...hubRows, ...freshCards];
+    } else if (
+      hubAll.length > 0 && hubAll[0].startsAt >= end - DEGRADED_STALE_MAX_MS
+    ) {
+      // v5.20.3 — RETARD DU HUB : plus rien dans la fenêtre 2 h, mais les
+      // données restent exploitables (≤ 12 h). On montre les plus récentes
+      // (vignettes !) en tête, complétées par les fraîches sans carte.
+      const staleFloor = end - DEGRADED_STALE_MAX_MS;
+      const staleHub = hubAll
+        .filter((c) => c.startsAt >= staleFloor && c.gameConfig && c.gameConfig.gameMap)
+        .slice(0, freshCards.length > 0 ? DEGRADED_MAPPED_QUOTA : DEGRADED_MAX_ITEMS);
+      hubLagMs = end - hubAll[0].startsAt;
+      console.warn(`[lobby] hub en retard de ${Math.round(hubLagMs / 60000)} min — vignettes sur les ${staleHub.length} plus récentes du hub`);
+      for (const c of staleHub) c.mapPinned = true; // tri : vignettes d'abord
+      const freshQuota = Math.max(0, DEGRADED_MAX_ITEMS - staleHub.length);
+      cards = [...staleHub, ...freshCards.slice(0, freshQuota)];
+    } else {
+      // Hub vide ou trop vieux (> 12 h) : v5.20.2 (fraîches seules).
+      cards = freshCards.slice(0, DEGRADED_MAX_ITEMS);
+    }
+    state.hubLagMs = hubLagMs;
+    // 4. Ordre d'affichage : cartes pinnées (vignettes) d'abord, puis
+    //    décroissance temporelle — plafond global inchangé.
+    state.recentGames = cards
+      .sort((a, b) => (b.mapPinned ? 1 : 0) - (a.mapPinned ? 1 : 0) || b.startsAt - a.startsAt)
+      .slice(0, DEGRADED_MAX_ITEMS);
+    console.log(`[lobby] aperçu hors-ligne : ${state.recentGames.length} parties (${hubRows.length} avec carte hub${hubLagMs ? `, hub en retard ${Math.round(hubLagMs / 60000)} min` : ", " + (state.recentGames.length - hubRows.length) + " fraîches"})`);
+  } catch (e) {
+    console.warn("[lobby] aperçu hors-ligne indisponible :", e && e.message);
+    // on garde la liste précédente
+  } finally {
+    degradedInFlight = false;
+  }
+  ingestDegradedGames();
+  renderDegradedPanel();
+  scheduleRender(true);
+}
+
+/** v5.20.2 — injecte les parties d'aperçu dans les sections FFA/Team/Spécial
+ *  pour qu'elles s'affichent comme de VRAIES cartes défilantes (vignettes,
+ *  auto-scroll, filtres) au lieu d'un panneau texte sans images. Les cartes
+ *  dégradées portent `degraded: true` (timer « Terminée », actions masquées). */
+function ingestDegradedGames() {
+  const buckets = { ffa: [], team: [], special: [] };
+  for (const c of state.recentGames) {
+    (buckets[c.bucket] || buckets.ffa).push(c);
+  }
+  // Tri interne : la plus récente d'abord (contrairement au live « la plus
+  // proche de démarrer d'abord » — ici tout est terminé, la fraîcheur prime)
+  for (const k of Object.keys(buckets)) {
+    // v5.20.3 : les cartes pinnées (vignettes du hub en retard) restent en
+    // tête de section ; sinon décroissance temporelle, comme avant.
+    buckets[k].sort(
+      (a, b) => (b.mapPinned ? 1 : 0) - (a.mapPinned ? 1 : 0) || b.startsAt - a.startsAt,
+    );
+  }
+  state.games = buckets;
+  state.degradedCards = true;
+  state.updatedAt = Date.now();
+  // Modules compagnons (lobby-live.js) : même contrat que le live — les
+  // compteurs suivent l'aperçu plutôt qu'un panneau vide.
+  try {
+    window.dispatchEvent(new CustomEvent("tfh:lobby:update", {
+      detail: { games: state.games, source: state.source, full: true, degraded: true, serverNow: Date.now() },
+    }));
+  } catch { /* navigateurs très anciens : sans importance */ }
+}
+
+/** Démarre le mode dégradé (si pas déjà armé). */
+function startDegradedMode() {
+  if (degradedTimer) return;
+  console.log("[lobby] Mode dégradé : aperçu des dernières parties (API HTTP)");
+  pollRecentGames();
+  degradedTimer = setInterval(pollRecentGames, DEGRADED_POLL_INTERVAL);
+}
+
+/** Stoppe le mode dégradé (WS ou snapshot revenus). */
+function stopDegradedMode() {
+  if (degradedTimer) {
+    clearInterval(degradedTimer);
+    degradedTimer = null;
+    console.log("[lobby] Mode dégradé arrêté — flux temps réel revenu");
+  }
+  state.recentGames = [];
+  state.hubLagMs = 0;
+  // v5.20.2 : si les sections contiennent encore les cartes d'aperçu, on les
+  // vide (le prochain snapshot live remplit) pour ne pas afficher des parties
+  // terminées sous l'étiquette « Temps réel ».
+  if (state.degradedCards) {
+    state.games = { ffa: [], team: [], special: [] };
+    state.degradedCards = false;
+    scheduleRender(true);
+  }
+  renderDegradedPanel();
+}
+
+/** Retourne true si le snapshot courant est totalement vide. */
+function snapshotIsEmpty() {
+  return state.games.ffa.length === 0 && state.games.team.length === 0 && state.games.special.length === 0;
+}
+
+/** Libellé de la période couverte par l'aperçu. Nominal : 2 h (la fenêtre).
+ *  v5.20.3 : quand le hub a du retard, la période réelle s'étend au retard
+ *  constaté — l'étiquette reste honnête (« Aperçu · 5 h »). */
+function previewSpanLabel() {
+  const list = state.recentGames;
+  let oldest = Infinity;
+  for (const c of list) if (c.startsAt && c.startsAt < oldest) oldest = c.startsAt;
+  if (!Number.isFinite(oldest)) return "2 h";
+  const hours = Math.max(2, Math.ceil((Date.now() - oldest) / 3_600_000));
+  return `${hours} h`;
+}
+
+/** Injecte/retire le bloc « aperçu » sous le panneau d'état.
+ *  v5.20.2 : quand les parties d'aperçu sont rendues en CARTES dans les
+ *  sections (state.degradedCards), la liste texte devient redondante — on
+ *  n'affiche plus que la note explicative (pourquoi le live est en panne). */
+function renderDegradedPanel() {
+  const host = document.getElementById("lobby-degraded");
+  if (!host) return;
+  const active = degradedTimer && state.recentGames.length >= 0;
+  if (!active) { host.hidden = true; host.innerHTML = ""; return; }
+  host.hidden = false;
+  const head = `
+    <div class="lobby-degraded-head">
+      <h3>${esc(T("lobby.degraded_title", "Aperçu — dernières parties" + " (" + previewSpanLabel() + ")", { span: previewSpanLabel() }))}</h3>
+      <p>${esc(T("lobby.degraded_note", "Le flux temps réel est bloqué côté OpenFront (protection anti-bots). Dès sa réouverture, le live revient automatiquement."))}</p>
+    </div>`;
+  if (state.degradedCards) {
+    // Les cartes défilantes affichent déjà les parties avec leur carte :
+    // la note seule suffit — pas de double liste.
+    host.innerHTML = head;
+    return;
+  }
+  const rows = state.recentGames.map((g) => {
+    const mins = Math.max(1, Math.round((Date.now() - g.startsAt) / 60_000));
+    const ago = mins < 60
+      ? T("lobby.degraded_ago_min", "il y a {n} min", { n: mins })
+      : T("lobby.degraded_ago_h", "il y a {n} h", { n: Math.round(mins / 60) });
+    const dur = g.durationS >= 60
+      ? Math.floor(g.durationS / 60) + " min"
+      : g.durationS + " s";
+    const mode = g.mode ? esc(g.mode.replace(/^Free For All$/i, "FFA")) : "—";
+    const diff = g.difficulty ? esc(g.difficulty) : "";
+    return `
+      <a class="lobby-degraded-row" href="https://openfront.io/game/${encodeURIComponent(g.gameID)}" target="_blank" rel="noopener">
+        <span class="lobby-degraded-ago">${esc(ago)}</span>
+        <span class="lobby-degraded-mode">${mode}</span>
+        <span class="lobby-degraded-diff">${diff}</span>
+        <span class="lobby-degraded-dur">${esc(dur)}</span>
+        <span class="lobby-degraded-cta">${esc(T("lobby.degraded_watch", "Voir la partie"))}
+          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+        </span>
+      </a>`;
+  }).join("");
+  host.hidden = false;
+  host.innerHTML = `
+    ${head}
+    <div class="lobby-degraded-list">${rows || `<p class="lobby-degraded-none">${esc(T("lobby.degraded_none", "Aucune partie terminée sur les 2 dernières heures."))}</p>`}</div>`;
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -655,6 +1204,7 @@ function buildSkeleton() {
         <span class="lobby-filter-updated" id="lobby-updated"></span>
       </div>
       <a class="lobby-banner" id="lobby-hero" hidden></a>
+      <div id="lobby-degraded" hidden></div>
       <div id="lobby-sections"></div>
     </div>`;
 
@@ -709,7 +1259,6 @@ function buildSkeleton() {
     const track = $(`#lobby-track-${sec.key}`, el);
     $$(".lobby-arrow", el).forEach((btn) => {
       btn.addEventListener("click", () => {
-        pauseAutoScroll(track, 6000);
         track.scrollBy({ left: Number(btn.dataset.dir) * track.clientWidth * 0.8, behavior: "smooth" });
       });
     });
@@ -734,6 +1283,23 @@ function favIconSvg(filled) {
   }
   const path = '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17.8 6.6 20l1-6.1L3.2 9.5l6.1-.9L12 3z"/>';
   return `<svg viewBox="0 0 24 24" width="14" height="14" fill="${filled ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2" stroke-linejoin="round">${path}</svg>`;
+}
+
+/** Icône cloche du bouton « prévenir quand pleine » (pleine si active). */
+function watchIconSvg(filled) {
+  return `<svg viewBox="0 0 24 24" width="13" height="13" fill="${filled ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`;
+}
+
+/** État visuel du bouton cloche d'une carte (lobby-live.js pilote l'état). */
+function setWatchBtn(btn, active) {
+  if (!btn) return;
+  btn.setAttribute("aria-pressed", String(active));
+  btn.innerHTML = watchIconSvg(active);
+  btn.title = active
+    ? T("lobby.watch_remove_title", "Ne plus surveiller ce lobby")
+    : T("lobby.watch_add_title", "Me prévenir quand ce lobby est plein");
+  btn.setAttribute("aria-label", btn.title);
+  btn.classList.toggle("is-active", active);
 }
 
 /** État visuel du bouton favori d'une carte. */
@@ -765,22 +1331,32 @@ function buildCard(game) {
     <span class="lobby-card-media">
       <img alt="" loading="lazy" draggable="false"
            src="${esc(mapThumb(mapName))}"
-           onerror="this.remove()">
+           data-gh="${esc(mapThumbRemote(mapName))}"
+           onerror="${IMG_THUMB_ONERROR}">
       <span class="lobby-card-img-fallback">${esc(mapName.slice(0, 1).toUpperCase())}</span>
       <span class="lobby-card-shade" aria-hidden="true"></span>
       <span class="lobby-card-timer" data-role="timer"></span>
-      <span class="lobby-card-almost" data-role="almost" hidden>${esc(T("lobby.almost_full", "Presque pleine"))}</span>
       <span class="lobby-card-pills"></span>
-      <button type="button" class="lobby-card-fav" data-role="fav"
-              aria-pressed="false" title="${esc(T("lobby.fav_add_title", "Ajouter aux cartes favorites"))}"
-              aria-label="${esc(T("lobby.fav_add_aria", "Ajouter la carte aux favoris"))}">${favIconSvg(false)}</button>
+      <span class="lobby-card-actions">
+        <button type="button" class="lobby-card-chat" data-role="chat"
+                title="${esc(T("lobby.chat_open_title", "Chat de la partie"))}"
+                aria-label="${esc(T("lobby.chat_open_aria", "Ouvrir le chat de cette partie"))}">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </button>
+        <button type="button" class="lobby-card-watch" data-role="watch" aria-pressed="false"
+                title="${esc(T("lobby.watch_add_title", "Me prévenir quand ce lobby est plein"))}"
+                aria-label="${esc(T("lobby.watch_add_aria", "Me prévenir quand ce lobby est plein"))}">${watchIconSvg(false)}</button>
+        <button type="button" class="lobby-card-fav" data-role="fav"
+                aria-pressed="false" title="${esc(T("lobby.fav_add_title", "Ajouter aux cartes favorites"))}"
+                aria-label="${esc(T("lobby.fav_add_aria", "Ajouter la carte aux favoris"))}">${favIconSvg(false)}</button>
+      </span>
     </span>
     <span class="lobby-card-body">
       <h3 class="lobby-card-map"></h3>
       <p class="lobby-card-mode"></p>
-      <span class="lobby-card-fill" aria-hidden="true"><span class="lobby-card-fill-bar" data-role="fill"></span></span>
+      <span class="lobby-card-fill" aria-hidden="true"><i data-role="fill"></i></span>
       <span class="lobby-card-foot">
-        <span class="lobby-card-players" data-role="players"></span>
+        <span class="lobby-card-count" data-role="count"></span>
         <span class="lobby-card-cta" aria-hidden="true">${esc(T("lobby.join", "Rejoindre"))}
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
         </span>
@@ -793,13 +1369,14 @@ function updateCard(card, game, opts) {
   const cfg = game.gameConfig || {};
   const mapName = cfg.gameMap || "?";
   const cap = Number(cfg.maxPlayers) || 0;
-  const nPlayers = Number(game.numClients) || 0;
+  const nPlayers = Number(game.numClients) || 0; // affiché + alertes
 
   if (opts.full) {
     const img = $(".lobby-card-media img", card);
     const src = mapThumb(mapName);
     if (img) {
       if (img.getAttribute("src") !== src) img.setAttribute("src", src);
+      img.dataset.gh = mapThumbRemote(mapName);
       img.alt = mapName;
     }
     $(".lobby-card-img-fallback", card).textContent = mapName.slice(0, 1).toUpperCase();
@@ -829,139 +1406,72 @@ function updateCard(card, game, opts) {
 
     card.classList.toggle("is-featured", !!game.featured);
     card.classList.toggle("is-full", cap > 0 && nPlayers >= cap);
+    // v5.20.2 — carte d'aperçu (partie terminée) : pas d'actions live (chat/
+    // cloche), le filtre favoris reste actif (slug de carte présent).
+    card.classList.toggle("is-degraded", !!game.degraded);
   }
 
-  // Barre de remplissage + badge « Presque pleine » (maj fréquente : les
-  // messages "counts" patchent numClients sans re-render complet)
-  const pct = cap > 0 ? Math.min(100, Math.round((nPlayers / cap) * 100)) : 0;
-  const fill = $("[data-role=fill]", card);
-  if (fill) fill.style.width = pct + "%";
-  const almost = cap > 0 && pct >= 80 && nPlayers < cap;
-  card.classList.toggle("is-almost-full", almost);
-  const almostEl = $("[data-role=almost]", card);
-  if (almostEl) almostEl.hidden = !almost;
+  // v5.22 — retour demandé : compteur joueurs + barre de remplissage sur
+  // chaque carte (maj à CHAQUE frame, y compris les « counts » WebSocket qui
+  // font évoluer numClients en temps réel). L'état interne reste aussi
+  // utilisé par les alertes (is-full / no-cap).
+  const fillEl = $("[data-role=fill]", card);
+  if (fillEl) {
+    const pct = cap > 0 ? Math.min(100, Math.round((nPlayers / cap) * 100)) : 0;
+    if (fillEl.dataset.pct !== String(pct)) {
+      fillEl.dataset.pct = String(pct);
+      fillEl.style.width = pct + "%";
+    }
+    card.classList.toggle("is-nearly-full", cap > 0 && pct >= 80 && pct < 100);
+  }
+  const countEl = $("[data-role=count]", card);
+  if (countEl) {
+    const txt = cap > 0 ? `${nPlayers}/${cap}` : `${nPlayers}`;
+    if (countEl.textContent !== txt) countEl.textContent = txt;
+  }
 
-  // Compteur joueurs + compte à rebours (maj fréquente)
-  const players = `${nPlayers}${cap ? "/" + cap : ""}`;
-  const pEl = $("[data-role=players]", card);
-  if (pEl && pEl.textContent !== players) pEl.textContent = players;
-
+  // Compte à rebours (maj fréquente) — v5.20.2 : « Terminée » sur une carte
+  // d'aperçu dégradée (le countdown live n'a pas de sens, la partie est finie)
   const tEl = $("[data-role=timer]", card);
-  const txt = countdownText(Number(game.startsAt) || 0, serverNow());
+  const txt = game.degraded
+    ? T("lobby.cd_done", "Terminée")
+    : countdownText(effStartsAt(game), serverNow());
   if (tEl) {
     if (tEl.textContent !== txt) tEl.textContent = txt;
-    tEl.classList.toggle("urgent", isUrgentCountdown(txt));
+    tEl.classList.toggle("urgent", !game.degraded && isUrgentCountdown(txt));
   }
 }
 
-/* ── Auto-défilement des carrousels ─────────────────────────────────── */
-
-const autoScrollState = new WeakMap(); // track → {pausedUntil, raf}
-
-function pauseAutoScroll(track, ms) {
-  const st = autoScrollState.get(track);
-  if (st) st.pausedUntil = Math.max(st.pausedUntil || 0, Date.now() + ms);
-}
-
-function startAutoScroll(track, speedPxPerSec) {
-  if (autoScrollState.has(track)) return; // déjà actif
-  const st = { pausedUntil: 0, last: performance.now(), dragging: false, carry: 0 };
-  autoScrollState.set(track, st);
-
-  const step = (now) => {
-    const dt = Math.min(now - st.last, 100);
-    st.last = now;
-    const auto = track.dataset.autoScroll !== "off";
-    const hovered = track.matches(":hover");
-    const paused = Date.now() < (st.pausedUntil || 0);
-
-    if (!st.dragging && !hovered && !paused && auto) {
-      // ⚠️ scrollLeft est arrondi à l'entier par le navigateur : on accumule
-      // les fractions en JS et on n'écrit que des pixels entiers.
-      st.carry += (speedPxPerSec * dt) / 1000;
-      if (st.carry >= 1) {
-        const whole = Math.floor(st.carry);
-        st.carry -= whole;
-        // Une seule copie des cartes (pas de duplication) : en fin de piste
-        // on repasse simplement au début.
-        const maxScroll = track.scrollWidth - track.clientWidth;
-        if (maxScroll > 0) {
-          if (track.scrollLeft >= maxScroll - 1) {
-            track.scrollLeft = 0;
-          } else {
-            track.scrollLeft = Math.min(track.scrollLeft + whole, maxScroll);
-          }
-        }
-      }
-    }
-    if (track.isConnected) requestAnimationFrame(step);
-  };
-  requestAnimationFrame(step);
-
-  // ── Drag manuel (souris uniquement ; le tactile garde le scroll natif) ──
-  // ⚠️ NE PAS utiliser setPointerCapture : il retargete le pointerup vers la
-  // piste, le navigateur émet alors le clic sur la piste (ancêtre commun de
-  // pointerdown/pointerup) et JAMAIS sur le lien de la carte → « cliquer une
-  // carte ne fait rien ». On drague via des listeners fenêtre et on n'avale
-  // le clic qu'après un VRAI déplacement (seuil 6 px).
-  const DRAG_THRESHOLD = 6;
-  let activePointer = null;
-
-  const onMove = (e) => {
-    if (activePointer !== e.pointerId) return;
-    const dx = e.clientX - st.downX;
-    if (!st.dragging && Math.abs(dx) > DRAG_THRESHOLD) st.dragging = true;
-    if (st.dragging) {
-      track.scrollLeft = st.downScroll - dx;
-      pauseAutoScroll(track, 4000);
-    }
-  };
-  const onUp = (e) => {
-    if (activePointer !== e.pointerId) return;
-    activePointer = null;
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-    window.removeEventListener("pointercancel", onUp);
-    if (st.dragging) {
-      st.dragging = false;
-      st.suppressClick = true; // le clic qui suit est un reliquat du drag
-    }
-  };
-
-  track.addEventListener("pointerdown", (e) => {
-    if (e.pointerType !== "mouse" || e.button !== 0) return;
-    activePointer = e.pointerId;
-    st.downX = e.clientX;
-    st.downScroll = track.scrollLeft;
-    st.dragging = false;
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-  });
-  track.addEventListener("click", (e) => {
-    if (st.suppressClick) {
-      st.suppressClick = false;
-      e.preventDefault();
-      e.stopPropagation();
-    }
-  }, true);
-  track.addEventListener("wheel", () => pauseAutoScroll(track, 5000), { passive: true });
-}
+/* ── Pistes horizontales — scroll manuel uniquement (v5.21) ───────────
+ *   L'ancien auto-défilement (le « défile vers la droite » animé en
+ *   permanence) est SUPPRIMÉ sur demande du propriétaire. Les pistes sont
+ *   des listes horizontales standards : doigt/trackpad, molette et les
+ *   flèches de section suffisent. Pas de rAF, pas de drag custom. */
 
 /* ── Rendu principal ────────────────────────────────────────────────── */
 
 function render(isFull) {
   if (!buildSkeleton()) return;
+  renderDegradedPanel(); // sync le bloc « aperçu » à chaque passe de rendu
 
-  // Liste VISIBLE par section (le filtre « fav » ne garde que les cartes favorites)
+  // Liste VISIBLE par section :
+  //   • filtre « fav » → cartes favorites uniquement (compte requis)
+  //   • v5.29 — FILTRE DES PARTIES (lobby-live.js) → seules les parties qui
+  //     cochent le filtre s'affichent, les autres sont masquées.
   const filtering = state.filter === "fav";
+  const lf = customFilter();
+  const customActive = !!lf;
   const visible = {};
+  const hiddenCount = {};
   let total = 0;
   for (const sec of SECTIONS) {
     const list = state.games[sec.key] || [];
-    visible[sec.key] = filtering
-      ? list.filter((g) => state.favorites.has(mapSlug((g.gameConfig || {}).gameMap || "")))
-      : list;
+    visible[sec.key] = list.filter((g) => {
+      if (filtering && !state.favorites.has(mapSlug((g.gameConfig || {}).gameMap || ""))) return false;
+      if (customActive && !passesCustomFilter(g, sec.key, lf)) return false;
+      return true;
+    });
+    hiddenCount[sec.key] = list.length - visible[sec.key].length;
     total += visible[sec.key].length;
   }
   const emptyEl = document.getElementById("lobby-empty");
@@ -976,6 +1486,16 @@ function render(isFull) {
         <div class="lobby-loading">
           <div class="spinner"></div>
           <p>${esc(T("lobby.connecting", "Connexion aux serveurs OpenFront…"))}</p>
+        </div>`;
+    } else if (customActive) {
+      // v5.29 — le FILTRE ne garde aucune partie : message dédié (ne jamais
+      // laisser croire que le flux est en panne alors que c'est le filtre).
+      emptyEl.hidden = false;
+      emptyEl.innerHTML = `
+        <div class="lobby-empty-inner">
+          <div class="lobby-empty-icon"><i data-icon="target" data-icon-size="32"></i></div>
+          <h3>${T("lobby.empty_filter_title", "Aucune partie ne correspond au filtre")}</h3>
+          <p>${T("lobby.empty_filter_text", `Modifie ou réinitialise le filtre (entonnoir en haut) pour revoir toutes les parties.`)}</p>
         </div>`;
     } else if (filtering) {
       emptyEl.hidden = false;
@@ -992,13 +1512,14 @@ function render(isFull) {
         <div class="lobby-empty-inner">
           <div class="lobby-empty-icon"><i data-icon="globe" data-icon-size="32"></i></div>
           <h3>${T("lobby.stream_down_title", "Flux temps réel indisponible")}</h3>
-          <p>${T("lobby.stream_down_text", `Impossible de joindre les serveurs OpenFront en direct depuis ce réseau.<br>Les parties réapparaîtront dès la reconnexion.`)}</p>
+          <p>${T("lobby.stream_down_text", `Impossible de joindre les serveurs OpenFront en direct depuis ce réseau.<br>L'aperçu des dernières parties s'affiche ci-dessous — le live reviendra automatiquement.`)}</p>
           <button class="lobby-retry-btn" type="button">${esc(T("lobby.retry", "Réessayer"))}</button>
         </div>`;
       const retry = $(".lobby-retry-btn", emptyEl);
       if (retry) retry.addEventListener("click", () => {
         wsFailCount = { direct: 0, proxy: 0 };
         if (httpTimer) { clearInterval(httpTimer); httpTimer = null; }
+        stopProxyHttpPolling();
         setSource("idle");
         render(true);
         startWebSocket();
@@ -1032,8 +1553,10 @@ function render(isFull) {
   const sectionsEl = document.getElementById("lobby-sections");
   if (sectionsEl) sectionsEl.style.display = "";
 
-  // Hero : la prochaine partie à démarrer (toutes catégories)
-  if (isFull) renderHero();
+  // Hero : la prochaine partie à démarrer (toutes catégories) — v5.20.2 :
+  // sans objet en mode dégradé (parties déjà terminées, pas de « prochaine »)
+  // v5.29 : le bandeau respecte le FILTRE (prochaine partie qui le coche).
+  if (isFull && !state.degradedCards) renderHero(lf);
   // Le bandeau « Prochaine partie » n'a pas de sens filtré sur les favoris
   if (filtering) {
     const heroEl = document.getElementById("lobby-hero");
@@ -1043,13 +1566,23 @@ function render(isFull) {
   for (const sec of SECTIONS) {
     const games = visible[sec.key];
     const countEl = document.getElementById(`lobby-count-${sec.key}`);
-    if (countEl) countEl.textContent = games.length ? `${games.length}` : "";
+    if (countEl) {
+      countEl.textContent = games.length ? `${games.length}` : "";
+      // v5.29 — transparence : combien de parties sont masquées par le filtre
+      const hid = customActive ? hiddenCount[sec.key] : 0;
+      countEl.title = hid > 0
+        ? T("lobby.count_hidden_title", `${hid} partie${hid > 1 ? "s" : ""} masquée${hid > 1 ? "s" : ""} par le filtre`, { n: hid, s: hid > 1 ? "s" : "" })
+        : "";
+    }
 
     const track = document.getElementById(`lobby-track-${sec.key}`);
     if (!track) continue;
 
     if (games.length === 0) {
-      const msg = filtering
+      const msg = customActive
+        ? T("lobby.track_empty_filter", `Aucune partie ${esc(sec.label.toLowerCase())} ne correspond au filtre`,
+            { mode: esc(T("lobby.sec_" + sec.key, sec.label).toLowerCase()) })
+        : filtering
         ? T("lobby.fav_empty_title", "Aucune partie sur tes cartes favorites")
         : T("lobby.track_empty", `Aucune partie ${esc(sec.label.toLowerCase())} en attente`,
             { mode: esc(T("lobby.sec_" + sec.key, sec.label).toLowerCase()) });
@@ -1087,7 +1620,7 @@ function render(isFull) {
       // Restaure la position de scroll (clampée au nouveau contenu)
       const max = Math.max(0, track.scrollWidth - track.clientWidth);
       track.scrollLeft = Math.min(savedScroll, max);
-      startAutoScroll(track, 18); // ~18 px/s, défilement lent (pause au survol)
+      // v5.21 : plus AUCUN auto-défilement — la piste reste immobile.
     }
 
     // Mise à jour des cartes visibles (timers + joueurs + contenu)
@@ -1104,16 +1637,26 @@ function render(isFull) {
   renderStatus();
 }
 
-/** Grande carte "prochaine partie" (celle qui démarre le plus tôt). */
-function renderHero() {
+/** Grande carte "prochaine partie" (celle qui démarre le plus tôt).
+ *  v5.29 : respecte le FILTRE des parties (entonnoir) — le bandeau montre
+ *  la prochaine partie qui le coche, jamais une partie masquée. */
+function renderHero(lf) {
   const hero = document.getElementById("lobby-hero");
   if (!hero) return;
-  const all = [
-    ...state.games.ffa, ...state.games.team, ...state.games.special,
-  ].filter((g) => Number(g.startsAt) > 0);
+  const buckets = [
+    ["ffa", state.games.ffa], ["team", state.games.team], ["special", state.games.special],
+  ];
+  let all = [];
+  for (const [key, list] of buckets) {
+    for (const g of list) {
+      if (!(effStartsAt(g) > 0)) continue;
+      if (lf && !passesCustomFilter(g, key, lf)) continue;
+      all.push(g);
+    }
+  }
   if (all.length === 0) { hero.hidden = true; hero.innerHTML = ""; return; }
 
-  const next = all.reduce((a, b) => (Number(a.startsAt) < Number(b.startsAt) ? a : b));
+  const next = all.reduce((a, b) => (effStartsAt(a) < effStartsAt(b) ? a : b));
   const cfg = next.gameConfig || {};
   const mapName = cfg.gameMap || "?";
 
@@ -1128,12 +1671,12 @@ function renderHero() {
       <span class="lobby-banner-dot" aria-hidden="true"></span>
       <span class="lobby-banner-label">${esc(T("lobby.next_game", "Prochaine partie"))}</span>
       <span class="lobby-banner-thumb">
-        <img alt="" src="${esc(mapThumb(mapName))}" onerror="this.remove()">
+        <img alt="" src="${esc(mapThumb(mapName))}" data-gh="${esc(mapThumbRemote(mapName))}" onerror="${IMG_THUMB_ONERROR}">
         <span class="lobby-banner-thumb-fallback">${esc(mapName.slice(0, 1).toUpperCase())}</span>
       </span>
       <span class="lobby-banner-name">${esc(mapDisplayName(mapName))}</span>
       <span class="lobby-banner-mode">${esc(bannerMode)}</span>
-      <span class="lobby-banner-players" data-role="hero-players"></span>
+      <span class="lobby-banner-count" data-role="hero-count"></span>
       <span class="lobby-card-timer" data-role="hero-timer"></span>
       <span class="lobby-banner-cta">${esc(T("lobby.join", "Rejoindre"))}
         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
@@ -1141,14 +1684,18 @@ function renderHero() {
     hero.setAttribute("aria-label", T("lobby.hero_aria", `Rejoindre la prochaine partie : ${mapDisplayName(mapName)}`, { map: mapDisplayName(mapName) }));
   }
 
-  // Mise à jour dynamique
-  const cap = Number(cfg.maxPlayers) || 0;
-  const players = `${Number(next.numClients) || 0}${cap ? "/" + cap : ""}`;
-  const pEl = $("[data-role=hero-players]", hero);
-  if (pEl && pEl.textContent !== players) pEl.textContent = players;
+  // Mise à jour dynamique — v5.22 : compteur joueurs du bandeau RÉTABLI
+  // (demande du propriétaire) + timer.
+  const cEl = $("[data-role=hero-count]", hero);
+  if (cEl) {
+    const hcap = Number(cfg.maxPlayers) || 0;
+    const hn = Number(next.numClients) || 0;
+    const ctxt = hcap > 0 ? `${hn}/${hcap}` : `${hn}`;
+    if (cEl.textContent !== ctxt) cEl.textContent = ctxt;
+  }
   const tEl = $("[data-role=hero-timer]", hero);
   if (tEl) {
-    const txt = countdownText(Number(next.startsAt) || 0, serverNow());
+    const txt = countdownText(effStartsAt(next), serverNow());
     tEl.textContent = txt;
     tEl.classList.toggle("urgent", isUrgentCountdown(txt));
   }
@@ -1159,6 +1706,8 @@ function renderHero() {
 const SOURCE_META = {
   direct:   { cls: "connected", labelKey: "lobby.status_live", labelFb: "Temps réel", titleKey: "lobby.status_live_title", titleFb: "WebSocket OpenFront (direct)" },
   proxy:    { cls: "connected", labelKey: "lobby.status_live", labelFb: "Temps réel", titleKey: "lobby.status_proxy_title", titleFb: "WebSocket OpenFront (proxy Cloudflare)" },
+  // v5.33 — relais HTTP du worker (/lobbies) : live reconstitué côté worker
+  "proxy-http": { cls: "connected", labelKey: "lobby.status_live", labelFb: "Temps réel", titleKey: "lobby.status_proxy_title", titleFb: "OpenFront via le relais Cloudflare (HTTP)" },
   fallback: { cls: "delayed",   labelKey: "lobby.status_cache", labelFb: "Cache 5 min", titleKey: "lobby.status_cache_title", titleFb: "Flux temps réel indisponible — données rafraîches toutes les 5 min" },
   offline:  { cls: "error",     labelKey: "lobby.status_offline", labelFb: "Hors ligne", titleKey: "lobby.status_offline_title", titleFb: "Impossible de joindre OpenFront" },
   idle:     { cls: "",          labelKey: "lobby.status_connecting", labelFb: "Connexion…", titleKey: "lobby.status_connecting_title", titleFb: "Connexion en cours" },
@@ -1169,33 +1718,58 @@ function renderStatus() {
   if (!el) return;
   const meta = SOURCE_META[state.source] || SOURCE_META.idle;
   el.className = `lobby-status ${meta.cls}`;
-  el.title = T(meta.titleKey, meta.titleFb);
+  el.title = state.degradedCards
+    ? T("lobby.status_preview_title", "Flux temps réel bloqué — aperçu des dernières parties, rafraîchi toutes les 2 min")
+    : T(meta.titleKey, meta.titleFb);
   const label = $("#lobby-status-label", el);
-  if (label) label.textContent = T(meta.labelKey, meta.labelFb);
+  if (label) label.textContent = state.degradedCards
+    ? T("lobby.status_preview", "Aperçu · " + previewSpanLabel(), { span: previewSpanLabel() })
+    : T(meta.labelKey, meta.labelFb);
 
   const stats = document.getElementById("lobby-stats");
   if (stats) {
     const total = state.games.ffa.length + state.games.team.length + state.games.special.length;
-    const players = ["ffa", "team", "special"].reduce(
-      (sum, k) => sum + state.games[k].reduce((s, g) => s + (Number(g.numClients) || 0), 0), 0);
-    stats.textContent = total > 0
-      ? T("lobby.stats",
-          `${total} partie${total > 1 ? "s" : ""} en attente · ${players} joueur${players > 1 ? "s" : ""}`,
-          { total, players, gs: total > 1 ? "s" : "", ps: players > 1 ? "s" : "" })
-      : "";
+    if (state.degradedCards) {
+      // v5.20.2 — aperçu des parties TERMINÉES : le libellé « en attente »
+      // serait mensonger.
+      stats.textContent = total > 0
+        ? T("lobby.stats_done", `${total} dernières parties (${previewSpanLabel()})`, { total, span: previewSpanLabel() })
+        : "";
+    } else {
+      const players = ["ffa", "team", "special"].reduce(
+        (sum, k) => sum + state.games[k].reduce((s, g) => s + (Number(g.numClients) || 0), 0), 0);
+      stats.textContent = total > 0
+        ? T("lobby.stats",
+            `${total} partie${total > 1 ? "s" : ""} en attente · ${players} joueur${players > 1 ? "s" : ""}`,
+            { total, players, gs: total > 1 ? "s" : "", ps: players > 1 ? "s" : "" })
+        : "";
+      // v5.29 — filtre actif : ajoute combien de parties sont masquées
+      if (total > 0 && customFilter()) {
+        const buckets = [["ffa", state.games.ffa], ["team", state.games.team], ["special", state.games.special]];
+        let hid = 0;
+        for (const [key, list] of buckets) {
+          for (const g of list) if (!passesCustomFilter(g, key)) hid++;
+        }
+        if (hid > 0) {
+          stats.textContent += " · " + T("lobby.stats_hidden",
+            `${hid} masquée${hid > 1 ? "s" : ""} par le filtre`, { n: hid, s: hid > 1 ? "s" : "" });
+        }
+      }
+    }
   }
 }
 
-/** Injecte la pill d'état dans la topbar (une seule fois). */
+/** Injecte la pill d'état dans la topbar (une seule fois, sans écraser le
+ * bouton chat présent statiquement dans lobby.html — v5.19). */
 function ensureStatusBar() {
   const right = document.querySelector(".topbar-right");
   if (!right || document.getElementById("lobby-status")) return;
-  right.innerHTML = `
+  right.insertAdjacentHTML("afterbegin", `
     <span id="lobby-stats" class="lobby-stats"></span>
     <span id="lobby-status" class="lobby-status" title="${esc(T("lobby.status_connecting_title", "Connexion en cours"))}">
       <span class="lobby-status-dot"></span>
       <span id="lobby-status-label">${esc(T("lobby.status_connecting", "Connexion…"))}</span>
-    </span>`;
+    </span>`);
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -1310,12 +1884,16 @@ function startClock() {
       if (!card) return;
       const game = findGame(card.dataset.gameId);
       if (game) {
-        const txt = countdownText(Number(game.startsAt) || 0, serverNow());
+        // v5.20.2 — carte d'aperçu dégradée : « Terminée » (le countdown
+        // écraserait sinon le libellé posé par updateCard toutes les secondes)
+        const txt = game.degraded
+          ? T("lobby.cd_done", "Terminée")
+          : countdownText(effStartsAt(game), serverNow());
         if (el.textContent !== txt) el.textContent = txt;
-        el.classList.toggle("urgent", isUrgentCountdown(txt));
+        el.classList.toggle("urgent", !game.degraded && isUrgentCountdown(txt));
       }
     });
-    // Hero timer
+    // Hero timer (caché en mode dégradé — le garde-fou reste par sécurité)
     const heroT = document.querySelector("[data-role=hero-timer]");
     if (heroT) {
       const hero = document.getElementById("lobby-hero");
@@ -1323,9 +1901,11 @@ function startClock() {
       const all = [...state.games.ffa, ...state.games.team, ...state.games.special];
       const game = all.find((g) => (g.gameID || g.id) === id);
       if (game) {
-        const txt = countdownText(Number(game.startsAt) || 0, serverNow());
+        const txt = game.degraded
+          ? T("lobby.cd_done", "Terminée")
+          : countdownText(effStartsAt(game), serverNow());
         heroT.textContent = txt;
-        heroT.classList.toggle("urgent", isUrgentCountdown(txt));
+        heroT.classList.toggle("urgent", !game.degraded && isUrgentCountdown(txt));
       }
     }
   }, COUNTDOWN_TICK);
@@ -1345,14 +1925,60 @@ function boot() {
   render(true);
   startClock();
 
-  // Étoile favori : délégation au niveau de la vue — le clic sur l'étoile ne
-  // doit JAMAIS suivre le lien de la carte (openfront.io).
+  // v5.29 — FILTRE DES PARTIES (lobby-live.js) : à chaque changement de
+  // filtre (chips, bornes, cartes, profil, reset), la liste est re-rendue
+  // immédiatement — les parties qui cochent s'affichent, les autres partent.
+  window.addEventListener("tfh:lobby:filter-changed", () => scheduleRender(true));
+  window.addEventListener("tfh:lobby:filter-changed", renderStatus);
+
+  // Étoile favori + cloche « prévenir » + bulle chat : délégation au niveau
+  // de la vue — ces clics ne doivent JAMAIS suivre le lien de la carte.
   view().addEventListener("click", (e) => {
     const fav = e.target.closest("[data-role=fav]");
     if (fav) {
       e.preventDefault();
       e.stopPropagation();
       onFavClick(fav);
+      return;
+    }
+    const watch = e.target.closest("[data-role=watch]");
+    if (watch) {
+      e.preventDefault();
+      e.stopPropagation();
+      const card = watch.closest(".lobby-card");
+      if (card) {
+        window.dispatchEvent(new CustomEvent("tfh:lobby:watch-toggle", {
+          detail: { gameId: card.dataset.gameId },
+        }));
+      }
+      return;
+    }
+    const chatBtn = e.target.closest("[data-role=chat]");
+    if (chatBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const card = chatBtn.closest(".lobby-card");
+      if (card) {
+        window.dispatchEvent(new CustomEvent("tfh:lobby:open-chat", {
+          detail: { gameId: card.dataset.gameId },
+        }));
+      }
+      return;
+    }
+    // Clic sur la CARTE elle-même = lancement de la partie (le lien s'ouvre
+    // dans un nouvel onglet). v5.19 : on RETIENT la partie — dès que le flux
+    // voit qu'elle démarre (pleine / compte à rebours écoulé / sortie de
+    // liste), lobby-live.js ouvre le chat du salon. Plus d'ouverture immédiate
+    // du drawer au clic (c'était « mal fait ») : le chat s'ouvre AU BON MOMENT.
+    const card = e.target.closest(".lobby-card");
+    if (card && card.dataset.gameId) {
+      window.dispatchEvent(new CustomEvent("tfh:lobby:my-game", {
+        detail: { gameId: card.dataset.gameId, map: card.dataset.mapName || "" },
+      }));
+      window.showToast?.(
+        T("lobby.mygame_track_toast", "Suivi activé — le chat de la partie s'ouvrira au lancement 💬"),
+        "success", 4500, "bell"
+      );
     }
   });
 
@@ -1372,6 +1998,12 @@ function boot() {
   // hôtes résolus. Re-résolution périodique toutes les 5 min.
   refreshLobbyHosts();
   setInterval(refreshLobbyHosts, HOSTS_TTL);
+  // v5.33 — COURSE au 1er snapshot : pendant que les tentatives WS tournent
+  // (jusqu'à ~40 s avant le fallback), le relais HTTP du worker (/lobbies)
+  // donne souvent un snapshot LIVE en 1-2 s. Si le WS gagne la course, il
+  // ingère par-dessus (ingestFull idempotent, aucune fausse alerte : les ids
+  // connus ne re-notifient pas). Si le WS échoue, les games sont déjà là.
+  pollProxyLobbies();
   startWebSocket();
 }
 
@@ -1385,16 +2017,20 @@ if (document.readyState === "loading") {
 window._lobbyDebug = {
   state,
   reconnect: () => { wsFailCount = { direct: 0, proxy: 0 }; startWebSocket(); },
+  // v5.18 — modules compagnons (lobby-live.js / lobby-chat.js)
+  setWatchBtn,
+  watchIconSvg,
   fallback: startHttpFallback,
   ingest: (fake) => ingestFull(fake),
   // Tests : simule un compte connecté / des favoris (sans serveur PHP)
   setAccount: (u) => { state.account = u || null; scheduleRender(true); },
   setFavorites: (slugs) => { state.favorites = new Set(slugs || []); scheduleRender(true); },
-  toggleFavoriteRemote,
-  scrollState: (trackOrId) => {
-    const track = typeof trackOrId === "string"
-      ? document.getElementById(`lobby-track-${trackOrId}`)
-      : trackOrId;
-    return track ? autoScrollState.get(track) : null;
+  // Mode dégradé (aperçu dernières parties) — tests E2E / support
+  setRecentGames: (rows) => {
+    state.recentGames = (rows || []).map(deriveRecentCard).filter(Boolean);
+    renderDegradedPanel();
+    scheduleRender(true);
   },
+  degraded: { start: startDegradedMode, stop: stopDegradedMode },
+  toggleFavoriteRemote,
 };

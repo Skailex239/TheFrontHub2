@@ -56,8 +56,11 @@ dev à chaque tick de 5 min. Si la branche n'existe pas, l'étape est ignorée
 
 ## Vérifications post-déploiement dev
 
-⚠️ Depuis la porte d'accès (ci-dessous), la dev exige une session : sans
-cookie, toute page renvoie la page de connexion et l'API renvoie 401.
+🔓 **Mode ouvert actif (v5.16.7, 2026-10-02)** — `TFH_GATE_OPEN = true` dans
+`gate.php` : la dev est accessible **sans code** (demande du propriétaire,
+pour vérification automatisée de l'audit). Le ruban « DEV » reste injecté,
+le noindex Apache (X-Robots-Tag) reste actif. Pour refermer : passer le flag
+à `false` → re-déploiement ≤ 5 min (aucune rotation de code nécessaire).
 
 ```bash
 curl -s "https://dev.thefronthub.com/api/games-api.php?route=status" | head -c 200
@@ -65,13 +68,18 @@ curl -sI "https://dev.thefronthub.com/" | head -3
 curl -s "https://dev.thefronthub.com/robots.txt"
 ```
 
-Attendu sans session : API → `{"ok":false,"error":"dev_gate"}` (401),
-pages → HTML de connexion (200, no-store), robots.txt → `Disallow: /`.
-Avec session (cookie `tfh_dev_gate`) : `ok:true` en status, pages réelles.
+Attendu en mode ouvert : API → `403` (route réservée admin, sans session),
+pages → pages réelles (200, ruban DEV), robots.txt → `Disallow: /`.
 
 ## Porte d'accès dev (gate.php)
 
-La pré-production est **verrouillée par un code** (connu du propriétaire seul).
+La pré-production est **verrouillée par un code** (connu du propriétaire seul)
+— sauf en **mode ouvert** (`TFH_GATE_OPEN = true` dans `gate.php`, cf. ci-dessus).
+
+- **Mode ouvert (v5.16.7)** : accès libre sans code. Miroir fidèle des
+  réécritures prod : `game.html`/`clan.html` → vues SSR, 404 → `404.html`.
+  Le hash du code et le secret serveur restent en place (refermeture
+  instantanée en repassant le flag à `false`).
 
 - **Activation** : uniquement sur `dev.thefronthub.com` (condition
   `HTTP_HOST` dans `.htaccess` + `api/.htaccess`). La prod `thefronthub.com`
