@@ -69,6 +69,9 @@ const API_BASE = "https://api.openfront.io";
 const WORKER_SNAPSHOT_URL =
   "https://openfront-proxy.diofortnite3.workers.dev/lobby-snapshot";
 const WORKER_SNAPSHOT_TIMEOUT_MS = 9_000;
+// v5.33 — repli JSON décodé (fonctionne même sur un worker déployé en retard)
+const WORKER_LOBBIES_URL =
+  "https://openfront-proxy.diofortnite3.workers.dev/lobbies";
 const SKAILEX_TOKEN =
   process.env.OPENFRONT_SKAILEX_ACCESS || "";
 
@@ -189,6 +192,52 @@ async function fetchWorkerSnapshot() {
   }
 }
 
+// v5.33 — repli complémentaire : GET /lobbies du worker (games DÉCODÉES en
+// JSON par le worker lui-même). Contrairement à /lobby-snapshot (frame zbin
+// brute), cette route reste fonctionnelle même quand les routes WS du worker
+// déployé sont en retard sur le repo (bug fetch(wss://) documenté).
+async function fetchWorkerLobbiesJson() {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), WORKER_SNAPSHOT_TIMEOUT_MS);
+    const res = await fetch(WORKER_LOBBIES_URL, {
+      headers: {
+        Origin: "https://thefronthub.com",
+        Accept: "application/json",
+      },
+      signal: ctrl.signal,
+    });
+    clearTimeout(t);
+    if (!res.ok) {
+      warn(`worker /lobbies: HTTP ${res.status}`);
+      return null;
+    }
+    const data = await res.json();
+    if (!data || !Array.isArray(data.games)) {
+      warn("worker /lobbies: réponse sans games");
+      return null;
+    }
+    if (data.connected === false && data.games.length === 0) {
+      warn(`worker /lobbies: relais sans upstream (${data.lastError || "?"})`);
+      return null;
+    }
+    const grouped = { ffa: [], team: [], special: [] };
+    for (const g of data.games) {
+      if (!g || !g.gameID) continue;
+      const bucket =
+        g.publicGameType === "team" || g.publicGameType === "special"
+          ? g.publicGameType
+          : "ffa";
+      grouped[bucket].push(g);
+    }
+    log(`worker /lobbies OK: ${data.games.length} games (ffa=${grouped.ffa.length}, team=${grouped.team.length}, special=${grouped.special.length})`);
+    return { serverTime: data.serverTime, games: grouped };
+  } catch (e) {
+    warn(`worker /lobbies erreur: ${e.message}`);
+    return null;
+  }
+}
+
 function loadPreviousState() {
   try {
     return JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
@@ -224,8 +273,14 @@ function fetchLobbySnapshot(wsUrl) {
       // worker CF (trajet CF→CF). Dernier recours : zéros (le front bascule
       // alors en mode dégradé « aperçu dernières parties »).
       const viaWorker = await fetchWorkerSnapshot();
-      if (viaWorker && viaWorker.games) {
-        const wg = viaWorker.games;
+      let viaWorkerGames = viaWorker && viaWorker.games ? viaWorker : null;
+      if (!viaWorkerGames) {
+        // v5.33 — /lobby-snapshot KO (worker déployé en retard) → /lobbies JSON
+        const viaLobbies = await fetchWorkerLobbiesJson();
+        if (viaLobbies && viaLobbies.games) viaWorkerGames = viaLobbies;
+      }
+      if (viaWorkerGames) {
+        const wg = viaWorkerGames.games;
         const wall = [
           ...(Array.isArray(wg.ffa) ? wg.ffa : []),
           ...(Array.isArray(wg.team) ? wg.team : []),
@@ -234,7 +289,7 @@ function fetchLobbySnapshot(wsUrl) {
         finish({
           lobbyPlayers: wall.reduce((s, g) => s + (Number(g && g.numClients) || 0), 0),
           lobbyGames: wall.length,
-          serverTime: typeof viaWorker.serverTime === "number" ? viaWorker.serverTime : Date.now(),
+          serverTime: typeof viaWorkerGames.serverTime === "number" ? viaWorkerGames.serverTime : Date.now(),
           games: {
             ffa: Array.isArray(wg.ffa) ? wg.ffa : [],
             team: Array.isArray(wg.team) ? wg.team : [],

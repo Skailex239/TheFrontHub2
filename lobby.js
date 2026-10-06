@@ -88,6 +88,18 @@ function mapDisplayName(raw) {
 const DIRECT_WORKERS = Array.from({ length: 20 }, (_, i) => `w${i}`);
 // Worker proxy Cloudflare existant (allowlist d'origines déjà configurée)
 const PROXY_WS_URL = "wss://openfront-proxy.diofortnite3.workers.dev/lobby-ws";
+// v5.33 — RELAIS HTTP du worker (/lobbies) : le worker maintient lui-même un
+// WS upstream et expose les games DÉCODÉES en JSON. Même quand l'upgrade
+// WebSocket du navigateur est impossible (challenge CF sur les hôtes de jeu,
+// pare-feu sortant, route /lobby-ws du worker en panne), ce relais HTTP
+// fournit du LIVE — fin de l'impasse « aucune partie en attente » quand la
+// chaîne WS direct+proxy tombe.
+const PROXY_HTTP_LOBBIES = PROXY_WS_URL
+  .replace("wss://", "https://")   // fetch() refuse wss:// (runtime/API fetch)
+  .replace("/lobby-ws", "/lobbies");
+const PROXY_HTTP_POLL_INTERVAL = 30_000; // live via relais HTTP : 30 s
+const PROXY_HTTP_TIMEOUT = 12_000;
+const PROXY_HTTP_MAX_FAILS = 3;          // 3 échecs → repli snapshot cron local
 const FALLBACK_JSON = "lobby_state.json";
 
 // ── Server list v2 (v34) — résolution dynamique des hôtes WS ──────────
@@ -691,6 +703,90 @@ function wsFailed(gen, level) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════
+   Niveau 2.5 — relais HTTP du worker (v5.33) : games DÉCODÉES en JSON
+   ════════════════════════════════════════════════════════════════════════
+   Le worker Cloudflare (openfront-proxy) maintient un WS upstream vers les
+   serveurs de jeu et expose GET /lobbies → { connected, serverTime, games:
+   [{gameID, numClients, startsAt, publicGameType, custom, featured,
+   gameConfig:{gameMap, gameMode, maxPlayers, …}}] }. Ce relais passe là où
+   l'upgrade WebSocket du navigateur échoue (challenge CF sur les hôtes de
+   jeu, route /lobby-ws du worker en panne, pare-feu sortant) : c'est un
+   LIVE complet, pas un cache. Placé ENTRE les échecs WS et le repli
+   lobby_state.json (snapshot cron local, potentiellement vide).
+   ════════════════════════════════════════════════════════════════════════ */
+
+let proxyHttpTimer = null;
+let proxyHttpAbort = null;
+let proxyHttpFails = 0;
+
+/** /lobbies (flat, publicGameType par game) → {ffa, team, special} (ingestFull). */
+function groupProxyGames(list) {
+  const grouped = { ffa: [], team: [], special: [] };
+  for (const g of list || []) {
+    if (!g || !(g.gameID || g.id)) continue;
+    const t = (g.publicGameType === "team" || g.publicGameType === "special")
+      ? g.publicGameType : "ffa";
+    grouped[t].push(g);
+  }
+  return grouped;
+}
+
+/** 1 poll du relais HTTP. Résout true si un snapshot LIVE a été ingéré. */
+async function pollProxyLobbies() {
+  if (proxyHttpAbort) { try { proxyHttpAbort.abort(); } catch { /* ignore */ } }
+  proxyHttpAbort = new AbortController();
+  const ctrl = proxyHttpAbort;
+  const timer = setTimeout(() => { try { ctrl.abort(); } catch { /* ignore */ } }, PROXY_HTTP_TIMEOUT);
+  try {
+    const res = await fetch(`${PROXY_HTTP_LOBBIES}?t=${Date.now()}`, {
+      cache: "no-store",
+      signal: ctrl.signal,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data || !Array.isArray(data.games)) throw new Error("réponse relais invalide");
+    if (data.connected === false && data.games.length === 0) {
+      throw new Error(data.lastError || "relais sans upstream");
+    }
+    proxyHttpFails = 0;
+    ingestFull({
+      serverTime: typeof data.serverTime === "number" ? data.serverTime : Date.now(),
+      games: groupProxyGames(data.games),
+    });
+    state.connected = true;
+    setSource("proxy-http");
+    stopDegradedMode();
+    return true;
+  } catch (e) {
+    if (e && e.name === "AbortError") return false;
+    proxyHttpFails++;
+    console.warn(`[lobby] relais HTTP indisponible (${proxyHttpFails}) :`, e && e.message);
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function stopProxyHttpPolling() {
+  if (proxyHttpTimer) { clearInterval(proxyHttpTimer); proxyHttpTimer = null; }
+  if (proxyHttpAbort) { try { proxyHttpAbort.abort(); } catch { /* ignore */ } proxyHttpAbort = null; }
+}
+
+/** Boucle de polling du relais HTTP ; bascule sur le snapshot cron local
+ *  après PROXY_HTTP_MAX_FAILS échecs consécutifs. */
+function startProxyHttpPolling() {
+  stopProxyHttpPolling();
+  proxyHttpTimer = setInterval(async () => {
+    const ok = await pollProxyLobbies();
+    if (!ok && proxyHttpFails >= PROXY_HTTP_MAX_FAILS) {
+      console.warn("[lobby] relais HTTP en panne → repli snapshot local (lobby_state.json)");
+      stopProxyHttpPolling();
+      startLocalFallbackPolling();
+    }
+  }, PROXY_HTTP_POLL_INTERVAL);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
    Niveau 3 — HTTP fallback (lobby_state.json, sync GitHub Actions 5 min)
    ════════════════════════════════════════════════════════════════════════ */
 
@@ -738,17 +834,38 @@ async function pollFallbackJson() {
 
 function startHttpFallback() {
   stopWebSocket();
+  // v5.33 — Niveau 2.5 d'abord : relais HTTP du worker (/lobbies) = LIVE
+  // même sans WebSocket. Le snapshot cron local (lobby_state.json) n'est
+  // consommé que si le relais lui-même est indisponible (3 échecs).
+  stopProxyHttpPolling();
+  pollProxyLobbies().then((ok) => {
+    if (ok) {
+      startProxyHttpPolling();
+    } else {
+      setSource("fallback");
+      startLocalFallbackPolling();
+    }
+  });
+  scheduleWsRetryFromFallback();
+}
+
+/** Repli N3 : polling du snapshot cron local lobby_state.json. */
+function startLocalFallbackPolling() {
+  stopProxyHttpPolling();
   setSource("fallback");
   pollFallbackJson();
   if (httpTimer) clearInterval(httpTimer);
   httpTimer = setInterval(pollFallbackJson, HTTP_POLL_INTERVAL);
+}
 
-  // Toutes les 5 min, on retente le WebSocket (le blocage peut être temporaire)
+/** Toutes les 5 min, on retente le WebSocket (le blocage peut être temporaire). */
+function scheduleWsRetryFromFallback() {
   setTimeout(() => {
-    if (state.source === "fallback") {
+    if (state.source === "fallback" || state.source === "proxy-http") {
       console.log("[lobby] Retente WebSocket après fallback…");
       wsFailCount = { direct: 0, proxy: 0 };
       if (httpTimer) { clearInterval(httpTimer); httpTimer = null; }
+      stopProxyHttpPolling();
       startWebSocket();
     }
   }, 5 * 60_000);
@@ -1402,6 +1519,7 @@ function render(isFull) {
       if (retry) retry.addEventListener("click", () => {
         wsFailCount = { direct: 0, proxy: 0 };
         if (httpTimer) { clearInterval(httpTimer); httpTimer = null; }
+        stopProxyHttpPolling();
         setSource("idle");
         render(true);
         startWebSocket();
@@ -1588,6 +1706,8 @@ function renderHero(lf) {
 const SOURCE_META = {
   direct:   { cls: "connected", labelKey: "lobby.status_live", labelFb: "Temps réel", titleKey: "lobby.status_live_title", titleFb: "WebSocket OpenFront (direct)" },
   proxy:    { cls: "connected", labelKey: "lobby.status_live", labelFb: "Temps réel", titleKey: "lobby.status_proxy_title", titleFb: "WebSocket OpenFront (proxy Cloudflare)" },
+  // v5.33 — relais HTTP du worker (/lobbies) : live reconstitué côté worker
+  "proxy-http": { cls: "connected", labelKey: "lobby.status_live", labelFb: "Temps réel", titleKey: "lobby.status_proxy_title", titleFb: "OpenFront via le relais Cloudflare (HTTP)" },
   fallback: { cls: "delayed",   labelKey: "lobby.status_cache", labelFb: "Cache 5 min", titleKey: "lobby.status_cache_title", titleFb: "Flux temps réel indisponible — données rafraîches toutes les 5 min" },
   offline:  { cls: "error",     labelKey: "lobby.status_offline", labelFb: "Hors ligne", titleKey: "lobby.status_offline_title", titleFb: "Impossible de joindre OpenFront" },
   idle:     { cls: "",          labelKey: "lobby.status_connecting", labelFb: "Connexion…", titleKey: "lobby.status_connecting_title", titleFb: "Connexion en cours" },
@@ -1878,6 +1998,12 @@ function boot() {
   // hôtes résolus. Re-résolution périodique toutes les 5 min.
   refreshLobbyHosts();
   setInterval(refreshLobbyHosts, HOSTS_TTL);
+  // v5.33 — COURSE au 1er snapshot : pendant que les tentatives WS tournent
+  // (jusqu'à ~40 s avant le fallback), le relais HTTP du worker (/lobbies)
+  // donne souvent un snapshot LIVE en 1-2 s. Si le WS gagne la course, il
+  // ingère par-dessus (ingestFull idempotent, aucune fausse alerte : les ids
+  // connus ne re-notifient pas). Si le WS échoue, les games sont déjà là.
+  pollProxyLobbies();
   startWebSocket();
 }
 
