@@ -45,6 +45,9 @@
 //   N1  WebSocket DIRECT   wss://openfront.io/w{0-4}/lobbies   (zbin binaire)
 //   N2  WebSocket PROXY    wss://openfront-proxy.<user>.workers.dev/lobby-ws
 //                         (même flux zbin, bridgé par le Worker Cloudflare)
+//   N2.5 RELAIS HTTP       GET /lobbies du worker (games décodées, LIVE)
+//                         v5.34 : boucle 30 s ARMÉE en permanence (filet
+//                         anti-freeze) + chien de garde WS muet > 90 s
 //   N3  HTTP FALLBACK      lobby_state.json (rafraîchi toutes les 5 min par
 //                         GitHub Actions — dernier recours hors ligne)
 //
@@ -592,6 +595,13 @@ let wsFailCount = { direct: 0, proxy: 0 };
 let decoderWarned = false;
 let wsReconnectTimer = null;
 let wsOpenTimer = null;
+// v5.34 — anti-freeze : date de la DERNIÈRE frame WS reçue (n'importe quel
+// niveau). OpenFront pousse des frames « counts » à la seconde tant que le
+// socket est vivant ; un silence > 90 s alors que la source est encore un WS
+// signifie une connexion morte EN SILENCE (CF coupe sans onclose) → la page
+// reste figée sans aucun message d'erreur. Le watchdog (plus bas) recrée la
+// connexion dans ce cas.
+let lastWsFrameAt = 0;
 
 function stopWebSocket() {
   wsGeneration++;
@@ -635,15 +645,21 @@ function startWebSocket() {
     if (gen !== wsGeneration) return;
     clearTimeout(wsOpenTimer);
     wsFailCount[level] = 0;
+    lastWsFrameAt = Date.now(); // v5.34 — anti-freeze
     state.connected = true;
     setSource(level);
     stopDegradedMode();
+    // v5.34 — le WS vit de nouveau : stoppe la boucle snapshot cron (60 s)
+    // si elle tournait, sinon elle ré-ingèrerait un snapshot POTENTIELLEMENT
+    // périmé par-dessus les frames live toutes les minutes.
+    if (httpTimer) { clearInterval(httpTimer); httpTimer = null; }
     console.log(`[lobby] ✅ WebSocket ${level} connecté`);
     // Le serveur envoie immédiatement un snapshot "full" — rien à demander.
   };
 
   sock.onmessage = (event) => {
     if (gen !== wsGeneration) return;
+    lastWsFrameAt = Date.now(); // v5.34 — anti-freeze : toute frame prouve la vie
     const decoder = wire();
     if (!decoder) {
       // Sans décodeur, toutes les frames seraient silencieusement perdues :
@@ -754,7 +770,14 @@ async function pollProxyLobbies() {
       games: groupProxyGames(data.games),
     });
     state.connected = true;
-    setSource("proxy-http");
+    // v5.34 — le relais est un FILET DE SÉCURITÉ : quand un WebSocket est
+    // réellement vivant (frame reçue il y a < 45 s), on ne lui vole pas le
+    // badge (« Direct » / « Temps réel WS ») — les frames WS rafraîchissent
+    // à la seconde, le relais ne sert qu'à garantir les données. Dans tous
+    // les autres cas (WS muet/absent), le badge passe au relais.
+    const wsFresh = (state.source === "direct" || state.source === "proxy")
+      && lastWsFrameAt && (Date.now() - lastWsFrameAt < 45_000);
+    if (!wsFresh) setSource("proxy-http");
     stopDegradedMode();
     return true;
   } catch (e) {
@@ -773,17 +796,59 @@ function stopProxyHttpPolling() {
 }
 
 /** Boucle de polling du relais HTTP ; bascule sur le snapshot cron local
- *  après PROXY_HTTP_MAX_FAILS échecs consécutifs. */
+ *  après PROXY_HTTP_MAX_FAILS échecs consécutifs — SAUF si un WebSocket est
+ *  vivant (v5.34 : le filet ne doit pas tirer la couverture d'un flux sain ;
+ *  le watchdog WS gère ce cas). */
 function startProxyHttpPolling() {
   stopProxyHttpPolling();
   proxyHttpTimer = setInterval(async () => {
     const ok = await pollProxyLobbies();
     if (!ok && proxyHttpFails >= PROXY_HTTP_MAX_FAILS) {
+      const wsAlive = (state.source === "direct" || state.source === "proxy")
+        && lastWsFrameAt && (Date.now() - lastWsFrameAt < 45_000);
+      if (wsAlive) {
+        // WS sain → il rafraîchit à la seconde ; inutile de descendre au
+        // snapshot cron (potentiellement vide). On stoppe le filet.
+        console.warn("[lobby] relais HTTP en panne mais WebSocket vivant → le WS garde la main");
+        stopProxyHttpPolling();
+        return;
+      }
       console.warn("[lobby] relais HTTP en panne → repli snapshot local (lobby_state.json)");
       stopProxyHttpPolling();
       startLocalFallbackPolling();
     }
   }, PROXY_HTTP_POLL_INTERVAL);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   v5.34 — WATCHDOG anti-freeze
+   ════════════════════════════════════════════════════════════════════════
+   Le relais HTTP tourne en permanence comme filet de sécurité (données
+   fraîches toutes les 30 s même si le WS meurt), et un chien de garde
+   recrée le WebSocket quand il reste muet > 90 s (« silent death » :
+   CF/le réseau coupe le socket sans jamais déclencher onclose → la page
+   restait figée sous badge « connecté », sans rafraîchissement).        */
+
+let wsWatchdogTimer = null;
+
+/** Un tick du chien de garde (exposé aussi à _lobbyDebug pour les tests). */
+function wsWatchdogCheck() {
+  const src = state.source;
+  if (src !== "direct" && src !== "proxy") return false; // fallback/relais : déjà rafraîchi
+  if (!lastWsFrameAt) return false;                      // encore aucune frame : le backoff de connexion gère
+  const silentMs = Date.now() - lastWsFrameAt;
+  if (silentMs <= 90_000) return false;
+  console.warn(`[lobby] ⚠️ WebSocket muet depuis ${Math.round(silentMs / 1000)} s (connexion morte en silence) → reconnexion`);
+  lastWsFrameAt = Date.now(); // évite un re-trigger pendant la reconnexion
+  stopWebSocket();
+  wsFailCount = { direct: 0, proxy: 0 };
+  startWebSocket();
+  return true;
+}
+
+function startWsWatchdog() {
+  if (wsWatchdogTimer) return;
+  wsWatchdogTimer = setInterval(wsWatchdogCheck, 30_000);
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -2003,7 +2068,11 @@ function boot() {
   // donne souvent un snapshot LIVE en 1-2 s. Si le WS gagne la course, il
   // ingère par-dessus (ingestFull idempotent, aucune fausse alerte : les ids
   // connus ne re-notifient pas). Si le WS échoue, les games sont déjà là.
-  pollProxyLobbies();
+  // v5.34 — le relais n'est plus un one-shot : la boucle 30 s reste ARMÉE
+  // tant que la page est ouverte (filet anti-freeze). Un WS vivant garde la
+  // main et le badge ; un WS mort en silence est repris par le watchdog.
+  startProxyHttpPolling();
+  startWsWatchdog();
   startWebSocket();
 }
 
@@ -2017,6 +2086,9 @@ if (document.readyState === "loading") {
 window._lobbyDebug = {
   state,
   reconnect: () => { wsFailCount = { direct: 0, proxy: 0 }; startWebSocket(); },
+  // v5.34 — anti-freeze : introspection + test manuel du chien de garde
+  lastWsFrameAt: () => lastWsFrameAt,
+  watchdogCheck: wsWatchdogCheck,
   // v5.18 — modules compagnons (lobby-live.js / lobby-chat.js)
   setWatchBtn,
   watchIconSvg,
