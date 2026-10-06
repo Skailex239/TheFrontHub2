@@ -588,6 +588,10 @@ async function wsLobbyFull(server) {
 
 function toLobbyInfo(raw, bucket) {
   const cfg = (raw && raw.gameConfig) || {};
+  // v2.2 — gameConfig en PASSTHROUGH complet (objet décodé côté worker, même
+  // forme que le décodage zbin de la page) : sans lui, le relais /lobbies
+  // perdait rankedType, gameMapSize, publicGameModifiers (pills « Compact »…)
+  // et le filtre d'alertes côté site dégénérait. Trim supprimé.
   return {
     gameID: String(raw.gameID || ""),
     numClients: Number(raw.numClients || 0),
@@ -598,16 +602,7 @@ function toLobbyInfo(raw, bucket) {
     featured: raw.featured === true,
     queued: false,
     label: raw.label || undefined,
-    gameConfig: {
-      gameMap: cfg.gameMap ? String(cfg.gameMap) : undefined,
-      gameMode: cfg.gameMode ? String(cfg.gameMode) : undefined,
-      maxPlayers: typeof cfg.maxPlayers === "number" ? cfg.maxPlayers : undefined,
-      difficulty: cfg.difficulty ? String(cfg.difficulty) : undefined,
-      gameType: cfg.gameType ? String(cfg.gameType) : undefined,
-      playerTeams: typeof cfg.playerTeams === "number" ? cfg.playerTeams : null,
-      nations: typeof cfg.nations === "number" ? cfg.nations : undefined,
-      initialCoins: typeof cfg.startingGold === "number" ? cfg.startingGold : undefined,
-    },
+    gameConfig: cfg,
   };
 }
 
@@ -1003,7 +998,7 @@ export default {
       return jsonResponse({
         ok: true,
         service: "openfront-proxy",
-        version: "v2",
+        version: "v2.2",
         uptimeMs: Date.now() - startedAt,
         lobbies: lobbies,
         lobbyError: lobbyError,
