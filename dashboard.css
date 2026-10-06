@@ -8,6 +8,14 @@
    v6 : skins VIP (prism, cyberpunk, gold…) sur les pseudos.
    ════════════════════════════════════════════════════════════════ */
 
+/* v5.26 — zéro décalage horizontal : la gouttière de la scrollbar est
+ * RÉSERVÉE en permanence (la page dashboard est toujours plus haute que
+ * l'écran, donc la gouttière serait de toute façon occupée). Conséquence :
+ * la levée du rideau (dash-booting) et le swap aperçu→live ne peuvent plus
+ * décaler TOUTE la page d'un aller-retour de scrollbar — le leaderboard
+ * n'est plus jamais « bougé » horizontalement. */
+html { scrollbar-gutter: stable; }
+
 .dash-view {
   padding: 24px;
   max-width: none;
@@ -351,6 +359,51 @@
 @keyframes dash-row-in {
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ═══ v5.24 — swap aperçu→live sans « reset » ═══
+ * Au refresh, l'aperçu statique (déjà décoré : pseudos hub + badge vérifié +
+ * skins + bannières) est remplacé par le rendu live IDENTIQUE → le passage
+ * ne doit RIEN montrer. .no-anim neutralise les animations d'entrée des
+ * lignes et les transitions reveal des panneaux pour TOUT re-rendu qui suit
+ * le premier (swap, late flush, progressive live, recherche, pagination). */
+.dash-view.no-anim .dash-row { animation: none !important; }
+.dash-view.no-anim .dash-panel,
+.dash-view.no-anim .dash-panel-header,
+.dash-view.no-anim .reveal {
+  transition: none !important;
+  animation: none !important;
+}
+/* Panneaux déjà visibles dès le swap (pas de fondu reveal rejoué) */
+.dash-view.no-anim .dash-panel.reveal,
+.dash-view.no-anim .dash-panel-header.reveal { opacity: 1; transform: none; }
+
+/* ═══ v5.25 — gate « tout d'un coup » ═══
+ * Le dashboard démarre INVISIBLE (classe .dash-booting posée dans le HTML) :
+ * tant que les données + cosmétiques (pseudos hub, badge vérifié, skins,
+ * bannières) ne sont pas prêts, RIEN n'est montré — donc aucune cascade
+ * « pseudos puis badges puis skins puis bannières ». À la levée du rideau
+ * (dashboard.js au 1ᵉʳ rendu complet, filets de sécurité 3 s JS / 3,5 s
+ * inline / <noscript>) : UNE peinture complète, sans transition (pas de
+ * fondu — l'apparition doit être instantanée) et sans décalage de layout
+ * (opacity, PAS display:none → la hauteur de page ne saute pas). */
+#dashboard-view.dash-booting {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* L'aperçu statique est une PHOTO du classement : ses lignes ne rejouent
+ * PAS l'animation dash-row-in (décalages 0,02 s→0,10 s = cascade visible à
+ * chaque refresh avant même que le JS ne décore) et ses panneaux ne font
+ * pas de fondu reveal (animations.js leur ajoute .reveal au boot). */
+.dash-static-preview .dash-row { animation: none !important; }
+.dash-static-preview .dash-panel,
+.dash-static-preview .dash-panel-header,
+.dash-static-preview .reveal {
+  transition: none !important;
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
 }
 
 /* ── Podium (rangs 1-3) : accent gauche orange ── */
@@ -959,9 +1012,57 @@
 
 /* ── Aperçu statique pré-généré (scripts/gen-ranked-preview.js) ────
    Affiché instantanément au chargement (robots + connexions lentes),
-   remplacé par le classement live dès que les données arrivent. */
+   remplacé par le classement live dès que les données arrivent.
+   v5.22 : DEUX panneaux (global + squelette hebdo) pour que la mise
+   en page ne saute plus et que le « Top de la semaine » soit visible
+   dès la première seconde — l'aperçu global ne prend plus tout l'écran. */
 .dash-static-preview .dash-panel-preview {
-  grid-column: 1 / -1;
+  /* 2 colonnes normales comme le rendu live (plus de grid-column: 1/-1) */
+  grid-column: auto;
+}
+/* Garde-fou hauteur : l'aperçu reste scrollable même sur mobile
+   (spécificité > media query .dash-list { max-height:none }) */
+.dash-static-preview .dash-list {
+  max-height: 640px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 34px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 34px), transparent 100%);
+}
+/* Squelette du panneau hebdo pendant le préchargement */
+.dash-skeleton-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 640px;
+  overflow: hidden;
+}
+.dash-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 52px;
+  padding: 10px;
+  border-bottom: 1px solid #F5F5F5;
+}
+.dash-skeleton-rank,
+.dash-skeleton-name,
+.dash-skeleton-pts {
+  border-radius: 6px;
+  background: linear-gradient(90deg, #ECECEF 25%, #F6F6F8 50%, #ECECEF 75%);
+  background-size: 200% 100%;
+  animation: dash-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+.dash-skeleton-rank { flex: 0 0 26px; height: 26px; }
+.dash-skeleton-name { flex: 1 1 auto; height: 14px; max-width: 220px; }
+.dash-skeleton-pts  { flex: 0 0 64px; height: 14px; margin-left: auto; }
+.dash-skeleton-row:nth-child(2n) .dash-skeleton-name { max-width: 170px; animation-delay: 0.15s; }
+.dash-skeleton-row:nth-child(3n) .dash-skeleton-pts  { animation-delay: 0.3s; }
+@keyframes dash-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dash-skeleton-rank, .dash-skeleton-name, .dash-skeleton-pts { animation: none; }
 }
 .dash-preview-note {
   display: flex;
@@ -970,6 +1071,12 @@
   margin: 0 0 14px;
   font-size: 12px;
   color: var(--fg-muted);
+}
+/* v5.24 — version « en direct » de la note (rendu live) : mêmes dimensions
+   que .dash-preview-note → zéro décalage vertical au swap aperçu→live. */
+.dash-live-note .dash-preview-dot {
+  background: #22c55e;
+  animation: dash-preview-pulse 1.6s ease-in-out infinite;
 }
 .dash-preview-dot {
   flex: 0 0 auto;

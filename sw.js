@@ -15,8 +15,8 @@
 //   - On next visit: user sees fresh data, still instantly
 //   - Works even on flaky 3G
 
-const CACHE_NAME = 'thefronthub-v93';
-const CACHE_IMMUTABLE = 'thefronthub-imm-v41';
+const CACHE_NAME = 'thefronthub-v106';
+const CACHE_IMMUTABLE = 'thefronthub-imm-v51';
 const SWR_MAX_AGE_MS = 30 * 60 * 1000;  // 30 min — consider cache fresh this long
 
 // Static assets to pre-cache on install (HTML pages + core JS + CSS + icons)
@@ -44,7 +44,7 @@ const STATIC_ASSETS = [
   '/skins.css',
   '/animations.css',
   '/toast.css',
-  '/TheFrontHub LOGO WHITE TEXT.png',
+  '/TheFrontHub LOGO WHITE TEXT.webp',
   '/cookies.js',
   // Minified JS bundles
   '/dist/app.min.js',
@@ -56,6 +56,8 @@ const STATIC_ASSETS = [
   '/dist/runs.min.js',
   '/dist/lobby.min.js',
   '/dist/lobby-wire.min.js',
+  '/dist/lobby-live.min.js',
+  '/dist/lobby-chat.min.js',
   '/dist/auth-ui.min.js',
   '/dist/ads.min.js',
   '/dist/i18n.min.js',
@@ -74,7 +76,7 @@ const STATIC_ASSETS = [
   // pas dans le repo (404 à chaque installation du SW).
   '/favicon-32x32.png',
   '/favicon-180x180.png',
-  '/TheFrontHub Logo Text.png',
+  '/TheFrontHub Logo Text.webp',
   // ⚠️ Perf (audit 2026-08-27) : fichiers de DONNÉES retirés du précachage.
   // Raisons :
   //   1. Ils sont mis à jour toutes les 5 min par la sync → toute copie précachée

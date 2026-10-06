@@ -9,25 +9,37 @@ Options -Indexes
 </FilesMatch>
 
 # Aucun fichier de donnees ou de sauvegarde servi ici
-<FilesMatch "\.(json|log|md|sql|bak|ini|sh|csv|tar|gz|zip)$">
+# (jsonl = rapports CSP, cf. csp-report.php — audit P1-3)
+<FilesMatch "\.(json|jsonl|log|md|sql|bak|ini|sh|csv|tar|gz|zip)$">
   Require all denied
 </FilesMatch>
 
 # En-tetes de securite sur toutes les reponses de l'API
+# Audit P0-3 (2026-10) : plus de Cache-Control global « no-store, max-age=0 »
+# ici — il écrasait/en doublait le Cache-Control posé par chaque route PHP et
+# désactivait TOUT cache navigateur sur /api/ (double en-tête constaté en prod :
+# « no-store, max-age=0 » + « max-age=300 »). Le cache est désormais piloté
+# par le code, qui sait ce qui est public ou par-utilisateur :
+#   - routes publiques (games-api.php via gout)  → public, max-age=45..600
+#   - routes par-utilisateur (via json_out)      → no-store (déjà forcé)
 <IfModule mod_headers.c>
   Header always set X-Content-Type-Options "nosniff"
   Header always set X-Frame-Options "DENY"
   Header always set Referrer-Policy "no-referrer"
-  Header always set Cache-Control "no-store, max-age=0"
 </IfModule>
 
 # ── DEV : tout /api/ passe par la porte gate.php (racine du site) ────────
 # Condition host → aucun effet sur thefronthub.com (prod).
 # gate.php inclut le script demandé après vérification du cookie d'accès
 # (tous les require de l'API sont en __DIR__ : inclusion transparente).
+# EXCEPTION : csp-report.php — les rapports CSP sont envoyés par les
+# navigateurs SANS cookie (comportement standard de report-uri) : sans
+# cette exception, la porte les avalerait et aucun rapport n'arriverait
+# sur dev. L'endpoint est déjà rate-limité et ne renvoie que 204.
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteCond %{HTTP_HOST} ^dev\.thefronthub\.com$ [NC]
+  RewriteCond %{REQUEST_URI} !^/api/csp-report\.php$
   RewriteCond %{REQUEST_URI} !^/gate\.php$
   RewriteRule ^ /gate.php [L]
 </IfModule>

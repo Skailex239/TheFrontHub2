@@ -7,9 +7,12 @@
 <meta name="openfront-api-proxy" content="https://openfront-proxy.diofortnite3.workers.dev">
     <title>TheFrontHub — Top OpenFront Runs</title>
     <meta name="description" content="The best OpenFront runs across all maps — customizable time window, time, difficulty and player count.">
+<link rel="canonical" href="https://thefronthub.com/runs.html">
+<link rel="alternate" hreflang="fr" href="https://thefronthub.com/runs.html">
+<link rel="alternate" hreflang="x-default" href="https://thefronthub.com/runs.html">
     <meta property="og:title" content="TheFrontHub — Top OpenFront Runs">
     <meta property="og:description" content="Top OpenFront runs across all maps — time, difficulty, players.">
-    <meta property="og:image" content="https://thefronthub.com/TheFrontHub%20Logo%20Text.png">
+    <meta property="og:image" content="https://thefronthub.com/TheFrontHub%20Logo%20Text.webp">
     <meta property="og:url" content="https://thefronthub.com/runs.html">
     <meta property="og:type" content="website">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -44,12 +47,42 @@
 <!-- i18n : dict de page (synchrone, avant i18n.js) + moteur + sélecteur de langue -->
 <script src="dist/i18n-dict-runs.min.js?v=5"></script>
 <script src="dist/i18n-dict-widgets.min.js?v=3"></script>
-<script src="dist/i18n.min.js?v=8" defer></script>
+<script src="dist/i18n.min.js?v=10" defer></script>
 <script src="dist/lang-switcher.min.js?v=2" defer></script>
 
 <!-- cookies.js v5 : GA4 + tag AdSense (sert le bandeau CMP Google) + réouverture consentement -->
 <link rel="preconnect" href="https://www.googletagmanager.com" crossorigin>
 <script src="cookies.js?v=5"></script>
+  <!-- Audit P2-5 : données structurées sur les speedruns -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "name": "Speedruns OpenFront — TheFrontHub",
+    "url": "https://thefronthub.com/runs.html",
+    "description": "Records de vitesse OpenFront par catégorie et carte : les meilleurs temps des speedrunners.",
+    "isPartOf": { "@type": "WebSite", "name": "TheFrontHub", "url": "https://thefronthub.com/" },
+    "breadcrumb": { "@type": "BreadcrumbList", "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Accueil", "item": "https://thefronthub.com/" },
+      { "@type": "ListItem", "position": 2, "name": "Speedruns", "item": "https://thefronthub.com/runs.html" }
+    ] }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Dataset",
+    "name": "Speedruns OpenFront",
+    "description": "Temps records OpenFront par catégorie de speedrun et par carte, synchronisés depuis l'API officielle du jeu.",
+    "url": "https://thefronthub.com/runs.html",
+    "creator": { "@type": "Organization", "name": "TheFrontHub", "url": "https://thefronthub.com/" },
+    "about": { "@type": "VideoGame", "name": "OpenFront.io", "url": "https://openfront.io", "inLanguage": "fr" },
+    "inLanguage": "fr",
+    "isAccessibleForFree": true,
+    "distribution": { "@type": "DataDownload", "encodingFormat": "application/json", "contentUrl": "https://thefronthub.com/api/games-api.php?route=speedruns" }
+  }
+  </script>
+
 </head>
   <body>
     <a href="#runs-content" class="skip-link" data-i18n="runs.skip_link">Aller au contenu principal</a>
@@ -62,7 +95,7 @@
   <aside class="sidebar">
 
     <div class="logo" onclick="logoClickAnim(event)" role="link" aria-label="Aller au tableau de bord" data-i18n-aria="runs.logo_aria" tabindex="0">
-      <img src="TheFrontHub Logo Text.png" alt="TheFrontHub" loading="eager">
+      <img src="TheFrontHub Logo Text.webp" alt="TheFrontHub" loading="eager">
     </div>
 
     <nav aria-label="Navigation principale" data-i18n-aria="runs.nav_aria">
@@ -230,7 +263,7 @@
   <div class="modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" onclick="event.stopPropagation()">
     <button class="modal-close" aria-label="Fermer" data-i18n-aria="modal.close" onclick="toggleAuthModal()">&times;</button>
     <div class="auth-modal-logo">
-      <img src="TheFrontHub Logo No Text.png" alt="TheFrontHub" class="auth-modal-logo-img">
+      <img src="TheFrontHub Logo No Text.webp" alt="TheFrontHub" class="auth-modal-logo-img">
     </div>
     <div class="modal-header">
       <div class="modal-title" id="auth-modal-title" data-i18n="auth.modal_title">Rejoins TheFrontHub</div>
@@ -284,7 +317,7 @@
   <div class="tfh-footer-container">
     <div class="tfh-footer-col tfh-footer-brand">
       <a href="index.html" class="tfh-footer-logo">
-        <img src="TheFrontHub Logo Text.png" alt="TheFrontHub" loading="lazy">
+        <img src="TheFrontHub Logo Text.webp" alt="TheFrontHub" loading="lazy">
       </a>
       <p class="tfh-footer-tagline" data-i18n="footer.tagline">Le hub ultime pour OpenFront.io — speedruns, classements, tournois et stats joueurs.</p>
       <a href="https://discord.gg/AZhmqRvbNh" target="_blank" rel="noreferrer" class="tfh-footer-discord">

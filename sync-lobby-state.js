@@ -47,14 +47,31 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const STATE_FILE = path.join(__dirname, "lobby_state.json");
 
-const LEGACY_WS_URL = "wss://openfront.io/w0/lobbies";
-// ⚠️ Choix Skailex : FORCED_WS_URL = green.openfront.io — serveur ACTIF de la
-// prod OpenFront (cluster.json 2026-09-14 : green state=open a33efb78, blue
-// draining). USE_CLUSTER_JSON = false → toujours green, jamais blue/openfront.
-const FORCED_WS_URL = "wss://green.openfront.io/w0/lobbies";
-const USE_CLUSTER_JSON = false;
+const LEGACY_WS_URL = "wss://openfront.io/w0/lobbies?platform=web";
+// ⚠️ v5.21 — FIX « lobby vide » : FORCED_WS_URL = green + résolution
+// désactivée datait du 2026-09-14 (green open, blue draining). OpenFront a
+// depuis BASCULÉ : blue est actif, green draine → le cron interrogeait un
+// serveur mourant (aucune partie) et écrivait un lobby_state.json VIDE.
+// Désormais cluster.json est consulté à chaque run (serveurs « open »
+// d'abord) ; repli blue → legacy openfront.io si l'endpoint est indisponible.
+// v5.17 (2026-09-30) : le challenge CF devant les hôtes de jeu filtre sur
+// l'UA — Chrome complet requis (testé : OPEN + frames reçues). ?platform=web
+// aligne la requête sur le client officiel.
+const FORCED_WS_URL = "wss://blue.openfront.io/w0/lobbies?platform=web";
+const USE_CLUSTER_JSON = true;
 const CLUSTER_JSON_URL = "https://api.openfront.io/cluster.json?site=openfront.io";
 const API_BASE = "https://api.openfront.io";
+// v5.17 : le challenge CF filtre aussi le TLS — Node/OpenSSL est 403 même
+// avec UA Chrome complet (testé 2026-09-30). Le trajet serveur viable passe
+// par le worker CF (CF→CF) : /lobby-snapshot renvoie la 1ère frame zbin en
+// base64, qu'on décode ici avec lobby-wire.js. Nécessite le redéploiement
+// du worker (voir cloudflare-worker/openfront-proxy.js).
+const WORKER_SNAPSHOT_URL =
+  "https://openfront-proxy.diofortnite3.workers.dev/lobby-snapshot";
+const WORKER_SNAPSHOT_TIMEOUT_MS = 9_000;
+// v5.33 — repli JSON décodé (fonctionne même sur un worker déployé en retard)
+const WORKER_LOBBIES_URL =
+  "https://openfront-proxy.diofortnite3.workers.dev/lobbies";
 const SKAILEX_TOKEN =
   process.env.OPENFRONT_SKAILEX_ACCESS || "";
 
@@ -98,13 +115,12 @@ function apiHeaders() {
 }
 
 // ── Résolution de l'URL WebSocket du lobby (Server list v2) ─────────────
-// Essaie GET /cluster.json?site=openfront.io (nouveau système v34, timeout
-// court). En cas de succès : wss://<host>/w0/lobbies (premier serveur non
-// draining/fenced). Sinon (404 "Unknown site", réseau, etc.) : URL legacy.
+// Essaie GET /cluster.json?site=openfront.io (v34, timeout
+// court). En cas de succès : wss://<host>/w0/lobbies (serveur « open »).
+// Sinon (404 "Unknown site", réseau, etc.) : repli blue (v5.21).
 async function resolveLobbyWsUrl() {
   if (!USE_CLUSTER_JSON) {
-    // Choix Skailex : green.openfront.io forcé — aucune résolution dynamique.
-    log(`Hôte lobby forcé : green.openfront.io (cluster.json désactivé)`);
+    log(`Hôte lobby forcé : ${FORCED_WS_URL} (cluster.json désactivé)`);
     return FORCED_WS_URL;
   }
   try {
@@ -116,8 +132,8 @@ async function resolveLobbyWsUrl() {
     });
     clearTimeout(t);
     if (!res.ok) {
-      log(`cluster.json: HTTP ${res.status} → fallback legacy (endpoint v2 dormant ?)`);
-      return LEGACY_WS_URL;
+      log(`cluster.json: HTTP ${res.status} → repli ${FORCED_WS_URL}`);
+      return FORCED_WS_URL; // v5.21 : blue d'abord (actif), l'legacy en dernier recours
     }
     const data = await res.json();
     const servers = data && data.servers ? Object.values(data.servers) : [];
@@ -125,15 +141,100 @@ async function resolveLobbyWsUrl() {
       servers.find((s) => s && s.host && s.state === "open") ||
       servers.find((s) => s && s.host && !s.state);
     if (!pick || !pick.host) {
-      warn(`cluster.json sans serveur utilisable → fallback legacy`);
-      return LEGACY_WS_URL;
+      warn(`cluster.json sans serveur utilisable → repli ${FORCED_WS_URL}`);
+      return FORCED_WS_URL;
     }
-    const url = `wss://${pick.host}/w0/lobbies`;
+    const url = `wss://${pick.host}/w0/lobbies?platform=web`;
     log(`cluster.json v2: hôte résolu ${pick.host} (version=${pick.version || "?"}, state=${pick.state || "?"})`);
     return url;
   } catch (e) {
-    warn(`cluster.json indisponible (${e.message}) → fallback legacy`);
-    return LEGACY_WS_URL;
+    warn(`cluster.json indisponible (${e.message}) → repli ${FORCED_WS_URL}`);
+    return FORCED_WS_URL;
+  }
+}
+
+// ── Snapshot via le worker CF (trajet CF→CF, contourne le challenge TLS) ──
+// Renvoie un message { type:"full", serverTime, games } ou null.
+async function fetchWorkerSnapshot() {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), WORKER_SNAPSHOT_TIMEOUT_MS);
+    const res = await fetch(WORKER_SNAPSHOT_URL, {
+      headers: {
+        // Le worker refuse les requêtes sans Origin (allowlist) : le serveur
+        // n'est pas un navigateur, il doit se l'attribuer explicitement.
+        Origin: "https://thefronthub.com",
+        Accept: "application/json",
+      },
+      signal: ctrl.signal,
+    });
+    clearTimeout(t);
+    if (!res.ok) {
+      warn(`worker /lobby-snapshot: HTTP ${res.status} (worker redéployé ?)`);
+      return null;
+    }
+    const data = await res.json();
+    if (!data || !data.frame) {
+      warn("worker /lobby-snapshot: réponse sans frame");
+      return null;
+    }
+    const bytes = new Uint8Array(Buffer.from(data.frame, "base64"));
+    const msg = decodeLobbyMessage(bytes);
+    if (msg && msg.type === "full" && msg.games && typeof msg.games === "object") {
+      log(`worker snapshot OK: frame ${bytes.length}B (host=${data.host || "?"})`);
+      return msg;
+    }
+    warn("worker /lobby-snapshot: frame décodée sans games");
+    return null;
+  } catch (e) {
+    warn(`worker /lobby-snapshot erreur: ${e.message}`);
+    return null;
+  }
+}
+
+// v5.33 — repli complémentaire : GET /lobbies du worker (games DÉCODÉES en
+// JSON par le worker lui-même). Contrairement à /lobby-snapshot (frame zbin
+// brute), cette route reste fonctionnelle même quand les routes WS du worker
+// déployé sont en retard sur le repo (bug fetch(wss://) documenté).
+async function fetchWorkerLobbiesJson() {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), WORKER_SNAPSHOT_TIMEOUT_MS);
+    const res = await fetch(WORKER_LOBBIES_URL, {
+      headers: {
+        Origin: "https://thefronthub.com",
+        Accept: "application/json",
+      },
+      signal: ctrl.signal,
+    });
+    clearTimeout(t);
+    if (!res.ok) {
+      warn(`worker /lobbies: HTTP ${res.status}`);
+      return null;
+    }
+    const data = await res.json();
+    if (!data || !Array.isArray(data.games)) {
+      warn("worker /lobbies: réponse sans games");
+      return null;
+    }
+    if (data.connected === false && data.games.length === 0) {
+      warn(`worker /lobbies: relais sans upstream (${data.lastError || "?"})`);
+      return null;
+    }
+    const grouped = { ffa: [], team: [], special: [] };
+    for (const g of data.games) {
+      if (!g || !g.gameID) continue;
+      const bucket =
+        g.publicGameType === "team" || g.publicGameType === "special"
+          ? g.publicGameType
+          : "ffa";
+      grouped[bucket].push(g);
+    }
+    log(`worker /lobbies OK: ${data.games.length} games (ffa=${grouped.ffa.length}, team=${grouped.team.length}, special=${grouped.special.length})`);
+    return { serverTime: data.serverTime, games: grouped };
+  } catch (e) {
+    warn(`worker /lobbies erreur: ${e.message}`);
+    return null;
   }
 }
 
@@ -166,8 +267,37 @@ function fetchLobbySnapshot(wsUrl) {
       resolve(data);
     };
 
-    const fallback = (reason) => {
+    const fallback = async (reason) => {
       warn(`WS pas de snapshot — ${reason}`);
+      // v5.17 : WS direct impossible (challenge CF/TLS) → snapshot via le
+      // worker CF (trajet CF→CF). Dernier recours : zéros (le front bascule
+      // alors en mode dégradé « aperçu dernières parties »).
+      const viaWorker = await fetchWorkerSnapshot();
+      let viaWorkerGames = viaWorker && viaWorker.games ? viaWorker : null;
+      if (!viaWorkerGames) {
+        // v5.33 — /lobby-snapshot KO (worker déployé en retard) → /lobbies JSON
+        const viaLobbies = await fetchWorkerLobbiesJson();
+        if (viaLobbies && viaLobbies.games) viaWorkerGames = viaLobbies;
+      }
+      if (viaWorkerGames) {
+        const wg = viaWorkerGames.games;
+        const wall = [
+          ...(Array.isArray(wg.ffa) ? wg.ffa : []),
+          ...(Array.isArray(wg.team) ? wg.team : []),
+          ...(Array.isArray(wg.special) ? wg.special : []),
+        ];
+        finish({
+          lobbyPlayers: wall.reduce((s, g) => s + (Number(g && g.numClients) || 0), 0),
+          lobbyGames: wall.length,
+          serverTime: typeof viaWorkerGames.serverTime === "number" ? viaWorkerGames.serverTime : Date.now(),
+          games: {
+            ffa: Array.isArray(wg.ffa) ? wg.ffa : [],
+            team: Array.isArray(wg.team) ? wg.team : [],
+            special: Array.isArray(wg.special) ? wg.special : [],
+          },
+        });
+        return;
+      }
       finish({ lobbyPlayers: 0, lobbyGames: 0, serverTime: Date.now(), games: { ffa: [], team: [], special: [] } });
     };
 
@@ -183,7 +313,7 @@ function fetchLobbySnapshot(wsUrl) {
           Origin: "https://openfront.io",
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-            "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
           "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
         },
       });

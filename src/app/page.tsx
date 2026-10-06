@@ -1,832 +1,452 @@
 "use client";
 
-/**
- * Dashboard OpenFront — Top players all Time / Top players this Week.
- *
- * Architecture: le navigateur fait les requêtes API directement.
- *   - ranked.json (fichier statique) → career ranked wins top 100 1v1 + 2v2.
- *   - Firebase public-aliases (REST) → liste des joueurs connectés.
- *   - /api/openfront/public/player/<pid>/games (proxy Next.js avec
- *     x-skailex-access) → wins casual + hebdo pour les joueurs connectés.
- *
- * Le scoring (FFA casual +10, FFA ranked +1, Team casual +5, Team ranked +1)
- * est appliqué pour trier les classements.
- *
- * Layout: deux colonnes côte à côte (Top players all Time à gauche,
- * Top players this Week à droite), style "card blanche épurée" reproduit
- * de la maquette fournie par l'utilisateur.
- */
+// ============================================================================
+// OpenFront Tracker — page unique.
+//
+// Principes (correction des bugs signalés) :
+//  1. CHARGEMENT ATOMIQUE : toutes les données (tableau de bord, lobbies,
+//     cosmétiques) sont demandées EN PARALLÈLE au montage et le rendu est
+//     bloqué derrière un squelette unique tant que tout n'est pas arrivé.
+//     Plus jamais de sections qui apparaissent les unes après les autres
+//     (joueurs → skins → badges).
+//  2. AUCUN RECHARGEMENT D'ONGLET : tous les contenus d'onglets restent
+//     montés (forceMount + masqués par CSS). Cliquer sur un onglet ne
+//     déclenche AUCUNE requête, aucun squelette, aucun clignotement.
+//  3. SOURCE LOBBIES CONFIGURABLE : par défaut le service local ; si une URL
+//     de worker Cloudflare est renseignée (bouton ⚙), le navigateur interroge
+//     directement ton worker — les lobbies marchent même si le service local
+//     est au repos.
+// ============================================================================
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { AtlasTab } from "@/components/openfront/AtlasTab";
+import { LobbyTab } from "@/components/openfront/LobbyTab";
+import { LeaderboardTab } from "@/components/openfront/LeaderboardTab";
+import { PlayersTab } from "@/components/openfront/PlayersTab";
+import { VerifiedTab } from "@/components/openfront/VerifiedTab";
+import { SpeedrunTab } from "@/components/openfront/SpeedrunTab";
+import { SkinsTab } from "@/components/openfront/SkinsTab";
+import { PlayerModal } from "@/components/openfront/PlayerModal";
+import type { CosmeticsCompact, DashboardPayload, LobbySnapshot } from "@/lib/openfront/types";
+import { parisTime, relativeTime } from "@/lib/openfront/format";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Trophy, Medal, BarChart3 } from "lucide-react";
-import {
-  buildMergedPlayers,
-  fetchPlayerStats,
-  fetchConnectedPlayers,
-  fetchRankedJson,
-  formatFrenchDate,
-  formatPoints,
-  getWeekStartMs,
-  isCacheFresh,
-  loadLiveCache,
-  saveLiveCache,
-  pointsFor,
-  totalWins,
-  type ConnectedPlayer,
-  type LiveStats,
-  type MergedPlayer,
-  type RankedJson,
-} from "@/lib/openfront";
+const WORKER_URL_KEY = "openfront:worker-url";
 
-/* ════════════════════════════════════════════════════════════════
-   Constants
-   ════════════════════════════════════════════════════════════════ */
+function readStoredWorkerUrl(): string {
+  try {
+    return (localStorage.getItem(WORKER_URL_KEY) ?? "").trim();
+  } catch {
+    return "";
+  }
+}
 
-const ORANGE = "#ff7a00";
-const ORANGE_HOVER = "#e96e00";
-const ORANGE_DEEP = "#c25700";
-const ORANGE_PALE = "#fff4e9";
-const ORANGE_PALE_BORDER = "rgba(255, 122, 0, 0.18)";
-
-const TOP_N = 10;
-
-/* ════════════════════════════════════════════════════════════════
-   Component
-   ════════════════════════════════════════════════════════════════ */
-
-export default function DashboardPage() {
-  // Week start (Europe/Paris, Monday 00:00) — computed once on mount.
-  const [weekStartMs] = useState<number>(() => getWeekStartMs(Date.now()));
-
-  // Data state
-  const [rankedData, setRankedData] = useState<RankedJson | null>(null);
-  const [connected, setConnected] = useState<ConnectedPlayer[]>([]);
-  const [liveStats, setLiveStats] = useState<Record<string, LiveStats>>({});
-  const [liveProgress, setLiveProgress] = useState<{ done: number; total: number }>({
-    done: 0,
-    total: 0,
-  });
-  const [liveDone, setLiveDone] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  // Refs to avoid stale closures during parallel fetches.
-  const liveStatsRef = useRef<Record<string, LiveStats>>({});
-  const startedRef = useRef(false);
-
-  /* ── Initial load: ranked.json + Firebase aliases + week info ── */
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const [ranked, players] = await Promise.all([
-        fetchRankedJson(),
-        fetchConnectedPlayers(),
-      ]);
-      if (cancelled) return;
-      setRankedData(ranked);
-      setConnected(players);
-      setLiveProgress({ done: 0, total: players.length });
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  /* ── Live fetch: paginate games for each connected player ── */
-  useEffect(() => {
-    if (startedRef.current) return;
-    if (connected.length === 0) {
-      setLiveDone(true);
-      return;
-    }
-    startedRef.current = true;
-
-    let cancelled = false;
-    const cache = loadLiveCache();
-
-    const fetchOne = async (player: ConnectedPlayer) => {
-      const cachedEntry = cache[player.publicId];
-      if (cachedEntry && isCacheFresh(cachedEntry)) {
-        liveStatsRef.current[player.publicId] = cachedEntry;
-        setLiveStats({ ...liveStatsRef.current });
-        setLiveProgress((p) => ({ ...p, done: p.done + 1 }));
-        return;
-      }
-      try {
-        const entry = await fetchPlayerStats(player);
-        if (cancelled) return;
-        liveStatsRef.current[player.publicId] = entry;
-        cache[player.publicId] = entry;
-        saveLiveCache(cache);
-        setLiveStats({ ...liveStatsRef.current });
-      } catch (e) {
-        console.warn(
-          `[dashboard] live fetch failed for ${player.publicId}:`,
-          (e as Error).message,
-        );
-      } finally {
-        setLiveProgress((p) => ({ ...p, done: p.done + 1 }));
-      }
-    };
-
-    // Concurrent fetches (exemption = high concurrency allowed).
-    Promise.all(connected.map(fetchOne)).then(() => {
-      if (!cancelled) setLiveDone(true);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [connected, weekStartMs]);
-
-  /* ── Merge ranked + live → two views ── */
-  const { global: globalView, weekly: weeklyView } = useMemo(() => {
-    return buildMergedPlayers(rankedData, liveStats);
-  }, [rankedData, liveStats]);
-
-  const isLoading = !rankedData && liveProgress.done < liveProgress.total;
-
-  /* ════════════════════════════════════════════════════════════════
-   Render
-   ════════════════════════════════════════════════════════════════ */
-
+function StatusDot({ ok, label }: { ok: boolean; label: string }) {
   return (
-    <div className="page-wrap" style={pageWrapStyle}>
-      <main style={mainStyle}>
-        <Header
-          weekStartMs={weekStartMs}
-          globalCount={globalView.length}
-          weeklyCount={weeklyView.length}
-          liveProgress={liveProgress}
-          liveDone={liveDone}
-        />
-
-        {loadError && (
-          <div style={errorBannerStyle}>
-            ⚠️ {loadError}
-          </div>
-        )}
-
-        {isLoading && globalView.length === 0 ? (
-          <LoadingState />
-        ) : (
-          <div style={gridStyle} className="dash-grid">
-            <RankingColumn
-              title="Top players all Time"
-              subtitle={`Classement cumulé · ${globalView.length} joueurs`}
-              players={globalView}
-              weekStartMs={weekStartMs}
-              mode="global"
-            />
-            <RankingColumn
-              title="Top players this Week"
-              subtitle={`Depuis le ${formatFrenchDate(weekStartMs)} · ${weeklyView.length} joueurs actifs`}
-              players={weeklyView}
-              weekStartMs={weekStartMs}
-              mode="weekly"
-            />
-          </div>
-        )}
-
-        <ScoringLegend />
-      </main>
-
-      <Footer />
-    </div>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="flex items-center gap-1.5 text-xs text-zinc-400">
+          <span
+            className={`inline-block h-2 w-2 rounded-full ${
+              ok ? "bg-emerald-400" : "bg-red-500"
+            }`}
+          />
+          {label}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="bg-zinc-900 border-zinc-800 text-zinc-200">
+        {ok ? "Source joignable" : "Source momentanément indisponible"}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
-/* ════════════════════════════════════════════════════════════════
-   Sub-components
-   ════════════════════════════════════════════════════════════════ */
-
-function Header({
-  weekStartMs,
-  globalCount,
-  weeklyCount,
-  liveProgress,
-  liveDone,
-}: {
-  weekStartMs: number;
-  globalCount: number;
-  weeklyCount: number;
-  liveProgress: { done: number; total: number };
-  liveDone: boolean;
-}) {
-  const pct = liveProgress.total > 0
-    ? Math.min(100, Math.round((liveProgress.done / liveProgress.total) * 100))
-    : 0;
+function DashboardSkeleton() {
   return (
-    <header style={headerStyle}>
-      <div style={headerTopStyle}>
-        <span style={logoBadgeStyle} aria-hidden="true">
-          <Trophy size={36} color={ORANGE_DEEP} strokeWidth={2.5} />
-        </span>
-        <div>
-          <h1 style={h1Style}>OpenFront · Tableau de bord</h1>
-          <p style={subtitleStyle}>
-            Classement des meilleurs joueurs ·{" "}
-            <strong style={{ color: ORANGE_DEEP }}>
-              Cette semaine a commencé le {formatFrenchDate(weekStartMs)}
-            </strong>
-          </p>
-        </div>
+    <div className="flex flex-col gap-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-20 bg-zinc-900" />
+        ))}
       </div>
-      <div style={headerMetaStyle}>
-        {liveProgress.total > 0 && !liveDone && (
-          <div style={progressBarStyle} role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Chargement des stats live">
-            <div style={progressHeaderStyle}>
-              <span style={progressLabelStyle}>
-                <BarChart3 size={14} color={ORANGE} strokeWidth={2.5} />
-                Chargement des stats live…
-              </span>
-              <span style={progressPctStyle}>{pct}%</span>
-            </div>
-            <div style={progressTrackStyle}>
-              <div style={{ ...progressFillStyle, width: `${pct}%` }} />
-            </div>
-          </div>
-        )}
-        <span style={metaTextStyle}>
-          {globalCount} joueurs au classement global · {weeklyCount} actifs cette semaine
-        </span>
+      <Skeleton className="h-8 w-64 bg-zinc-900" />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <Skeleton key={i} className="h-36 bg-zinc-900" />
+        ))}
       </div>
-    </header>
-  );
-}
-
-function LoadingState() {
-  return (
-    <div style={loadingStateStyle}>
-      <div className="spinner" style={spinnerStyle} />
-      <h3 style={{ margin: 0, color: "#111827", fontSize: 18 }}>
-        Chargement du classement…
-      </h3>
-      <p style={{ margin: 0, color: "#6B7280", fontSize: 14 }}>
-        Récupération des données via l'API OpenFront…
+      <p className="text-center text-sm text-zinc-500">
+        Chargement atomique : joueurs, skins, badges et lobbies arriveront
+        ensemble, en une seule passe — aucune section ne se remplace.
       </p>
     </div>
   );
 }
 
-function RankingColumn({
-  title,
-  subtitle,
-  players,
-  weekStartMs,
-  mode,
-}: {
-  title: string;
-  subtitle: string;
-  players: MergedPlayer[];
-  weekStartMs: number;
-  mode: "global" | "weekly";
-}) {
-  const topN = players.slice(0, TOP_N);
-  const hasData = topN.length > 0;
+export default function Home() {
+  // 0 jusqu'au montage client : SSR et hydratation produisent EXACTEMENT le
+  // même texte (aucune erreur d'hydratation, aucun arbre régénéré au
+  // chargement). L'horloge n'est affichée qu'une fois monté.
+  const [now, setNow] = useState(0);
+  const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
+  const [tab, setTab] = useState("lobby");
+  // null = pas encore lu (montage client) ; "" = source locale.
+  const [workerUrl, setWorkerUrl] = useState<string | null>(null);
+  const [workerDraft, setWorkerDraft] = useState("");
 
-  return (
-    <section style={columnStyle} className="dash-section">
-      <div style={columnHeaderStyle}>
-        <h2 style={columnTitleStyle}>{title}</h2>
-        <span style={columnSubtitleStyle}>{subtitle}</span>
-      </div>
+  useEffect(() => {
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
-      {hasData ? (
-        <div style={listStyle} className="dash-list">
-          {topN.map((player, idx) => (
-            <RankingRow key={player.publicId} player={player} rank={idx + 1} mode={mode} />
-          ))}
-        </div>
-      ) : (
-        <div style={emptyListStyle}>
-          <p style={{ margin: 0, color: "#6B7280", fontSize: 14 }}>
-            {mode === "weekly"
-              ? "Aucune partie cette semaine pour le moment."
-              : "Aucune donnée disponible."}
-          </p>
-        </div>
-      )}
+  useEffect(() => {
+    const stored = readStoredWorkerUrl();
+    setWorkerUrl(stored);
+    setWorkerDraft(stored);
+  }, []);
 
-      <button
-        type="button"
-        style={moreBtnStyle}
-        className="dash-more-btn"
-        onClick={() => {
-          // Future: open full ranking modal. For now, no-op.
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = ORANGE_HOVER;
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = ORANGE;
-        }}
-      >
-        Voir plus de joueurs
-      </button>
+  // --- 1. Tableau de bord : une requête, tout le contenu statique -----------
+  const dashboard = useQuery<DashboardPayload>({
+    queryKey: ["dashboard"],
+    queryFn: async () => {
+      const res = await fetch("/api/openfront/dashboard");
+      if (!res.ok) throw new Error("tableau de bord indisponible");
+      return (await res.json()) as DashboardPayload;
+    },
+    placeholderData: (prev) => prev,
+    staleTime: 20_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: false,
+  });
 
-      <div style={columnFooterStyle} aria-hidden="true">
-        {/* week info for screen readers */}
-        <span className="sr-only">
-          Semaine du {formatFrenchDate(weekStartMs)}.
-        </span>
-      </div>
-    </section>
+  // --- 2. Lobbies : service local OU worker Cloudflare (au choix) -----------
+  const activeWorkerUrl = workerUrl ?? "";
+  const lobby = useQuery<LobbySnapshot>({
+    queryKey: ["lobby", activeWorkerUrl],
+    queryFn: async () => {
+      const url = activeWorkerUrl
+        ? `${activeWorkerUrl.replace(/\/+$/, "")}/lobbies`
+        : "/api/openfront/lobby";
+      const res = await fetch(url, { mode: "cors" });
+      if (!res.ok) throw new Error("flux lobbies indisponible");
+      return (await res.json()) as LobbySnapshot;
+    },
+    // On attend la lecture du localStorage pour éviter une double requête.
+    enabled: workerUrl !== null,
+    placeholderData: (prev) => prev,
+    staleTime: 2_000,
+    refetchInterval: 5_000,
+    refetchOnWindowFocus: false,
+  });
+
+  // --- 3. Cosmétiques : préchargés ici (plus jamais de retard sur l'onglet) -
+  const cosmetics = useQuery<{ data: CosmeticsCompact; fetchedAt: number }>({
+    queryKey: ["cosmetics"],
+    queryFn: async () => {
+      const res = await fetch("/api/openfront/cosmetics");
+      if (!res.ok) throw new Error("cosmétiques indisponibles");
+      return (await res.json()) as { data: CosmeticsCompact; fetchedAt: number };
+    },
+    placeholderData: (prev) => prev,
+    staleTime: 60 * 60_000,
+    refetchInterval: 60 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  const refreshAll = useCallback(() => {
+    void dashboard.refetch();
+    void lobby.refetch();
+    void cosmetics.refetch();
+  }, [dashboard, lobby, cosmetics]);
+
+  const saveWorkerUrl = useCallback(() => {
+    const clean = workerDraft.trim().replace(/\/+$/, "");
+    setWorkerUrl(clean);
+    try {
+      if (clean) localStorage.setItem(WORKER_URL_KEY, clean);
+      else localStorage.removeItem(WORKER_URL_KEY);
+    } catch {
+      /* stockage indisponible : on garde juste en mémoire */
+    }
+  }, [workerDraft]);
+
+  const d = dashboard.data;
+  const apiOk = d?.apiOk ?? false;
+  const wsOk = lobby.data?.connected ?? false;
+
+  // --- Verrou atomique : on ne peint QUE lorsque TOUT est prêt (ou échoué) --
+  const firstLoadPending =
+    dashboard.isPending ||
+    lobby.isPending ||
+    cosmetics.isPending ||
+    workerUrl === null;
+
+  const tabsList = useMemo(
+    () => [
+      { value: "lobby", label: "Lobbies", badge: lobby.data?.games.length },
+      { value: "classement", label: "Classement", badge: undefined },
+      { value: "joueurs", label: "Joueurs", badge: undefined },
+      { value: "verifies", label: "Vérifiés", badge: undefined },
+      { value: "speedrun", label: "Speedrun", badge: undefined },
+      { value: "skins", label: "Skins", badge: undefined },
+      { value: "atlas", label: "Atlas", badge: undefined },
+    ],
+    [lobby.data?.games.length],
   );
-}
-
-function RankingRow({
-  player,
-  rank,
-  mode,
-}: {
-  player: MergedPlayer;
-  rank: number;
-  mode: "global" | "weekly";
-}) {
-  const points = pointsFor(player);
-  const wins = totalWins(player);
-  const ffaWins = (player.ffaCasualWins || 0) + (player.ffaRankedWins || 0);
-  const teamWins = (player.teamCasualWins || 0) + (player.teamRankedWins || 0);
 
   return (
-    <a
-      href={`/profile.html?pid=${encodeURIComponent(player.publicId)}&player=${encodeURIComponent(player.username)}`}
-      style={rowStyle}
-      className="dash-row"
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = ORANGE_PALE;
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = "transparent";
-      }}
-    >
-      <RankBadge rank={rank} />
+    <TooltipProvider delayDuration={200}>
+      <div className="min-h-screen flex flex-col bg-zinc-950 text-zinc-100">
+        {/* En-tête */}
+        <header className="sticky top-0 z-20 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur">
+          <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/15 text-lg">
+                🌍
+              </div>
+              <div>
+                <h1 className="text-lg font-bold leading-tight">
+                  OpenFront Tracker
+                </h1>
+                <p className="text-xs text-zinc-500">
+                  Lobbies temps réel · classements · joueurs · speedrun · skins ·
+                  atlas
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <StatusDot ok={apiOk} label="API" />
+              <StatusDot ok={wsOk} label="Flux lobbies" />
+              <span className="text-xs text-zinc-500">
+                Données : {relativeTime(d?.generatedAt ?? 0, now)} · horloge{" "}
+                {now > 0 ? parisTime() : "…"}
+              </span>
 
-      <div style={playerInfoStyle} className="dash-player">
-        <span style={playerNameStyle} className="dash-player-name">
-          {player.username}
-          {player.clan && (
-            <span style={clanTagStyle}> [{player.clan}]</span>
+              {/* Source des lobbies : service local ou worker Cloudflare */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className={`h-8 border-zinc-700 text-zinc-300 hover:border-fuchsia-500/50 hover:text-fuchsia-300 ${
+                      activeWorkerUrl ? "border-fuchsia-500/50 text-fuchsia-300" : ""
+                    }`}
+                    title="Source des lobbies"
+                  >
+                    ⚙ Lobbies
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-96 border-zinc-800 bg-zinc-900 text-zinc-100">
+                  <p className="text-sm font-semibold">Source des lobbies</p>
+                  <p className="mt-1 text-xs text-zinc-400">
+                    Par défaut : service local. Colle ici l&apos;URL de ton
+                    worker Cloudflare (ex.{" "}
+                    https://openfront.mondomaine.workers.dev) pour que les
+                    lobbies passent directement par lui — panneau plus fiable,
+                    valable même quand le service local dort.
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                    <Input
+                      value={workerDraft}
+                      onChange={(e) => setWorkerDraft(e.target.value)}
+                      placeholder="https://mon-worker.mondomaine.workers.dev"
+                      className="bg-zinc-950 border-zinc-800"
+                    />
+                    <Button
+                      size="sm"
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white"
+                      onClick={saveWorkerUrl}
+                    >
+                      OK
+                    </Button>
+                  </div>
+                  {activeWorkerUrl && (
+                    <button
+                      className="mt-2 text-xs text-amber-400 hover:text-amber-300"
+                      onClick={() => {
+                        setWorkerDraft("");
+                        setWorkerUrl("");
+                        try {
+                          localStorage.removeItem(WORKER_URL_KEY);
+                        } catch {
+                          /* ignore */
+                        }
+                      }}
+                    >
+                      Revenir au service local
+                    </button>
+                  )}
+                </PopoverContent>
+              </Popover>
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 border-zinc-700 text-zinc-200 hover:border-emerald-500/50 hover:text-emerald-300"
+                onClick={refreshAll}
+                disabled={
+                  dashboard.isFetching || lobby.isFetching || cosmetics.isFetching
+                }
+              >
+                {dashboard.isFetching || lobby.isFetching || cosmetics.isFetching
+                  ? "Rafraîchissement…"
+                  : "Rafraîchir"}
+              </Button>
+            </div>
+          </div>
+        </header>
+
+        {/* Corps */}
+        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">
+          {firstLoadPending ? (
+            <DashboardSkeleton />
+          ) : dashboard.isError ? (
+            <div className="rounded-lg border border-red-900/50 bg-red-950/30 p-8 text-center">
+              <p className="text-red-300">
+                {(dashboard.error as Error).message}
+              </p>
+              <Button
+                className="mt-4 border border-red-800 bg-red-950/50 text-red-200 hover:bg-red-900/50"
+                variant="outline"
+                onClick={() => void dashboard.refetch()}
+              >
+                Réessayer
+              </Button>
+            </div>
+          ) : (
+            <Tabs value={tab} onValueChange={setTab} className="gap-6">
+              <TabsList className="flex h-auto flex-wrap bg-zinc-900 border border-zinc-800">
+                {tabsList.map((t) => (
+                  <TabsTrigger
+                    key={t.value}
+                    value={t.value}
+                    className="data-[state=active]:bg-emerald-500/15 data-[state=active]:text-emerald-300"
+                  >
+                    {t.label}
+                    {t.badge !== undefined && t.badge > 0 && (
+                      <Badge
+                        variant="outline"
+                        className="ml-1.5 border-emerald-500/40 text-emerald-400"
+                      >
+                        {t.badge}
+                      </Badge>
+                    )}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+
+              {/* forceMount + masquage CSS : les onglets restent montés,
+                  changer d'onglet ne déclenche aucune requête. */}
+              <TabsContent
+                value="lobby"
+                forceMount
+                className="mt-0 data-[state=inactive]:hidden"
+              >
+                <LobbyTab
+                  snapshot={
+                    lobby.data ?? {
+                      connected: false,
+                      serverHost: "",
+                      serverState: "",
+                      numWorkers: 0,
+                      version: "",
+                      serverTime: Date.now(),
+                      lastFullAt: 0,
+                      lastFrameAt: 0,
+                      lastError: "chargement",
+                      reconnects: 0,
+                      games: [],
+                    }
+                  }
+                  viaWorker={!!activeWorkerUrl}
+                />
+              </TabsContent>
+              <TabsContent
+                value="classement"
+                forceMount
+                className="mt-0 data-[state=inactive]:hidden"
+              >
+                <LeaderboardTab
+                  leaderboard={d?.leaderboard ?? { "1v1": [], "2v2": [] }}
+                  registry={d?.registry ?? []}
+                  onSelectPlayer={setSelectedPlayer}
+                />
+              </TabsContent>
+              <TabsContent
+                value="joueurs"
+                forceMount
+                className="mt-0 data-[state=inactive]:hidden"
+              >
+                <PlayersTab
+                  registry={d?.registry ?? []}
+                  onSelectPlayer={setSelectedPlayer}
+                />
+              </TabsContent>
+              <TabsContent
+                value="verifies"
+                forceMount
+                className="mt-0 data-[state=inactive]:hidden"
+              >
+                <VerifiedTab
+                  verified={d?.verified ?? []}
+                  registry={d?.registry ?? []}
+                  onSelectPlayer={setSelectedPlayer}
+                />
+              </TabsContent>
+              <TabsContent
+                value="speedrun"
+                forceMount
+                className="mt-0 data-[state=inactive]:hidden"
+              >
+                <SpeedrunTab
+                  speedrun={d?.speedrun ?? null}
+                  onSelectPlayer={setSelectedPlayer}
+                />
+              </TabsContent>
+              <TabsContent
+                value="skins"
+                forceMount
+                className="mt-0 data-[state=inactive]:hidden"
+              >
+                <SkinsTab
+                  data={cosmetics.data?.data ?? null}
+                  fetchedAt={cosmetics.data?.fetchedAt}
+                />
+              </TabsContent>
+              <TabsContent
+                value="atlas"
+                forceMount
+                className="mt-0 data-[state=inactive]:hidden"
+              >
+                <AtlasTab />
+              </TabsContent>
+            </Tabs>
           )}
-        </span>
-        <span style={playerSubStyle} className="dash-player-sub">
-          {wins} wins · FFA {ffaWins} · Team {teamWins}
-          {mode === "weekly" && player.hasLive && (
-            <span style={{ color: ORANGE_DEEP, marginLeft: 6 }}>· cette semaine</span>
-          )}
-        </span>
+        </main>
+
+        {/* Pied de page collé en bas */}
+        <footer className="mt-auto border-t border-zinc-800 bg-zinc-950">
+          <div className="mx-auto max-w-7xl px-4 py-3 text-xs text-zinc-600">
+            Données : API publique OpenFront (api.openfront.io) + flux temps
+            réel des lobbies (blue/green.openfront.io, décodage zbin) — ou ton
+            worker Cloudflare si l&apos;URL est renseignée (⚙). Horodatage Paris
+            · rafraîchissement automatique (lobbies 5 s, classements 60 s,
+            speedrun 10 min). Atlas : 132 cartes, miroir du catalogue officiel.
+          </div>
+        </footer>
+
+        <PlayerModal
+          publicId={selectedPlayer}
+          onClose={() => setSelectedPlayer(null)}
+        />
       </div>
-
-      <div style={scoreWrapStyle} className="dash-score">
-        <span style={scoreValStyle} className="dash-score-val">
-          {formatPoints(points)}
-        </span>
-        <span style={scoreSuffixStyle} className="dash-score-suffix">
-          pts
-        </span>
-      </div>
-    </a>
+    </TooltipProvider>
   );
 }
-
-function RankBadge({ rank }: { rank: number }) {
-  if (rank === 1) {
-    return (
-      <span style={{ ...trophyStyle, color: "#D4A017" }} aria-label="Rang 1">
-        <Trophy size={22} strokeWidth={2.5} />
-      </span>
-    );
-  }
-  if (rank === 2) {
-    return (
-      <span style={{ ...trophyStyle, color: "#9CA3AF" }} aria-label="Rang 2">
-        <Medal size={22} strokeWidth={2.5} />
-      </span>
-    );
-  }
-  if (rank === 3) {
-    return (
-      <span style={{ ...trophyStyle, color: "#B45309" }} aria-label="Rang 3">
-        <Medal size={22} strokeWidth={2.5} />
-      </span>
-    );
-  }
-  return (
-    <span style={rankBadgeStyle} className="dash-rank-badge" aria-label={`Rang ${rank}`}>
-      {rank}
-    </span>
-  );
-}
-
-function ScoringLegend() {
-  return (
-    <div style={legendStyle} className="dash-legend">
-      <svg
-        viewBox="0 0 24 24"
-        width="14"
-        height="14"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        style={{ flexShrink: 0, marginTop: 2 }}
-      >
-        <circle cx="12" cy="12" r="10" />
-        <line x1="12" y1="16" x2="12" y2="12" />
-        <line x1="12" y1="8" x2="12.01" y2="8" />
-      </svg>
-      <span>
-        Barème : <strong>FFA casual +10</strong> · <strong>FFA classé +1</strong> ·{" "}
-        <strong>Team casual +5</strong> · <strong>Team classé +1</strong>{" "}
-        (le classé rapporte juste 1 pt, pas en plus du FFA/Team). Les classements
-        sont calculés en direct depuis l'API OpenFront (header{" "}
-        <code style={codeStyle}>x-skailex-access</code> côté serveur pour
-        l'exemption de rate-limit).
-      </span>
-    </div>
-  );
-}
-
-function Footer() {
-  return (
-    <footer style={footerStyle} className="dash-footer">
-      <div style={footerInnerStyle}>
-        <span>
-          Données fournies par l'API publique OpenFront · Mises à jour en direct
-          dans le navigateur (cache 30 min).
-        </span>
-        <span style={{ color: "#9CA3AF" }}>
-          TheFrontHub · {new Date().getFullYear()}
-        </span>
-      </div>
-    </footer>
-  );
-}
-
-/* ════════════════════════════════════════════════════════════════
-   Inline styles (kept here for self-containment; responsive via CSS
-   injected below).
-   ════════════════════════════════════════════════════════════════ */
-
-const pageWrapStyle: React.CSSProperties = {
-  minHeight: "100vh",
-  display: "flex",
-  flexDirection: "column",
-  background: "#FAFAFA",
-};
-
-const mainStyle: React.CSSProperties = {
-  flex: 1,
-  width: "100%",
-  maxWidth: 1200,
-  margin: "0 auto",
-  padding: "32px 24px 48px",
-  fontFamily:
-    "var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-  color: "#111827",
-  fontVariantNumeric: "tabular-nums",
-};
-
-const headerStyle: React.CSSProperties = {
-  marginBottom: 28,
-};
-
-const headerTopStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 16,
-  marginBottom: 12,
-};
-
-const logoBadgeStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  width: 52,
-  height: 52,
-  borderRadius: 14,
-  background: ORANGE_PALE,
-  border: `1px solid ${ORANGE_PALE_BORDER}`,
-  flexShrink: 0,
-};
-
-const h1Style: React.CSSProperties = {
-  margin: 0,
-  fontSize: 28,
-  fontWeight: 800,
-  letterSpacing: "-0.02em",
-  color: "#111827",
-};
-
-const subtitleStyle: React.CSSProperties = {
-  margin: "4px 0 0",
-  fontSize: 14,
-  color: "#6B7280",
-};
-
-const headerMetaStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 12,
-  flexWrap: "wrap",
-  marginTop: 8,
-};
-
-const progressBarStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 6,
-  padding: "8px 12px",
-  background: ORANGE_PALE,
-  border: `1px solid ${ORANGE_PALE_BORDER}`,
-  borderRadius: 10,
-  minWidth: 240,
-};
-const progressHeaderStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 8,
-};
-const progressLabelStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 6,
-  color: ORANGE_DEEP,
-  fontSize: 12,
-  fontWeight: 600,
-};
-const progressPctStyle: React.CSSProperties = {
-  fontSize: 12,
-  fontWeight: 700,
-  color: ORANGE_DEEP,
-  fontVariantNumeric: "tabular-nums",
-};
-const progressTrackStyle: React.CSSProperties = {
-  height: 5,
-  background: "rgba(249, 115, 22, 0.15)",
-  borderRadius: 999,
-  overflow: "hidden",
-};
-const progressFillStyle: React.CSSProperties = {
-  height: "100%",
-  background: `linear-gradient(90deg, ${ORANGE}, ${ORANGE_DEEP})`,
-  borderRadius: 999,
-  transition: "width 0.4s ease",
-};
-
-const liveTagDoneStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  padding: "6px 12px",
-  background: "rgba(34, 197, 94, 0.12)",
-  border: "1px solid rgba(34, 197, 94, 0.25)",
-  borderRadius: 999,
-  color: "#16a34a",
-  fontSize: 12,
-  fontWeight: 600,
-};
-
-const metaTextStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: "#9CA3AF",
-};
-
-const gridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 24,
-  alignItems: "start",
-};
-
-const columnStyle: React.CSSProperties = {
-  background: "#FFFFFF",
-  border: "1px solid #F3F4F6",
-  borderRadius: 16,
-  boxShadow: "0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.03)",
-  padding: 24,
-  display: "flex",
-  flexDirection: "column",
-  gap: 16,
-};
-
-const columnHeaderStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 4,
-  paddingBottom: 12,
-  borderBottom: "1px solid #F3F4F6",
-};
-
-const columnTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: 20,
-  fontWeight: 700,
-  color: "#111827",
-  letterSpacing: "-0.01em",
-};
-
-const columnSubtitleStyle: React.CSSProperties = {
-  fontSize: 13,
-  color: "#6B7280",
-};
-
-const listStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  maxHeight: 580,
-  overflowY: "auto",
-  margin: 0,
-  padding: 0,
-  listStyle: "none",
-};
-
-const emptyListStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  minHeight: 200,
-  padding: 24,
-  textAlign: "center",
-};
-
-const rowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 14,
-  padding: "12px 4px",
-  borderBottom: "1px solid #F3F4F6",
-  textDecoration: "none",
-  color: "inherit",
-  transition: "background 0.15s ease",
-  cursor: "pointer",
-};
-
-const trophyStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  width: 30,
-  height: 30,
-  flexShrink: 0,
-};
-
-const rankBadgeStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  width: 30,
-  height: 30,
-  borderRadius: 8,
-  background: ORANGE,
-  color: "#FFFFFF",
-  fontSize: 13,
-  fontWeight: 700,
-  flexShrink: 0,
-  fontFamily: "var(--font-geist-mono), monospace",
-};
-
-const playerInfoStyle: React.CSSProperties = {
-  flex: 1,
-  display: "flex",
-  flexDirection: "column",
-  gap: 2,
-  minWidth: 0,
-};
-
-const playerNameStyle: React.CSSProperties = {
-  fontSize: 15,
-  fontWeight: 600,
-  color: ORANGE_DEEP,
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  textDecoration: "none",
-};
-
-const clanTagStyle: React.CSSProperties = {
-  color: "#9CA3AF",
-  fontWeight: 500,
-  fontSize: 13,
-};
-
-const playerSubStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: "#9CA3AF",
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-};
-
-const scoreWrapStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "baseline",
-  gap: 4,
-  flexShrink: 0,
-  minWidth: 90,
-  justifyContent: "flex-end",
-};
-
-const scoreValStyle: React.CSSProperties = {
-  fontSize: 16,
-  fontWeight: 700,
-  color: "#111827",
-  fontFamily: "var(--font-geist-mono), monospace",
-};
-
-const scoreSuffixStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: "#6B7280",
-  fontWeight: 500,
-};
-
-const moreBtnStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "12px 24px",
-  background: ORANGE,
-  color: "#FFFFFF",
-  border: "none",
-  borderRadius: 8,
-  fontSize: 15,
-  fontWeight: 600,
-  cursor: "pointer",
-  fontFamily: "inherit",
-  transition: "background 0.18s ease",
-  boxShadow: "0 2px 4px rgba(255, 122, 0, 0.2)",
-  marginTop: 8,
-};
-
-const columnFooterStyle: React.CSSProperties = {
-  display: "none",
-};
-
-const legendStyle: React.CSSProperties = {
-  display: "flex",
-  gap: 10,
-  marginTop: 24,
-  padding: "14px 16px",
-  background: ORANGE_PALE,
-  border: `1px solid ${ORANGE_PALE_BORDER}`,
-  borderRadius: 12,
-  fontSize: 13,
-  color: "#6B7280",
-  lineHeight: 1.5,
-};
-
-const codeStyle: React.CSSProperties = {
-  padding: "1px 6px",
-  background: "rgba(255, 122, 0, 0.1)",
-  borderRadius: 4,
-  fontFamily: "var(--font-geist-mono), monospace",
-  fontSize: 12,
-  color: ORANGE_DEEP,
-};
-
-const footerStyle: React.CSSProperties = {
-  marginTop: "auto",
-  borderTop: "1px solid #F3F4F6",
-  background: "#FFFFFF",
-};
-
-const footerInnerStyle: React.CSSProperties = {
-  maxWidth: 1200,
-  margin: "0 auto",
-  padding: "16px 24px",
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  flexWrap: "wrap",
-  gap: 8,
-  fontSize: 12,
-  color: "#6B7280",
-};
-
-const loadingStateStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 12,
-  minHeight: 320,
-  textAlign: "center",
-};
-
-const spinnerStyle: React.CSSProperties = {
-  width: 32,
-  height: 32,
-  border: "3px solid #F3F4F6",
-  borderTopColor: ORANGE,
-  borderRadius: "50%",
-  animation: "dash-spin 0.8s linear infinite",
-};
-
-const errorBannerStyle: React.CSSProperties = {
-  marginBottom: 16,
-  padding: "12px 16px",
-  background: "rgba(239, 68, 68, 0.08)",
-  border: "1px solid rgba(239, 68, 68, 0.25)",
-  borderRadius: 10,
-  color: "#b91c1c",
-  fontSize: 14,
-};

@@ -28,7 +28,14 @@ const CAT_COLORS = {
   arcade: "#facc15", tournament: "#ff7a00",
 };
 
-const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
+// v5.20.2 — la carte du monde est AUTO-HÉBERGÉE (atlas-data/world-110m.topojson,
+// 105 Ko) : avant, le fetch CDN jsdelivr était bloqué par la CSP connect-src
+// (P1-3 : seule script-src autorisait jsdelivr) → la mini-carte avec les points
+// disparaissait silencieusement (countryPaths vide). Même origine = plus de
+// dépendance externe, HTTP cache du serveur, zéro réglage CSP.
+// ⚠️ Extension .topojson (pas .json) : le rsync de déploiement exclut *.json
+// (seuls data/ et maps_data.json sont ré-inclus) — ce nom déploie tel quel.
+const GEO_URL = "atlas-data/world-110m.topojson";
 
 function escapeHtml(s) {
   if (s == null) return "";
@@ -41,8 +48,9 @@ function escapeHtml(s) {
 function jsq(v) {
   return escapeHtml(JSON.stringify(String(v ?? "")));
 }
-function getThumbUrl(slug) { return `atlas-data/thumbnails/${slug}.webp`; }
-function getMapUrl(slug) { return `atlas-data/maps/${slug}.webp`; }
+// v5.28 — ?v=2 : vignettes officielles OpenFront (fond surface #0a1628, comme le vrai jeu)
+function getThumbUrl(slug) { return `atlas-data/thumbnails/${slug}.webp?v=2`; }
+function getMapUrl(slug) { return `atlas-data/maps/${slug}.webp?v=2`; }
 function getFlagUrl(flag) { return `atlas-data/flags/${flag}.svg`; }
 
 function projectEq(lng, lat, w, h) {
@@ -86,7 +94,7 @@ function geoToPath(feature, width, height) {
 
 async function loadWorldMap() {
   try {
-    const res = await fetch(GEO_URL);
+    const res = await fetch(GEO_URL, { cache: "force-cache" });
     if (!res.ok) return null;
     const topo = await res.json();
     if (window.topojson && window.topojson.feature) {
@@ -100,7 +108,7 @@ async function loadWorldMap() {
 async function loadAtlas() {
   try {
     const [mapsRes, worldFeatures] = await Promise.all([
-      fetch("atlas-data/maps_data.json", { cache: "force-cache" }), loadWorldMap()
+      fetch("atlas-data/maps_data.json?v=132", { cache: "force-cache" }), loadWorldMap()
     ]);
     if (!mapsRes.ok) throw new Error(`HTTP ${mapsRes.status}`);
     mapsData = await mapsRes.json();

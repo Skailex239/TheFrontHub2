@@ -30,6 +30,9 @@ RewriteCond %{HTTP_HOST} ^dev\.thefronthub\.com$ [NC]
 RewriteCond %{REQUEST_URI} !^/gate\.php$
 RewriteCond %{REQUEST_URI} !^/_deploy\.php$
 RewriteCond %{REQUEST_URI} !^/_upload\.php$
+# Rapports CSP : POST navigateur sans cookie (cf. section 16) — ne pas
+# les faire avaler par la porte, sinon plus aucun rapport sur dev.
+RewriteCond %{REQUEST_URI} !^/api/csp-report\.php$
 RewriteRule ^ /gate.php [L]
 
 # DEV : la config de la porte (secure/) n'est jamais servie en HTTP
@@ -148,8 +151,15 @@ DirectoryIndex index.html
 AddDefaultCharset UTF-8
 AddCharset UTF-8 .html .css .js .json .xml .svg
 
-# ── 7. ETag désactivé (utilise Cache-Control à la place, plus efficace) ──
-FileETag None
+# ── 7. ETag réactivés (audit P0-3) ────────────────────────────────────────
+# « FileETag None » empêchait TOUTE validation conditionnelle : avec
+# must-revalidate, le navigateur revalide mais sans ETag il ne peut PAS
+# envoyer If-None-Match → le serveur renvoyait 200 + le fichier ENTIER
+# (36 Ko pour l'accueil, plusieurs Mo pour les JSON gz) toutes les 5 min,
+# au lieu d'un 304 de quelques octets.
+# MTime Size : portable (indépendant des inodes, identique derrière un
+# éventuel ré-équilibrage de serveurs o2switch).
+FileETag MTime Size
 
 # ── 8. Sécurité : bloquer accès aux fichiers sensibles ──
 # Dotfiles (.env, .git, .htaccess…), docs internes, scripts, config,
@@ -200,3 +210,35 @@ FileETag None
 
 # ── 14. Désactiver le suivi des répertoires (sécurité) ──
 Options -Indexes
+
+# ── 15. Page 404 personnalisée (audit P1-8) ─────────────────────────────
+# Avant : 404 Apache générique (page blanche technique, aucun lien de
+# récupération → visite perdue). 404.html est cohérente avec le design du
+# site (thème clair/sombre respecté) et propose 3 sorties vers l'accueil.
+# ⚠️ Le .htaccess racine est géré manuellement sur le serveur (exclu du
+# rsync de deploy.sh) : recopier ce fichier une fois via cPanel.
+ErrorDocument 404 /404.html
+
+# ── 16. Content-Security-Policy (audit P1-3) ─────────────────────────────
+# Inventaire complet des ressources externes fait sur *.html + *.js + dist
+# (Google Fonts, AdSense/GTM, API+WS OpenFront, proxies CORS, miniatures
+# GitHub). 'unsafe-inline' requis (JS inline historique partout — passer
+# aux nonces serait un chantier dédié). Rapports → /api/csp-report.php
+# (stockés dans api/csp-reports.jsonl, non servi par Apache).
+# En cas de blocage inattendu d'une ressource : consulter le journal de
+# rapports, ajouter le domaine à la directive concernée, ou commenter
+# l'en-tête le temps de corriger.
+Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://pagead2.googlesyndication.com https://www.googletagmanager.com https://tpc.googlesyndication.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://raw.githubusercontent.com https://minhkarl.github.io https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://www.google.com https://www.gstatic.com; connect-src 'self' https://api.openfront.io https://openfront-proxy.diofortnite3.workers.dev wss://openfront.io wss://blue.openfront.io wss://green.openfront.io wss://openfront-proxy.diofortnite3.workers.dev https://api.github.com https://corsproxy.io https://api.codetabs.com https://api.allorigins.win https://thingproxy.freeboard.io https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://www.google.com; frame-src 'self' https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com; media-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; report-uri /api/csp-report.php"
+
+# ── 17. SSR léger game.html / clan.html (audit P1-7) ────────────────────
+# Réécriture INTERNE (l'URL visible reste game.html / clan.html) vers les
+# vues PHP qui calculent les métadonnées serveur (titre, description,
+# Open Graph, JSON-LD, canonical dynamique) à partir de MySQL. Sans règle
+# active (recopie manuelle serveur non faite), game.html/clan.html sont
+# servis comme aujourd'hui : coquilles JS. Avec la règle : crawleurs et
+# partages réseaux sociaux reçoivent un titre/description par partie/clan.
+# NB : placé APRÈS le bloc gate dev — sur dev.thefronthub.com la porte
+# continue d'intercepter ces pages (dev noindex) ; la prod (thefronthub.com)
+# n'a pas de gate → réécriture active.
+RewriteRule ^game\.html$ game-view.php [L]
+RewriteRule ^clan\.html$ clan-view.php [L]

@@ -76,6 +76,22 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
     gout(['ok' => true]);
 }
 
+/* ── Audit P0-2 (2026-10) : garde admin pour les routes diagnostiques ──────
+ * status / synclog exposaient publiquement l'état interne de la base et du
+ * cycle de synchronisation. Ces routes ne servent AUCUN page du front :
+ * on les verrouille sur une session Discord site avec role = admin
+ * (helpers.php : current_user(), chargé via config.php).
+ * Devient 403 JSON pour tout visiteur externe. */
+function tfh_route_admin_only(PDO $pdo): bool
+{
+    try {
+        $user = current_user($pdo);
+        return is_array($user) && (($user['role'] ?? '') === 'admin');
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
 /* ── v5.15 — Motifs (patterns) OpenFront : bitmaps pour rendu canvas ──
  * Le catalogue officiel (api.openfront.io/cosmetics.json) porte, pour chaque
  * motif, un champ `pattern` = bitmap base64url (cf. PatternDecoder.ts côté
@@ -842,19 +858,46 @@ case 'maps': {
     header('Cache-Control: public, max-age=600');
     $scope = (string)($_GET['scope'] ?? 'speedrun');
     if ($scope === 'all') {
-        $st = $pdo->query('SELECT game_map, COUNT(*) AS games, AVG(duration_s) AS avg_duration,
-                MAX(num_players) AS max_players
-            FROM tfh_g_games WHERE game_map IS NOT NULL
-            GROUP BY game_map ORDER BY games DESC LIMIT 200');
+        /* v5.19 — stats de cartes (maps) alimentées par la collecte continue
+         * (cron games-sync) : les compteurs cumulent 24/7 côté serveur, donc
+         * un visiteur qui arrive voit TOUS les totaux accumulés, pas seulement
+         * ce qui s'est passé pendant sa visite.
+         *   &period=all|7d|24h  (défaut all)   fenêtre sur started_at
+         * Réponse enrichie : players (somme), share %, totalGames, newestGame
+         * (dernière partie collectée = preuve que la collecte tourne). */
+        $period = (string)($_GET['period'] ?? 'all');
+        $where = 'game_map IS NOT NULL';
+        if ($period === '24h')      $where .= ' AND started_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY';
+        elseif ($period === '7d')   $where .= ' AND started_at >= UTC_TIMESTAMP() - INTERVAL 7 DAY';
+        elseif ($period === '30d')  $where .= ' AND started_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY';
+        else                        $period = 'all';
+        $st = $pdo->query("SELECT game_map, COUNT(*) AS games, AVG(duration_s) AS avg_duration,
+                MAX(num_players) AS max_players, SUM(num_players) AS players
+            FROM tfh_g_games WHERE $where
+            GROUP BY game_map ORDER BY games DESC LIMIT 200");
         $maps = [];
+        $sumGames = 0;
         foreach ($st->fetchAll() as $m) {
+            $g = (int)$m['games'];
+            $sumGames += $g;
             $maps[] = [
-                'map' => (string)$m['game_map'], 'games' => (int)$m['games'],
+                'map' => (string)$m['game_map'], 'games' => $g,
                 'avgDurationS' => $m['avg_duration'] !== null ? (int)round((float)$m['avg_duration']) : null,
                 'maxPlayers' => $m['max_players'] !== null ? (int)$m['max_players'] : null,
+                'players' => $m['players'] !== null ? (int)$m['players'] : null,
             ];
         }
-        json_out(['ok' => true, 'scope' => 'all', 'maps' => $maps]);
+        /* parts calculées côté client par rapport à $sumGames (cartes listées) */
+        $tot = $pdo->query('SELECT COUNT(*) AS g, MAX(started_at) AS newest,
+                (SELECT COUNT(*) FROM tfh_g_games WHERE started_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY) AS g24,
+                (SELECT COUNT(*) FROM tfh_g_games WHERE started_at >= UTC_TIMESTAMP() - INTERVAL 7 DAY) AS g7
+            FROM tfh_g_games')->fetch();
+        json_out(['ok' => true, 'scope' => 'all', 'period' => $period, 'maps' => $maps,
+            'listedGames' => $sumGames,
+            'totalGames' => (int)$tot['g'],
+            'totalGames24h' => (int)$tot['g24'],
+            'totalGames7d' => (int)$tot['g7'],
+            'newestGame' => $tot['newest'] !== null ? (string)$tot['newest'] : null]);
     }
     $category = (string)($_GET['category'] ?? 'normal');
     if (!in_array($category, ['normal', 'compact'], true)) gfail(400, 'bad_category');
@@ -870,7 +913,47 @@ case 'maps': {
 }
 
 /* ── État de la base (admin / widgets) ───────────────────────────────────── */
+case 'totals': {
+    /* v5.22 — Compteurs publics pour la page d'accueil (« Parties en base »).
+     * COUNT(*) sur des millions de lignes = trop cher à chaque visite →
+     * cache fichier 5 min hors webroot (~/.tfs_cache, même philosophie que
+     * tfh_patterns_map). Aucun compteur interne sensible exposé. */
+    header('Cache-Control: public, max-age=120');
+    $cacheDir = (getenv('HOME') ?: sys_get_temp_dir()) . '/.tfs_cache';
+    $cacheFile = $cacheDir . '/games_totals.json';
+    $data = null;
+    if (is_file($cacheFile) && (time() - (int)filemtime($cacheFile)) < 300) {
+        $data = json_decode((string)@file_get_contents($cacheFile), true);
+    }
+    if (!is_array($data)) {
+        $row = $pdo->query('SELECT
+            (SELECT COUNT(*) FROM tfh_g_games) AS games,
+            (SELECT COUNT(*) FROM tfh_g_games WHERE game_type = \'Public\') AS public_games,
+            (SELECT COUNT(*) FROM tfh_g_games WHERE speedrun_category IS NOT NULL) AS speedruns,
+            (SELECT COUNT(*) FROM tfh_g_games WHERE started_at >= NOW() - INTERVAL 1 DAY) AS last24h,
+            (SELECT COUNT(*) FROM tfh_g_players WHERE deleted_at IS NULL) AS players')->fetch();
+        $data = [
+            'ok'          => true,
+            'games'       => (int)$row['games'],
+            'publicGames' => (int)$row['public_games'],
+            'speedruns'   => (int)$row['speedruns'],
+            'last24h'     => (int)$row['last24h'],
+            'players'     => (int)$row['players'],
+            'generatedAt' => time(),
+        ];
+        if (!is_dir($cacheDir)) @mkdir($cacheDir, 0700, true);
+        @file_put_contents($cacheFile, json_encode($data), LOCK_EX);
+    }
+    json_out($data);
+}
+
 case 'status': {
+    /* Audit P0-2 : route diagnostique réservée aux admins (session Discord
+     * site avec role=admin). Aucune page du front ne la consomme — verrou
+     * anti-exposition publique des compteurs internes (curseurs, 429…). */
+    if (!tfh_route_admin_only($pdo)) {
+        gfail(403, 'forbidden', 'Route réservée aux administrateurs.');
+    }
     header('Cache-Control: public, max-age=60');
     $cnt = $pdo->query('SELECT
         (SELECT COUNT(*) FROM tfh_g_games) AS games,
@@ -1444,6 +1527,11 @@ case 'playercosmetics': {
 
 /* ── v5.12 : diagnostic — dernières lignes du log de sync ────────────────── */
 case 'synclog': {
+    /* Audit P0-2 : log de synchronisation interne (IP, débits, erreurs) —
+     * strictement réservé aux administrateurs du site. */
+    if (!tfh_route_admin_only($pdo)) {
+        gfail(403, 'forbidden', 'Route réservée aux administrateurs.');
+    }
     $f = __DIR__ . '/games-sync.log';
     $lines = [];
     if (is_readable($f)) {

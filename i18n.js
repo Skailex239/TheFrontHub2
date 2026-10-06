@@ -161,6 +161,32 @@ const translations = {
     "map.World": "Monde",
     "map.World Rotated": "Monde inversé",
     "map.Yenisei": "Iénisseï",
+    "map.Bab el-Mandeb Strait": "Détroit de Bab-el-Mandeb",
+    "map.Balkhash": "Lac Balkhach",
+    "map.Baltics": "Pays baltes",
+    "map.Canary Islands": "Îles Canaries",
+    "map.Cape Cod": "Cap Cod",
+    "map.Cape Of Good Hope": "Cap de Bonne-Espérance",
+    "map.Central America": "Amérique centrale",
+    "map.Channel Islands": "Îles Anglo-Normandes",
+    "map.Clearwater Lakes": "Lacs Clearwater",
+    "map.Crimea": "Crimée",
+    "map.Finger Lakes": "Lacs Finger",
+    "map.France": "France",
+    "map.Gulf Of Guinea": "Golfe de Guinée",
+    "map.Gulf Of Mexico": "Golfe du Mexique",
+    "map.Hecate Strait": "Détroit d'Hecate",
+    "map.Horn Of Africa": "Corne de l'Afrique",
+    "map.Las Vegas Strip": "Strip de Las Vegas",
+    "map.Madagascar": "Madagascar",
+    "map.New Zealand": "Nouvelle-Zélande",
+    "map.Pulicat Lake": "Lac Pulicat",
+    "map.Qing China": "Chine des Qing",
+    "map.Rio de Janeiro": "Rio de Janeiro",
+    "map.Sol": "Sol",
+    "map.Vancouver Island": "Île de Vancouver",
+    "map.Vietnam": "Viêt Nam",
+    "map.Yangtze River": "Fleuve Yangtsé",
     "nav.profile": "Profil",
     "profile.my_profile": "Mon profil",
     "profile.logout": "Se déconnecter",
@@ -575,7 +601,10 @@ function t(key, params = {}) {
   const dict = translations[currentLanguage] || translations.fr;
   let text = dict[key] ?? (translations.fr[key] ?? key);
   for (const [k, v] of Object.entries(params)) {
-    text = text.replace(`{${k}}`, v);
+    // v5.29 — split/join : remplace TOUTES les occurrences du placeholder
+    // (l'ancien replace() ne traitait que la 1re — « {n} partie{s} masquée{s} »
+    // laissait un {s} brut à l'écran).
+    text = text.split(`{${k}}`).join(v);
   }
   return text;
 }
