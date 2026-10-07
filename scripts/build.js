@@ -62,6 +62,8 @@ const targets = [
   { entry: "chat-widget.js", out: "chat-widget.min.js", bundled: false },
   { entry: "tournois.js",    out: "tournois.min.js",     bundled: true },
   { entry: "runs.js",        out: "runs.min.js",         bundled: false },
+  // v5.35 — page « Classé » 1v1/2v2 (module ES, importe skins.js → bundled)
+  { entry: "classe.js",      out: "classe.min.js",       bundled: true },
   // Bloc « Historique TheFrontHub » (pré-profils par publicId) — autonome
   { entry: "preprofile.js",  out: "preprofile.min.js",   bundled: false },
   // Standalone scripts (just minified)
