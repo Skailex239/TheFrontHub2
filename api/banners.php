@@ -16,6 +16,7 @@ declare(strict_types=1);
 
 define('TFH_API', true);
 require __DIR__ . '/config.php';
+require_once __DIR__ . '/profile-cache.php'; // v5.36 invalidation cache profils
 
 function valid_banner_id(string $id): bool
 {
@@ -154,6 +155,8 @@ try {
         }
 
         $pdo->commit();
+        /* v5.36 — le payload pré-généré embarque la vitrine (bannières actives) */
+        tfh_profile_cache_invalidate((string) $publicId);
         json_out(['ok' => true, 'activeBannerId' => $bannerId === 'none' ? null : $bannerId]);
     }
 

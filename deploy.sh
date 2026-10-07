@@ -82,6 +82,7 @@ rsync -a --delete \
   --exclude='*.json.gz' \
   --exclude='player-data' \
   --exclude='player-stats' \
+  --exclude='/profile-cache' \
   --exclude='src' \
   --exclude='tests' \
   --exclude='scripts' \
@@ -194,6 +195,7 @@ if git ls-remote --heads origin dev 2>/dev/null | grep -q "refs/heads/dev"; then
       --exclude='*.json.gz' \
       --exclude='player-data' \
       --exclude='player-stats' \
+      --exclude='/profile-cache' \
       --exclude='src' \
       --exclude='tests' \
       --exclude='scripts' \

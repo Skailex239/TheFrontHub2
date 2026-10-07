@@ -2998,3 +2998,20 @@ state_set($pdo, 'of_rate_cur', (string)round($OF_RATE, 2));
 state_set($pdo, 'of_429_total', (string)((int)state_get($pdo, 'of_429_total', '0') + $OF_STATS['r429']));
 state_set($pdo, 'of_err_total', (string)((int)state_get($pdo, 'of_err_total', '0') + $OF_STATS['err']));
 log_line("[fin] $totalIngested partie(s) ingérée(s) — $windowsDone fenêtre(s) backfill — HTTP ok:{$OF_STATS['ok']} 429:{$OF_STATS['r429']} err:{$OF_STATS['err']} — débit détail " . round($OF_RATE, 1) . '/s — backfill ' . ($done ? 'TERMINÉ' : 'en cours (' . gmdate('Y-m-d', intdiv($cursor, 1000)) . ')'));
+
+// 9) v5.36 — Pré-génération des profils consultés/actifs (cache fichier).
+// Sous-processus budgeté (25 s) : la route route=profile servira ensuite les
+// payloads en quelques ms → profils qui s'affichent instantanément.
+// Jamais bloquant : tout échec est silencieux (le warm logue lui-même).
+try {
+    if (function_exists('log_line')) {
+        log_line('[warm] pré-génération des profils (budget 25 s)…');
+    }
+    $warmPhp = (PHP_BINARY && PHP_BINARY !== '') ? PHP_BINARY : 'php';
+    $warmLog = __DIR__ . '/games-sync.log';
+    @shell_exec(
+        escapeshellarg($warmPhp) . ' ' . escapeshellarg(__DIR__ . '/profile-warm.php')
+        . ' --budget=25'
+        . ' >> ' . escapeshellarg($warmLog) . ' 2>&1'
+    );
+} catch (Throwable $e) { /* jamais bloquant */ }

@@ -31,6 +31,8 @@ declare(strict_types=1);
 define('TFH_API', true);
 require __DIR__ . '/config.php';
 require __DIR__ . '/profile-schema.php';
+/* v5.36 — invalidation du cache fichier des profils (mutation des données hub) */
+require_once __DIR__ . '/profile-cache.php';
 tfh_profile_ensure_schema($pdo);
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
@@ -260,6 +262,7 @@ if ($action === 'link_token') {
         fail(500, 'db_error', 'Erreur inattendue, reessaie.');
     }
 
+    tfh_profile_cache_invalidate((string) $tokenPid);
     $st = $pdo->prepare('SELECT UNIX_TIMESTAMP(verified_at) AS v FROM tfh_users WHERE id = ?');
     $st->execute([(int) $user['id']]);
     $vts = $st->fetchColumn();
@@ -279,6 +282,7 @@ if ($action === 'verify') {
     rate_limit($pdo, 'verify:' . (int) $user['id'] . ':' . client_ip(), 12, 3600);
     $code = (string) ($in['code'] ?? '');
     tfh_own_verify_ok($user, $code);
+    tfh_profile_cache_invalidate((string) ($user['public_id'] ?? ''));
     $st = $pdo->prepare('SELECT UNIX_TIMESTAMP(verified_at) AS v FROM tfh_users WHERE id = ?');
     $st->execute([(int) $user['id']]);
     $vts = $st->fetchColumn();
@@ -334,6 +338,7 @@ if ($action === 'details') {
         $pdo->prepare('UPDATE tfh_users SET ' . implode(', ', $sets) . ' WHERE id = ?')->execute($args);
     }
 
+    tfh_profile_cache_invalidate((string) ($user['public_id'] ?? ''));
     $st = $pdo->prepare('SELECT bio, fav_map, link_x, link_youtube, link_twitch, link_discord FROM tfh_users WHERE id = ?');
     $st->execute([(int) $user['id']]);
     $row = $st->fetch();
@@ -477,6 +482,7 @@ if ($verifyCode !== '' && $publicId !== null && $publicId !== '') {
     }
 }
 
+tfh_profile_cache_invalidate((string) ($publicId ?? ''));
 $stV = $pdo->prepare('SELECT UNIX_TIMESTAMP(verified_at) FROM tfh_users WHERE id = ?');
 $stV->execute([(int) $user['id']]);
 $verifiedAtTs = $stV->fetchColumn();

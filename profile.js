@@ -380,6 +380,79 @@ onAuthStateChanged(auth, async (user) => {
   loadProfileSpeedruns(profile.publicId, true, [profile.username]);
 });
 
+/* ═════════════════════════════════════════════════════════════════════════
+   v5.36 — PAYLOAD PROFIL PARTAGÉ (affichage instantané)
+   Le payload route=profile est demandé par pf-prefetch.js (survol/visible),
+   posé en sessionStorage (tfh_pp:<pid>, 10 min) et servi par un cache fichier
+   côté serveur (profile-warm.php). Un SEUL appel réseau partagé par page :
+   renderPublicProfile, loadStats (arbre de carrière + dossier cockpit) et
+   preprofile.js réutilisent le même objet — et l'URL est identique partout
+   (limit=100) pour que le cache HTTP du navigateur dédoublonne.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const PROFILE_PAYLOAD_TTL = 10 * 60 * 1000;
+const PROFILE_PAYLOAD_URL = (pid) => "/api/games-api.php?route=profile&publicId=" + encodeURIComponent(pid) + "&limit=100";
+let _profilePayloadState = { pid: null, promise: null };
+
+function profilePayloadFromSession(pid) {
+  try {
+    const raw = sessionStorage.getItem("tfh_pp:" + pid);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (!p || !p.p || Date.now() - (p.t || 0) > PROFILE_PAYLOAD_TTL) return null;
+    return p.p;
+  } catch (e) { return null; }
+}
+
+function profilePayloadToSession(pid, payload) {
+  try {
+    const json = JSON.stringify({ t: Date.now(), p: payload });
+    if (json.length <= 300 * 1024) sessionStorage.setItem("tfh_pp:" + pid, json);
+  } catch (e) { /* quota / navigation privée — silencieux */ }
+}
+
+/** Payload route=profile du joueur : sessionStorage → promesse partagée → fetch. */
+function getProfilePayload(publicId) {
+  if (!publicId) return Promise.resolve(null);
+  if (_profilePayloadState.pid === publicId && _profilePayloadState.promise) {
+    return _profilePayloadState.promise;
+  }
+  const cached = profilePayloadFromSession(publicId);
+  if (cached) {
+    window.__tfhProfilePayload = cached; // partagé avec preprofile.js
+    return Promise.resolve(cached);
+  }
+  const promise = fetch(PROFILE_PAYLOAD_URL(publicId), { cache: "default" })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((j) => {
+      if (j && j.ok) {
+        window.__tfhProfilePayload = j;
+        profilePayloadToSession(publicId, j);
+        return j;
+      }
+      return null;
+    })
+    .catch(() => null);
+  _profilePayloadState = { pid: publicId, promise };
+  return promise;
+}
+
+/** Convertit les dernières parties du payload route=profile en échantillon
+ *  au format API OpenFront (entrée de buildLiveStatsFromData). */
+function payloadRecentSample(payload) {
+  const rows = Array.isArray(payload?.stats?.recentGames) ? payload.stats.recentGames : [];
+  return rows.map((g) => ({
+    gameId: g.id,
+    start: g.startedAt ? new Date(g.startedAt).toISOString() : null,
+    map: g.map || "",
+    mode: g.mode || "",
+    rankedType: g.rankedType || null,
+    result: g.won === true ? "victory" : (g.won === false ? "defeat" : "incomplete"),
+    durationSeconds: typeof g.durationS === "number" ? g.durationS : 0,
+    totalPlayers: g.numPlayers ?? null,
+  }));
+}
+
 /**
  * Affiche le profil PUBLIC d'un autre joueur (ou le sien propre si visité via URL).
  * Masque le bouton de déconnexion, neutralise les actions d'édition, et applique
@@ -435,13 +508,13 @@ function renderPublicProfile(username, publicId) {
   // la carte codes — aucune action d'édition possible sur un profil public.
   setEditingAllowed(false);
 
-  // v5.13 — Données serveur du profil consulté (verified + bio/map/liens) :
-  // une seule requête GET (cache 60 s) peint tout le bloc identité.
+  // v5.13/v5.36 — Données serveur du profil consulté (verified + bio/map/liens) :
+  // payload PARTAGÉ (pré-chargé par pf-prefetch au survol, sessionStorage, ou
+  // fetch unique) → le bloc identité peint dès que le payload est en main.
   if (publicId) {
-    fetch("/api/games-api.php?route=profile&publicId=" + encodeURIComponent(publicId), { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
+    getProfilePayload(publicId)
       .then((j) => {
-        if (!j || !j.ok) return;
+        if (!j) return;
         if (viewingPublicId !== publicId) return; // l'utilisateur a changé de profil entre-temps
         if (window.TFHVerified && j.verified) window.TFHVerified.markVerified(publicId);
         const vEl = document.getElementById("profile-verified");
@@ -1188,16 +1261,13 @@ async function loadShowcase(publicId) {
   if (!root || !publicId) return;
   const seq = ++_showcaseSeq;
   try {
-    const res = await fetch(
-      "/api/games-api.php?route=profile&publicId=" + encodeURIComponent(publicId) + "&limit=1",
-      { cache: "no-store" }
-    );
-    if (!res.ok) {
+    // v5.36 — payload partagé (prefetch/sessionStorage/cache serveur), plus de
+    // requête dédiée : la vitrine peint avec les données déjà en main.
+    const j = await getProfilePayload(publicId);
+    if (!j || seq !== _showcaseSeq) {
       if (seq === _showcaseSeq) { root.hidden = true; root.innerHTML = ""; }
       return;
     }
-    const j = await res.json().catch(() => null);
-    if (!j?.ok || seq !== _showcaseSeq) return;
     renderShowcaseFromData(j);
   } catch (e) {
     if (seq === _showcaseSeq) { root.hidden = true; }
@@ -1419,18 +1489,31 @@ async function loadStats(publicId) {
   // Kick off ELO lookup (ranked.json) in parallel
   const eloPromise = getRankedEntry(publicId);
 
-  // Kick off recent games fetch in parallel (separate endpoint)
-  // /public/player/{id} returns aggregated stats only (no games array).
-  // /public/player/{id}/games returns the actual recent games list with
-  // result (victory/defeat) already included — no need for per-game fetch.
-  const recentGamesPromise = fetchRecentGames(publicId);
+  // v5.36 — payload PRÉ-GÉNÉRÉ d'abord (pf-prefetch/sessionStorage/cache
+  // fichier serveur) : s'il embarque l'arbre de carrière officiel, on n'appelle
+  // PLUS l'API OpenFront ici — plus de 1-3 s de latence ni d'échec 503.
+  const payloadPromise = getProfilePayload(publicId);
+  payloadPromise.catch(() => {});
+  const payload = await payloadPromise;
+
+  // Kick off recent games fetch in parallel (separate endpoint) — UNIQUEMENT
+  // sans payload : la liste ne sert plus qu'à retarder renderWeeklyChart
+  // (v5.15), et le dossier cockpit vient désormais du payload.
+  const recentGamesPromise = payload?.official ? Promise.resolve([]) : fetchRecentGames(publicId);
   // Supprime la rejection non-gérée si on retourne avant (publicId invalide).
   recentGamesPromise.catch(() => {});
 
   let playerData = null;
-  try {
-    playerData = await fetchOpenFront(`/public/player/${encodeURIComponent(publicId)}`);
-  } catch (e) {
+  if (payload?.official?.stats) {
+    playerData = {
+      username: payload.official.username || payload.player?.lastUsername || publicId,
+      stats: payload.official.stats,
+    };
+  }
+  if (!playerData) {
+    try {
+      playerData = await fetchOpenFront(`/public/player/${encodeURIComponent(publicId)}`);
+    } catch (e) {
     console.error("[profile] OpenFront API error:", e);
     if (e?.isNotFound || e?.status === 404) {
       // Identifiant invalide : rien à afficher (le dossier pré-calculé ne
@@ -1447,6 +1530,7 @@ async function loadStats(publicId) {
     // fallback live (avant : return → profil réduit au nom, même pour les
     // joueurs suivis dont le fichier player-stats existait).
     showError(T("pf.stats_load_fail", "Impossible de charger les statistiques depuis l'API OpenFront."));
+    } // catch
   }
 
   if (!playerData) {
@@ -3061,6 +3145,32 @@ async function loadAllGamesForStats(publicId, playerData) {
     console.warn("[profile] Could not load pre-computed stats file:", e.message);
   }
 
+  // ── v5.36 : dossier depuis le PAYLOAD PRÉ-GÉNÉRÉ (0 appel réseau) ──
+  // Totaux de carrière exacts (arbre officiel embarqué) + échantillon des ~100
+  // dernières parties archivées en DB (cartes, activité, séries). Instantané :
+  // le payload est déjà en mémoire (prefetch au survol / sessionStorage).
+  try {
+    const payloadStats = await getProfilePayload(publicId); // promesse partagée — déjà résolue si loadStats l'a demandée
+    if (payloadStats?.official?.stats) {
+      const sample = payloadRecentSample(payloadStats);
+      const dossier = buildLiveStatsFromData(
+        publicId,
+        payloadStats.official.stats,
+        sample,
+        playerData?.username || payloadStats.official.username || payloadStats.player?.lastUsername || null
+      );
+      if (dossier) {
+        if (runSeq !== _statsRunSeq) { _allGamesLoading = false; return; }
+        if (mount) mount.innerHTML = "";
+        renderPrecomputedStats(dossier, mount);
+        _allGamesLoading = false;
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn("[profile] payload dossier failed:", e?.message);
+  }
+
   // ── Fallback v5.15 : calcul LIVE côté navigateur ──
   // Le dossier pré-calculé n'existe que pour les joueurs suivis par le
   // pipeline CI (sync-players.json). Pour tout autre joueur on construit
@@ -3207,6 +3317,19 @@ async function buildLiveStatsFromApi(publicId, playerData) {
     console.warn("[profile] games sample failed:", e.message);
   }
 
+  return buildLiveStatsFromData(publicId, tree, sample, playerData?.username || null);
+}
+
+/**
+ * v5.36 — Agrégation PURE (aucun réseau), corps historique de
+ * buildLiveStatsFromApi : totaux de carrière exacts depuis l'arbre officiel +
+ * détail (cartes, activité, séries, playtime estimé) depuis l'échantillon.
+ * Partagée par le fallback live OpenFront ET le dossier instantané construit
+ * depuis le payload pré-généré (échantillon = dernières parties de la DB site).
+ */
+function buildLiveStatsFromData(publicId, tree, sample, username) {
+  if (!tree || typeof tree !== "object") return null;
+  sample = Array.isArray(sample) ? sample : [];
   const cats = walkCareerTree(tree);
   const totalWins = cats.ffaCasual.wins + cats.ffaRanked.wins + cats.teamCasual.wins + cats.teamRanked.wins;
   const totalGames = cats.ffaCasual.total + cats.ffaRanked.total + cats.teamCasual.total + cats.teamRanked.total;
@@ -3321,7 +3444,7 @@ async function buildLiveStatsFromApi(publicId, playerData) {
 
   return {
     publicId,
-    username: playerData?.username || null,
+    username: username || null,
     computedAt: new Date().toISOString(),
     lastSyncedAt: new Date().toISOString(),
     isSample: true,
