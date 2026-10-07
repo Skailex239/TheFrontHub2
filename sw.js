@@ -15,7 +15,7 @@
 //   - On next visit: user sees fresh data, still instantly
 //   - Works even on flaky 3G
 
-const CACHE_NAME = 'thefronthub-v109';
+const CACHE_NAME = 'thefronthub-v110';
 const CACHE_IMMUTABLE = 'thefronthub-imm-v52';
 const SWR_MAX_AGE_MS = 30 * 60 * 1000;  // 30 min — consider cache fresh this long
 
@@ -51,6 +51,7 @@ const STATIC_ASSETS = [
   // Minified JS bundles
   '/dist/app.min.js',
   '/dist/profile.min.js',
+  '/dist/pf-prefetch.min.js',
   '/dist/dashboard.min.js',
   '/dist/atlas.min.js',
   '/dist/tournois.min.js',

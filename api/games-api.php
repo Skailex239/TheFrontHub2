@@ -33,6 +33,8 @@ declare(strict_types=1);
 define('TFH_API', 1);
 require __DIR__ . '/config.php';
 require_once __DIR__ . '/profile-schema.php';
+/* v5.36 — Cache fichier + constructeur de payload partagé (profile-warm.php) */
+require_once __DIR__ . '/profile-payload.php';
 tfh_profile_ensure_schema($pdo);
 
 /* v5 : les nouvelles tables (ratings, cosmétiques, replay, clans) sont créées
@@ -90,100 +92,6 @@ function tfh_route_admin_only(PDO $pdo): bool
     } catch (Throwable $e) {
         return false;
     }
-}
-
-/* ── v5.15 — Motifs (patterns) OpenFront : bitmaps pour rendu canvas ──
- * Le catalogue officiel (api.openfront.io/cosmetics.json) porte, pour chaque
- * motif, un champ `pattern` = bitmap base64url (cf. PatternDecoder.ts côté
- * OpenFrontIO). Le site stocke le catalogue en BDD SANS ce base64 (volume) ;
- * ce helper le résout via TROIS sources en cascade :
- *   1) cache fichier 24 h HORS webroot (~/.tfs_cache — même philosophie que
- *      les secrets) ;
- *   2) fetch direct du catalogue officiel avec en-têtes navigateur ;
- *   3) snapshot embarqué data/of-patterns.json (relevé du 2026-09-28) —
- *      indispensable car Cloudflare 403-ise /cosmetics.json depuis certaines
- *      IP datacenter (o2switch inclus, cf. catalog_phase dans games-sync.php).
- * Échec total = tableau vide : la vitrine retombe proprement sur l'icône de
- * catégorie (comportement d'avant la v5.15), la route ne doit JAMAIS échouer
- * pour un motif. Cache négatif 1 h (patterns:[]) : jamais d'appel réseau par
- * requête quand l'API est bloquée, tout en se ré-healisant tout seul. */
-function tfh_patterns_map(): array
-{
-    static $map = null;
-    if ($map !== null) return $map;
-    $map = [];
-
-    $cacheDir = (getenv('HOME') ?: sys_get_temp_dir()) . '/.tfs_cache';
-    if (!is_dir($cacheDir)) { @mkdir($cacheDir, 0700, true); }
-    $cacheFile = $cacheDir . '/tfh-of-patterns.json';
-
-    /* 1) Cache frais ? (24 h plein, 1 h si cache négatif vide) */
-    if (is_readable($cacheFile)) {
-        $dec = json_decode((string) @file_get_contents($cacheFile), true);
-        if (is_array($dec) && isset($dec['fetched_at'], $dec['patterns']) && is_array($dec['patterns'])) {
-            $ttl = $dec['patterns'] !== [] ? 24 * 3600 : 3600;
-            if (time() - (int) $dec['fetched_at'] < $ttl) {
-                $map = $dec['patterns'];
-                return $map;
-            }
-        }
-    }
-
-    /* 2) Catalogue officiel (en-têtes navigateur — cf. of_fetch_browser). */
-    $fetched = time();
-    $ch = curl_init('https://api.openfront.io/cosmetics.json');
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_CONNECTTIMEOUT => 4,
-        CURLOPT_TIMEOUT        => 15,
-        CURLOPT_ENCODING       => '',
-        CURLOPT_HTTPHEADER     => [
-            'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-            'Accept: application/json, text/plain, */*',
-            'Accept-Language: en-US,en;q=0.9',
-            'Referer: https://openfront.io/',
-        ],
-    ]);
-    $body   = curl_exec($ch);
-    $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-    curl_close($ch);
-
-    if ($status === 200 && is_string($body) && $body !== '') {
-        $dec = json_decode($body, true);
-        if (is_array($dec) && isset($dec['patterns']) && is_array($dec['patterns'])) {
-            foreach ($dec['patterns'] as $name => $item) {
-                if (is_string($name) && is_array($item) && isset($item['pattern']) && is_string($item['pattern'])) {
-                    // garde-fou volume : le schéma OpenFront limite patternData à 1403 chars
-                    if (strlen($item['pattern']) <= 1500) {
-                        $map[$name] = $item['pattern'];
-                    }
-                }
-            }
-        }
-    }
-
-    /* 3) Snapshot embarqué (filet de sécurité déterministe). */
-    if ($map === []) {
-        $snap = @file_get_contents(__DIR__ . '/../data/of-patterns.json');
-        if (is_string($snap) && $snap !== '') {
-            $dec = json_decode($snap, true);
-            if (is_array($dec) && isset($dec['patterns']) && is_array($dec['patterns'])) {
-                foreach ($dec['patterns'] as $name => $b64) {
-                    if (is_string($name) && is_string($b64) && $b64 !== '') {
-                        $map[$name] = $b64;
-                    }
-                }
-            }
-        }
-    }
-
-    /* Écriture du cache : 24 h si API OK, 1 h sinon (auto-ré-heal). */
-    @file_put_contents(
-        $cacheFile,
-        json_encode(['fetched_at' => $fetched, 'patterns' => $map], JSON_UNESCAPED_SLASHES),
-        LOCK_EX
-    );
-    return $map;
 }
 
 $route = (string)($_GET['route'] ?? '');
@@ -340,285 +248,36 @@ case 'speedruns': {
     json_out(['ok' => true, 'runs' => $runs, 'games_total' => $gamesTotal]);
 }
 
-/* ── Pré-profil d'un joueur (par publicId) ───────────────────────────────── */
+/* ── Pré-profil d'un joueur (par publicId) ─────────────────────────────────
+ * v5.36 — CACHE FICHIER : le payload complet est pré-généré pour les joueurs
+ * pertinents par api/profile-warm.php (cron) et stocké dans profile-cache/.
+ * Ici : lecture fichier (~qq ms) si le cache est frais, sinon calcul (corps
+ * extrait vers api/profile-payload.php — code unique partagé avec le warm)
+ * puis écriture du cache. &refresh / &nocache court-circuitent la lecture. */
 case 'profile': {
     header('Cache-Control: public, max-age=60');
     $pid = (string)($_GET['publicId'] ?? '');
     if (!preg_match('/^[A-Za-z0-9]{6,16}$/', $pid)) gfail(400, 'bad_public_id');
 
-    $st = $pdo->prepare('SELECT *, UNIX_TIMESTAMP(last_seen) AS last_seen_ts, UNIX_TIMESTAMP(first_seen) AS first_seen_ts FROM tfh_g_players WHERE public_id = ?');
-    $st->execute([$pid]);
-    $p = $st->fetch();
-    if ($p === false) gfail(404, 'player_not_found');
+    /* Popularité (alimente la priorité de pré-génération du cron) — jamais bloquant. */
+    tfh_profile_count_view($pdo, $pid);
 
-    // Alias (pseudos connus, du plus utilisé au moins utilisé)
-    $al = $pdo->prepare('SELECT u.username, a.times_used, UNIX_TIMESTAMP(a.last_seen) AS last_seen_ts
-        FROM tfh_g_aliases a JOIN tfh_g_usernames u ON u.id = a.username_id
-        WHERE a.public_id = ? ORDER BY a.times_used DESC LIMIT 25');
-    $al->execute([$pid]);
-    $aliases = [];
-    foreach ($al->fetchAll() as $a) {
-        $aliases[] = ['username' => (string)$a['username'], 'timesUsed' => (int)$a['times_used'], 'lastSeen' => (int)$a['last_seen_ts']];
+    $bypassCache = isset($_GET['refresh']) || isset($_GET['nocache']);
+    if (!$bypassCache && ($cached = tfh_profile_cache_read($pid)) !== null) {
+        gout($cached);
     }
 
-    // Stats par mode / ranked
-    $bm = $pdo->prepare("SELECT g.game_mode, g.ranked_type, COUNT(*) AS games, SUM(r.won) AS wins
-        FROM tfh_g_roster r JOIN tfh_g_games g ON g.game_id = r.game_id
-        WHERE r.public_id = ? GROUP BY g.game_mode, g.ranked_type");
-    $bm->execute([$pid]);
-    $byMode = [];
-    foreach ($bm->fetchAll() as $m) {
-        $byMode[] = [
-            'mode' => $m['game_mode'], 'rankedType' => $m['ranked_type'],
-            'games' => (int)$m['games'], 'wins' => (int)$m['wins'],
-            'winRate' => (int)$m['games'] > 0 ? round((int)$m['wins'] / (int)$m['games'], 4) : null,
-        ];
-    }
-
-    // Top cartes
-    $bmp = $pdo->prepare('SELECT g.game_map, COUNT(*) AS games, SUM(r.won) AS wins
-        FROM tfh_g_roster r JOIN tfh_g_games g ON g.game_id = r.game_id
-        WHERE r.public_id = ? AND g.game_map IS NOT NULL
-        GROUP BY g.game_map ORDER BY games DESC LIMIT 10');
-    $bmp->execute([$pid]);
-    $byMap = [];
-    foreach ($bmp->fetchAll() as $m) {
-        $byMap[] = ['map' => (string)$m['game_map'], 'games' => (int)$m['games'], 'wins' => (int)$m['wins']];
-    }
-
-    // Dernières parties (avec résultat personnel + roster complet en option)
-    $rg = $pdo->prepare(GAMES_SELECT . ' JOIN tfh_g_roster r ON r.game_id = g.game_id AND r.public_id = ?
-        ORDER BY g.started_at DESC LIMIT ?');
-    $rg->bindValue(1, $pid);
-    $rg->bindValue(2, min($limit, 100), PDO::PARAM_INT);
-    $rg->execute();
-    $recentGames = [];
-    foreach ($rg->fetchAll() as $r) {
-        $g = game_row($r);
-        unset($g['winner']);
-        $g['won'] = (bool)$r['won'];
-        $g['clientId'] = (string)$r['client_id'];
-        $recentGames[] = $g;
-    }
-
-    // Meilleurs speedruns du joueur (par catégorie)
-    $bs = $pdo->prepare("SELECT g.game_id, g.speedrun_category, g.speedrun_duration_s, g.game_map,
-            UNIX_TIMESTAMP(g.started_at) AS started_ts
-        FROM tfh_g_roster r JOIN tfh_g_games g ON g.game_id = r.game_id
-        WHERE r.public_id = ? AND g.speedrun_category IS NOT NULL AND r.won = 1
-        ORDER BY g.speedrun_duration_s ASC LIMIT 20");
-    $bs->execute([$pid]);
-    $bestSpeedruns = [];
-    foreach ($bs->fetchAll() as $s) {
-        $bestSpeedruns[] = [
-            'id' => (string)$s['game_id'], 'category' => (string)$s['speedrun_category'],
-            'durationS' => (int)$s['speedrun_duration_s'], 'map' => (string)$s['game_map'],
-            'startedAt' => (int)$s['started_ts'],
-        ];
-    }
-
-    // v5 : ratings Glicko-2, cosmétiques portés, clans (graceful si tables absentes)
-    $ratings = []; $cosmetics = []; $clans = [];
-    if ($V5_READY) {
-    $rt2 = $pdo->prepare('SELECT board, rating, rd, games, wins, peak, peak_at
-        FROM tfh_g_ratings WHERE public_id = ? ORDER BY rating DESC');
-    $rt2->execute([$pid]);
-    foreach ($rt2->fetchAll() as $x) {
-        $ratings[] = [
-            'board' => (string)$x['board'], 'rating' => round((float)$x['rating'], 1),
-            'rd' => round((float)$x['rd'], 1), 'games' => (int)$x['games'], 'wins' => (int)$x['wins'],
-            'peak' => round((float)$x['peak'], 1),
-            'peakAt' => $x['peak_at'] !== null ? (int)strtotime((string)$x['peak_at']) : null,
-        ];
-    }
-
-    // v5 : cosmétiques portés (reliés au catalogue)
-    $cw = $pdo->prepare('SELECT w.category, w.name, w.times_worn, w.first_worn, w.last_worn,
-            c.rarity, c.price_hard, c.url, c.display_name
-        FROM tfh_g_cosmetic_wearers w LEFT JOIN tfh_g_cosmetics c ON c.category = w.category AND c.name = w.name
-        WHERE w.public_id = ? ORDER BY w.times_worn DESC LIMIT 60');
-    $cw->execute([$pid]);
-    /* v5.15 : bitmaps des motifs (une seule lecture du cache catalogue pour la
-     * boucle — jamais d'appel réseau par cosmétique). */
-    $patternsMap = [];
-    foreach ($cw->fetchAll() as $x) {
-        $item = [
-            'category' => (string)$x['category'], 'name' => (string)$x['name'],
-            'displayName' => $x['display_name'] !== null ? (string)$x['display_name'] : null,
-            'timesWorn' => (int)$x['times_worn'],
-            'firstWorn' => (int)strtotime((string)$x['first_worn']),
-            'lastWorn' => (int)strtotime((string)$x['last_worn']),
-            'rarity' => $x['rarity'] !== null ? (string)$x['rarity'] : null,
-            'priceHard' => $x['price_hard'] !== null ? (int)$x['price_hard'] : null,
-            'url' => $x['url'] !== null ? (string)$x['url'] : null,
-        ];
-        if ($item['category'] === 'pattern') {
-            if ($patternsMap === []) { $patternsMap = tfh_patterns_map(); }
-            $item['patternData'] = $patternsMap[$item['name']] ?? null;
-        }
-        $cosmetics[] = $item;
-    }
-
-    /* v5.14 — Vitrine cosmétiques TheFrontHub : skins/bannières possédés et
-     * actifs + statut VIP. Tables du SITE (même BDD) — défensif : une table
-     * absente (SQL pas encore passé) ne doit jamais casser la route. */
-    $hubCos = [
-        'activeSkinId' => null, 'ownedSkins' => [],
-        'activeBannerId' => null, 'ownedBanners' => [],
-        'vipType' => null, 'vipActive' => false,
-    ];
     try {
-        $hs = $pdo->prepare('SELECT skin_id, active FROM tfh_user_skins WHERE public_id = ? ORDER BY redeemed_at DESC LIMIT 100');
-        $hs->execute([$pid]);
-        foreach ($hs->fetchAll() as $r) {
-            $hubCos['ownedSkins'][] = ['skinId' => (string)$r['skin_id'], 'active' => (bool)$r['active']];
-            if ((bool)$r['active']) $hubCos['activeSkinId'] = (string)$r['skin_id'];
-        }
-    } catch (Throwable $e) { /* table absente — vitrine site vide */ }
-    try {
-        $hb = $pdo->prepare('SELECT banner_id, active FROM tfh_user_banners WHERE public_id = ? ORDER BY redeemed_at DESC LIMIT 100');
-        $hb->execute([$pid]);
-        foreach ($hb->fetchAll() as $r) {
-            $hubCos['ownedBanners'][] = ['bannerId' => (string)$r['banner_id'], 'active' => (bool)$r['active']];
-            if ((bool)$r['active']) $hubCos['activeBannerId'] = (string)$r['banner_id'];
-        }
-    } catch (Throwable $e) { /* table absente — vitrine site vide */ }
-    try {
-        $hv = $pdo->prepare('SELECT active_type, activated FROM tfh_public_rewards WHERE public_id = ? ORDER BY updated_at DESC LIMIT 1');
-        $hv->execute([$pid]);
-        $vrow = $hv->fetch();
-        if ($vrow) {
-            $hubCos['vipType'] = $vrow['active_type'] !== null ? (string)$vrow['active_type'] : null;
-            $hubCos['vipActive'] = (bool)$vrow['activated'];
-        }
-    } catch (Throwable $e) { /* table absente — pas de VIP */ }
-
-    // v5 : clans portés
-    $ct = $pdo->prepare('SELECT r.clan_tag, COUNT(*) AS games, SUM(r.won) AS wins
-        FROM tfh_g_roster r WHERE r.public_id = ? AND r.clan_tag IS NOT NULL
-        GROUP BY r.clan_tag ORDER BY games DESC LIMIT 10');
-    $ct->execute([$pid]);
-    foreach ($ct->fetchAll() as $x) {
-        $clans[] = ['tag' => (string)$x['clan_tag'], 'games' => (int)$x['games'], 'wins' => (int)$x['wins']];
+        /* Limite 100 : le cache est UNIQUE par joueur — les consommateurs qui
+         * demandent moins (limit=1/20) reçoivent un payload un peu plus riche
+         * et tronquent côté client ; en échange, le dossier cockpit client
+         * dispose d'un échantillon suffisant (fin des appels OpenFront lents). */
+        $payload = tfh_profile_payload($pdo, $pid, 100, isset($_GET['refresh']));
+    } catch (TfhProfileNotFound $e) {
+        gfail(404, 'player_not_found');
     }
-    }
-
-    /* v5.11 : profil OFFICIEL /public/player/:id — username du compte, date de
-     * création et arbre de stats complet (type→mode→difficulté, incluant
-     * Private/Singleplayer, que nos rosters ne captent pas).
-     * &refresh=1 : fetch on-demand (1 requête max/appel, cooldown 10 min). */
-    $official = null;
-    if ($V511_READY) {
-        $sp = $pdo->prepare('SELECT username, created_at, fetched_at, not_found, stats_json FROM tfh_g_profiles WHERE public_id = ?');
-        $sp->execute([$pid]);
-        $pr = $sp->fetch();
-        if ($pr !== false && (int)$pr['not_found'] === 0) {
-            $official = [
-                'username'  => $pr['username'] !== null ? (string)$pr['username'] : null,
-                'createdAt' => $pr['created_at'] !== null ? (int)strtotime((string)$pr['created_at']) : null,
-                'fetchedAt' => (int)strtotime((string)$pr['fetched_at']),
-            ];
-            $sj = $pr['stats_json'] !== null ? json_decode((string)$pr['stats_json'], true) : null;
-            if (is_array($sj)) $official['stats'] = $sj;
-        }
-        $stale = $pr === false
-            || ((int)$pr['not_found'] === 0 && (time() - (int)strtotime((string)$pr['fetched_at'])) > 600);
-        if (isset($_GET['refresh']) && $stale) {
-            $ofKey = (string)($secrets['openfront_access'] ?? '');
-            $ch = curl_init('https://api.openfront.io/public/player/' . rawurlencode($pid));
-            $hdrs = ['Accept: application/json'];
-            if ($ofKey !== '') $hdrs[] = 'x-skailex-access: ' . $ofKey;
-            curl_setopt_array($ch, [
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_CONNECTTIMEOUT => 5,
-                CURLOPT_TIMEOUT        => 12,
-                CURLOPT_HTTPHEADER     => $hdrs,
-                CURLOPT_ENCODING       => '',
-            ]);
-            $body = curl_exec($ch);
-            $stt  = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-            curl_close($ch);
-            $now2 = gmdate('Y-m-d H:i:s');
-            if ($stt === 404) {
-                $up = $pdo->prepare('INSERT INTO tfh_g_profiles (public_id, username, created_at, fetched_at, not_found)
-                    VALUES (?, NULL, NULL, ?, 1)
-                    ON DUPLICATE KEY UPDATE fetched_at = VALUES(fetched_at), not_found = 1');
-                $up->execute([$pid, $now2]);
-            } elseif ($stt === 200 && is_string($body)) {
-                $d = json_decode($body, true);
-                if (is_array($d)) {
-                    $createdAt = null;
-                    if (!empty($d['createdAt']) && ($tc = strtotime((string)$d['createdAt'])) !== false) $createdAt = gmdate('Y-m-d H:i:s', $tc);
-                    $statsJson = isset($d['stats']) && is_array($d['stats'])
-                        ? json_encode($d['stats'], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : null;
-                    $up = $pdo->prepare('INSERT INTO tfh_g_profiles (public_id, username, created_at, fetched_at, not_found, stats_json)
-                        VALUES (?,?,?,?,0,?)
-                        ON DUPLICATE KEY UPDATE username = VALUES(username), created_at = VALUES(created_at),
-                            fetched_at = VALUES(fetched_at), not_found = 0, stats_json = VALUES(stats_json)');
-                    $up->execute([
-                        $pid,
-                        isset($d['username']) && is_string($d['username']) ? mb_substr($d['username'], 0, 64) : null,
-                        $createdAt, $now2, $statsJson,
-                    ]);
-                    $official = [
-                        'username'  => isset($d['username']) && is_string($d['username']) ? (string)$d['username'] : null,
-                        'createdAt' => $createdAt !== null ? (int)strtotime($createdAt) : null,
-                        'fetchedAt' => (int)strtotime($now2),
-                    ];
-                    if (isset($d['stats']) && is_array($d['stats'])) $official['stats'] = $d['stats'];
-                }
-            }
-        }
-    }
-
-    /* v5.13 — Profil revendiqué : badge vérifié + bio / map préférée / liens.
-     * La « map préférée » affichée = choix du joueur s'il en a défini un,
-     * sinon sa carte la plus jouée (données du site, byMap[0]). */
-    $extras = tfh_profile_extras($pdo, $pid);
-    $topMapName = ($byMap[0]['map'] ?? null);
-    $favMapShown = $extras['favMap'] ?? null;
-    if ($favMapShown === null && $topMapName !== null) {
-        $favMapShown = $topMapName; // fallback calculé (non éditable)
-    }
-
-    json_out([
-        'ok' => true,
-        'player' => [
-            'publicId'    => (string)$p['public_id'],
-            'lastUsername'=> $p['last_username'],
-            'lastClanTag' => ($p['last_clan_tag'] ?? null) !== null ? (string)$p['last_clan_tag'] : null,
-            'firstSeen'   => ts_ms($p, 'first_seen_ts'),
-            'lastSeen'    => ts_ms($p, 'last_seen_ts'),
-            'gamesCount'  => (int)$p['games_count'],
-            'winsCount'   => (int)$p['wins_count'],
-            'deletedAt'   => $p['deleted_at'],
-        ],
-        'verified' => $extras['verified'] ?? false,
-        'profile' => $extras !== null ? [
-            'bio'        => $extras['bio'],
-            'favMap'     => $favMapShown,
-            'favMapUserSet' => $extras['favMap'] !== null,
-            'links'      => $extras['links'],
-            'alias'      => $extras['alias'],
-            'verifiedAt' => $extras['verifiedAt'],
-        ] : [
-            'bio' => null, 'favMap' => $favMapShown, 'favMapUserSet' => false,
-            'links' => ['x' => null, 'youtube' => null, 'twitch' => null, 'discord' => null],
-            'alias' => null, 'verifiedAt' => null,
-        ],
-        'aliases' => $aliases,
-        'ratings' => $ratings,
-        'cosmetics' => $cosmetics,
-        'hubCosmetics' => $hubCos,
-        'clans' => $clans,
-        'official' => $official,
-        'stats' => [
-            'byMode' => $byMode,
-            'byMap' => $byMap,
-            'bestSpeedruns' => $bestSpeedruns,
-            'recentGames' => $recentGames,
-        ],
-    ]);
+    tfh_profile_cache_write($pid, $payload);
+    gout($payload);
 }
 
 /* ── Recherche de joueurs (tous alias connus) ────────────────────────────── */

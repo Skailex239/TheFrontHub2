@@ -66,6 +66,8 @@ const targets = [
   { entry: "classe.js",      out: "classe.min.js",       bundled: true },
   // Bloc « Historique TheFrontHub » (pré-profils par publicId) — autonome
   { entry: "preprofile.js",  out: "preprofile.min.js",   bundled: false },
+  // v5.36 — pré-charge des profils au survol/visible (IIFE autonome)
+  { entry: "pf-prefetch.js", out: "pf-prefetch.min.js",  bundled: false },
   // Standalone scripts (just minified)
   { entry: "i18n.js",        out: "i18n.min.js",         bundled: false },
   { entry: "toast.js",       out: "toast.min.js",        bundled: false },
