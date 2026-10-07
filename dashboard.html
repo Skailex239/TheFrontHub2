@@ -27,7 +27,7 @@
 
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=94" as="style">
-<link rel="preload" href="dashboard.css?v=26" as="style">
+<link rel="preload" href="dashboard.css?v=27" as="style">
 <link rel="preload" href="dist/dashboard.min.js?v=32" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=10" as="script" crossorigin>
 
@@ -41,10 +41,30 @@
 <link rel="stylesheet" href="auth.css?v=21">
 <link rel="stylesheet" href="toast.css">
 <link rel="stylesheet" href="animations.css?v=6">
-<link rel="stylesheet" href="dashboard.css?v=26">
+<link rel="stylesheet" href="dashboard.css?v=27">
 <!-- v5.25 — gate « tout d'un coup » : sans JS, le dashboard doit quand même
      s'afficher (le rideau dash-booting n'a de sens qu'avec le JS qui le lève). -->
 <noscript><style>#dashboard-view.dash-booting{opacity:1!important;pointer-events:auto!important}</style></noscript>
+<script>
+/* v5.37 — WARM BOOT : anti « cut blanc » au refresh.
+ * Le gate dash-booting (v5.25) cachait le classement PRÉ-GÉNÉRÉ pendant
+ * 1-3 s à chaque recharge → « leaderboard → écran blanc → leaderboard ».
+ * Or quand le cache cosmétiques (dash_cosmetics_v1, TTL 7 j — mêmes critères
+ * que hydrateCosmeticsCache() dans dashboard.js) est frais, l'aperçu peut
+ * être affiché ET décoré dès la première peinture : le gate n'a plus de
+ * raison d'être. On pose la classe sur <html> AVANT la première peinture
+ * (script synchrone du <head>) → dashboard.css court-circuite le gate.
+ * Résultat : au refresh, le leaderboard est là dès la première frame et ne
+ * disparaît JAMAIS ; l'aperçu est ensuite remplacé en place (sans animation)
+ * par les données live. Première visite (cache absent/expiré) = chemin v5.25
+ * conservé (gate + filets 3 s / 3,5 s). */
+try {
+  var __wb = JSON.parse(localStorage.getItem('dash_cosmetics_v1') || 'null');
+  if (__wb && __wb.at && (Date.now() - __wb.at) < 604800000) {
+    document.documentElement.className += ' tfh-warm-boot';
+  }
+} catch (e) { /* localStorage indisponible → chemin cold classique */ }
+</script>
 <style>.skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}</style>
 <script type="module" src="dist/icons.min.js?v=10"></script>
 <link rel="stylesheet" href="ads.css?v=2">
@@ -2786,7 +2806,7 @@
   }, 3500);
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js?v=38').catch(e => console.warn('[SW] Registration failed:', e));
+      navigator.serviceWorker.register('/sw.js?v=39').catch(e => console.warn('[SW] Registration failed:', e));
     });
   }
 </script>
