@@ -396,20 +396,22 @@ async function main() {
   }
   if (!history || typeof history !== "object" || !history.weeks) history = { version: 1, weeks: {} };
 
-  // ═══ Seed hebdo : complète les semaines antérieures reconstituées ═══
-  // (data/weekly_history_seed.json → S1, S2… produites a posteriori).
-  // Ne remplace JAMAIS une semaine déjà enregistrée ; ne comble que les
-  // semaines STRICTEMENT antérieures à la plus vieille semaine connue.
+  // ═══ Seed hebdo : comble les semaines manquantes reconstituées ═══
+  // (data/weekly_history_seed.json → S1, S2, S3, S4… produites a posteriori).
+  // Ne remplace JAMAIS une semaine déjà enregistrée ; comble tout TROU
+  // (fix 2026-10-07 : avant, seules les semaines STRICTEMENT antérieures à la
+  // plus vieille semaine connue étaient fusionnées → un trou au MILIEU de
+  // l'historique, ex. S3/S4 perdues pendant l'indisponibilité du sync, ne
+  // pouvait jamais être recollé — le profil affichait S1, S2, S5… en sautant
+  // les semaines perdues, même après reconstitution a posteriori).
   try {
     const seedPath = "data/weekly_history_seed.json";
     if (fs.existsSync(seedPath)) {
       const seed = JSON.parse(fs.readFileSync(seedPath, "utf8"));
       const seedWeeks = (seed && seed.weeks) || {};
-      const oldestKnown = Object.keys(history.weeks).sort()[0] || null;
       let added = 0;
       for (const k of Object.keys(seedWeeks)) {
-        if (history.weeks[k]) continue;
-        if (oldestKnown && k >= oldestKnown) continue;
+        if (history.weeks[k]) continue; // semaine enregistrée → live prioritaire
         history.weeks[k] = seedWeeks[k];
         added++;
       }
