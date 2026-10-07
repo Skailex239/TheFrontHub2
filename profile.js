@@ -2380,10 +2380,13 @@ document.addEventListener("click", (e) => {
 /* 🌱 mergeWeeklySeed() réactivée (retour demandé par Skailex 2026-09-23) :
    les semaines « seed » reconstituées a posteriori (data/weekly_history_seed.json)
    complètent l'historique live — S1, S2 réapparaissent sur la courbe.
-   Garde-fous : on ne remplace JAMAIS une semaine déjà enregistrée par la sync,
-   et on ne comble que des semaines STRICTEMENT antérieures à la plus vieille
-   semaine connue. Les labels restent absolus (S = semaine de saison), donc
-   aucun décalage de numérotation. */
+   Garde-fous : on ne remplace JAMAIS une semaine déjà enregistrée par la sync.
+   🔄 Fix 2026-10-07 : on comble tout TROU (S3, S4… perdues pendant
+   l'indisponibilité du sync puis reconstituées a posteriori) — avant, seules
+   les semaines STRICTEMENT antérieures à la plus vieille semaine connue étaient
+   fusionnées, donc un trou au MILIEU de l'historique ne pouvait jamais être
+   recollé et la courbe sautait de S2 à S5. Les labels restent absolus
+   (S = semaine de saison), donc aucun décalage de numérotation. */
 async function mergeWeeklySeed() {
   try {
     const seedRes = await fetch("data/weekly_history_seed.json", { cache: "no-cache" });
@@ -2392,11 +2395,9 @@ async function mergeWeeklySeed() {
     const seedWeeks = (seed && seed.weeks) || {};
     const hist = window._profileWeekHistory = window._profileWeekHistory || { version: 1, weeks: {} };
     hist.weeks = hist.weeks || {};
-    const oldest = Object.keys(hist.weeks).sort()[0] || null;
     let added = 0;
     for (const k of Object.keys(seedWeeks)) {
       if (hist.weeks[k]) continue;          // semaine enregistrée → live prioritaire
-      if (oldest && k >= oldest) continue;  // uniquement antérieur à l'historique
       hist.weeks[k] = seedWeeks[k];
       added++;
     }
