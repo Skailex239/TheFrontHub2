@@ -1693,7 +1693,14 @@ button:active:not(:disabled),
   }
 }
 
-.app,
+/* v5.38 — .app RETIRÉ de ce groupe : son animation fadeInUp (translateY 8px→0)
+   faisait de .app le containing block de la sidebar position:fixed pendant
+   300 ms à chaque chargement (top:41px relatif à .app au lieu du viewport) →
+   le logo démarre ~49 px trop bas puis « saute »/glisse à sa place quand
+   l'animation se termine — le rebond du logo rapporté au refresh. Les entrées
+   visuelles restent portées par .content > * (aucun élément fixed dans
+   .content) et par le reveal-slide-left de la sidebar (transform sur elle-
+   même : sans effet sur son propre positionnement fixed). */
 .content > * {
   animation: fadeInUp 0.3s var(--ease-out);
 }
@@ -3081,6 +3088,28 @@ html.tfh-ub-open { --tfh-ub-h: 41px; }   /* fallback si le JS n'a pas encore mes
   html.tfh-ub-open .mobile-nav-btn { top: calc(var(--tfh-ub-h, 41px) + 14px); }
   html.tfh-ub-open .loading-bar-track { top: var(--tfh-ub-h, 41px); }
 }
+
+/* v5.38 — anti-« rebond du logo » au refresh : le snippet inline (après <body>)
+   pose tfh-ub-open + tfh-ub-pend AVANT la 1re peinture quand la banderole
+   d'annonce n'est pas fermée → son espace est réservé (padding du body) dès la
+   première frame. Quand update-banner.js insère la bande (defer, après peinture),
+   il retire tfh-ub-pend DANS LA MÊME TÂCHE : la réservation devient la bande
+   elle-même (41 px = hauteur réelle desktop : 8+8 padding + min-height 40 +
+   1 border) → zéro décalage, le logo ne descend plus. Filet : le snippet retire
+   tfh-ub-pend après 2,5 s si la bande n'est jamais arrivée (JS bloqué, cache
+   mixte) → l'espace réservé s'efface au lieu de rester vide. */
+html.tfh-ub-pend body { padding-top: var(--tfh-ub-h, 41px); }
+
+/* v5.38 — anti-flash FR→EN : quand openfront_lang=en est connu avant la 1re
+   peinture (snippet inline), les textes FR statiques (data-i18n*) sont rendus
+   invisibles SANS reflow (visibility préserve la mise en page — pas d'« écran
+   blanc », les boîtes/cartes/nav restent en place) jusqu'à ce que i18n.min.js
+   écrive les textes EN puis pose tfh-i18n-ready. Le snippet inline force
+   tfh-i18n-ready après 2,5 s si i18n.min.js n'arrive pas (filet). Les
+   placeholders suivent via ::placeholder transparent. */
+html.tfh-i18n-en:not(.tfh-i18n-ready) [data-i18n],
+html.tfh-i18n-en:not(.tfh-i18n-ready) [data-i18n-html] { visibility: hidden; }
+html.tfh-i18n-en:not(.tfh-i18n-ready) [data-i18n-placeholder]::placeholder { color: transparent; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    CHAT WIDGET (bulle flottante, toutes pages)

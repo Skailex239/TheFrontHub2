@@ -64,7 +64,7 @@
 <link rel="dns-prefetch" href="https://www.gstatic.com" crossorigin>
 
 <!-- Performance: Preload critical assets -->
-<link rel="preload" href="styles.css?v=94" as="style">
+<link rel="preload" href="styles.css?v=95" as="style">
 <link rel="preload" href="dist/app.min.js?v=43" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=10" as="script" crossorigin>
 <link rel="preload" href="runs_public.json.gz" as="fetch" crossorigin>
@@ -75,10 +75,10 @@
 <link rel="icon" type="image/png" href="favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="128x128" href="favicon-180x180.png">
 <link rel="apple-touch-icon" sizes="180x180" href="favicon-180x180.png">
-<link rel="stylesheet" href="styles.css?v=94">
+<link rel="stylesheet" href="styles.css?v=95">
 <link rel="stylesheet" href="auth.css?v=21">
-<link rel="stylesheet" href="animations.css?v=6" media="print" onload="this.media='all'">
-<noscript><link rel="stylesheet" href="animations.css?v=6"></noscript>
+<link rel="stylesheet" href="animations.css?v=7" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="animations.css?v=7"></noscript>
 <link rel="stylesheet" href="toast.css">
 <style>.skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}</style>
   <script type="module" src="dist/icons.min.js?v=10"></script>
@@ -87,7 +87,7 @@
 <!-- i18n : dict de page (synchrone, avant i18n.js) + moteur + sélecteur de langue -->
 <script src="dist/i18n-dict-home.min.js?v=3"></script>
 <script src="dist/i18n-dict-widgets.min.js?v=3"></script>
-<script src="dist/i18n.min.js?v=10" defer></script>
+<script src="dist/i18n.min.js?v=11" defer></script>
 <script src="dist/lang-switcher.min.js?v=2" defer></script>
 
 <!-- cookies.js v5 : GA4 + tag AdSense (sert le bandeau CMP Google) + réouverture consentement -->
@@ -95,6 +95,38 @@
 <script src="cookies.js?v=5"></script>
 </head>
 <body>
+<script>
+/* v5.38 — anti-« rebonds » au refresh (toutes pages) :
+   1) Banderole d'annonce : tfh-ub-open + tfh-ub-pend posés AVANT la 1re
+      peinture → sa place est réservée (padding body + sidebar décalée) et
+      update-banner.min.js l'insère DANS cette place (il retire tfh-ub-pend
+      dans la même tâche) → le logo et le contenu ne descendent plus d'un
+      pixel. Filet : tfh-ub-pend retiré ici après 2,5 s si la bande n'arrive
+      jamais (JS bloqué, cache mixte) → la réservation s'efface.
+   2) Langue EN connue (openfront_lang) : tfh-i18n-en + <html lang=en> avant
+      peinture → les textes FR statiques (data-i18n*) restent invisibles sans
+      reflow (visibility, styles.css) jusqu'à ce que i18n.min.js écrive l'EN
+      et pose tfh-i18n-ready → plus aucun flash FR→EN. Filet : prêt forcé
+      après 2,5 s si i18n.min.js n'arrive pas. */
+(function () {
+  "use strict";
+  var root = document.documentElement;
+  var ub = null, lang = null;
+  try {
+    ub = localStorage.getItem("tfh:update-banner:2026-09-maj");
+    lang = localStorage.getItem("openfront_lang");
+  } catch (e) { /* stockage indisponible (navigation privée) */ }
+  if (ub !== "dismissed") {
+    root.classList.add("tfh-ub-open", "tfh-ub-pend");
+    setTimeout(function () { root.classList.remove("tfh-ub-pend"); }, 2500);
+  }
+  if (lang === "en") {
+    root.classList.add("tfh-i18n-en");
+    root.setAttribute("lang", "en");
+    setTimeout(function () { root.classList.add("tfh-i18n-ready"); }, 2500);
+  }
+})();
+</script>
 <a href="#tab-maps" class="skip-link" data-i18n="home.skip_link">Aller au contenu principal</a>
 <div class="loading-bar-track"><div class="loading-bar-fill" id="loading-bar"></div></div>
 
@@ -572,6 +604,6 @@
 <script src="ads.js?v=3"></script>
 <script src="dist/pf-prefetch.min.js?v=1" defer></script>
 <script src="dist/chat-widget.min.js?v=3" defer></script>
-<script src="dist/update-banner.min.js?v=3" defer></script>
+<script src="dist/update-banner.min.js?v=4" defer></script>
 </body>
 </html>

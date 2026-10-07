@@ -661,6 +661,12 @@ function updateDOMTranslations() {
   if (typeof window.renderAll === 'function') {
     window.renderAll();
   }
+
+  // v5.38 — anti-flash FR→EN : les textes traduits sont posés → on révèle
+  // ce que le snippet inline (après <body>) masquait tant que l'EN n'était
+  // pas écrit (html.tfh-i18n-en sans tfh-i18n-ready → visibility:hidden,
+  // zéro reflow). Idempotent ; sans classe tfh-i18n-en c'est un no-op.
+  document.documentElement.classList.add("tfh-i18n-ready");
 }
 
 // Initialisation au chargement — i18n.min.js doit être chargé en <head>
