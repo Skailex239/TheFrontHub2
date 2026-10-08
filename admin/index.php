@@ -334,6 +334,16 @@ task_page_head('Admin — TheFrontHub');
       <span class="gstat-value" id="st-speedruns">—</span>
       <span class="gstat-sub">parties classées speedrun</span>
     </div>
+    <div class="gstat">
+      <span class="gstat-label">Replays stockés</span>
+      <span class="gstat-value" id="st-replays">—</span>
+      <span class="gstat-sub" id="st-replays-sub">replays turn-by-turn en base</span>
+    </div>
+    <div class="gstat gstat-wide">
+      <span class="gstat-label">Parties complètes <span class="gstat-note">(tout ce que l'API peut donner : détail + roster + config + speedrun vérifié)</span></span>
+      <div class="gbar" role="progressbar" aria-label="Progression des parties complètes" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="st-completebar"><i id="st-complete"></i></div>
+      <span class="gstat-sub" id="st-complete-sub">—</span>
+    </div>
     <div class="gstat gstat-wide">
       <span class="gstat-label">Backfill historique <span class="gstat-note">(depuis le 10 sept 2026 — ère V34)</span></span>
       <div class="gbar" role="progressbar" aria-label="Progression du backfill historique" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="st-progressbar"><i id="st-progress"></i></div>

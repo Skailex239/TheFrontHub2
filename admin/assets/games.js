@@ -27,6 +27,11 @@
     roster: $('#st-roster'),
     players: $('#st-players'),
     speedruns: $('#st-speedruns'),
+    replays: $('#st-replays'),
+    replaysSub: $('#st-replays-sub'),
+    completeBar: $('#st-complete'),
+    completeProgressBar: $('#st-completebar'),
+    completeSub: $('#st-complete-sub'),
     cursor: $('#st-cursor'),
     progress: $('#st-progress'),
     bar: $('#st-progressbar'),
@@ -85,6 +90,28 @@
       + ' · ≈ ' + pct.toFixed(1) + ' % de l\u2019historique ingéré';
   }
 
+  /* v5.40 — progression « parties complètes » (tout ce que l'API peut donner
+     est en base : détail + roster + config + speedrun vérifié). */
+  function paintComplete(complete, total, enrichLeft, srLeft) {
+    if (!ids.completeBar || !ids.completeProgressBar) return;
+    if (!Number.isFinite(total) || total <= 0) {
+      ids.completeProgressBar.style.width = '0%';
+      ids.completeProgressBar.setAttribute('aria-valuenow', '0');
+      if (ids.completeSub) ids.completeSub.textContent = '—';
+      return;
+    }
+    const pct = Math.max(0, Math.min(100, (Number(complete) || 0) / total * 100));
+    ids.completeProgressBar.style.width = pct.toFixed(1) + '%';
+    ids.completeProgressBar.setAttribute('aria-valuenow', String(Math.round(pct)));
+    if (ids.completeSub) {
+      const rest = [];
+      if (Number(enrichLeft) > 0) rest.push(fmtInt(enrichLeft) + ' détail(s) manquant(s)');
+      if (Number(srLeft) > 0) rest.push(fmtInt(srLeft) + ' speedrun(s) à vérifier');
+      ids.completeSub.textContent = fmtInt(complete) + ' / ' + fmtInt(total)
+        + ' (' + pct.toFixed(1) + ' %)' + (rest.length ? ' · ' + rest.join(' · ') : ' · tout est en base \u2714');
+    }
+  }
+
   function paint(j) {
     if (!j || !j.ok) throw new Error('bad_response');
     if (j.available === false) {
@@ -94,6 +121,8 @@
       ids.roster.textContent = '—';
       ids.players.textContent = '—';
       ids.speedruns.textContent = '—';
+      if (ids.replays) ids.replays.textContent = '—';
+      paintComplete(0, 0, 0, 0);
       ids.progress.style.width = '0%';
       ids.cursor.textContent = 'Les tables tfh_g_* n\u2019existent pas encore — lance api/games-sync.php une fois (elles se créent seules).';
       ids.newest.textContent = '—';
@@ -106,6 +135,16 @@
     ids.roster.textContent = fmtInt(j.roster_rows);
     ids.players.textContent = fmtInt(j.players);
     ids.speedruns.textContent = fmtInt(j.speedruns);
+    if (ids.replays) {
+      ids.replays.textContent = fmtInt(j.replays || 0);
+      if (ids.replaysSub) {
+        const rl = Number(j.replays_left || 0);
+        ids.replaysSub.textContent = rl > 0
+          ? fmtInt(rl) + ' replay(s) encore à récupérer'
+          : 'replays turn-by-turn en base';
+      }
+    }
+    paintComplete(j.complete, j.games, j.enrich_left, j.sr_left);
     paintBackfill(j.backfill_cursor_ms);
     ids.newest.textContent = j.newest_game ? fmtDateTime(j.newest_game) + ' UTC' : '—';
     ids.updated.textContent = fmtUpdated(j.checked_at);

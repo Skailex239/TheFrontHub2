@@ -301,7 +301,8 @@ function readControls() {
   return {
     limit: Number.isFinite(limit) ? Math.max(1, Math.min(100, limit)) : 20,
     windowDays: Number.isFinite(windowDays) ? Math.max(1, Math.min(370, windowDays)) : 30,
-    category: category === 'compact' ? 'compact' : 'normal',
+    // v5.40 : + 'team' (mode Team, gagnant = équipe)
+    category: category === 'compact' ? 'compact' : (category === 'team' ? 'team' : 'normal'),
     map: map || 'all',
     sort: sort === 'date' ? 'date' : 'duration',
   };
@@ -347,21 +348,37 @@ function renderRunRow(idx, run) {
   const tdPlayer = document.createElement('td');
   tdPlayer.className = 'global-player';
   var rawName = run.name || '\u2014';
-  var playerName = String(rawName).replace(/[\x00-\x1F\x7F-\x9F]/g, '').trim() || '\u2014';
+  // v5.40 : run en équipe → « Pseudo +2 » (liste complète en infobulle).
+  // baseName reste le nom du 1er membre gagnant (clic / skins / bannières) ;
+  // le suffixe +N est purement décoratif.
+  var baseName = String(rawName).replace(/[\x00-\x1F\x7F-\x9F]/g, '').trim() || '\u2014';
+  var teamNames = Array.isArray(run.teamPlayers)
+    ? run.teamPlayers.map(function(p) { return String(p.username || ''); }).filter(Boolean)
+    : null;
+  var isTeamRun = !!(teamNames && teamNames.length > 1);
+  var teamTitle = '';
+  if (isTeamRun) {
+    teamTitle = teamNames.join(' · ');
+    if (teamTitle.length > 120) teamTitle = teamTitle.slice(0, 117) + '...';
+  }
+  var playerName = isTeamRun ? baseName + ' +' + (teamNames.length - 1) : baseName;
   if (playerName.length > 28) playerName = playerName.slice(0, 25) + '...';
   // publicId FIABLE : direct depuis la DB (ou fallback heuristique de nom
   // pour l'ancienne source statique).
-  var pidForRun = run.pid || (resolvePidForName(playerName) || '');
-  var skinId = (pidForRun && activeSkinsByPid.get(String(pidForRun))) || skinIdForPlayer(playerName) || '';
+  var pidForRun = run.pid || (resolvePidForName(baseName) || '');
+  var skinId = (pidForRun && activeSkinsByPid.get(String(pidForRun))) || skinIdForPlayer(baseName) || '';
   var skinAttr = ' class="' + (skinId ? 'skin-' + skinId : '') + '"';
-  var shownName = (pidForRun && hubNameByPid[String(pidForRun)]) || displayNameFor(playerName);
-  var titleAttr = shownName !== playerName ? ' title="' + escapeHtml(TP("runs.ingame_title", { name: playerName }, "En jeu : " + playerName)) + '"' : '';
+  var shownBase = (pidForRun && hubNameByPid[String(pidForRun)]) || displayNameFor(baseName);
+  var shownName = isTeamRun ? shownBase + ' +' + (teamNames.length - 1) : shownBase;
+  var titleAttr = isTeamRun && teamTitle
+    ? ' title="' + escapeHtml(teamTitle) + '"'
+    : (shownName !== playerName ? ' title="' + escapeHtml(TP("runs.ingame_title", { name: baseName }, "En jeu : " + baseName)) + '"' : '');
   var pidAttr = pidForRun ? ' data-pid="' + escapeHtml(String(pidForRun)) + '" data-pfb-pid="' + escapeHtml(String(pidForRun)) + '"' : '';
-  var clickJs = "handlePlayerClick('" + escapeHtml(playerName).replace(/'/g, "\\'") + "'," + (pidForRun ? "'" + String(pidForRun).replace(/[^A-Za-z0-9_-]/g, '') + "'" : "null") + ");return false";
+  var clickJs = "handlePlayerClick('" + escapeHtml(baseName).replace(/'/g, "\\'") + "'," + (pidForRun ? "'" + String(pidForRun).replace(/[^A-Za-z0-9_-]/g, '') + "'" : "null") + ");return false";
   // v5.13 — badge « joueur vérifié » (infobulle native : liste scrollable)
   var vBadge = (pidForRun && typeof window.TFHVerified === 'object' && window.TFHVerified.isVerifiedPid(pidForRun))
     ? window.TFHVerified.badgeHtml(pidForRun, { native: true }) : '';
-  tdPlayer.innerHTML = '<a' + skinAttr + pidAttr + ' data-player="' + escapeHtml(playerName) + '" href="#" onclick="' + clickJs + '"' + titleAttr + ' style="cursor:pointer;text-decoration:none">' + escapeHtml(shownName) + '</a>' + vBadge;
+  tdPlayer.innerHTML = '<a' + skinAttr + pidAttr + ' data-player="' + escapeHtml(baseName) + '" href="#" onclick="' + clickJs + '"' + titleAttr + ' style="cursor:pointer;text-decoration:none">' + escapeHtml(shownName) + '</a>' + vBadge;
 
   const tdMap = document.createElement('td');
   // v5.16 — version du jeu (record établi sur v0.33, v0.34…) : era en chip, tag complet en info-bulle
@@ -429,6 +446,8 @@ async function loadTopRuns() {
       // les anciens records fichier — état « nouvelle ère » affiché à la place.
       dbFresh = data.runs.length === 0 && !(Number(data.games_total) > 0);
       runs = data.runs.map(function(r) {
+        // v5.40 : catégorie team → r.teamPlayers = membres gagnants (équipe).
+        var tp = Array.isArray(r.teamPlayers) ? r.teamPlayers : null;
         return {
           id: r.id,
           name: (r.player && r.player.username) || '\u2014',
@@ -439,6 +458,7 @@ async function loadTopRuns() {
           difficulty: r.difficulty,
           players: r.numPlayers,
           ts: r.startedAt,
+          teamPlayers: tp,
         };
       });
       filteredCount = runs.length;

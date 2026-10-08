@@ -795,17 +795,33 @@ function of_details_multi(array $gameIds, int $concurrency, bool $turns = false,
 
 /**
  * Classifie une partie (détail API) en speedrun valide.
- * Retourne [category('normal'|'compact'|null), duration_s(int|null), winnerClientId(?string), modsCsv(?string)].
+ * v5.40 : ouvre la catégorie « team » (mode Team, gagnant = équipe) — règles
+ * MIROIR de sync-teams.js (les onglets équipes de l'accueil) : Normal+400
+ * uniquement, tailles d'équipe STRING (Duos/Trios/Quads/Humans Vs Nations —
+ * les numbers = grandes équipes de couleur de 10-57 joueurs, rejetées),
+ * aucun mod, anti-cheat identique, ≥10 humains, ≥60 s. Un run en équipe
+ * sort dans SA catégorie pour ne jamais polluer les records FFA.
+ * Retourne [category('normal'|'compact'|'team'|null), duration_s(int|null), winnerClientId(?string), modsCsv(?string)].
  */
 function classify_speedrun(array $info): array {
     $cfg = is_array($info['config'] ?? null) ? $info['config'] : [];
     if (($cfg['gameType'] ?? null) !== 'Public')            return [null, null, null, null];
-    if (($cfg['gameMode'] ?? null) !== 'Free For All')      return [null, null, null, null];
+    $mode = (string)($cfg['gameMode'] ?? '');
+    $isTeamRun = ($mode === 'Team');                        // v5.40
+    if (!$isTeamRun && $mode !== 'Free For All')            return [null, null, null, null];
+
+    if ($isTeamRun) {
+        // v5.40 — miroir sync-teams.js : SEUL playerTeams STRING qualifie
+        // (number N = N grandes équipes de couleur → pas des duos/trios…).
+        $pt = isset($cfg['playerTeams']) && is_string($cfg['playerTeams']) ? (string)$cfg['playerTeams'] : '';
+        if (!in_array($pt, ['Duos', 'Trios', 'Quads', 'Humans Vs Nations'], true)) return [null, null, null, null];
+    }
 
     $isCompact = null;
     if (($cfg['gameMapSize'] ?? null) === 'Compact' && (int)($cfg['bots'] ?? 0) === 100)      $isCompact = true;
     elseif (($cfg['gameMapSize'] ?? null) === 'Normal' && (int)($cfg['bots'] ?? 0) === 400)  $isCompact = false;
     else return [null, null, null, null];
+    if ($isTeamRun && $isCompact) return [null, null, null, null]; // équipes : Normal+400 uniquement (miroir sync-teams)
 
     $mods = is_array($cfg['publicGameModifiers'] ?? null) ? $cfg['publicGameModifiers'] : [];
     $active = [];
@@ -835,13 +851,19 @@ function classify_speedrun(array $info): array {
     $winner = $info['winner'] ?? null;
     if (!is_array($winner) || count($winner) < 2) return [null, null, null, null];
     $winnerKind = (string)$winner[0];
-    if ($winnerKind !== 'player') return [null, null, null, null]; // team/nation exclus (FFA)
-    $winnerCid = (string)$winner[1];
-    $winnerPlayer = null;
-    foreach ($players as $p) {
-        if (($p['clientID'] ?? null) === $winnerCid) { $winnerPlayer = $p; break; }
+    // v5.40 : FFA → gagnant joueur (records solo) ; Team → gagnant équipe.
+    if ($isTeamRun) {
+        if ($winnerKind !== 'team') return [null, null, null, null];
+        $winnerCid = null;
+    } else {
+        if ($winnerKind !== 'player') return [null, null, null, null]; // team/nation exclus (FFA)
+        $winnerCid = (string)$winner[1];
+        $winnerPlayer = null;
+        foreach ($players as $p) {
+            if (($p['clientID'] ?? null) === $winnerCid) { $winnerPlayer = $p; break; }
+        }
+        if (!is_array($winnerPlayer) || empty($winnerPlayer['username'])) return [null, null, null, null];
     }
-    if (!is_array($winnerPlayer) || empty($winnerPlayer['username'])) return [null, null, null, null];
 
     // Durée (secondes ; tolère les records historiques en ms)
     $dur = null;
@@ -855,7 +877,9 @@ function classify_speedrun(array $info): array {
     if ($dur === null || $dur < 60) return [null, null, null, null];
     $dur = max(0, $dur - TIME_OFFSET_S);
 
-    return [$isCompact ? 'compact' : 'normal', $dur, $winnerCid, $active ? implode(',', array_slice($active, 0, 6)) : null];
+    // v5.40 : les runs en équipe sortent en catégorie dédiée « team »
+    // (Normal+400 — le couple carte/bots et les règles d'équipe ont déjà été validés).
+    return [$isTeamRun ? 'team' : ($isCompact ? 'compact' : 'normal'), $dur, $winnerCid, $active ? implode(',', array_slice($active, 0, 6)) : null];
 }
 
 /* ─────────────────────── v5 : normalisation + agrégats ─────────────────────── */
@@ -1490,9 +1514,11 @@ function enrich_game(PDO $pdo, string $gameId, array $detail, array &$unameCache
 function reclassify_phase(PDO $pdo, array $cfg): array {
     if (state_get($pdo, 'sr_reclassify_done') === '1') return [0, 0];
     phase_mark($pdo, 'reclassify');
-    $batch = min(3000, max(50, (int)($cfg['reclassify_batch'] ?? 1500)));
+    /* v5.40 : 1500 → 4000/tick (traitement 100 % local : JSON + SQL, zéro appel
+     * API — le plafond 8000 reste un garde-fou d'écriture MySQL). */
+    $batch = min(8000, max(50, (int)($cfg['reclassify_batch'] ?? 4000)));
 
-    $st = $pdo->prepare('SELECT game_id, config_json, duration_s FROM tfh_g_games
+    $st = $pdo->prepare('SELECT game_id, config_json, duration_s, winner_kind FROM tfh_g_games
         WHERE v5_done = 1 AND speedrun_checked = 0 AND config_json IS NOT NULL
         LIMIT ' . $batch);
     $st->execute();
@@ -1529,15 +1555,22 @@ function reclassify_phase(PDO $pdo, array $cfg): array {
         $players = $rosterSt->fetchAll(PDO::FETCH_ASSOC);
         $playersArr = [];
         $winnerCid = null;
+        $wonCids = [];
         foreach ($players as $p) {
             $cid = (string)$p['client_id'];
             $playersArr[] = ['clientID' => $cid, 'username' => (string)($p['username'] ?? '')];
-            if ($winnerCid === null && (int)$p['won'] === 1) $winnerCid = $cid;
+            if ((int)$p['won'] === 1) { $wonCids[] = $cid; if ($winnerCid === null) $winnerCid = $cid; }
         }
+        /* v5.40 : reconstruit le gagnant selon le kind réel (player OU team) —
+         * avant, tout était passé en ['player', cid] → les runs d'équipe
+         * étaient forcément rejetés par classify_speedrun. */
+        $wk = (string)($r['winner_kind'] ?? '');
         $pseudo = [
             'config' => $cfgG,
             'players' => $playersArr,
-            'winner' => $winnerCid !== null ? ['player', $winnerCid] : null,
+            'winner' => $wk === 'team'
+                ? ($wonCids ? array_merge(['team'], $wonCids) : null)
+                : ($winnerCid !== null ? ['player', $winnerCid] : null),
             'duration' => $r['duration_s'] !== null ? (int)$r['duration_s'] : null,
         ];
         [$srCat, $srDur, , $modsCsv] = classify_speedrun($pseudo);
@@ -1562,13 +1595,139 @@ function reclassify_phase(PDO $pdo, array $cfg): array {
     return [$done, $left];
 }
 
+/**
+ * v5.40 — Balayage « team » : re-classifie les parties DÉJÀ vérifiées avant
+ * l'ouverture de la catégorie team (speedrun_checked=1, catégorie NULL, mode
+ * Team). 100 % local (config_json + roster, zéro appel API) — même mécanique
+ * que reclassify_phase, prédicat différent. Les nouvelles ingérations
+ * classifient le mode Team directement, donc ce balayage ne fait que du
+ * rattrapage : il avance via un CURSEUR descendant (started_at < cursor) —
+ * une ligne non qualifiée n'est jamais re-testée, pas de boucle infinie.
+ * Retour [traitées, restantes].
+ */
+function sr_team_sweep_phase(PDO $pdo, array $cfg): array {
+    if (state_get($pdo, 'sr_team_sweep_done') === '1') return [0, 0];
+    phase_mark($pdo, 'team_sweep');
+    $batch = min(8000, max(50, (int)($cfg['team_sweep_batch'] ?? 4000)));
+
+    $curKey = 'sr_team_sweep_cursor_ms';
+    $cur = (int)state_get($pdo, $curKey, '0');
+    if ($cur <= 0) {
+        // 1er passage : démarre au-dessus de la partie la plus récente.
+        $cur = (int)(microtime(true) * 1000) + 1000;
+    }
+
+    /* Candidats plausibles uniquement : mode Team, ≥3 humains, 60 s ≤ durée
+     * ≤ 3 h (bornes plus larges que classify, qui appliquera ≥10 humains,
+     * Normal+400 et playerTeams STRING depuis config_json/roster). Curseur
+     * strictement descendant → chaque tick traite une tranche différente. */
+    $st = $pdo->prepare('SELECT game_id, config_json, duration_s, winner_kind,
+            UNIX_TIMESTAMP(started_at)*1000 AS s_ms
+        FROM tfh_g_games
+        WHERE v5_done = 1 AND speedrun_checked = 1 AND speedrun_category IS NULL
+          AND game_mode = \'Team\' AND config_json IS NOT NULL
+          AND num_players >= 3 AND duration_s >= 60 AND duration_s <= 10800
+          AND started_at < FROM_UNIXTIME(?/1000)
+        ORDER BY started_at DESC LIMIT ' . $batch);
+    $st->execute([(int)$cur]);
+    $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+
+    if (!$rows) {
+        // Plus rien sous le curseur → balayage terminé définitivement.
+        state_set($pdo, $curKey, (string)GAMES_EPOCH_DEEP_MS);
+        state_set($pdo, 'sr_team_sweep_done', '1');
+        log_line('[team_sweep] ✅ balayage team terminé');
+        return [0, 0];
+    }
+
+    $rosterSt = $pdo->prepare('SELECT r.client_id, r.won
+        FROM tfh_g_roster r WHERE r.game_id = ?');
+    $upd = $pdo->prepare('UPDATE tfh_g_games SET
+        game_map = COALESCE(game_map, ?), map_size = COALESCE(map_size, ?),
+        difficulty = COALESCE(difficulty, ?), bots = COALESCE(bots, ?),
+        mods = COALESCE(mods, ?),
+        speedrun_category = ?, speedrun_duration_s = ?
+        WHERE game_id = ?');
+
+    $done = 0;
+    $minMs = (int)$cur;
+    foreach ($rows as $r) {
+        $minMs = min($minMs, (int)$r['s_ms']);
+        $cfgG = json_decode((string)$r['config_json'], true);
+        if (is_array($cfgG)) {
+            $rosterSt->execute([$r['game_id']]);
+            $rosterRows = $rosterSt->fetchAll(PDO::FETCH_ASSOC);
+            $playersArr = [];
+            $wonCids = [];
+            foreach ($rosterRows as $p) {
+                $cid = (string)$p['client_id'];
+                $playersArr[] = ['clientID' => $cid];
+                if ((int)$p['won'] === 1) $wonCids[] = $cid;
+            }
+            $pseudo = [
+                'config' => $cfgG,
+                'players' => $playersArr,
+                'winner' => (string)($r['winner_kind'] ?? '') === 'team' && $wonCids
+                    ? array_merge(['team'], $wonCids) : null,
+                'duration' => $r['duration_s'] !== null ? (int)$r['duration_s'] : null,
+            ];
+            [$srCat, $srDur, , $modsCsv] = classify_speedrun($pseudo);
+            if ($srCat !== null && $r['duration_s'] === null) $srCat = null;
+            $upd->execute([
+                isset($cfgG['gameMap']) && is_string($cfgG['gameMap']) ? cut($cfgG['gameMap'], 48) : null,
+                isset($cfgG['gameMapSize']) ? cut((string)$cfgG['gameMapSize'], 16) : null,
+                isset($cfgG['difficulty']) ? cut((string)$cfgG['difficulty'], 16) : null,
+                isset($cfgG['bots']) && is_numeric($cfgG['bots']) ? (int)$cfgG['bots'] : null,
+                $modsCsv,
+                $srCat, $srDur,
+                $r['game_id'],
+            ]);
+        }
+        $done++;
+    }
+
+    /* Le curseur passe SOUS la tranche traitée (même les lignes non
+     * qualifiées) : progression garantie, jamais de re-scan. */
+    state_set($pdo, $curKey, (string)$minMs);
+    $left = max(0, (int)$pdo->query("SELECT COUNT(*) FROM tfh_g_games
+        WHERE speedrun_category IS NULL AND game_mode = 'Team'
+          AND v5_done = 1 AND speedrun_checked = 1
+          AND num_players >= 3 AND duration_s >= 60 AND duration_s <= 10800
+          AND started_at < FROM_UNIXTIME(" . (int)$minMs . "/1000)")->fetchColumn());
+    if ($left === 0) {
+        state_set($pdo, $curKey, (string)GAMES_EPOCH_DEEP_MS);
+        state_set($pdo, 'sr_team_sweep_done', '1');
+        log_line('[team_sweep] ✅ balayage team terminé');
+    }
+    return [$done, $left];
+}
+
 /** Phase d'enrichissement : re-détaille les parties antérieures à la v5. Retour [faites, restantes]. */
 function enrich_phase(PDO $pdo, array $cfg, float $deadline, array &$unameCache): array {
     phase_mark($pdo, 'enrich');
     $batch = min(1500, max(10, (int)($cfg['enrich_max_games_per_tick'] ?? 150)));
-    $st = $pdo->prepare('SELECT game_id FROM tfh_g_games WHERE v5_done = 0 ORDER BY started_at DESC LIMIT ' . $batch);
-    $st->execute();
-    $ids = $st->fetchAll(PDO::FETCH_COLUMN);
+    /* v5.40 — TRI : les CANDIDATS speedrun passent d'abord tant qu'il en
+     * reste — c'est ce qui fait sortir tous les runs de l'archive « liste
+     * d'abord » (v5_done=0) en quelques jours au lieu de plusieurs semaines :
+     *   • FFA  : ≥3 humains, 1-180 min ;
+     *   • Team : playerTeams STRING (Duos/Trios/Quads/HvN, visible dès la
+     *     liste), ≥10 humains, 1-180 min.
+     * Le reste suit en récent-d'abord. */
+    $cand = $pdo->prepare("SELECT game_id FROM tfh_g_games
+        WHERE v5_done = 0 AND game_type = 'Public'
+          AND duration_s >= 60 AND duration_s <= 10800
+          AND (
+            (game_mode = 'Free For All' AND num_players >= 3)
+            OR (game_mode = 'Team' AND player_teams IN ('Duos','Trios','Quads','Humans Vs Nations') AND num_players >= 10)
+          )
+        ORDER BY started_at DESC LIMIT " . $batch);
+    $cand->execute();
+    $ids = $cand->fetchAll(PDO::FETCH_COLUMN);
+    if (!$ids) {
+        $st = $pdo->prepare('SELECT game_id FROM tfh_g_games WHERE v5_done = 0 ORDER BY started_at DESC LIMIT ' . $batch);
+        $st->execute();
+        $ids = $st->fetchAll(PDO::FETCH_COLUMN);
+    }
     if (!$ids) return [0, 0];
     [$details, $tfail, $gone] = of_details_multi($ids, (int)$cfg['detail_concurrency'], false, $deadline);
     if ($gone) {
@@ -2724,6 +2883,8 @@ if ($argStatus) {
             'cosmetic_wearers' => (int)$v5['wearers'],
             'rated_players' => (int)$v5['rated_players'],
             'rating_cursor_ms' => state_get($pdo, STATE_KEY_RATING),
+            'sr_reclassify_done' => state_get($pdo, 'sr_reclassify_done', '0') === '1',
+            'sr_team_sweep_done' => state_get($pdo, 'sr_team_sweep_done', '0') === '1',
         ],
         'v511' => [
             'ladder_rows' => (int)$v511['ladder_rows'],
@@ -2968,6 +3129,15 @@ try {
         if ($rcDone > 0) log_line("[reclassify] $rcDone partie(s) classée(s) — restantes : $rcLeft");
     }
 } catch (Throwable $e) { log_line('[reclassify] ⚠️ ' . cut($e->getMessage(), 140)); }
+
+// 5-ter) v5.40 — Balayage team (ZÉRO appel API) : re-classifie les parties
+// déjà vérifiées avant l'ouverture de la catégorie « team » (mode Team).
+try {
+    if (microtime(true) < $deadline) {
+        [$tsDone, $tsLeft] = sr_team_sweep_phase($pdo, $cfg);
+        if ($tsDone > 0) log_line("[team_sweep] $tsDone partie(s) re-classifiée(s) — restantes : $tsLeft");
+    }
+} catch (Throwable $e) { log_line('[team_sweep] ⚠️ ' . cut($e->getMessage(), 140)); }
 
 // 6) v5 — Rating Glicko-2 (3 boards, curseur chronologique)
 try { if (microtime(true) < $deadline) rating_phase($pdo, $cfg, $deadline); } catch (Throwable $e) { log_line('[rating] ⚠️ ' . cut($e->getMessage(), 140)); }

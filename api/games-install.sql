@@ -67,9 +67,10 @@ CREATE TABLE IF NOT EXISTS tfh_g_games (
     winner_kind        VARCHAR(8)      NULL,       -- player | team | nation
     winner_public_id   VARCHAR(16)     NULL,
     winner_username_id INT UNSIGNED    NULL,
-    -- Speedrun pré-calculé à l'ingestion (mêmes règles que extract-speedrun.js,
-    -- offset 32s inclus) : NULL si la partie n'est pas un speedrun valide.
-    speedrun_category  VARCHAR(10)     NULL,       -- normal | compact
+    -- Speedrun pré-calculé à l'ingestion (mêmes règles que extract-speedrun.js
+    -- et sync-teams.js pour « team », offset 32s inclus) : NULL si la partie
+    -- n'est pas un speedrun valide.
+    speedrun_category  VARCHAR(10)     NULL,       -- normal | compact | team
     speedrun_duration_s SMALLINT UNSIGNED NULL,     -- durée - 32s
     mods               VARCHAR(128)    NULL,       -- modificateurs actifs (CSV)
     git_commit         VARCHAR(16)     NULL,
