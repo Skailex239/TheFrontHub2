@@ -420,6 +420,38 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
                 $stMap[(string) $s['skey']] = (string) $s['svalue'];
             }
             $cursor = isset($stMap['backfill_cursor_ms']) ? (int) round((float) $stMap['backfill_cursor_ms']) : null;
+
+            /* ── v5.40 — Compteurs « complétude » (cache fichier 5 min) ──
+               Partie complète = TOUT ce que l'API OpenFront peut donner pour
+               elle est en base : détail récupéré (config, carte, roster,
+               gagnant, version) + classification speedrun passée. Les scans
+               conditionnels sur 6 M lignes sont trop chers pour un poll 30 s
+               → cache ~/.tfs_cache, même philosophie que route=totals. */
+            $detail = null;
+            $cacheDir = (getenv('HOME') ?: sys_get_temp_dir()) . '/.tfs_cache';
+            $cacheFile = $cacheDir . '/admin_games_detail.json';
+            if (is_file($cacheFile) && (time() - (int) filemtime($cacheFile)) < 300) {
+                $detail = json_decode((string) @file_get_contents($cacheFile), true);
+            }
+            if (!is_array($detail)) {
+                if (!is_dir($cacheDir)) @mkdir($cacheDir, 0700, true);
+                $d = $pdo->query('SELECT
+                    (SELECT COUNT(*) FROM tfh_g_games WHERE v5_done = 1 AND speedrun_checked = 1) AS complete,
+                    (SELECT COUNT(*) FROM tfh_g_games WHERE v5_done = 0) AS enrich_left,
+                    (SELECT COUNT(*) FROM tfh_g_games WHERE v5_done = 1 AND speedrun_checked = 0) AS sr_left,
+                    (SELECT COUNT(*) FROM tfh_g_turns) AS replays,
+                    (SELECT COUNT(*) FROM tfh_g_games WHERE turns_done = 0) AS replays_left')->fetch();
+                $detail = [
+                    'complete'     => (int) $d['complete'],
+                    'enrich_left'  => (int) $d['enrich_left'],
+                    'sr_left'      => (int) $d['sr_left'],
+                    'replays'      => (int) $d['replays'],
+                    'replays_left' => (int) $d['replays_left'],
+                    'computed_at'  => time(),
+                ];
+                @file_put_contents($cacheFile, json_encode($detail), LOCK_EX);
+            }
+
             json_out([
                 'ok'                 => true,
                 'available'          => true,
@@ -431,6 +463,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
                 'newest_game'        => $cnt['newest'] !== null ? (string) $cnt['newest'] : null,
                 'oldest_game'        => $cnt['oldest'] !== null ? (string) $cnt['oldest'] : null,
                 'backfill_cursor_ms' => $cursor,
+                /* v5.40 : complétude */
+                'complete'           => $detail['complete'],
+                'enrich_left'        => $detail['enrich_left'],
+                'sr_left'            => $detail['sr_left'],
+                'replays'            => $detail['replays'],
+                'replays_left'       => $detail['replays_left'],
+                'detail_computed_at' => $detail['computed_at'] ?? null,
                 'checked_at'         => time(),
             ]);
         } catch (Throwable $e) {

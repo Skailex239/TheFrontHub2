@@ -210,7 +210,8 @@ case 'game': {
 case 'speedruns': {
     header('Cache-Control: public, max-age=60');
     $category = (string)($_GET['category'] ?? 'normal');
-    if (!in_array($category, ['normal', 'compact'], true)) gfail(400, 'bad_category');
+    /* v5.40 : + 'team' — records en équipe (mode Team, gagnant = équipe). */
+    if (!in_array($category, ['normal', 'compact', 'team'], true)) gfail(400, 'bad_category');
     $map = trim((string)($_GET['map'] ?? ''));
     $sort = (string)($_GET['sort'] ?? 'duration');
     $window = (string)($_GET['window'] ?? 'all');
@@ -243,6 +244,33 @@ case 'speedruns': {
                 'username' => $g['winner']['username'] ?? null,
             ],
         ];
+    }
+    /* v5.40 : catégorie team → le gagnant est une ÉQUIPE. Résout les membres
+     * gagnants (roster won=1) et les expose via teamPlayers ; `player` pointe
+     * sur le premier membre (compatibilité front). */
+    if ($category === 'team' && $runs) {
+        $ids = array_map('strval', array_column($runs, 'id'));
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $wt = $pdo->prepare("SELECT r.game_id, r.public_id, u.username
+            FROM tfh_g_roster r JOIN tfh_g_usernames u ON u.id = r.username_id
+            WHERE r.won = 1 AND r.game_id IN ($in)");
+        $wt->execute($ids);
+        $byGame = [];
+        foreach ($wt->fetchAll() as $w) {
+            $byGame[(string)$w['game_id']][] = [
+                'publicId' => $w['public_id'] !== null ? (string)$w['public_id'] : null,
+                'username' => (string)$w['username'],
+            ];
+        }
+        foreach ($runs as &$run) {
+            $ws = $byGame[(string)$run['id']] ?? [];
+            if ($ws) {
+                usort($ws, fn($a, $b) => strcmp((string)$a['username'], (string)$b['username']));
+                $run['teamPlayers'] = $ws;
+                $run['player'] = $ws[0];
+            }
+        }
+        unset($run);
     }
     $gamesTotal = (int)$pdo->query('SELECT COUNT(*) FROM tfh_g_games')->fetchColumn();
     json_out(['ok' => true, 'runs' => $runs, 'games_total' => $gamesTotal]);
@@ -559,7 +587,8 @@ case 'maps': {
             'newestGame' => $tot['newest'] !== null ? (string)$tot['newest'] : null]);
     }
     $category = (string)($_GET['category'] ?? 'normal');
-    if (!in_array($category, ['normal', 'compact'], true)) gfail(400, 'bad_category');
+    /* v5.40 : + 'team' */
+    if (!in_array($category, ['normal', 'compact', 'team'], true)) gfail(400, 'bad_category');
     $st = $pdo->prepare('SELECT game_map, COUNT(*) AS runs FROM tfh_g_games
         WHERE speedrun_category = ? AND game_map IS NOT NULL
         GROUP BY game_map ORDER BY runs DESC');

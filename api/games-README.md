@@ -3,7 +3,8 @@
 > Stockage **MySQL o2switch** de toutes les parties OpenFront (Public **et**
 > Private) depuis le **maximum disponible dans l'API** (30 mai 2025, ère
 > v0.23-dev — naissance de l'API publique), avec roster complet lié par
-> publicId, speedruns pré-calculés et pré-profils agrégés par joueur.
+> publicId, speedruns pré-calculés (3 catégories : normal, compact, team)
+> et pré-profils agrégés par joueur.
 >
 > **v5.16 — Historique maximal + version des parties** :
 > • L'archive remonte à **mai 2025** (~3 M de parties pré-V34). L'ère pré-V34
@@ -120,7 +121,7 @@ Toutes les réponses : `{ok:true,…}` / `{ok:false,error}` — cache 45-600 s.
 |---|---|
 | `?route=recent&limit=30` | Dernières parties (Public + Private, tous modes) + gagnant lié |
 | `?route=game&id=X` | Détail d'une partie + roster complet (publicId par joueur) |
-| `?route=speedruns&category=normal\|compact&map=&sort=duration\|date&window=30d` | Records speedrun (offset 32 s appliqué à l'ingestion) |
+| `?route=speedruns&category=normal\|compact\|team&map=&sort=duration\|date&window=30d` | Records speedrun (offset 32 s appliqué à l'ingestion ; `team` = records en équipe, mode Team + gagnant équipe, miroir sync-teams.js — les membres gagnants sont dans `teamPlayers`) |
 | `?route=profile&publicId=X` | Pré-profil : alias, stats par mode, top cartes, meilleurs speedruns, dernières parties |
 | `?route=profile&publicId=X&refresh=1` | Idem + fetch on-demand du profil officiel (cooldown 10 min) |
 | `?route=search&q=` | Recherche joueur sur tous les alias connus |
@@ -187,6 +188,33 @@ Notes :
 2. `https://thefronthub.com/api/games-api.php?route=status` répond `ok:true`.
 3. runs.html : badge « DB pré-profils » en bas du tableau + filtres carte/catégorie.
 4. Clic sur un joueur speedrun → profile.html avec le bloc « Historique TheFrontHub ».
+
+## v5.40 — Complétude + records en équipe (catégorie « team »)
+
+- **Speedruns team** : `classify_speedrun` classe désormais aussi les parties
+  mode **Team** gagnées par une équipe (règles miroir de `sync-teams.js` :
+  Public, Normal+400 bots, `playerTeams` STRING `Duos`/`Trios`/`Quads`/
+  `Humans Vs Nations`, aucun mod, anti-cheat identique, ≥10 humains, ≥60 s)
+  → catégorie **`team`** (offset 32 s inclus). Trois catégories en base :
+  `normal`, `compact`, `team`.
+- **Rattrapage archive** :
+  • `enrich_phase` traite d'abord les CANDIDATS speedrun (FFA ≥3 humains,
+  Team Duos/Trios/Quads/HvN ≥10 humains, 1-180 min) parmi les lignes
+  « liste d'abord » (v5_done=0) → tous les runs de l'archive profonde
+  sortent en quelques jours au lieu de plusieurs semaines ;
+  • `sr_team_sweep_phase` (nouvelle, ZÉRO appel API, curseur descendant)
+  re-classifie les parties Team déjà vérifiées avant l'ouverture de la
+  catégorie ;
+  • `reclassify_phase` passe à 4 000 lignes/tick et reconstruit le gagnant
+  selon le kind réel (player OU team).
+- **Panneau admin** (`admin.thefronthub.com` → Parties récupérées) :
+  nouveau compteur **« Parties complètes »** (v5_done=1 ET
+  speedrun_checked=1 = tout ce que l'API peut donner est en base) avec barre
+  de progression, compteur **« Replays stockés »** et sous-textes « restants »
+  (cache fichier 5 min côté `admin/api.php`).
+- **Front** : runs.html — 3ᵉ catégorie `Team (équipées)` ; l'affichage des
+  runs d'équipe liste les membres gagnants (« Pseudo +N », liste complète en
+  info-bulle).
 
 ## Nettoyage RGPD / demandes OpenFront
 
