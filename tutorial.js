@@ -260,7 +260,14 @@ function showStep(idx) {
   _tooltip.querySelector('.tfh-tutorial-skip').addEventListener('click', skipTutorial);
 
   // Afficher
+  // v5.41 — pendant le tutoriel, la page ne défile plus derrière l'overlay.
+  // On stoppe Lenis UNIQUEMENT quand l'overlay devient réellement visible
+  // (et pas dans startTutorial) : si une étape plante avant, la page reste
+  // scrollable — et cleanupTutorial() rend toujours la main.
   _overlay.style.display = 'block';
+  if (window.TFH_lenis && typeof window.TFH_lenis.stop === 'function') {
+    window.TFH_lenis.stop();
+  }
   _tooltip.style.display = 'block';
 
   // Positionner le tooltip (après que le DOM l'ait rendu pour mesurer sa taille)
@@ -377,6 +384,10 @@ function cleanupTutorial() {
   if (_spotlight) { _spotlight.remove(); _spotlight = null; }
   if (_tooltip) { _tooltip.remove(); _tooltip = null; }
   _currentStep = 0;
+  // v5.41 — on rend la main au scroll smooth de la page
+  if (window.TFH_lenis && typeof window.TFH_lenis.start === 'function') {
+    window.TFH_lenis.start();
+  }
 }
 
 /**

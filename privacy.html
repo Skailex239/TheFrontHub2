@@ -129,7 +129,7 @@
 <div class="app">
 
   <!-- ═══ SIDEBAR ═══ -->
-  <aside class="sidebar">
+  <aside class="sidebar" data-lenis-prevent>
 
     <div class="logo" onclick="logoClickAnim(event)" role="link" aria-label="Aller au tableau de bord" data-i18n-aria="doc.logo_aria" tabindex="0">
       <img src="TheFrontHub Logo Text.webp" alt="TheFrontHub" loading="eager">
@@ -388,7 +388,7 @@
 
 <!-- Auth Modal (copié de dashboard.html) -->
 <div class="modal-overlay" id="auth-modal" onclick="toggleAuthModal()">
-  <div class="modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" onclick="event.stopPropagation()">
+  <div class="modal auth-modal" data-lenis-prevent role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" onclick="event.stopPropagation()">
     <button class="modal-close" aria-label="Fermer" data-i18n-aria="modal.close" onclick="toggleAuthModal()">&times;</button>
     <div class="auth-modal-logo">
       <img src="TheFrontHub Logo No Text.webp" alt="TheFrontHub" class="auth-modal-logo-img">
@@ -428,7 +428,7 @@
 <script type="module" src="dist/auth-ui.min.js?v=4"></script>
 <script src="dist/toast.min.js?v=2"></script>
 <script src="dist/lenis.min.js?v=7"></script>
-<script src="dist/animations.min.js?v=2"></script>
+<script src="dist/animations.min.js?v=3"></script>
 <script>
   // Service Worker — offline + cache stale-while-revalidate
   if ('serviceWorker' in navigator) {
@@ -445,7 +445,7 @@
     if (el) el.textContent = y;
   })();
 </script>
-<script src="dist/chat-widget.min.js?v=3" defer></script>
+<script src="dist/chat-widget.min.js?v=4" defer></script>
 <script src="dist/ads.min.js?v=2"></script>
 <script src="dist/update-banner.min.js?v=4" defer></script>
 </body>

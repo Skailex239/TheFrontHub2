@@ -3601,6 +3601,7 @@ function showGameModal(game) {
     modal = document.createElement('div');
     modal.id = 'game-detail-modal';
     modal.className = 'game-modal-overlay';
+    modal.setAttribute('data-lenis-prevent', '');
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
     modal.innerHTML = `
@@ -4374,7 +4375,7 @@ function renderPrecomputedStats(stats, mount) {
       </header>
       <button type="button" id="pf2-maps-toggle" class="pf2-maps-toggle" aria-expanded="false">${T("pf.maps_show", "Voir les {n} cartes", { n: allMaps.length })}</button>
       <div class="pf2-maps-body" id="pf2-maps-body">
-        <div class="pf2-maps-wrap">
+        <div class="pf2-maps-wrap" data-lenis-prevent>
           <table class="pf2-maps-table">
             <thead><tr><th>${T("pf.th_map", "Carte")}</th><th>${T("pf.th_games", "Parties")}</th><th>${T("pf.th_w", "V")}</th><th>${T("pf.th_l", "D")}</th><th>${T("pf.th_winrate", "Winrate")}</th><th>${T("pf.th_avg_duration", "Durée moy.")}</th><th>${T("pf.th_last", "Dernière")}</th></tr></thead>
             <tbody>${topMaps.map(mapRowHtml).join("")}</tbody>

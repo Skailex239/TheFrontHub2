@@ -277,6 +277,8 @@ function showMapDetail(slug) {
   const modal = document.createElement("div");
   modal.id = "atlas-modal";
   modal.className = "atlas-modal-overlay";
+  // v5.41 — la modale détail scrolle en natif (sinon Lenis scrolle la page derrière)
+  modal.setAttribute("data-lenis-prevent", "");
   modal.onclick = (e) => { if (e.target === modal) closeModal(); };
 
   modal.innerHTML = `
