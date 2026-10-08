@@ -264,6 +264,14 @@
   display: inline-flex; align-items: center; gap: 5px;
   font-size: 12px; color: var(--fg-muted); white-space: nowrap;
 }
+/* v5.42 — Compteur « vues » du profil (même gabarit que la date d'arrivée) */
+.pf2-id-views {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--fg-muted); white-space: nowrap;
+  cursor: default;
+}
+.pf2-id-views svg { color: var(--fg-subtle); flex-shrink: 0; }
+.pf2-id-views #profile-views-count { font-weight: 600; color: var(--fg-secondary); }
 .pf2-id-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .pf2-id-share {
   display: inline-flex; align-items: center; gap: 6px;

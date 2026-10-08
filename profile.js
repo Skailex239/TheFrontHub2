@@ -394,6 +394,75 @@ const PROFILE_PAYLOAD_TTL = 10 * 60 * 1000;
 const PROFILE_PAYLOAD_URL = (pid) => "/api/games-api.php?route=profile&publicId=" + encodeURIComponent(pid) + "&limit=100";
 let _profilePayloadState = { pid: null, promise: null };
 
+/* ═══════════════════════════════════════════════════════════════════════
+   v5.42 — COMPTEUR « VUES » DU PROFIL (1 par visite du site)
+   Le badge de la carte identité affiche les vues du profil. Incrément via
+   POST route=profile-view, dédoublonné CÔTÉ SERVEUR par (publicId, visitId) :
+   le visitId vit dans le sessionStorage (1 valeur par VISITE — tant que
+   l'onglet est ouvert) → recharger la page, y revenir, la re-rendre =
+   toujours 1 seule vue. Le GET route=profile reste compté « brut » côté
+   serveur pour la popularité interne (pré-génération) — le compteur
+   AFFICHÉ, lui, ne bouge que par ce POST. Jamais bloquant : tout échec
+   est silencieux (badge périmé ou masqué).
+   ═══════════════════════════════════════════════════════════════════════ */
+const VIEW_VISIT_KEY = "tfh_vid";
+
+/** Identifiant de VISITE : constant pendant toute la durée de l'onglet. */
+function profileVisitId() {
+  try {
+    let v = sessionStorage.getItem(VIEW_VISIT_KEY);
+    if (!v) {
+      v = (typeof crypto !== "undefined" && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : "v-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 12);
+      sessionStorage.setItem(VIEW_VISIT_KEY, v);
+    }
+    return v;
+  } catch (e) {
+    /* sessionStorage indisponible → identifiant par page (dédoublonnage mini) */
+    return "v-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 12);
+  }
+}
+
+/** Peint le badge « vues » (n non fini → no-op). */
+function paintProfileViews(n) {
+  const wrap = document.getElementById("profile-views");
+  if (!wrap) return;
+  const count = Number(n);
+  if (!Number.isFinite(count) || count < 0) return;
+  const el = document.getElementById("profile-views-count");
+  if (el) {
+    const label = count === 1 ? T("pf.views_one", "vue") : T("pf.views_many", "vues");
+    el.textContent = count.toLocaleString(LOCALE()) + " " + label;
+  }
+  wrap.hidden = false;
+}
+
+const _profileViewCounted = new Set(); // 1 POST max par pid et par chargement
+
+/** Compte la vue d'un profil (POST dédoublonné serveur) + peint le badge. */
+function countProfileView(publicId, payload) {
+  if (!publicId || !/^[A-Za-z0-9]{6,16}$/.test(publicId)) return;
+  /* Aperçu immédiat depuis le payload (cache ≤ 15 min) si le compteur y est. */
+  const preview = Number(payload?.views);
+  if (Number.isFinite(preview) && preview >= 0) paintProfileViews(preview);
+  if (_profileViewCounted.has(publicId)) return;
+  _profileViewCounted.add(publicId);
+  try {
+    fetch("/api/games-api.php?route=profile-view", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ publicId: publicId, visitId: profileVisitId() }),
+      keepalive: true,
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (j && j.ok) paintProfileViews(Number(j.views));
+      })
+      .catch(() => {});
+  } catch (e) { /* jamais bloquant */ }
+}
+
 function profilePayloadFromSession(pid) {
   try {
     const raw = sessionStorage.getItem("tfh_pp:" + pid);
@@ -1495,6 +1564,10 @@ async function loadStats(publicId) {
   const payloadPromise = getProfilePayload(publicId);
   payloadPromise.catch(() => {});
   const payload = await payloadPromise;
+
+  // v5.42 — Compteur « vues » : aperçu depuis le payload puis POST
+  // dédoublonné 1× par visite du site (mise à jour à la réponse).
+  countProfileView(publicId, payload);
 
   // Kick off recent games fetch in parallel (separate endpoint) — UNIQUEMENT
   // sans payload : la liste ne sert plus qu'à retarder renderWeeklyChart
