@@ -26,8 +26,8 @@
 
 <!-- Performance: Preload critical assets -->
 <link rel="preload" href="styles.css?v=95" as="style">
-<link rel="preload" href="profile.css?v=46" as="style">
-<link rel="preload" href="dist/profile.min.js?v=42" as="script" crossorigin>
+<link rel="preload" href="profile.css?v=47" as="style">
+<link rel="preload" href="dist/profile.min.js?v=43" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=10" as="script" crossorigin>
 
 <!-- Google Fonts — poids allégés (300, 500, 900 retirés → -100 Ko) -->
@@ -38,7 +38,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="favicon-180x180.png">
   <link rel="stylesheet" href="styles.css?v=95">
   <link rel="stylesheet" href="auth.css?v=21">
-  <link rel="stylesheet" href="profile.css?v=46">
+  <link rel="stylesheet" href="profile.css?v=47">
   <link rel="stylesheet" href="skins.css?v=7">
   <link rel="stylesheet" href="animations.css?v=7" media="print" onload="this.media='all'">
   <noscript><link rel="stylesheet" href="animations.css?v=7"></noscript>
@@ -343,6 +343,11 @@
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="4" rx="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
               <span id="profile-joined-text" data-i18n="pf.joined_initial">Membre depuis le —</span>
             </span>
+            <!-- v5.42 — Compteur « vues » du profil (1 par visite du site) -->
+            <span class="pf2-id-views" id="profile-views" title="Vues du profil — comptées une seule fois par visite du site" data-i18n-title="pf.views_tip" hidden>
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+              <span id="profile-views-count">—</span>
+            </span>
           </div>
         </div>
         <div class="pf2-id-actions">
@@ -474,7 +479,7 @@
 <script src="dist/lenis.min.js?v=7"></script>
 <script src="dist/animations.min.js?v=3" defer></script>
 <script src="dist/pf-prefetch.min.js?v=1" defer></script>
-<script src="dist/profile.min.js?v=42" type="module"></script>
+<script src="dist/profile.min.js?v=43" type="module"></script>
 
 <!-- v5.13 — Modale d'édition du profil (bio, map préférée, liens réseaux) -->
 <div id="profile-edit-modal" class="pf-modal-backdrop" hidden>

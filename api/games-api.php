@@ -12,6 +12,8 @@ declare(strict_types=1);
  *   route=speedruns &category=normal|compact  → records speedrun (sort=duration|date)
  *                   &map=Italy&window=30d&limit=50&offset=0
  *   route=profile   &publicId=XXXXXXXX        → pré-profil complet d'un joueur
+ *   route=profile-view (POST JSON {publicId, visitId}) → compteur « vues »
+ *                   du profil, dédoublonné 1× par visite du site (v5.42)
  *   route=search    &q= skailex &limit=10     → recherche joueurs (tous alias)
  *   route=maps      &category=normal          → cartes avec compteur de runs
  *   route=status                              → état de la base (admin/widgets)
@@ -52,9 +54,10 @@ try { $pdo->query('SELECT 1 FROM tfh_g_ladder LIMIT 1'); } catch (Throwable $e) 
 $V512_READY = true;
 try { $pdo->query('SELECT 1 FROM tfh_g_lb_ffa LIMIT 1'); } catch (Throwable $e) { $V512_READY = false; }
 
-/* ── Headers communs : JSON + cache court + CORS GET ── */
+/* ── Headers communs : JSON + cache court + CORS GET (POST pour vues v5.42) ── */
 header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, OPTIONS');
+header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type');
 header('Vary: Origin');
 
 /* Émetteur local (json_out de helpers.php force « no-store » — ici on garde
@@ -292,6 +295,9 @@ case 'profile': {
 
     $bypassCache = isset($_GET['refresh']) || isset($_GET['nocache']);
     if (!$bypassCache && ($cached = tfh_profile_cache_read($pid)) !== null) {
+        /* v5.42 — compteur « vues » toujours FRAIS (le payload en cache a
+         * jusqu'à 15 min ; le badge, lui, doit refléter l'appel de vue POST). */
+        $cached['views'] = tfh_profile_views_get($pdo, $pid);
         gout($cached);
     }
 
@@ -305,7 +311,44 @@ case 'profile': {
         gfail(404, 'player_not_found');
     }
     tfh_profile_cache_write($pid, $payload);
+    /* v5.42 — posé APRÈS l'écriture du cache : le fichier ne fige jamais le
+     * compteur, il est réinjecté à la volée à chaque lecture. */
+    $payload['views'] = tfh_profile_views_get($pdo, $pid);
     gout($payload);
+}
+
+/* ── v5.42 — Compteur « vues » du profil : 1 par visite du site ───────────
+ * POST JSON {publicId, visitId} — appelé par profile.js quand un profil est
+ * réellement affiché. Le visitId (UUID en sessionStorage) identifie la
+ * VISITE : le serveur dédoublonne (tfh_profile_count_visit) — recharger la
+ * page, y revenir ou la re-rendre ne compte PAS une 2e fois. Garde anti-
+ * spam : 60 POST/h/IP (rate_limit) + 10 vues comptées max/jour/IP/profil.
+ * Réponse : { ok:true, views:N } — N = valeur à afficher après coup. */
+case 'profile-view': {
+    header('Cache-Control: no-store');
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+        gfail(405, 'method_not_allowed', 'POST requis');
+    }
+    $body = json_decode((string)file_get_contents('php://input'), true);
+    if (!is_array($body)) gfail(400, 'bad_json');
+    $pid = (string)($body['publicId'] ?? '');
+    if (!preg_match('/^[A-Za-z0-9]{6,16}$/', $pid)) gfail(400, 'bad_public_id');
+    $vid = (string)($body['visitId'] ?? '');
+    if (!preg_match('/^[A-Za-z0-9-]{8,64}$/', $vid)) gfail(400, 'bad_visit_id');
+    rate_limit($pdo, 'pfview:' . client_ip(), 60, 3600);
+    /* Le profil doit exister : pas de compteur fantôme sur un id inconnu. */
+    try {
+        $ex = $pdo->prepare('SELECT 1 FROM tfh_g_players WHERE public_id = ? LIMIT 1');
+        $ex->execute([$pid]);
+        if ($ex->fetchColumn() === false) gfail(404, 'player_not_found');
+    } catch (Throwable $e) {
+        gfail(500, 'db_error');
+    }
+    /* Hachés côté serveur : jamais de visitId ni d'IP en clair en base. */
+    $visitHash = substr(hash('sha256', 'tfh-visit:' . $vid), 0, 32);
+    $ipHash    = substr(hash('sha256', 'tfh-ip:' . client_ip()), 0, 32);
+    $views = tfh_profile_count_visit($pdo, $pid, $visitHash, $ipHash);
+    gout(['ok' => true, 'views' => $views]);
 }
 
 /* ── Recherche de joueurs (tous alias connus) ────────────────────────────── */
@@ -1233,5 +1276,5 @@ case 'synclog': {
 }
 
 default:
-    gfail(400, 'bad_route', 'Routes : recent, game, speedruns, profile, search, maps, status, leaderboard, clans, clan, cosmetics, cosmetic, replay, synclog');
+    gfail(400, 'bad_route', 'Routes : recent, game, speedruns, profile, profile-view, search, maps, status, leaderboard, clans, clan, cosmetics, cosmetic, replay, synclog');
 }

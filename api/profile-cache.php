@@ -130,3 +130,111 @@ function tfh_profile_count_view(PDO $pdo, string $pid): void
         /* jamais bloquant */
     }
 }
+
+/* ══ v5.42 — Compteur PUBLIC « vues » du profil : 1 par visite du site ═════
+ * L'ancien compteur (colonne views ci-dessus) compte CHAQUE appel API — y
+ * compris le pré-chargement au survol (pf-prefetch) et les rechargements :
+ * il reste un indicateur interne de popularité (priorité de warm). Le
+ * compteur PUBLIC (colonne public_views) n'incrémente QUE via la route
+ * POST route=profile-view, dédoublonnée côté serveur :
+ *   - le navigateur produit un visitId par VISITE (sessionStorage, vit tant
+ *     que l'onglet est ouvert) ;
+ *   - la table tfh_g_profile_visit_seen retient les couples (profil, visite)
+ *     déjà comptés → recharger la page, y revenir, la re-rendre = toujours
+ *     1 seule vue dans la même visite ;
+ *   - garde anti-spam : max 10 vues comptées / jour / IP / profil ;
+ *   - rétention des dédoublonnages 7 jours (purge paresseuse 1 % des appels).
+ * Tout est défensif : un échec SQL ne casse jamais l'affichage du profil. */
+
+const TFH_PROFILE_VISIT_MAX_PER_DAY = 10;
+
+function tfh_profile_views_ensure(PDO $pdo): bool
+{
+    static $ready = null;
+    if ($ready !== null) {
+        return $ready;
+    }
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS tfh_g_profile_visit_seen (
+            public_id  VARCHAR(16) NOT NULL,
+            visit_hash CHAR(32)    NOT NULL,
+            ip_hash    CHAR(32)    NOT NULL DEFAULT '',
+            seen_at    DATETIME    NOT NULL,
+            PRIMARY KEY (public_id, visit_hash),
+            INDEX idx_gpvseen_ip (public_id, ip_hash, seen_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        /* Colonne public_views sur la table compteur existante (idempotent). */
+        $st = $pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "tfh_g_profile_views"
+               AND COLUMN_NAME = "public_views"'
+        );
+        $st->execute();
+        if ((int) $st->fetchColumn() === 0) {
+            $pdo->exec('ALTER TABLE tfh_g_profile_views
+                ADD COLUMN public_views BIGINT UNSIGNED NOT NULL DEFAULT 0');
+        }
+        $ready = true;
+    } catch (Throwable $e) {
+        error_log('[tfh-api] profile_views schema: ' . $e->getMessage());
+        $ready = false;
+    }
+    return $ready;
+}
+
+/** Compteur « vues » public courant (0 si absent de la base). Jamais bloquant. */
+function tfh_profile_views_get(PDO $pdo, string $pid): int
+{
+    if (!tfh_profile_views_ensure($pdo)) {
+        return 0;
+    }
+    try {
+        $st = $pdo->prepare('SELECT public_views FROM tfh_g_profile_views WHERE public_id = ?');
+        $st->execute([$pid]);
+        $v = $st->fetchColumn();
+        return $v === false ? 0 : (int) $v;
+    } catch (Throwable $e) {
+        return 0;
+    }
+}
+
+/**
+ * Dédoublonne la visite puis incrémente si nécessaire.
+ * Retourne le compteur public après coup (valeur à afficher).
+ */
+function tfh_profile_count_visit(PDO $pdo, string $pid, string $visitHash, string $ipHash): int
+{
+    if (tfh_profile_views_ensure($pdo)) {
+        try {
+            /* 1) Visite déjà comptée pour ce profil ? (PK = dédoublonnage) */
+            $st = $pdo->prepare(
+                'INSERT IGNORE INTO tfh_g_profile_visit_seen (public_id, visit_hash, ip_hash, seen_at)
+                 VALUES (?, ?, ?, NOW())'
+            );
+            $st->execute([$pid, $visitHash, $ipHash]);
+            if ($st->rowCount() > 0) {
+                /* 2) Nouvelle visite : garde anti-spam par IP. */
+                $c = $pdo->prepare(
+                    'SELECT COUNT(*) FROM tfh_g_profile_visit_seen
+                     WHERE public_id = ? AND ip_hash = ? AND seen_at >= CURDATE()'
+                );
+                $c->execute([$pid, $ipHash]);
+                if ((int) $c->fetchColumn() <= TFH_PROFILE_VISIT_MAX_PER_DAY) {
+                    $pdo->prepare(
+                        'INSERT INTO tfh_g_profile_views (public_id, views, public_views, last_view)
+                         VALUES (?, 0, 1, NOW())
+                         ON DUPLICATE KEY UPDATE public_views = public_views + 1, last_view = NOW()'
+                    )->execute([$pid]);
+                }
+            }
+            /* 3) Purge paresseuse : les visites > 7 jours ne servent plus. */
+            if (mt_rand(1, 100) === 1) {
+                $pdo->exec('DELETE FROM tfh_g_profile_visit_seen
+                    WHERE seen_at < NOW() - INTERVAL 7 DAY');
+            }
+        } catch (Throwable $e) {
+            error_log('[tfh-api] profile_count_visit: ' . $e->getMessage());
+        }
+    }
+    return tfh_profile_views_get($pdo, $pid);
+}

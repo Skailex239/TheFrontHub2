@@ -52,6 +52,9 @@ window.__TFH_I18N_PARTIALS__.fr = Object.assign(window.__TFH_I18N_PARTIALS__.fr 
   "pf.pseudo_hint": "3 à 32 caractères (lettres, chiffres, . _ - espace). Ce pseudo s'affiche partout : profil, classements, classé, speedruns.",
   "pf.copy_pid": "Copier le Public ID",
   "pf.joined_initial": "Membre depuis le —",
+  "pf.views_tip": "Vues du profil — comptées une seule fois par visite du site",
+  "pf.views_one": "vue",
+  "pf.views_many": "vues",
   "pf.ingame": "En jeu : {name}",
 
   // ── Stats cockpit (cartes + aria) ──
@@ -402,6 +405,9 @@ window.__TFH_I18N_PARTIALS__.en = Object.assign(window.__TFH_I18N_PARTIALS__.en 
   "pf.pseudo_hint": "3 to 32 characters (letters, numbers, . _ - space). This username is displayed everywhere: profile, leaderboards, ranked, speedruns.",
   "pf.copy_pid": "Copy the Public ID",
   "pf.joined_initial": "Member since —",
+  "pf.views_tip": "Profile views — counted once per site visit",
+  "pf.views_one": "view",
+  "pf.views_many": "views",
   "pf.ingame": "In game: {name}",
 
   // ── Cockpit stats (cards + aria) ──
