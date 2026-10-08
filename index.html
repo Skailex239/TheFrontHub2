@@ -133,7 +133,7 @@
 <div class="app">
 
   <!-- ═══ SIDEBAR ═══ -->
-  <aside class="sidebar">
+  <aside class="sidebar" data-lenis-prevent>
 
     <div class="logo" onclick="logoClickAnim(event)" role="link" aria-label="Aller au tableau de bord" tabindex="0" data-i18n-aria="home.logo_aria">
       <img src="TheFrontHub Logo Text.webp" alt="TheFrontHub" loading="eager">
@@ -367,11 +367,11 @@
       <div class="chart-grid" style="margin-bottom:20px">
         <div class="feed-card">
           <div class="feed-header"><i data-icon="globe"></i> <span data-i18n="global.header">Classement mondial — 1er = 3pts · 2e = 2pts · 3e = 1pt</span></div>
-          <div id="global-list" style="max-height: 500px; overflow-y: auto;"><div class="loading" data-i18n="ui.loading">Chargement...</div></div>
+          <div id="global-list" data-lenis-prevent style="max-height: 500px; overflow-y: auto;"><div class="loading" data-i18n="ui.loading">Chargement...</div></div>
         </div>
         <div class="feed-card">
           <div class="feed-header"><i data-icon="bolt"></i> <span data-i18n="feed.header">Dernières victoires</span></div>
-          <div id="feed-list" style="max-height: 500px; overflow-y: auto;"><div class="loading" data-i18n="ui.loading">Chargement...</div></div>
+          <div id="feed-list" data-lenis-prevent style="max-height: 500px; overflow-y: auto;"><div class="loading" data-i18n="ui.loading">Chargement...</div></div>
         </div>
       </div>
 
@@ -405,7 +405,7 @@
 
 <!-- Player Modal -->
 <div class="modal-overlay" id="player-modal" onclick="closeModal(event)">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-player-name" onclick="event.stopPropagation()">
+  <div class="modal" data-lenis-prevent role="dialog" aria-modal="true" aria-labelledby="modal-player-name" onclick="event.stopPropagation()">
     <button class="modal-close" aria-label="Fermer" data-i18n-aria="modal.close" onclick="closeModal()">&times;</button>
     <div class="modal-header">
       <div class="modal-title" id="modal-player-name" data-i18n="modal.player">Joueur</div>
@@ -425,7 +425,7 @@
 
 <!-- Ranked Player Modal (Match History) -->
 <div class="modal-overlay" id="ranked-player-modal" onclick="closeRankedModal(event)">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ranked-modal-player-name" onclick="event.stopPropagation()">
+  <div class="modal" data-lenis-prevent role="dialog" aria-modal="true" aria-labelledby="ranked-modal-player-name" onclick="event.stopPropagation()">
     <button class="modal-close" aria-label="Fermer" data-i18n-aria="modal.close" onclick="closeRankedModal()">&times;</button>
     <div class="modal-header">
       <div class="modal-title" id="ranked-modal-player-name" data-i18n="modal.player">Joueur</div>
@@ -433,14 +433,14 @@
     </div>
     <div class="modal-section">
       <div class="modal-section-title"><span data-i18n="ranked.modal_history_prefix">Historique </span><span id="ranked-modal-mode-label">1v1</span><span data-i18n="ranked.modal_history_suffix"> récent</span></div>
-      <div id="ranked-modal-games" style="max-height:400px;overflow-y:auto"></div>
+      <div id="ranked-modal-games" data-lenis-prevent style="max-height:400px;overflow-y:auto"></div>
     </div>
   </div>
 </div>
 
 <!-- Auth Modal -->
 <div class="modal-overlay" id="auth-modal" onclick="toggleAuthModal()">
-  <div class="modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" onclick="event.stopPropagation()">
+  <div class="modal auth-modal" data-lenis-prevent role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" onclick="event.stopPropagation()">
     <button class="modal-close" aria-label="Fermer" data-i18n-aria="modal.close" onclick="toggleAuthModal()">&times;</button>
     <div class="auth-modal-logo">
       <img src="TheFrontHub Logo No Text.webp" alt="TheFrontHub" class="auth-modal-logo-img">
@@ -476,7 +476,7 @@
 
 <!-- Profile Modal -->
 <div class="modal-overlay" id="profile-modal" onclick="closeProfileModal()">
-  <div class="modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="profile-modal-title" onclick="event.stopPropagation()">
+  <div class="modal auth-modal" data-lenis-prevent role="dialog" aria-modal="true" aria-labelledby="profile-modal-title" onclick="event.stopPropagation()">
     <button class="modal-close" aria-label="Fermer" data-i18n-aria="modal.close" onclick="closeProfileModal()" style="position:absolute;top:12px;right:12px">&times;</button>
     <div class="modal-header">
       <div class="modal-title" id="profile-modal-title" data-i18n="modal.profile_setup_title">Finaliser votre profil</div>
@@ -522,7 +522,7 @@
 </div>
 <script src="dist/toast.min.js?v=2" defer></script>
 <script src="dist/lenis.min.js?v=7"></script>
-<script src="dist/animations.min.js?v=2" defer></script>
+<script src="dist/animations.min.js?v=3" defer></script>
 <script type="module" src="banners.js?v=4"></script>
 <script src="verified.js?v=1"></script>
 <script src="dist/app.min.js?v=43" type="module"></script>
@@ -596,14 +596,14 @@
     if (el) el.textContent = y;
   })();
 </script>
-<script type="module" src="dist/tutorial.min.js?v=7"></script>
+<script type="module" src="dist/tutorial.min.js?v=8"></script>
 
 
 
 
 <script src="ads.js?v=3"></script>
 <script src="dist/pf-prefetch.min.js?v=1" defer></script>
-<script src="dist/chat-widget.min.js?v=3" defer></script>
+<script src="dist/chat-widget.min.js?v=4" defer></script>
 <script src="dist/update-banner.min.js?v=4" defer></script>
 </body>
 </html>

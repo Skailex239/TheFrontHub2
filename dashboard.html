@@ -150,7 +150,7 @@ try {
 <div class="app">
 
   <!-- ═══ SIDEBAR ═══ -->
-  <aside class="sidebar">
+  <aside class="sidebar" data-lenis-prevent>
 
     <div class="logo" onclick="logoClickAnim(event)" role="link" aria-label="Aller au tableau de bord" data-i18n-aria="dash.logo_aria" tabindex="0">
       <img src="TheFrontHub Logo Text.webp" alt="TheFrontHub" loading="eager">
@@ -2741,7 +2741,7 @@ try {
 
 <!-- Auth Modal (copié verbatim de index.html) -->
 <div class="modal-overlay" id="auth-modal" onclick="toggleAuthModal()">
-  <div class="modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" onclick="event.stopPropagation()">
+  <div class="modal auth-modal" data-lenis-prevent role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" onclick="event.stopPropagation()">
     <button class="modal-close" aria-label="Fermer" data-i18n-aria="modal.close" onclick="toggleAuthModal()">&times;</button>
     <div class="auth-modal-logo">
       <img src="TheFrontHub Logo No Text.webp" alt="TheFrontHub" class="auth-modal-logo-img">
@@ -2777,7 +2777,7 @@ try {
 
 <!-- Profile Modal (copié verbatim de index.html) -->
 <div class="modal-overlay" id="profile-modal" onclick="closeProfileModal()">
-  <div class="modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="profile-modal-title" onclick="event.stopPropagation()">
+  <div class="modal auth-modal" data-lenis-prevent role="dialog" aria-modal="true" aria-labelledby="profile-modal-title" onclick="event.stopPropagation()">
     <button class="modal-close" aria-label="Fermer" data-i18n-aria="modal.close" onclick="closeProfileModal()" style="position:absolute;top:12px;right:12px">&times;</button>
     <div class="modal-header">
       <div class="modal-title" id="profile-modal-title" data-i18n="dash.setup_title">Finaliser votre profil</div>
@@ -2826,8 +2826,8 @@ try {
 <script type="module" src="dist/dashboard.min.js?v=32"></script>
 <script src="dist/toast.min.js?v=2"></script>
 <script src="dist/lenis.min.js?v=7"></script>
-<script src="dist/animations.min.js?v=2"></script>
-<script type="module" src="dist/tutorial.min.js?v=7"></script>
+<script src="dist/animations.min.js?v=3"></script>
+<script type="module" src="dist/tutorial.min.js?v=8"></script>
 <script>
   // v5.25 — filet de sécurité INDÉPENDANT de dashboard.js : même si le bundle
   // échoue à charger/éxécuter, le dashboard s'affiche au bout de 3,5 s max
@@ -2911,7 +2911,7 @@ try {
 
 
 <script src="dist/pf-prefetch.min.js?v=1" defer></script>
-<script src="dist/chat-widget.min.js?v=3" defer></script>
+<script src="dist/chat-widget.min.js?v=4" defer></script>
 <script src="dist/update-banner.min.js?v=4" defer></script>
 </body>
 </html>
