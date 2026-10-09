@@ -37,7 +37,20 @@ require __DIR__ . '/config.php';
 require_once __DIR__ . '/profile-schema.php';
 /* v5.36 — Cache fichier + constructeur de payload partagé (profile-warm.php) */
 require_once __DIR__ . '/profile-payload.php';
-tfh_profile_ensure_schema($pdo);
+/* v5.43 — SÉPARATION DES BASES : $pdo devient la connexion GAMES (tfh_g_*,
+ * tfh_g_profile_*) résolue par games-db.php — base isolée sur le webroot dev
+ * (secrets games_db_dev), base partagée/fallback sur prod (comportement
+ * inchangé). $sitePdo garde la base SITE (auth, rate-limit, skins/bannières
+ * hub) ; les rares requêtes mixtes qualifient l'autre base via
+ * tfh_site_ref() / tfh_games_ref() (no-op quand les bases coïncident). */
+require_once __DIR__ . '/games-db.php';
+$sitePdo = $pdo;
+$gamesPdo = tfh_games_pdo('auto');
+if (!$gamesPdo instanceof PDO) {
+    $gamesPdo = $sitePdo; // repli : secrets games absents → base site (avant config dev)
+}
+$pdo = $gamesPdo;
+tfh_profile_ensure_schema($pdo, $sitePdo);
 
 /* v5 : les nouvelles tables (ratings, cosmétiques, replay, clans) sont créées
  * par le prochain tick de games-sync.php. Si elles n'existent pas encore
@@ -90,7 +103,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
 function tfh_route_admin_only(PDO $pdo): bool
 {
     try {
-        $user = current_user($pdo);
+        $user = current_user($GLOBALS['sitePdo'] ?? $pdo);
         return is_array($user) && (($user['role'] ?? '') === 'admin');
     } catch (Throwable $e) {
         return false;
@@ -138,8 +151,13 @@ function game_row(array $r): array {
     ];
 }
 
-const GAMES_SELECT = 'SELECT g.*, UNIX_TIMESTAMP(g.started_at) AS started_ts, u.username AS winner_username
-    FROM tfh_g_games g LEFT JOIN tfh_g_usernames u ON u.id = g.winner_username_id';
+/* v5.43 : define conditionnel — profile-payload.php (inclus plus haut) pose
+ * déjà la constante pour fonctionner hors route ; plus jamais de warning
+ * « already defined » si display_errors est actif. */
+if (!defined('GAMES_SELECT')) {
+    define('GAMES_SELECT', 'SELECT g.*, UNIX_TIMESTAMP(g.started_at) AS started_ts, u.username AS winner_username
+    FROM tfh_g_games g LEFT JOIN tfh_g_usernames u ON u.id = g.winner_username_id');
+}
 
 /* ═══════════════════════════ Router ═══════════════════════════ */
 
@@ -306,7 +324,7 @@ case 'profile': {
          * demandent moins (limit=1/20) reçoivent un payload un peu plus riche
          * et tronquent côté client ; en échange, le dossier cockpit client
          * dispose d'un échantillon suffisant (fin des appels OpenFront lents). */
-        $payload = tfh_profile_payload($pdo, $pid, 100, isset($_GET['refresh']));
+        $payload = tfh_profile_payload($pdo, $pid, 100, isset($_GET['refresh']), $sitePdo);
     } catch (TfhProfileNotFound $e) {
         gfail(404, 'player_not_found');
     }
@@ -335,7 +353,7 @@ case 'profile-view': {
     if (!preg_match('/^[A-Za-z0-9]{6,16}$/', $pid)) gfail(400, 'bad_public_id');
     $vid = (string)($body['visitId'] ?? '');
     if (!preg_match('/^[A-Za-z0-9-]{8,64}$/', $vid)) gfail(400, 'bad_visit_id');
-    rate_limit($pdo, 'pfview:' . client_ip(), 60, 3600);
+    rate_limit($sitePdo, 'pfview:' . client_ip(), 60, 3600);
     /* Le profil doit exister : pas de compteur fantôme sur un id inconnu. */
     try {
         $ex = $pdo->prepare('SELECT 1 FROM tfh_g_players WHERE public_id = ? LIMIT 1');
@@ -452,8 +470,8 @@ case 'weekly': {
                         p.last_username, pa.username AS hub_username, u.verified_at
                  FROM tfh_g_weekly w
                  LEFT JOIN tfh_g_players p ON p.public_id = w.public_id
-                 LEFT JOIN tfh_public_aliases pa ON pa.public_id = w.public_id
-                 LEFT JOIN tfh_users u ON u.id = pa.user_id
+                 LEFT JOIN " . tfh_site_ref('tfh_public_aliases') . " pa ON pa.public_id = w.public_id
+                 LEFT JOIN " . tfh_site_ref('tfh_users') . " u ON u.id = pa.user_id
                  WHERE w.week_start = ? AND w.public_id = ? LIMIT 1"
             );
             $stm->execute([$week, $me]);
@@ -487,8 +505,8 @@ case 'weekly': {
     try {
         $sqlBase = "FROM tfh_g_weekly w
             LEFT JOIN tfh_g_players p ON p.public_id = w.public_id
-            LEFT JOIN tfh_public_aliases pa ON pa.public_id = w.public_id
-            LEFT JOIN tfh_users u ON u.id = pa.user_id
+            LEFT JOIN " . tfh_site_ref('tfh_public_aliases') . " pa ON pa.public_id = w.public_id
+            LEFT JOIN " . tfh_site_ref('tfh_users') . " u ON u.id = pa.user_id
             LEFT JOIN tfh_g_weekly pw ON pw.week_start = ? AND pw.public_id = w.public_id
             WHERE $where";
         $cnt = $pdo->prepare('SELECT COUNT(*) ' . $sqlBase);
@@ -651,7 +669,9 @@ case 'totals': {
      * tfh_patterns_map). Aucun compteur interne sensible exposé. */
     header('Cache-Control: public, max-age=120');
     $cacheDir = (getenv('HOME') ?: sys_get_temp_dir()) . '/.tfs_cache';
-    $cacheFile = $cacheDir . '/games_totals.json';
+    /* v5.43 : cache par BASE — dev (base isolée) et prod ne doivent jamais
+     * partager un même fichier de totaux (~ même HOME sur l'hôte). */
+    $cacheFile = $cacheDir . '/games_totals_' . preg_replace('/[^a-z0-9_]/i', '_', (string)tfh_games_db_name('auto')) . '.json';
     $data = null;
     if (is_file($cacheFile) && (time() - (int)filemtime($cacheFile)) < 300) {
         $data = json_decode((string)@file_get_contents($cacheFile), true);
@@ -731,10 +751,15 @@ case 'status': {
     }
     json_out([
         'ok' => true,
+        'database' => tfh_games_db_name('auto'),
+        'dbIsolated' => tfh_games_isolated(),
         'games' => (int)$cnt['games'],
         'players' => (int)$cnt['players'],
         'speedruns' => (int)$cnt['speedruns'],
         'newestGame' => $cnt['newest'] !== null ? (string)$cnt['newest'] : null,
+        /* v5.43 — complétude « tout, tout, tout » (détail + replay) + volume replays */
+        'fullComplete' => $V5_READY ? (int)$pdo->query('SELECT COUNT(*) FROM tfh_g_games WHERE v5_done = 1 AND turns_done = 1')->fetchColumn() : 0,
+        'turnsGzBytes' => $V5_READY ? (int)$pdo->query('SELECT COALESCE(SUM(gz_bytes),0) FROM tfh_g_turns')->fetchColumn() : 0,
         'backfillCursor' => $cursorMs !== null ? gmdate('Y-m-d H:i', (int)round(((int)$cursorMs) / 1000)) : null,
         'verMig' => [
             'remaining' => isset($state['vermig_remaining']) ? (int)$state['vermig_remaining'] : null,

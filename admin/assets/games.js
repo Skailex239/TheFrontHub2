@@ -19,6 +19,9 @@
   /* 2026-09-10T00:00Z — début de l'ère V34 (constante GAMES_EPOCH_MS de
      api/games-sync.php). Curseur de backfill revenu à cette date = terminé. */
   const EPOCH_MS = 1788998400000;
+  /* v5.43 — 2025-05-25T00:00Z : plus vieilles données servies par l'API
+     (GAMES_EPOCH_DEEP_MS) — bornes de la remontée « tout, tout, tout » dev. */
+  const DEEP_EPOCH_MS = 1748102400000;
 
   const $ = (sel) => document.querySelector(sel);
   const ids = {
@@ -38,7 +41,29 @@
     newest: $('#st-newest'),
     updated: $('#st-updated'),
     grid: $('#games-grid'),
-    live: $('#games-live')
+    live: $('#games-live'),
+    /* v5.43 — base dev */
+    devGrid: $('#dev-grid'),
+    devBadge: $('#dev-badge'),
+    devGames: $('#dev-games'),
+    devGamesSub: $('#dev-games-sub'),
+    devFull: $('#dev-full'),
+    devFullSub: $('#dev-full-sub'),
+    devReplays: $('#dev-replays'),
+    devReplaysSub: $('#dev-replays-sub'),
+    devBytes: $('#dev-bytes'),
+    devBytesSub: $('#dev-bytes-sub'),
+    devProgress: $('#dev-progress'),
+    devProgressBar: $('#dev-progressbar'),
+    devCursor: $('#dev-cursor'),
+    devReplays24h: $('#dev-replays24h'),
+    devRate: $('#dev-rate'),
+    devPhase: $('#dev-phase'),
+    devHttp: $('#dev-http'),
+    devOldest: $('#dev-oldest'),
+    devWipeBtn: $('#dev-wipe-btn'),
+    devWipeConfirm: $('#dev-wipe-confirm'),
+    devWipeStatus: $('#dev-wipe-status')
   };
   if (!ids.games || !ids.grid) return; /* vue absente (page non connecté) */
 
@@ -147,12 +172,132 @@
     paintComplete(j.complete, j.games, j.enrich_left, j.sr_left);
     paintBackfill(j.backfill_cursor_ms);
     ids.newest.textContent = j.newest_game ? fmtDateTime(j.newest_game) + ' UTC' : '—';
+    paintDev(j.dev || null);
     ids.updated.textContent = fmtUpdated(j.checked_at);
   }
 
   function fmtUpdated(epochS) {
     const d = new Date((Number(epochS) || Math.floor(Date.now() / 1000)) * 1000);
     return d.toLocaleTimeString('fr-FR');
+  }
+
+  /* ── v5.43 — carte base dev (reconstruction complète) ────────────────── */
+
+  function fmtBytes(n) {
+    const v = Number(n) || 0;
+    if (v >= 1024 * 1024 * 1024) return (v / (1024 * 1024 * 1024)).toFixed(2) + ' Go';
+    if (v >= 1024 * 1024) return (v / (1024 * 1024)).toFixed(1) + ' Mo';
+    if (v >= 1024) return (v / 1024).toFixed(1) + ' Ko';
+    return v + ' o';
+  }
+
+  function fmtDateTimeUTC(mysql) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(String(mysql || ''));
+    if (!m) return String(mysql || '—');
+    return m[3] + '/' + m[2] + '/' + m[1] + ' ' + m[4] + ':' + m[5] + ' UTC';
+  }
+
+  /* ETA jours : replays_left / replays_24h (borné). */
+  function fmtEta(replaysLeft, replays24h) {
+    const left = Number(replaysLeft) || 0;
+    const per = Number(replays24h) || 0;
+    if (left <= 0) return 'replays à jour';
+    if (per <= 0) return 'ETA : — (démarre au prochain tick)';
+    const days = left / per;
+    if (days >= 60) return 'ETA replays ≈ ' + Math.round(days / 30) + ' mois';
+    if (days >= 14) return 'ETA replays ≈ ' + Math.round(days) + ' jours';
+    if (days >= 2) return 'ETA replays ≈ ' + Math.round(days) + ' jours';
+    return 'ETA replays ≈ ' + (days * 24).toFixed(0) + ' h';
+  }
+
+  function paintDev(dev) {
+    if (!ids.devGrid) return;
+    if (!dev) {
+      ids.devBadge.textContent = 'Base dev non configurée — crée la base MySQL dédiée + secrets "games_db_dev" (voir games-README.md). La prod continue sur sa base actuelle.';
+      ids.devGames.textContent = '—'; ids.devFull.textContent = '—';
+      ids.devReplays.textContent = '—'; ids.devBytes.textContent = '—';
+      ids.devCursor.textContent = '—';
+      if (ids.devWipeBtn) ids.devWipeBtn.disabled = true;
+      return;
+    }
+    if (ids.devWipeBtn) ids.devWipeBtn.disabled = !dev.isolated || !dev.available;
+    if (!dev.available) {
+      ids.devBadge.textContent = 'Base ' + dev.database + ' configurée mais tables absentes — le premier tick du cron dev les crée automatiquement.';
+      return;
+    }
+    ids.devBadge.textContent = 'Base : ' + dev.database + (dev.isolated
+      ? ' · isolée de la prod ✔'
+      : ' · ⚠ PARTAGÉE avec la prod (reset impossible)');
+    ids.devGames.textContent = fmtInt(dev.games);
+    ids.devGamesSub.textContent = fmtInt(dev.players) + ' joueurs · ' + fmtInt(dev.speedruns) + ' speedruns';
+    ids.devFull.textContent = fmtInt(dev.full_complete);
+    const pctFull = dev.games > 0 ? (dev.full_complete / dev.games * 100) : 0;
+    ids.devFullSub.textContent = pctFull.toFixed(1) + ' % de tout ce qui est ingéré'
+      + (Number(dev.enrich_left) > 0 ? ' · ' + fmtInt(dev.enrich_left) + ' détail(s) en attente' : '');
+    ids.devReplays.textContent = fmtInt(dev.replays);
+    ids.devReplaysSub.textContent = fmtInt(dev.replays_left) + ' restant(s)'
+      + (Number(dev.replays_skipped) > 0 ? ' · ' + fmtInt(dev.replays_skipped) + ' sauté(s) (trop gros/abandonnés)' : '')
+      + ' · ' + fmtEta(dev.replays_left, dev.replays_24h);
+    ids.devBytes.textContent = fmtBytes(dev.turns_gz_bytes);
+    ids.devBytesSub.textContent = 'moyenne ' + fmtBytes(dev.turns_gz_avg) + ' / replay (gzip)';
+    /* remontée : maintenant → mai 2025 (deep epoch) */
+    const cur = Number(dev.backfill_cursor_ms);
+    if (!isFinite(cur) || cur <= 0) {
+      ids.devProgress.style.width = '0%';
+      ids.devCursor.textContent = 'Curseur absent — le premier tick cron positionne le départ à « maintenant ».';
+    } else if (cur <= DEEP_EPOCH_MS) {
+      ids.devProgress.style.width = '100%';
+      ids.devProgressBar.setAttribute('aria-valuenow', '100');
+      ids.devCursor.textContent = 'Remontée metadata terminée — replays + détails continuent du plus récent au plus ancien.';
+    } else {
+      const total = Math.max(1, Date.now() - DEEP_EPOCH_MS);
+      const pct = Math.max(0, Math.min(100, (Date.now() - cur) / total * 100));
+      ids.devProgress.style.width = pct.toFixed(1) + '%';
+      ids.devProgressBar.setAttribute('aria-valuenow', String(Math.round(pct)));
+      ids.devCursor.textContent = 'Metadata en remontée — atteint le ' + fmtDateUTC(cur)
+        + ' · ' + pct.toFixed(1) + ' % du chemin vers mai 2025';
+    }
+    ids.devReplays24h.textContent = fmtInt(dev.replays_24h);
+    ids.devRate.textContent = dev.rate_per_s != null ? dev.rate_per_s + ' req/s' : '—';
+    ids.devPhase.textContent = dev.phase ? dev.phase + ' (' + fmtUpdated(dev.phase_at) + ')' : '—';
+    ids.devHttp.textContent = (dev.http_429 != null ? fmtInt(dev.http_429) + ' × 429' : '—')
+      + ' / ' + (dev.http_err != null ? fmtInt(dev.http_err) + ' err' : '—');
+    ids.devOldest.textContent = dev.oldest_game ? fmtDateTimeUTC(dev.oldest_game) : '—';
+  }
+
+  async function wipeDev() {
+    if (!ids.devWipeBtn || ids.devWipeBtn.disabled) return;
+    const confirm = (ids.devWipeConfirm && ids.devWipeConfirm.value || '').trim();
+    if (!confirm) {
+      if (ids.devWipeStatus) ids.devWipeStatus.textContent = '⚠ Tape le nom exact de la base pour confirmer le reset.';
+      return;
+    }
+    if (!window.confirm('RESET de la base dev ' + confirm + ' : toutes les tables tfh_g_* seront vidées (compteurs, parties, replays). La prod n\'est pas concernée. Continuer ?')) return;
+    ids.devWipeBtn.disabled = true;
+    if (ids.devWipeStatus) ids.devWipeStatus.textContent = 'Reset en cours…';
+    try {
+      /* CSRF : même mécanique que support.js (cookie tfh_task_csrf, repli BOOT.csrf) */
+      const m = document.cookie.match(/(?:^|;\s*)tfh_task_csrf=([a-f0-9]{32})/);
+      const csrf = m ? m[1] : (BOOT.csrf || '');
+      const r = await fetch(BASE + '/api.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf, Accept: 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ action: 'games.wipe', confirm })
+      });
+      let j = null; try { j = await r.json(); } catch (e) {}
+      if (j && j.ok) {
+        if (ids.devWipeStatus) ids.devWipeStatus.textContent = '✔ Base ' + j.database + ' vidée (' + j.truncated + ' tables). ' + (j.note || '');
+        if (ids.devWipeConfirm) ids.devWipeConfirm.value = '';
+        refresh();
+      } else {
+        if (ids.devWipeStatus) ids.devWipeStatus.textContent = '✖ ' + ((j && (j.message || j.error)) || 'échec HTTP ' + r.status);
+        ids.devWipeBtn.disabled = false;
+      }
+    } catch (e) {
+      if (ids.devWipeStatus) ids.devWipeStatus.textContent = '✖ réseau — réessaie';
+      ids.devWipeBtn.disabled = false;
+    }
   }
 
   async function refresh() {
@@ -202,6 +347,11 @@
   try {
     if ((localStorage.getItem('tfh-admin-view') || '') === 'games') start();
   } catch (e) { /* ignore */ }
+
+  if (ids.devWipeBtn) ids.devWipeBtn.addEventListener('click', () => { wipeDev(); });
+  if (ids.devWipeConfirm) {
+    ids.devWipeConfirm.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); wipeDev(); } });
+  }
 
   document.addEventListener('visibilitychange', () => {
     if (active && !document.hidden) refresh();

@@ -80,12 +80,21 @@ declare(strict_types=1);
  * Secrets : même fichier que le reste de l'API (~/.tfs_secrets/tfh-secrets.json),
  * avec en plus (optionnel mais recommandé) :
  *   { "mysql": {...}, "openfront_access": "token-skailex",
+ *     "games_db_dev": { "host": ..., "database": "...", ... },   ← v5.43 base dev isolée
  *     "games": { "game_types": "Public,Private", "min_players_to_keep": 1,
  *                "detail_concurrency": 6, "player_stats_mode": "all",
- *                "turns_enabled": true, "turns_max_games_per_tick": 30 } }
+ *                "turns_enabled": true, "turns_max_games_per_tick": 120 } }
  *
  *   NB : l'ancienne clé "min_players" (v1) est ignorée — la nouvelle clé
  *   "min_players_to_keep" la remplace (défaut 1).
+ *
+ * v5.43 — RESET DE LA BASE (dev uniquement) :
+ *   php api/games-sync.php --wipe-confirm=NOM_DE_LA_BASE
+ *   TRUNCATE de toutes les tables tfh_g_* de la base games résolue, puis
+ *   backfill repart de « maintenant » → remonte jusqu'à mai 2025.
+ *   Garde-fous : la base doit être ISOLÉE (games_db_dev ≠ mysql) et le nom
+ *   passé en argument doit correspondre EXACTEMENT. Refus si un tick sync
+ *   est en cours (même lock). Jamais exécutable sur la base partagée.
  */
 
 if (PHP_SAPI !== 'cli') {
@@ -105,7 +114,7 @@ register_shutdown_function(function () use ($_TFH_LOG) {
     }
 });
 function cut_txt(string $s, int $n): string { return function_exists('mb_substr') ? mb_substr($s, 0, $n, 'UTF-8') : substr($s, 0, $n); }
-ini_set('memory_limit', '1G');   // v5.1 : 512M → 1G (les replays géants peuvent dépasser 512M au décodage)
+ini_set('memory_limit', '2G');   // v5.43 : 1G → 2G (replays géants jusqu'à 40 Mo brut : décodage + réencodage JSON)
 /* v5.1 : heartbeat + garde-fous par phase — chaque phase trace son état dans
  * tfh_g_state (v5_phase / v5_phase_at) visible via route=status, et un échec
  * dans une phase ne tue plus le tick (les autres continuent, l'état final
@@ -139,11 +148,17 @@ $cfg = array_merge([
     'list_limit'          => 1000,
     'list_max_offset'     => 40000,   // garde-fou pagination
     'hard_delete'         => false,   // purge réelle des joueurs supprimés ?
-    'detail_rate_start_per_s' => 2.0,   // v5.7 : retour au profil éprouvé 2 req/s — le plafond officiel (~25 req/s) ne s'applique PAS à notre IP mutualisée (429 mesurés dès 4 req/s)
-    'detail_rate_max_per_s'   => 2.0,   // v5.7 : plafond AIMD 2 req/s (empirique, stable depuis v4.2 : 0 erreur sur 130k+ requêtes)
+    'detail_rate_start_per_s' => 2.5,   // v5.43 : 2.0 → 2.5 req/s (429 mesurés dès 4 req/s sur notre IP ; AIMD actif en protection)
+    'detail_rate_max_per_s'   => 2.5,   // v5.43 : plafond AIMD 2.5 req/s (rebuild complet : chaque replay = 1 requête → 1 partie 100% complète)
     'turns_enabled'            => true, // v5 : stockage des replays (turn-by-turn gzip)
-    'turns_max_games_per_tick' => 10,   // v5.7 : 10/tick au régime 2 req/s
-    'turns_max_bytes_per_tick' => 83886080, // v5 : 80 Mo gz max par tick
+    /* v5.43 — REBUILD COMPLET : 1 replay = 1 requête ?turns=true = info+roster+stats+config+turns.
+     * enrich_game() est appelé sur la même réponse (combo) → la partie devient
+     * 100% complète (métadonnées + roster + replay) en UNE requête API. */
+    'turns_max_games_per_tick' => 120,  // v5.43 : 10 → 120/tick (120 req à 2.5 req/s ≈ 48 s de pacing)
+    'turns_max_bytes_per_tick' => 314572800, // v5.43 : 80 → 300 Mo gz max par tick
+    'turns_gzip_level'         => 6,    // v5.43 : niveau gzip des replays (1 → 6 = −19 % mesuré ; 9 possible via secrets, CPU ×3)
+    'turns_max_raw_bytes'      => 41943040, // v5.43 : 25 → 40 Mo brut max (replays privés géants ; mémoire 2G)
+    'turns_min_players'        => 0,    // v5.43 : 0 = replays de TOUTES les parties (≥N pour économiser le disque plus tard)
     'enrich_max_games_per_tick'=> 400,  // v5 : anciennes parties enrichies par tick
     'catalog_refresh_hours'    => 6,    // v5 : rafraîchissement catalogue cosmétiques
     'rating_seconds_per_tick'  => 60,   // v5 : budget Glicko-2 par tick
@@ -188,27 +203,90 @@ const STATE_KEY_ENRICH  = 'enrich_cursor_ms';   // v5 (réservé)
 const STATE_KEY_TURNS   = 'turns_cursor_ms';    // v5 (réservé)
 const STATE_KEY_RATING  = 'rating_cursor_ms';   // v5 : parties antérieures à ce started_at déjà notées
 
-/* ─────────────────────────── PDO ─────────────────────────── */
+/* ─────────────────────────── PDO ───────────────────────────
+ * v5.43 : la base games (tfh_g_*) est résolue par api/games-db.php —
+ * webroot dev → secrets['games_db_dev'] (base isolée), webroot prod →
+ * secrets['games_db'] ?? secrets['mysql']. Un reset ne peut donc JAMAIS
+ * toucher la base de la prod. */
 
-$m = $secrets['mysql'];
-$pdo = new PDO(
-    sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', (string)$m['host'], (int)($m['port'] ?? 3306), (string)$m['database']),
-    (string)$m['username'],
-    (string)$m['password'],
-    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, PDO::ATTR_EMULATE_PREPARES => false]
-);
+require_once __DIR__ . '/games-db.php';
+$pdo = tfh_games_pdo('auto');
+if (!$pdo instanceof PDO) {
+    fwrite(STDERR, "[games-sync] connexion MySQL games impossible (secrets mysql/games_db*)\n");
+    exit(1);
+}
 
 $OF_ACCESS = (string)($secrets['openfront_access'] ?? '');
 if ($OF_ACCESS === '') fwrite(STDERR, "[games-sync] ⚠️ openfront_access absent — rate limit strict\n");
 
 /* ─────────────────────────── CLI args ─────────────────────────── */
 
-$argBackfill = 0; $argStatus = false; $argSince = ''; $argReset = false;
+$argBackfill = 0; $argStatus = false; $argSince = ''; $argReset = false; $argWipe = '';
 foreach (array_slice($argv, 1) as $a) {
     if (preg_match('/^--backfill=(\d+)$/', $a, $mm))      $argBackfill = (int)$mm[1];
     elseif ($a === '--status')                            $argStatus   = true;
     elseif (preg_match('/^--since=(.+)$/', $a, $mm))      $argSince    = $mm[1];
     elseif ($a === '--reset-backfill')                    $argReset    = true;
+    elseif (preg_match('/^--wipe-confirm=(.+)$/', $a, $mm)) $argWipe    = $mm[1];
+}
+
+/* ─────────────── v5.43 : reset complet de la base games (dev) ─────────────── */
+
+/** TRUNCATE de toutes les tables tfh_g_* de la base games courante.
+ * Appelé par --wipe-confirm (CLI) et par l'action admin games.wipe.
+ * Retour [tables tronquées, erreurs]. Les locks sync DOIVENT être tenus par
+ * l'appelant (aucun tick en cours). */
+function tfh_games_wipe(PDO $pdo, string $expectedDb, string $actor): array
+{
+    $dbName = (string)$pdo->query('SELECT DATABASE()')->fetchColumn();
+    if ($dbName !== $expectedDb) {
+        return [[], ["nom de base non correspondant : base '$dbName' ≠ confirmé '$expectedDb'"]];
+    }
+    $tables = $pdo->query("SHOW TABLES LIKE 'tfh_g_%'")->fetchAll(PDO::FETCH_COLUMN);
+    if (!$tables) return [[], ['aucune table tfh_g_* trouvée (base vide ?)']];
+    $ok = []; $errs = [];
+    foreach ($tables as $t) {
+        try { $pdo->exec('TRUNCATE TABLE `' . str_replace('`', '', $t) . '`'); $ok[] = $t; }
+        catch (Throwable $e) { $errs[] = $t . ' : ' . cut_txt($e->getMessage(), 120); }
+    }
+    log_line(sprintf('[wipe] (%s) base %s : %d table(s) tronquée(s), %d erreur(s)', $actor, $dbName, count($ok), count($errs)));
+    foreach ($errs as $e) log_line('[wipe] ⚠️ ' . $e);
+    return [$ok, $errs];
+}
+
+if ($argWipe !== '') {
+    $dbName = (string)$pdo->query('SELECT DATABASE()')->fetchColumn();
+    /* Garde-fous (dans l'ordre) :
+     * 1. une base dev isolée doit être configurée (games_db_dev ≠ mysql) ;
+     * 2. la base RÉSOLUE ici doit ÊTRE la base dev — jamais la prod : ce
+     *    script tourne aussi sur le webroot prod, où la base résolue est la
+     *    base du site → wipe refusé quoi qu'il arrive ;
+     * 3. la confirmation doit taper le nom exact de la base ;
+     * 4. aucun tick sync en cours (même lock fichier). */
+    if (!tfh_games_isolated()) {
+        fwrite(STDERR, "[wipe] REFUS : aucune base dev isolée (secrets games_db_dev ≠ mysql).\n");
+        fwrite(STDERR, "        Crée une base dédiée (cPanel) + secrets games_db_dev, puis relance.\n");
+        exit(1);
+    }
+    $devDbName = (string)tfh_games_db_name('dev');
+    if ($dbName !== $devDbName) {
+        fwrite(STDERR, "[wipe] REFUS : ce script est connecté à '$dbName' (webroot prod/partagé) — le wipe ne vise que la base dev '$devDbName'.\n");
+        fwrite(STDERR, "        Lance la commande depuis le webroot dev : php /home/USER/dev.thefronthub.com/api/games-sync.php --wipe-confirm=…\n");
+        exit(1);
+    }
+    if ($argWipe !== $dbName) {
+        fwrite(STDERR, "[wipe] REFUS : confirmation '$argWipe' ≠ base '$dbName'.\n");
+        exit(1);
+    }
+    $lockFpW = fopen(sys_get_temp_dir() . '/tfh-games-sync-v5.lock', 'c');
+    if (!$lockFpW || !flock($lockFpW, LOCK_EX | LOCK_NB)) {
+        fwrite(STDERR, "[wipe] REFUS : un tick games-sync est en cours — réessaie entre deux ticks.\n");
+        exit(1);
+    }
+    [$okT, $errT] = tfh_games_wipe($pdo, $dbName, 'CLI');
+    fwrite(STDOUT, "[wipe] $dbName : " . count($okT) . " table(s) tronquée(s)" . ($errT ? ', ' . count($errT) . ' erreur(s)' : '') . "\n");
+    fwrite(STDOUT, "[wipe] La base est vide — le prochain tick repart de « maintenant » et remonte tout l'historique (jusqu'à mai 2025).\n");
+    exit(0);
 }
 
 /* ─────────────────────────── Lock anti-chevauchement ─────────────────────────── */
@@ -1759,13 +1837,22 @@ function enrich_phase(PDO $pdo, array $cfg, float $deadline, array &$unameCache)
 }
 
 /** Phase replays : stocke le turn-by-turn gzip des parties sans replay (récentes d'abord). */
-function turns_phase(PDO $pdo, array $cfg, float $deadline): int {
+function turns_phase(PDO $pdo, array $cfg, float $deadline, array &$unameCache): int {
+    global $OF_STATS;
     if (empty($cfg['turns_enabled'])) return 0;
     phase_mark($pdo, 'turns');
-    $maxGames = max(1, (int)($cfg['turns_max_games_per_tick'] ?? 30));
-    $maxBytes = max(1048576, (int)($cfg['turns_max_bytes_per_tick'] ?? 83886080));
+    $maxGames = max(1, (int)($cfg['turns_max_games_per_tick'] ?? 120));
+    $maxBytes = max(1048576, (int)($cfg['turns_max_bytes_per_tick'] ?? 314572800));
+    /* v5.43 : compression configurable (6 par défaut : −19 % mesuré vs niveau 1,
+     * CPU ×3 moindre que 9), plafond brut relevé à 40 Mo, filtre joueurs optionnel. */
+    $gzLevel  = min(9, max(1, (int)($cfg['turns_gzip_level'] ?? 6)));
+    $maxRaw   = max(10485760, (int)($cfg['turns_max_raw_bytes'] ?? 41943040));
+    $minPl    = max(0, (int)($cfg['turns_min_players'] ?? 0));
     $bytesUsed = 0; $done = 0;
-    $st = $pdo->prepare('SELECT game_id FROM tfh_g_games WHERE turns_done = 0 ORDER BY started_at DESC LIMIT ' . ($maxGames * 2));
+    $sel = 'SELECT game_id FROM tfh_g_games WHERE turns_done = 0'
+        . ($minPl > 0 ? ' AND num_players >= ' . $minPl : '')
+        . ' ORDER BY started_at DESC LIMIT ' . ($maxGames * 2);
+    $st = $pdo->prepare($sel);
     $st->execute();
     $ids = $st->fetchAll(PDO::FETCH_COLUMN);
     $ins = $pdo->prepare('INSERT INTO tfh_g_turns (game_id, version, raw_bytes, gz_bytes, num_turns, fetched_at, data)
@@ -1774,11 +1861,13 @@ function turns_phase(PDO $pdo, array $cfg, float $deadline): int {
             num_turns = VALUES(num_turns), fetched_at = VALUES(fetched_at), data = VALUES(data)');
     $mark = $pdo->prepare('UPDATE tfh_g_games SET turns_done = ?, turns_tries = turns_tries + ? WHERE game_id = ?');
     $triesSel = $pdo->prepare('SELECT turns_tries FROM tfh_g_games WHERE game_id = ?');
+    $v5Sel    = $pdo->prepare('SELECT v5_done FROM tfh_g_games WHERE game_id = ?');
     foreach ($ids as $gid) {
         if ($done >= $maxGames || $bytesUsed >= $maxBytes || microtime(true) >= $deadline) break;
         of_pace(1); // pacing global (partage le budget débit avec les détails)
-        // v5.1 : fetch brut direct — on rejette les corps > 25 Mo AVANT le
+        // v5.1 : fetch brut direct — on rejette les corps trop gros AVANT le
         // décodage JSON pour ne jamais saturer la RAM (fatal = tick mort).
+        // v5.43 : 25 Mo → 40 Mo (plafond configurable, mémoire 2G).
         $ch = curl_init(OF_API_BASE . '/public/game/' . rawurlencode($gid) . '?turns=true');
         $headers = ['User-Agent: TheFrontHub-GamesSync/1.0', 'Accept: application/json'];
         global $OF_ACCESS;
@@ -1803,7 +1892,7 @@ function turns_phase(PDO $pdo, array $cfg, float $deadline): int {
             else $mark->execute([0, 1, $gid]);
             continue;
         }
-        if (strlen($body) > 26214400) { // > 25 Mo brut : trop gros, sauté (tracé)
+        if (strlen($body) > $maxRaw) { // trop gros, sauté (tracé)
             log_line('[turns] ⚠️ ' . $gid . ' : replay ' . round(strlen($body) / 1048576, 1) . " Mo trop volumineux — sauté");
             $mark->execute([2, 0, $gid]);
             continue;
@@ -1817,9 +1906,25 @@ function turns_phase(PDO $pdo, array $cfg, float $deadline): int {
             else $mark->execute([0, 1, $gid]);
             continue;
         }
+        /* v5.43 — COMBO ENRICH : la réponse ?turns=true contient TOUT le détail
+         * (info.config, info.players[].stats, winner, gitCommit). Si la partie
+         * n'est pas encore détaillée (v5_done = 0 : archive profonde ingérée
+         * « liste d'abord »), enrich_game() consomme la MÊME réponse → la partie
+         * devient 100 % complète (métadonnées + roster + stats + speedrun +
+         * replay) en UNE SEULE requête API au lieu de deux. Idempotent : les
+         * parties déjà détaillées (v5_done = 1) ne passent pas (agrégats
+         * incrémentaux — jamais deux fois). */
+        try {
+            $v5Sel->execute([$gid]);
+            if ((int)$v5Sel->fetchColumn() === 0) {
+                enrich_game($pdo, $gid, $d, $unameCache);
+            }
+        } catch (Throwable $e) {
+            log_line('[turns] ⚠️ combo enrich ' . $gid . ' : ' . cut($e->getMessage(), 120)); // replay stocké quand même
+        }
         $raw = json_encode($d, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
         if ($raw === false) { $mark->execute([2, 0, $gid]); continue; }
-        $gz = gzencode($raw, 1);
+        $gz = gzencode($raw, $gzLevel);
         if ($gz === false) { $mark->execute([2, 0, $gid]); continue; }
         $info = is_array($d['info'] ?? null) ? $d['info'] : [];
         $ins->execute([
@@ -2859,12 +2964,28 @@ if ($argStatus) {
         (SELECT COUNT(*) FROM tfh_g_clan_sessions) AS clan_sessions')->fetch();
     $oldest = $pdo->query('SELECT MIN(started_at) AS o FROM tfh_g_games')->fetchColumn();
     $newest = $pdo->query('SELECT MAX(started_at) AS n FROM tfh_g_games')->fetchColumn();
+    /* v5.43 — complétude totale + volume replays (« tout, tout, tout » =
+     * détail v5_done ET replay turns_done) + débit 24 h pour l'ETA admin. */
+    $full = $pdo->query('SELECT
+        (SELECT COUNT(*) FROM tfh_g_games WHERE v5_done = 1 AND turns_done = 1) AS complete_all,
+        (SELECT COALESCE(SUM(gz_bytes), 0) FROM tfh_g_turns) AS gz_total,
+        (SELECT COALESCE(AVG(gz_bytes), 0) FROM tfh_g_turns) AS gz_avg,
+        (SELECT COUNT(*) FROM tfh_g_turns WHERE fetched_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY) AS turns_24h,
+        (SELECT COUNT(*) FROM tfh_g_games WHERE turns_done = 2) AS turns_skipped')->fetch();
     echo json_encode([
         'ok' => true,
+        'database' => (string)$pdo->query('SELECT DATABASE()')->fetchColumn(),
+        'db_isolated' => tfh_games_isolated(),
+        'webroot' => basename(dirname(__DIR__)),
         'games' => (int)$cnt['games'],
         'roster_rows' => (int)$cnt['roster'],
         'players' => (int)$cnt['players'],
         'speedruns' => (int)$cnt['speedruns'],
+        'full_complete' => (int)$full['complete_all'],
+        'turns_gz_bytes' => (int)$full['gz_total'],
+        'turns_gz_avg' => (int)$full['gz_avg'],
+        'turns_24h' => (int)$full['turns_24h'],
+        'turns_skipped' => (int)$full['turns_skipped'],
         'oldest_game' => $oldest,
         'newest_game' => $newest,
         'recent_end_ms' => state_get($pdo, STATE_KEY_RECENT),
@@ -2999,6 +3120,18 @@ if ($recentStart < $nowMs) {
 //     jusqu'à épuisement ; aucun appel API, quelques ticks seulement)
 try { vermig_phase($pdo); } catch (Throwable $e) { log_line('[vermig] ⚠️ ' . cut($e->getMessage(), 140)); }
 
+// 2c) v5.43 — Replays turn-by-turn + COMBO ENRICH — passés AVANT le backfill :
+//    1 replay = 1 requête ?turns=true = info+roster+stats+config+turns → la
+//    partie devient 100 % complète. Les replays (priorité utilisateur) ont le
+//    budget de pacing AVANT que le backfill/enrich ne le consomme ; les
+//    fenêtres backfill incomplètes se reprennent au tick suivant sans perte.
+try {
+    if (microtime(true) < $deadline) {
+        $tn = turns_phase($pdo, $cfg, $deadline, $unameCache);
+        if ($tn > 0) log_line("[turns] $tn replay(s) stocké(s)");
+    }
+} catch (Throwable $e) { log_line('[turns] ⚠️ ' . cut($e->getMessage(), 140)); }
+
 // 3) Backfill historique (newest → oldest jusqu'à l'epoch publicID)
 //    Reprise intra-fenêtre : l'offset de pagination est persisté après chaque
 //    page (une fenêtre de 2 jours ne tient pas dans un tick de 240 s).
@@ -3115,6 +3248,9 @@ if ($windowsDone > 0 && $cursor <= GAMES_EPOCH_DEEP_MS + 3600 * 1000) {
 try { catalog_phase($pdo, $cfg); } catch (Throwable $e) { log_line('[catalog] ⚠️ ' . cut($e->getMessage(), 140)); }
 
 // 5) v5 — Enrichissement des anciennes parties (cosmétiques, clans, config, stats)
+//    v5.43 : mop-up uniquement — le combo de turns_phase complète déjà les
+//    parties dont il récupère le replay ; enrich traite le reliquat (replays
+//    sautés/abandonnés, parties sans replay).
 try {
     [$enrDone, $enrLeft] = enrich_phase($pdo, $cfg, $deadline, $unameCache);
     if ($enrDone > 0) log_line("[enrich] $enrDone partie(s) enrichie(s) — restantes : $enrLeft");
@@ -3141,14 +3277,6 @@ try {
 
 // 6) v5 — Rating Glicko-2 (3 boards, curseur chronologique)
 try { if (microtime(true) < $deadline) rating_phase($pdo, $cfg, $deadline); } catch (Throwable $e) { log_line('[rating] ⚠️ ' . cut($e->getMessage(), 140)); }
-
-// 7) v5 — Replays turn-by-turn (gzip, plafonné par tick)
-try {
-    if (microtime(true) < $deadline) {
-        $tn = turns_phase($pdo, $cfg, $deadline);
-        if ($tn > 0) log_line("[turns] $tn replay(s) stocké(s)");
-    }
-} catch (Throwable $e) { log_line('[turns] ⚠️ ' . cut($e->getMessage(), 140)); }
 
 // 8) v5.13 — Top joueurs de la semaine (pré-calcul local, semaine + précédente)
 try { weekly_phase($pdo); } catch (Throwable $e) { log_line('[weekly] ⚠️ ' . cut($e->getMessage(), 140)); }

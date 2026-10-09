@@ -39,6 +39,10 @@ define('TFH_API', true); // cf. config.php : garde d'accès aux points d'entrée
 require __DIR__ . '/config.php';
 require_once __DIR__ . '/profile-schema.php';
 require_once __DIR__ . '/profile-payload.php';
+/* v5.43 — bases séparées : $pdo = GAMES (tfh_g_*), $sitePdo = SITE (comptes hub). */
+require_once __DIR__ . '/games-db.php';
+$sitePdo = $pdo;
+$pdo = tfh_games_pdo('auto') ?? $sitePdo;
 
 /** Tronque un message (mb si dispo) — local au warm. */
 function cut_warm(string $s, int $n): string {
@@ -96,9 +100,10 @@ try {
             $add($st->fetchAll() ?: []);
         } catch (Throwable $e) { /* table absente */ }
 
-        /* 4. Comptes hub liés/vérifiés (profils revendiqués — bio/cosmétiques) */
+        /* 4. Comptes hub liés/vérifiés (profils revendiqués — bio/cosmétiques)
+         *    v5.43 : tables SITE → connexion $sitePdo (base site). */
         try {
-            $st = $pdo->query('SELECT DISTINCT u.public_id FROM tfh_users u WHERE u.public_id IS NOT NULL AND u.public_id <> \'\'
+            $st = $sitePdo->query('SELECT DISTINCT u.public_id FROM tfh_users u WHERE u.public_id IS NOT NULL AND u.public_id <> \'\'
                                UNION DISTINCT
                                SELECT DISTINCT pa.public_id FROM tfh_public_aliases pa WHERE pa.public_id IS NOT NULL LIMIT 500');
             $add($st->fetchAll() ?: []);
@@ -138,7 +143,7 @@ foreach ($pids as $i => $pid) {
         /* allowOfficialRefresh=false : le warm ne fait JAMAIS d'appel réseau
          * OpenFront (l'arbre officiel vient de tfh_g_profiles, rempli par le
          * tick games-sync) → pré-génération rapide et sans risque de 429. */
-        $payload = tfh_profile_payload($pdo, $pid, 100, false);
+        $payload = tfh_profile_payload($pdo, $pid, 100, false, $sitePdo);
         tfh_profile_cache_write($pid, $payload);
         $built++;
     } catch (TfhProfileNotFound $e) {

@@ -354,6 +354,52 @@ task_page_head('Admin — TheFrontHub');
       <span class="gstat-sub"><strong>Compteurs actualisés :</strong> <span id="st-updated">—</span></span>
     </div>
   </div>
+
+  <!-- ═══ v5.43 — Reconstruction complète (base dev isolée) ═══ -->
+  <div class="games-grid" id="dev-grid" aria-live="polite" style="margin-top:14px">
+    <div class="gstat gstat-wide">
+      <span class="gstat-label">🛠 Base dev — reconstruction complète <span class="gstat-note">(reset + tout récupérer avec replays turn-by-turn, remonte jusqu'en mai 2025 — la prod/main n'est jamais touchée)</span></span>
+      <span class="gstat-sub" id="dev-badge">chargement…</span>
+    </div>
+    <div class="gstat">
+      <span class="gstat-label">Parties (dev)</span>
+      <span class="gstat-value" id="dev-games">—</span>
+      <span class="gstat-sub" id="dev-games-sub">—</span>
+    </div>
+    <div class="gstat">
+      <span class="gstat-label">100 % complètes <span class="gstat-note">(détail + roster + config + replay)</span></span>
+      <span class="gstat-value" id="dev-full">—</span>
+      <span class="gstat-sub" id="dev-full-sub">—</span>
+    </div>
+    <div class="gstat">
+      <span class="gstat-label">Replays (dev)</span>
+      <span class="gstat-value" id="dev-replays">—</span>
+      <span class="gstat-sub" id="dev-replays-sub">—</span>
+    </div>
+    <div class="gstat">
+      <span class="gstat-label">Poids replays</span>
+      <span class="gstat-value" id="dev-bytes">—</span>
+      <span class="gstat-sub" id="dev-bytes-sub">—</span>
+    </div>
+    <div class="gstat gstat-wide">
+      <span class="gstat-label">Remontée de l'historique <span class="gstat-note">(liste-seule = rapide ; les replays + détails suivent du plus récent au plus ancien)</span></span>
+      <div class="gbar" role="progressbar" aria-label="Progression de la remontée dev" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="dev-progressbar"><i id="dev-progress"></i></div>
+      <span class="gstat-sub" id="dev-cursor">—</span>
+    </div>
+    <div class="gstat gstat-wide gstat-meta">
+      <span class="gstat-sub"><strong>Replays 24 h :</strong> <span id="dev-replays24h">—</span> · <strong> Débit :</strong> <span id="dev-rate">—</span> · <strong>Phase :</strong> <span id="dev-phase">—</span> · <strong>HTTP :</strong> <span id="dev-http">—</span></span>
+      <span class="gstat-sub"><strong>Plus vieille partie en base :</strong> <span id="dev-oldest">—</span></span>
+    </div>
+    <div class="gstat gstat-wide">
+      <span class="gstat-label">Reset de la base dev <span class="gstat-note">(TRUNCATE de toutes les tables tfh_g_* — refusé si un tick tourne ; tape le nom de la base pour confirmer)</span></span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px">
+        <input type="text" id="dev-wipe-confirm" placeholder="nom exact de la base…" autocomplete="off" spellcheck="false"
+               style="flex:1;min-width:220px;padding:8px 10px;border:1px solid var(--line,#3a3a44);border-radius:8px;background:transparent;color:inherit">
+        <button type="button" class="btn btn-danger" id="dev-wipe-btn" title="Vider entièrement la base dev">Reset</button>
+      </div>
+      <span class="gstat-sub" id="dev-wipe-status">La remontée reprend automatiquement au prochain tick du cron dev.</span>
+    </div>
+  </div>
 </div>
 
 </div><!-- /.app-main -->

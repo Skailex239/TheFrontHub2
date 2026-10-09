@@ -17,7 +17,8 @@ declare(strict_types=1);
 define('TFH_API', true);
 require __DIR__ . '/config.php';
 require_once __DIR__ . '/profile-schema.php';
-tfh_profile_ensure_schema($pdo);
+require_once __DIR__ . '/games-db.php'; // v5.43
+ tfh_profile_ensure_schema(tfh_games_pdo('auto') ?? $pdo, $pdo); // weekly sur la base GAMES, colonnes hub sur SITE
 
 rate_limit($pdo, 'aliases:' . client_ip(), 60, 60);
 

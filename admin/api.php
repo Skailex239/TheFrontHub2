@@ -395,6 +395,84 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
        Les tables peuvent ne pas exister encore (sync jamais lancé) :
        on renvoie available:false au lieu de casser la réponse.
        ═══════════════════════════════════════════════════════════════════ */
+
+    /* v5.43 — État de la base DEV (reconstruction complète) : base isolée
+       définie par secrets['games_db_dev'], remplie par le cron
+       dev.thefronthub.com/api/games-sync.php. null si non configurée. */
+    if (!function_exists('tfh_admin_games_dev_status')) {
+        function tfh_admin_games_dev_status(): ?array
+        {
+            require_once __DIR__ . '/../api/games-db.php';
+            $db = tfh_games_db_name('dev');
+            if ($db === null) return null;
+            $isolated = tfh_games_isolated();
+            $gdb = tfh_games_pdo('dev');
+            if (!$gdb instanceof PDO) {
+                return ['configured' => true, 'isolated' => $isolated, 'database' => $db,
+                        'available' => false, 'checked_at' => time()];
+            }
+            try {
+                $gdb->query('SELECT 1 FROM tfh_g_games LIMIT 1');
+            } catch (Throwable $e) {
+                return ['configured' => true, 'isolated' => $isolated, 'database' => $db,
+                        'available' => false, 'checked_at' => time()];
+            }
+            try {
+                $cnt = $gdb->query('SELECT
+                    (SELECT COUNT(*) FROM tfh_g_games) AS games,
+                    (SELECT COUNT(*) FROM tfh_g_players WHERE deleted_at IS NULL) AS players,
+                    (SELECT COUNT(*) FROM tfh_g_games WHERE speedrun_category IS NOT NULL) AS speedruns,
+                    (SELECT COUNT(*) FROM tfh_g_games WHERE v5_done = 1 AND turns_done = 1) AS full_complete,
+                    (SELECT COUNT(*) FROM tfh_g_games WHERE v5_done = 0) AS enrich_left,
+                    (SELECT COUNT(*) FROM tfh_g_games WHERE v5_done = 1 AND speedrun_checked = 0) AS sr_left,
+                    (SELECT COUNT(*) FROM tfh_g_turns) AS replays,
+                    (SELECT COUNT(*) FROM tfh_g_games WHERE turns_done = 0) AS replays_left,
+                    (SELECT COUNT(*) FROM tfh_g_games WHERE turns_done = 2) AS replays_skipped,
+                    (SELECT COUNT(*) FROM tfh_g_turns WHERE fetched_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY) AS replays_24h,
+                    (SELECT COALESCE(SUM(gz_bytes), 0) FROM tfh_g_turns) AS turns_gz_bytes,
+                    (SELECT COALESCE(AVG(gz_bytes), 0) FROM tfh_g_turns) AS turns_gz_avg,
+                    (SELECT MAX(started_at) FROM tfh_g_games) AS newest,
+                    (SELECT MIN(started_at) FROM tfh_g_games) AS oldest')->fetch();
+                $stRows = $gdb->query("SELECT skey, svalue FROM tfh_g_state WHERE skey IN
+                    ('backfill_cursor_ms','recent_end_ms','of_rate_cur','of_429_total','of_err_total','v5_phase','v5_phase_at')")->fetchAll();
+                $stMap = [];
+                foreach ($stRows as $s) $stMap[(string) $s['skey']] = (string) $s['svalue'];
+                return [
+                    'configured'          => true,
+                    'isolated'            => $isolated,
+                    'database'            => $db,
+                    'available'           => true,
+                    'games'               => (int) $cnt['games'],
+                    'players'             => (int) $cnt['players'],
+                    'speedruns'           => (int) $cnt['speedruns'],
+                    'full_complete'       => (int) $cnt['full_complete'],
+                    'enrich_left'         => (int) $cnt['enrich_left'],
+                    'sr_left'             => (int) $cnt['sr_left'],
+                    'replays'             => (int) $cnt['replays'],
+                    'replays_left'        => (int) $cnt['replays_left'],
+                    'replays_skipped'     => (int) $cnt['replays_skipped'],
+                    'replays_24h'         => (int) $cnt['replays_24h'],
+                    'turns_gz_bytes'      => (int) $cnt['turns_gz_bytes'],
+                    'turns_gz_avg'        => (int) $cnt['turns_gz_avg'],
+                    'newest_game'         => $cnt['newest'] !== null ? (string) $cnt['newest'] : null,
+                    'oldest_game'         => $cnt['oldest'] !== null ? (string) $cnt['oldest'] : null,
+                    'backfill_cursor_ms'  => isset($stMap['backfill_cursor_ms']) ? (int) round((float) $stMap['backfill_cursor_ms']) : null,
+                    'recent_end_ms'       => isset($stMap['recent_end_ms']) ? (int) round((float) $stMap['recent_end_ms']) : null,
+                    'rate_per_s'          => isset($stMap['of_rate_cur']) ? round((float) $stMap['of_rate_cur'], 2) : null,
+                    'http_429'            => isset($stMap['of_429_total']) ? (int) $stMap['of_429_total'] : null,
+                    'http_err'            => isset($stMap['of_err_total']) ? (int) $stMap['of_err_total'] : null,
+                    'phase'               => $stMap['v5_phase'] ?? null,
+                    'phase_at'            => isset($stMap['v5_phase_at']) ? (int) $stMap['v5_phase_at'] : null,
+                    'checked_at'          => time(),
+                ];
+            } catch (Throwable $e) {
+                error_log('[tfh-task] games.status(dev): ' . $e->getMessage());
+                return ['configured' => true, 'isolated' => $isolated, 'database' => $db,
+                        'available' => false, 'checked_at' => time()];
+            }
+        }
+    }
+
     if ($getAction === 'games.status') {
         try {
             /* roster_rows : ESTIMATE information_schema (un COUNT(*) plein-scan
@@ -463,6 +541,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
                 'newest_game'        => $cnt['newest'] !== null ? (string) $cnt['newest'] : null,
                 'oldest_game'        => $cnt['oldest'] !== null ? (string) $cnt['oldest'] : null,
                 'backfill_cursor_ms' => $cursor,
+                /* v5.43 — état de la base dev (reconstruction complète) */
+                'dev'                => tfh_admin_games_dev_status(),
                 /* v5.40 : complétude */
                 'complete'           => $detail['complete'],
                 'enrich_left'        => $detail['enrich_left'],
@@ -1795,6 +1875,55 @@ switch ($action) {
             throw $e;
         }
         json_out(['ok' => true, 'id' => (int) $pdo->lastInsertId()]);
+    }
+
+    case 'games.wipe': {
+        /* v5.43 — RESET de la base dev (reconstruction complète). Sécurités :
+         *   1. rôle admin du compte connecté ;
+         *   2. base dev ISOLÉE (games_db_dev ≠ base site) — jamais la partagée ;
+         *   3. confirmation en tapant le nom EXACT de la base ;
+         *   4. lock anti-chevauchement du sync (refus si un tick tourne). */
+        if (($user['role'] ?? '') !== 'admin') {
+            fail(403, 'forbidden', 'Action réservée aux administrateurs du site.');
+        }
+        require_once __DIR__ . '/../api/games-db.php';
+        $devDb = tfh_games_db_name('dev');
+        if ($devDb === null) {
+            fail(409, 'dev_db_unconfigured', 'Aucune base dev configurée (secrets games_db_dev). Crée la base + les secrets d\u2019abord.');
+        }
+        if (!tfh_games_isolated()) {
+            fail(409, 'not_isolated', 'Refus : la base games résolue est la base PARTAGÉE site/prod. Configure games_db_dev (base dédiée) avant tout reset.');
+        }
+        $gdb = tfh_games_pdo('dev');
+        if (!$gdb instanceof PDO) {
+            fail(500, 'dev_db_unreachable', 'Connexion à la base dev impossible.');
+        }
+        $confirm = (string) ($in['confirm'] ?? '');
+        if ($confirm !== $devDb) {
+            fail(422, 'confirm_mismatch', 'Confirmation invalide : tape le nom exact de la base (' . $devDb . ').');
+        }
+        $lockFp = @fopen(sys_get_temp_dir() . '/tfh-games-sync-v5.lock', 'c');
+        if (!$lockFp || !flock($lockFp, LOCK_EX | LOCK_NB)) {
+            fail(409, 'sync_running', 'Un tick games-sync est en cours — réessaie dans quelques secondes (entre deux ticks).');
+        }
+        try {
+            $realDb = (string) $gdb->query('SELECT DATABASE()')->fetchColumn();
+            if ($realDb !== $devDb) {
+                fail(409, 'confirm_mismatch', 'Base résolue (' . $realDb . ') ≠ confirmée (' . $devDb . ') — refus par précaution.');
+            }
+            $tables = $gdb->query("SHOW TABLES LIKE 'tfh_g_%'")->fetchAll(PDO::FETCH_COLUMN);
+            $okN = 0; $errs = [];
+            foreach ($tables as $t) {
+                try { $gdb->exec('TRUNCATE TABLE `' . str_replace('`', '', $t) . '`'); $okN++; }
+                catch (Throwable $e) { $errs[] = $t; }
+            }
+            error_log('[tfh-task] games.wipe: base ' . $realDb . ' tronquée (' . $okN . ' tables) par ' . $meId);
+            json_out(['ok' => true, 'database' => $realDb, 'truncated' => $okN,
+                      'errors' => $errs, 'note' => 'Base vide — le prochain tick cron repart de « maintenant » et remonte tout l\u2019historique (jusqu\u2019à mai 2025).']);
+        } finally {
+            flock($lockFp, LOCK_UN);
+            fclose($lockFp);
+        }
     }
 
     default:

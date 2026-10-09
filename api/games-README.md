@@ -113,6 +113,102 @@ nohup php api/games-sync.php --backfill=14400 >> /home/USER/logs/games-backfill.
 Pour tout récupérer dès le début : `--since=2026-09-10T00:00:00Z` puis des
 sessions `--backfill` régulières (le cron suffit à terme).
 
+## v5.43 — RESET & RECONSTRUCTION COMPLÈTE sur dev (main intouchée)
+
+Objectif : repartir de zéro côté **dev** et récupérer TOUTES les parties
+(Public + Private) avec leur **replay turn-by-turn** (compressé), en remontant
+l'historique jusqu'à **mai 2025** — sans jamais toucher les données de la
+prod (thefronthub.com / main garde ses speedruns et sa base actuelle).
+
+### 1. Base MySQL dev dédiée (obligatoire avant tout reset)
+
+Aujourd'hui dev et prod partagent la même base. Séparation :
+
+1. cPanel → Bases de données MySQL → créer une base (ex. `mask6607_tfh_dev`)
+   + un utilisateur avec ALL PRIVILEGES dessus.
+2. Secrets `~/.tfs_secrets/tfh-secrets.json` — ajouter :
+
+```json
+{
+  "games_db_dev": { "host": "localhost", "port": 3306,
+                    "database": "mask6607_tfh_dev",
+                    "username": "mask6607_tfhdev", "password": "…" }
+}
+```
+
+Résolution automatique (`api/games-db.php`) :
+- webroot **prod** (`thefronthub.com`) → `games_db` ?? `mysql` (inchangé) ;
+- webroot **dev** (`dev.thefronthub.com`) → `games_db_dev` (repli : base prod
+  tant que la base dédiée n'existe pas — et le reset est REFUSÉ dans ce cas).
+
+Les autres tables du site (auth, skins, chat…) restent sur `mysql` : seule la
+pile `tfh_g_*` / `tfh_g_profile_*` bascule. Les rares requêtes mixtes
+(skins hub du profil, chat de lobby) qualifient l'autre base automatiquement
+(`tfh_site_ref()` / `tfh_games_ref()` — no-op sur prod).
+
+### 2. Cron dev (2ᵉ entrée cPanel)
+
+Le cron existant tourne sur le webroot **prod**. Pour remplir la base dev,
+ajouter une 2ᵉ entrée (toutes les 5 min) pointant vers le webroot dev :
+
+```
+/usr/local/bin/php /home/USER/dev.thefronthub.com/api/games-sync.php >> /home/USER/logs/games-sync-dev.log 2>&1
+```
+
+(Les deux partagent le lock anti-chevauchement par chemin — aucun risque de
+double tick ; le pacing OpenFront est global : ~2,5 req/s au total.)
+
+### 3. Reset de la base dev
+
+**Via le panel admin** (admin.thefronthub.com → Parties → « 🛠 Base dev —
+reconstruction complète ») : bouton **Reset** — il faut taper le nom EXACT de
+la base pour confirmer ; refusé si un tick tourne ou si la base n'est pas
+isolée.
+
+**En CLI** (équivalent) :
+
+```bash
+php /home/USER/dev.thefronthub.com/api/games-sync.php --wipe-confirm=mask6607_tfh_dev
+```
+
+Après reset, le prochain tick cron repart de « maintenant » : scan récent,
+puis backfill **liste-seule** (1000 parties/requête — l'archive metadata est
+reconstruite jusqu'à mai 2025 en ~1-2 jours de ticks), pendant que la phase
+replays tourne en parallèle du plus récent au plus ancien.
+
+### 4. Replays turn-by-turn pour TOUTES les parties
+
+- **1 requête = 1 partie 100 % complète** : la réponse `?turns=true` contient
+  le détail (config, roster, stats, winner) ET les turns → `turns_phase` les
+  stocke **et** enrichit la partie en même temps (fini le doublon
+  détail + replay).
+- Compression **gzip niveau 6** (`turns_gzip_level`, 9 possible) : −19 %
+  mesuré vs niveau 1 (~15-20 % du brut).
+- Plafonds/tick : `turns_max_games_per_tick` (120), `turns_max_bytes_per_tick`
+  (300 Mo), `turns_max_raw_bytes` (40 Mo), `turns_min_players` (0 = tout).
+- Ordre : récentes d'abord (les plus utiles au site), l'archive suit.
+- Volumes réels mesurés : moyenne ~0,17 Mo gz / partie (~40 k-12 M turns) →
+  **~1 To pour 6,3 M parties**. Si le disque devient serré : passer
+  `turns_min_players` à 10-20 (garde les grosses parties, ÷3-4 le volume) ou
+  purger les replays > N jours plus tard.
+
+### 5. ETA honnête
+
+À ~2,5 req/s partagées (limite mesurée de l'IP o2switch, AIMD actif) :
+- **metadata** (liste-seule) : ~1-2 jours de ticks ;
+- **replays** : 1 requête/partie → **~6-10 semaines** pour 6,3 M parties si
+  le cron tourne 24 h/24 (le panel admin affiche l'ETA calculée en direct :
+  replays restants ÷ replays 24 h).
+- Les profils officiels et le rating rejouent en parallèle (budgets dédiés).
+
+### 6. Panel admin — nouveaux compteurs
+
+admin.thefronthub.com → Parties : carte **« 🛠 Base dev — reconstruction
+complète »** : base + isolation, parties, 100 % complètes (détail+replay),
+replays + poids total (Go), ETA, remontée metadata (% du chemin vers mai
+2025), replays 24 h, débit AIMD, 429/erreurs, phase en cours, et le bouton
+Reset (confirmation par nom de base).
+
 ## API JSON (frontend)
 
 Toutes les réponses : `{ok:true,…}` / `{ok:false,error}` — cache 45-600 s.
