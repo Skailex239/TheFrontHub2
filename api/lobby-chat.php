@@ -174,9 +174,14 @@ function lobby_chat_my_pids(PDO $pdo, int $userId): array
  * NB : partie absente de tfh_g_games → null (« inconnu » — le salon reste
  * ouvert, la partie vient d'être lancée et sera ingérée d'ici peu).
  */
+/* v5.43 — bases séparées : les tables tfh_g_* vivent dans la base GAMES
+ * (isolée sur dev). tfh_games_ref() qualifie la table (`base`.`table`) quand
+ * les bases diffèrent — no-op (nom brut) sur la prod inchangée. */
+require_once __DIR__ . '/games-db.php';
+
 function lobby_chat_membership(PDO $pdo, string $gameId, int $userId): ?bool
 {
-    $st = $pdo->prepare('SELECT 1 FROM tfh_g_games WHERE game_id = ? LIMIT 1');
+    $st = $pdo->prepare('SELECT 1 FROM ' . tfh_games_ref('tfh_g_games') . ' WHERE game_id = ? LIMIT 1');
     $st->execute([$gameId]);
     if ($st->fetch() === false) {
         return null; // partie pas encore ingérée → fail-open côté envoi
@@ -187,7 +192,7 @@ function lobby_chat_membership(PDO $pdo, string $gameId, int $userId): ?bool
     }
     $marks = implode(',', array_fill(0, count($pids), '?'));
     $st = $pdo->prepare(
-        "SELECT 1 FROM tfh_g_roster
+        "SELECT 1 FROM " . tfh_games_ref('tfh_g_roster') . "
          WHERE game_id = ? AND public_id IN ($marks)
          LIMIT 1"
     );
@@ -205,8 +210,8 @@ function lobby_chat_players(PDO $pdo, string $gameId, array $myPids): array
         'SELECT r.client_id, r.public_id, r.won, r.is_lobby_creator,
                 u.username AS name,
                 (tu.id IS NOT NULL OR pa.user_id IS NOT NULL) AS is_member
-         FROM tfh_g_roster r
-         JOIN tfh_g_usernames u ON u.id = r.username_id
+         FROM ' . tfh_games_ref('tfh_g_roster') . ' r
+         JOIN ' . tfh_games_ref('tfh_g_usernames') . ' u ON u.id = r.username_id
          LEFT JOIN tfh_users tu          ON tu.public_id = r.public_id
          LEFT JOIN tfh_public_aliases pa ON pa.public_id = r.public_id
          WHERE r.game_id = ?
@@ -242,7 +247,7 @@ function lobby_chat_rooms(PDO $pdo, int $userId, array $myPids): array
     $st = $pdo->prepare(
         'SELECT game_id, game_map, game_mode, ranked_type, started_at,
                 num_players, max_players
-         FROM tfh_g_games
+         FROM ' . tfh_games_ref('tfh_g_games') . '
          WHERE game_type = "Public"
            AND started_at >= (UTC_TIMESTAMP() - INTERVAL ' . LC_ROOMS_WINDOW . ')
            AND num_players >= 2
@@ -263,7 +268,7 @@ function lobby_chat_rooms(PDO $pdo, int $userId, array $myPids): array
                 "SELECT r.game_id,
                         COUNT(DISTINCT CASE WHEN tu.id IS NOT NULL THEN tu.id
                                             WHEN pa.user_id IS NOT NULL THEN pa.user_id END) AS members
-                 FROM tfh_g_roster r
+                 FROM " . tfh_games_ref('tfh_g_roster') . " r
                  LEFT JOIN tfh_users tu          ON tu.public_id = r.public_id
                  LEFT JOIN tfh_public_aliases pa ON pa.public_id = r.public_id
                  WHERE r.game_id IN ($marks) AND r.public_id IS NOT NULL
@@ -279,7 +284,7 @@ function lobby_chat_rooms(PDO $pdo, int $userId, array $myPids): array
         if ($myPids) {
             $pm = implode(',', array_fill(0, count($myPids), '?'));
             $me = $pdo->prepare(
-                "SELECT DISTINCT game_id FROM tfh_g_roster
+                "SELECT DISTINCT game_id FROM " . tfh_games_ref('tfh_g_roster') . "
                  WHERE game_id IN ($marks) AND public_id IN ($pm)"
             );
             $me->execute(array_merge($ids, $myPids));
@@ -425,7 +430,7 @@ if ($method === 'GET') {
         $players = lobby_chat_players($pdo, $gameId, $myPids);
         $gst = $pdo->prepare(
             'SELECT game_map, game_mode, ranked_type, started_at, num_players, max_players
-             FROM tfh_g_games WHERE game_id = ? LIMIT 1'
+             FROM ' . tfh_games_ref('tfh_g_games') . ' WHERE game_id = ? LIMIT 1'
         );
         $gst->execute([$gameId]);
         $grow = $gst->fetch();

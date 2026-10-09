@@ -33,7 +33,11 @@ require __DIR__ . '/config.php';
 require __DIR__ . '/profile-schema.php';
 /* v5.36 — invalidation du cache fichier des profils (mutation des données hub) */
 require_once __DIR__ . '/profile-cache.php';
-tfh_profile_ensure_schema($pdo);
+/* v5.43 — les tables tfh_g_profile_* vivent dans la base GAMES (isolée sur
+ * dev) ; le reste du fichier (auth, comptes hub, rate-limit) reste sur la
+ * base site ($pdo). */
+require_once __DIR__ . '/games-db.php';
+tfh_profile_ensure_schema(tfh_games_pdo('auto') ?? $pdo, $pdo);
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     fail(405, 'method_not_allowed', 'POST uniquement.');

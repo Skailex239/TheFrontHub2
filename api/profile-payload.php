@@ -80,17 +80,22 @@ class TfhProfileNotFound extends Exception {}
 /**
  * Construit le payload complet route=profile d'un joueur.
  *
- * @param PDO  $pdo                  connexion MySQL (config.php)
+ * @param PDO  $pdo                  connexion MySQL GAMES (tables tfh_g_* —
+ *                                   v5.43 : base isolée sur dev via games-db.php)
  * @param string $pid                 publicId validé [A-Za-z0-9]{6,16} (par l'appelant)
  * @param int  $limit                 nb de dernières parties embarquées (borné 1..100)
  * @param bool $allowOfficialRefresh  autoriser le fetch on-demand du profil
  *                                    officiel OpenFront (route &refresh=1 ;
  *                                    le warm passe false — games-sync rafraîchit)
+ * @param PDO|null $sitePdo           connexion SITE (vitrine hub : skins,
+ *                                   bannières, VIP). Null = même base (prod
+ *                                   fallback / avant séparation v5.43).
  * @throws TfhProfileNotFound         joueur absent de tfh_g_players
  */
-function tfh_profile_payload(PDO $pdo, string $pid, int $limit, bool $allowOfficialRefresh): array
+function tfh_profile_payload(PDO $pdo, string $pid, int $limit, bool $allowOfficialRefresh, ?PDO $sitePdo = null): array
 {
     global $V5_READY, $V511_READY, $secrets;
+    $siteDb = $sitePdo ?? $pdo;
 
     /* Drapeaux v5/v5.11 : définis par games-api.php en contexte route ;
      * détectés à la volée en contexte warm (les mêmes try/query que là-bas). */
@@ -231,7 +236,7 @@ function tfh_profile_payload(PDO $pdo, string $pid, int $limit, bool $allowOffic
         'vipType' => null, 'vipActive' => false,
     ];
     try {
-        $hs = $pdo->prepare('SELECT skin_id, active FROM tfh_user_skins WHERE public_id = ? ORDER BY redeemed_at DESC LIMIT 100');
+        $hs = $siteDb->prepare('SELECT skin_id, active FROM tfh_user_skins WHERE public_id = ? ORDER BY redeemed_at DESC LIMIT 100');
         $hs->execute([$pid]);
         foreach ($hs->fetchAll() as $r) {
             $hubCos['ownedSkins'][] = ['skinId' => (string)$r['skin_id'], 'active' => (bool)$r['active']];
@@ -239,7 +244,7 @@ function tfh_profile_payload(PDO $pdo, string $pid, int $limit, bool $allowOffic
         }
     } catch (Throwable $e) { /* table absente — vitrine site vide */ }
     try {
-        $hb = $pdo->prepare('SELECT banner_id, active FROM tfh_user_banners WHERE public_id = ? ORDER BY redeemed_at DESC LIMIT 100');
+        $hb = $siteDb->prepare('SELECT banner_id, active FROM tfh_user_banners WHERE public_id = ? ORDER BY redeemed_at DESC LIMIT 100');
         $hb->execute([$pid]);
         foreach ($hb->fetchAll() as $r) {
             $hubCos['ownedBanners'][] = ['bannerId' => (string)$r['banner_id'], 'active' => (bool)$r['active']];
@@ -247,7 +252,7 @@ function tfh_profile_payload(PDO $pdo, string $pid, int $limit, bool $allowOffic
         }
     } catch (Throwable $e) { /* table absente — vitrine site vide */ }
     try {
-        $hv = $pdo->prepare('SELECT active_type, activated FROM tfh_public_rewards WHERE public_id = ? ORDER BY updated_at DESC LIMIT 1');
+        $hv = $siteDb->prepare('SELECT active_type, activated FROM tfh_public_rewards WHERE public_id = ? ORDER BY updated_at DESC LIMIT 1');
         $hv->execute([$pid]);
         $vrow = $hv->fetch();
         if ($vrow) {

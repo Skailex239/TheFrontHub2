@@ -36,7 +36,8 @@ if ($sessionsRaw !== null) {
  * (bio, map préférée, liens réseaux). Colonnes garanties par
  * tfh_profile_ensure_schema (profile-schema.php). */
 require_once __DIR__ . '/profile-schema.php';
-tfh_profile_ensure_schema($pdo);
+require_once __DIR__ . '/games-db.php'; // v5.43
+ tfh_profile_ensure_schema(tfh_games_pdo('auto') ?? $pdo, $pdo); // weekly sur la base GAMES, colonnes hub sur SITE
 
 $verifiedAt = null;
 if (!empty($user['verified_at'])) {

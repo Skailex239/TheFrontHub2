@@ -24,13 +24,17 @@ if (!defined('TFH_API')) {
     exit('Forbidden');
 }
 
-function tfh_profile_ensure_schema(PDO $pdo): void
+function tfh_profile_ensure_schema(PDO $pdo, ?PDO $sitePdo = null): void
 {
     static $done = false;
     if ($done) {
         return;
     }
     $done = true;
+
+    /* v5.43 — bases séparées : les colonnes site (tfh_users, tfh_public_aliases)
+     * vivent sur la connexion SITE ; tfh_g_weekly sur la connexion GAMES. */
+    $siteDb = $sitePdo ?? $pdo;
 
     /* ── 1) Colonnes profil sur tfh_users (ADD COLUMN idempotent) ── */
     $wanted = [
@@ -45,7 +49,7 @@ function tfh_profile_ensure_schema(PDO $pdo): void
         'own_code_expires' => "DATETIME NULL",
     ];
     try {
-        $st = $pdo->prepare(
+        $st = $siteDb->prepare(
             'SELECT COLUMN_NAME FROM information_schema.COLUMNS
              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "tfh_users"'
         );
@@ -54,7 +58,7 @@ function tfh_profile_ensure_schema(PDO $pdo): void
         foreach ($wanted as $col => $ddl) {
             if (!isset($existing[$col])) {
                 try {
-                    $pdo->exec("ALTER TABLE `tfh_users` ADD COLUMN `{$col}` {$ddl}");
+                    $siteDb->exec("ALTER TABLE `tfh_users` ADD COLUMN `{$col}` {$ddl}");
                 } catch (Throwable $e) {
                     error_log('[tfh-api] schema tfh_users.' . $col . ': ' . $e->getMessage());
                 }
@@ -67,7 +71,7 @@ function tfh_profile_ensure_schema(PDO $pdo): void
 
     /* ── 2) Backfill : les comptes déjà liés (public_id) gardent leur badge ── */
     try {
-        $pdo->exec(
+        $siteDb->exec(
             "UPDATE tfh_users SET verified_at = NOW()
              WHERE public_id IS NOT NULL AND public_id <> '' AND verified_at IS NULL"
         );
@@ -77,14 +81,14 @@ function tfh_profile_ensure_schema(PDO $pdo): void
 
     /* ── 3) Index sur tfh_public_aliases(public_id) pour les jointures badge ── */
     try {
-        $st = $pdo->prepare(
+        $st = $siteDb->prepare(
             'SELECT COUNT(*) FROM information_schema.STATISTICS
              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "tfh_public_aliases" AND INDEX_NAME = "idx_tpubaliases_pid"'
         );
         $st->execute();
         if ((int) $st->fetchColumn() === 0) {
             try {
-                $pdo->exec('ALTER TABLE `tfh_public_aliases` ADD INDEX `idx_tpubaliases_pid` (`public_id`)');
+                $siteDb->exec('ALTER TABLE `tfh_public_aliases` ADD INDEX `idx_tpubaliases_pid` (`public_id`)');
             } catch (Throwable $e) {
                 error_log('[tfh-api] schema idx_tpubaliases_pid: ' . $e->getMessage());
             }
