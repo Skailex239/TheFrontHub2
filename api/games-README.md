@@ -253,6 +253,17 @@ replays accélère ×4.
 Secrets `"games": { "scan_turns": false }` → retour au scan détail-seul
 (replays plus tard via `turns_phase`) si la bande passante posait souci.
 
+### Guérison de l'existant (zéro requête API)
+
+- `store_turns()` pose les nouveaux champs à CHAQUE replay stocké (COALESCE,
+  idempotent) → les ~238 k parties détaillées v5.43 les reçoivent au fil du
+  rattrapage replays.
+- `fullheal_phase` (début de tick) re-décode les ~22 k replays déjà stockés
+  (leur gzip CONTIENT le record complet) → lots de 10, marqueur `v545_done`,
+  phase auto-terminée une fois vidée.
+- Les parties non-détaillées (v5_done=0) reçoivent tout via le combo-enrich
+  de `turns_phase` (comme v5.43, avec les nouveaux champs en plus).
+
 ## API JSON (frontend)
 
 Toutes les réponses : `{ok:true,…}` / `{ok:false,error}` — cache 45-600 s.

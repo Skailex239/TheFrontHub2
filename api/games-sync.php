@@ -53,6 +53,12 @@ declare(strict_types=1);
  *     • Backlog replays accéléré : turns_max_games_per_tick 120 → 480
  *       (~69 k replays/jour à 2,5 req/s de pacing ; borné par la deadline
  *       du tick et le plafond d'octets, AIMD toujours actif).
+ *     • GUÉRISON v5.43 (fullheal_phase + store_turns) : les anciennes parties
+ *       détaillées (v5_done=1, sans les nouveaux champs) les reçoivent au fil
+ *       du rattrapage replays (COALESCE, zéro requête en plus) ; les ~22 k
+ *       replays DÉJÀ stockés sont re-décodés localement (fullheal_phase,
+ *       lots de 10, phase auto-terminée) — le gzip contient le record complet.
+ *       Marqueur v545_done.
  *     • games-api.php : route=totals expose replays/withDetails/fullComplete
  *       (complétude réelle visible) ; route=game expose publicGameType,
  *       winnerTeam, tribes, lobbyCreatedAt.
@@ -470,6 +476,10 @@ tfh_add_col($pdo, 'tfh_g_games',   'lobby_created_ms',  "`lobby_created_ms` BIGI
 tfh_add_col($pdo, 'tfh_g_games',   'visible_at_ms',     "`visible_at_ms` BIGINT UNSIGNED NULL AFTER `lobby_created_ms`");
 tfh_add_col($pdo, 'tfh_g_games',   'subdomain',         "`subdomain` VARCHAR(8) NULL AFTER `git_commit`");
 tfh_add_col($pdo, 'tfh_g_games',   'tribes_json',       "`tribes_json` TEXT NULL AFTER `config_json`");
+/* v545_done : 1 = les champs FULL RECORD sont posés (ingestion combo, combo-enrich,
+ * store_turns ou fullheal_phase). 0 = à guérir (anciennes lignes v5.43 dont le
+ * replay gz CONTIENT déjà les champs — fullheal_phase les décode sans appel API). */
+tfh_add_col($pdo, 'tfh_g_games',   'v545_done',         "`v545_done` TINYINT(1) NOT NULL DEFAULT 0 AFTER `speedrun_checked`");
 /* git_commit 16 → 40 : match EXACT des tags OpenFrontIO dans of_version_for
  * (16 chars = préfixe inutilisable). Élargissement VARCHAR dans la même
  * classe de préfixe de longueur (1 octet, utf8mb4 ≤ 255) → INPLACE sans
@@ -1182,15 +1192,20 @@ function full_record_fields(array $detail): array {
 }
 
 /** v5.45 — Stocke le replay turn-by-turn d'un record complet et marque la
- * partie turns_done = 1. Utilisé par le COMBO du scan récent (nouvelles
- * parties complètes dès le premier tick) et par turns_phase (backlog).
+ * partie turns_done = 1 + v545_done = 1 (champs FULL RECORD posés). Utilisé
+ * par le COMBO du scan récent (nouvelles parties complètes dès le premier
+ * tick) et par turns_phase (backlog).
  * Retour [statut, gz]:
  *   1        → replay stocké (ou déjà présent, mis à jour) ;
  *   2        → SAUTÉ définitivement (record trop volumineux) ;
  *   0        → pas de turns dans la réponse OU échec d'encodage → turns_phase
  *              réessaiera (turns_done reste 0, turns_tries géré par l'appelant).
  * La ré-encodage est fait HORS transaction (gzencode d'un record de 40 Mo =
- * plusieurs secondes : jamais de verrou DB pendant la compression). */
+ * plusieurs secondes : jamais de verrou DB pendant la compression).
+ * La mise à jour de la ligne partie POSE AUSSI les champs FULL RECORD du
+ * record (COALESCE : ne touche jamais une valeur déjà juste) — c'est ce qui
+ * guérit les ~238 k parties détaillées en v5.43 (sans publicGameType/tribes)
+ * au fil du rattrapage replays, sans requête API supplémentaire. */
 function store_turns(PDO $pdo, string $gameId, array $record, array $cfg): array {
     if (!isset($record['turns']) || !is_array($record['turns'])) return [0, 0];
     $gzLevel = min(9, max(1, (int)($cfg['turns_gzip_level'] ?? 6)));
@@ -1222,6 +1237,28 @@ function store_turns(PDO $pdo, string $gameId, array $record, array $cfg): array
     } catch (Throwable $e) {
         log_line('[turns] ⚠️ stockage ' . $gameId . ' : ' . cut($e->getMessage(), 120));
         return [0, 0];
+    }
+    /* Guérison FULL RECORD : les champs du record viennent d'être récupérés —
+     * on les pose sur la ligne partie (COALESCE = idempotent). Échec isolé,
+     * non fatal (le replay est déjà stocké). */
+    try {
+        $fr = full_record_fields($record);
+        $pdo->prepare('UPDATE tfh_g_games SET v545_done = 1,
+            public_game_type = COALESCE(public_game_type, ?),
+            winner_team_name = COALESCE(winner_team_name, ?),
+            lobby_created_ms = COALESCE(lobby_created_ms, ?),
+            visible_at_ms = COALESCE(visible_at_ms, ?),
+            subdomain = COALESCE(subdomain, ?),
+            tribes_json = COALESCE(tribes_json, ?)
+            WHERE game_id = ?')
+            ->execute([
+                $fr['public_game_type'], $fr['winner_team_name'],
+                $fr['lobby_created_ms'], $fr['visible_at_ms'],
+                $fr['subdomain'], $fr['tribes_json'],
+                $gameId,
+            ]);
+    } catch (Throwable $e) {
+        log_line('[turns] ⚠️ heal ' . $gameId . ' : ' . cut($e->getMessage(), 120));
     }
     return [1, strlen($gz)];
 }
@@ -1296,9 +1333,9 @@ function ingest_game(PDO $pdo, string $gameId, array $detail, array $listMeta, a
             (game_id, started_at, ended_at, duration_s, game_type, game_mode, ranked_type, player_teams,
              game_map, map_size, difficulty, bots, num_players, max_players, lobby_fill_time,
              winner_kind, winner_public_id, winner_username_id, speedrun_category, speedrun_duration_s, mods, git_commit,
-             version, num_turns, config_json, v5_done, speedrun_checked,
+             version, num_turns, config_json, v5_done, speedrun_checked, v545_done,
              public_game_type, winner_team_name, lobby_created_ms, visible_at_ms, subdomain, tribes_json)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,1,?,?,?,?,?,?)');
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,1,1,?,?,?,?,?,?)');
         $ins->execute([
             $gameId,
             ms_to_dt($startMs),
@@ -2133,6 +2170,77 @@ function turns_phase(PDO $pdo, array $cfg, float $deadline, array &$unameCache):
             else $mark->execute([0, 1, $gid]);
         }
     }
+    return $done;
+}
+
+/** v5.45 — Guérison LOCALE des champs FULL RECORD (zéro appel API).
+ *
+ * Les ~22 k replays déjà stockés en v5.43 contiennent le record COMPLET dans
+ * leur gzip (info.publicGameType, tribes, winner[1]…). Cette phase décode ces
+ * replays par petits lots, pose les champs sur la ligne partie (COALESCE) et
+ * marque v545_done = 1. Les parties non-détaillées (v5_done = 0) sont
+ * EXCLUES : leur combo-enrich (turns_phase) posera les champs avec les
+ * agrégats. Une fois vidée, la phase se termine définitivement (state) : tout
+ * nouveau replay passe par store_turns() qui pose v545_done = 1 lui-même.
+ * Retour : nombre de lignes guéries ce tick. */
+function fullheal_phase(PDO $pdo, float $deadline): int {
+    if (state_get($pdo, 'v545_heal_done') === '1') return 0;
+    phase_mark($pdo, 'fullheal');
+    $done = 0;
+    $upd = $pdo->prepare('UPDATE tfh_g_games SET v545_done = 1,
+        public_game_type = COALESCE(public_game_type, ?),
+        winner_team_name = COALESCE(winner_team_name, ?),
+        lobby_created_ms = COALESCE(lobby_created_ms, ?),
+        visible_at_ms = COALESCE(visible_at_ms, ?),
+        subdomain = COALESCE(subdomain, ?),
+        tribes_json = COALESCE(tribes_json, ?)
+        WHERE game_id = ?');
+    /* Petits lots (10) : un gz décodé peut atteindre 40 Mo de RAM — jamais de
+     * sélection large de LONGBLOB. Le filtre v545_done = 0 fait office de
+     * curseur (les lignes guérées disparaissent de la sélection). */
+    $sel = $pdo->prepare('SELECT t.game_id, t.data FROM tfh_g_turns t
+        JOIN tfh_g_games g ON g.game_id = t.game_id
+        WHERE g.v545_done = 0 AND g.turns_done = 1 AND g.v5_done = 1
+        ORDER BY t.game_id ASC LIMIT 10');
+    while (microtime(true) < $deadline) {
+        $sel->execute();
+        $rows = $sel->fetchAll(PDO::FETCH_ASSOC);
+        if (!$rows) {
+            state_set($pdo, 'v545_heal_done', '1');
+            log_line($done > 0
+                ? "[fullheal] ✅ plus rien à guérir — $done ligne(s) ce tick, phase terminée"
+                : '[fullheal] ✅ phase terminée (rien à guérir)');
+            break;
+        }
+        foreach ($rows as $row) {
+            $gid = (string)$row['game_id'];
+            try {
+                $json = gzdecode((string)$row['data']);
+                $rec = $json === false ? null : json_decode($json, true);
+                unset($json, $row['data']);
+                if (is_array($rec)) {
+                    $fr = full_record_fields($rec);
+                    $upd->execute([
+                        $fr['public_game_type'], $fr['winner_team_name'],
+                        $fr['lobby_created_ms'], $fr['visible_at_ms'],
+                        $fr['subdomain'], $fr['tribes_json'],
+                        $gid,
+                    ]);
+                } else {
+                    // replay illisible → marquée sans champs (on n'insiste pas)
+                    $upd->execute([null, null, null, null, null, null, $gid]);
+                }
+                unset($rec);
+            } catch (Throwable $e) {
+                /* Filet de sécurité : requête brute pour MARQUER la ligne quoi
+                 * qu'il arrive — sinon la boucle la re-sélectionnerait en boucle
+                 * chaude jusqu'à la deadline. */
+                try { $pdo->exec('UPDATE tfh_g_games SET v545_done = 1 WHERE game_id = ' . $pdo->quote($gid)); } catch (Throwable $e2) {}
+            }
+            $done++;
+        }
+    }
+    if ($done > 0) log_line("[fullheal] $done replay(s) décodé(s) → champs FULL RECORD posés");
     return $done;
 }
 
@@ -3313,6 +3421,15 @@ if ($recentStart < $nowMs) {
 // 2b) v5.16 — migration des versions des parties existantes (lots de 20 k,
 //     jusqu'à épuisement ; aucun appel API, quelques ticks seulement)
 try { vermig_phase($pdo); } catch (Throwable $e) { log_line('[vermig] ⚠️ ' . cut($e->getMessage(), 140)); }
+
+// 2b-bis) v5.45 — Guérison LOCALE des champs FULL RECORD : décode les replays
+//    déjà stockés (v5.43) et pose publicGameType/tribes/winner_team… ZÉRO
+//    appel API, petits lots, phase auto-terminée une fois vidée.
+try {
+    if (microtime(true) < $deadline) {
+        $fh = fullheal_phase($pdo, $deadline);
+    }
+} catch (Throwable $e) { log_line('[fullheal] ⚠️ ' . cut($e->getMessage(), 140)); }
 
 // 2c) v5.43 — Replays turn-by-turn + COMBO ENRICH — passés AVANT le backfill :
 //    1 replay = 1 requête ?turns=true = info+roster+stats+config+turns → la
