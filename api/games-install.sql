@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS tfh_g_games (
     mods               VARCHAR(128)    NULL,       -- modificateurs actifs (CSV)
     git_commit         VARCHAR(40)     NULL,       -- v5.45 : SHA complet (40)
     subdomain          VARCHAR(8)      NULL,       -- v5.45 : serveur blue/green
+    v545_done          TINYINT(1)      NOT NULL DEFAULT 0,  -- v5.45 : champs FULL RECORD posés
     ingested_at        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_ggames_started (started_at),
     INDEX idx_ggames_sr (speedrun_category, game_map, speedrun_duration_s),
