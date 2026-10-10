@@ -164,3 +164,24 @@ Stage Summary:
 - main = prod v5.16.6 (v6 retirée via PR #117) ; dev = v5.20.3 + app v6 + worker v2 fusionné.
 - Aucune régression : vitrine cosmétiques toujours présente sur dev, /lobby-snapshot conservé, site statique intact.
 - Le worker v2 (raw sur dev) corrige le lobby : résolution dynamique cluster.json au lieu du FORCED_HOST figé sur green (draining).
+
+---
+Task ID: 6 (session du 2026-10-10)
+Agent: Super Z
+Task: Nettoyage du dépôt — supprimer scripts morts, duplication public/ (−42,5 Mo), corriger les incohérences.
+
+Work Log:
+- Enquête préalable : vérification de CHAQUE référence (workflows sync.yml ×7 jobs, deploy.sh, pull-data.sh, scripts/build.js, imports réels d'auth.js) avant chaque suppression — méthode pathspec explicite, jamais de git add -A.
+- Rumeur infirmée : le « bug sync-teams.js ([odeKey, def]) » était un ARTEFACT D'AFFICHAGE (le pipeline d'output mange les séquences « [m », faisant lire « [modeKey » comme « odeKey »). Vérifié par tests booléens + node --check : les 95 JS du repo sont syntaxiquement VALIDES. Aucune correction nécessaire.
+- Supprimé (racine) : server.js (serveur HTTP pré-PHP, aucune réf. hors commentaires), restore-sync.sh + sync-workflow-template.yml (visaient l'ancien repo TheFrontStats), test-api.js, generate-code.js + shared/firebase-config.js (auth.js racine n'importe plus Firebase — seule public/auth.js [copie morte] l'utilisait), push_via_api.py (remplacé par data-release.sh), examples/, dashboard_ranking.json.test-backup, download/ (4 PNG de design), .zscripts/.trae/.windsurf (tooling IDE/sandbox).
+- Supprimé (scripts/) : their-old-worker.js, archive/ (système JSONL remplacé par MySQL), 7 shot-*.png + 3 vlm-*.json (artefacts de travail), investigate/validate/find-bug/check-game-detail/quantify-bug/test-extract-team/perf-test/backfill-teams/deep-check (diagnostiques one-shot), upload-to-o2switch.sh (chemin mort, WAF), 4 patchers python one-off (add-footer, add-theme-toggle, add-tutorial-script, fix-globals).
+- Supprimé (tests/) : python-runtime-*.sh + database-runtime-build.sh (scripts d'ENV sandbox, pas des tests du site — les 4 vrais tests .mjs sont conservés).
+- Supprimé : src/lib/openfront/lobby-decoder.mjs (18 633 L, ORPHELIN — seul mini-services/openfront-service/lobby-decoder.mjs est importé, par index.ts du mini-service).
+- public/ : 44 Mo → 1,5 Mo. Gardé UNIQUEMENT public/maps/ (132 vignettes, seule chose référencée par l'app Next.js — AtlasTab `/maps/\${slug}.webp`). Supprimé : copie figée périmée du site (public/auth.js Firebase, public/profile.js ancien, atlas-data dup 38 Mo, data, JSON de sync périmés…). Aucun impact déploiement : public/ était exclu de deploy.sh (prod+dev) ET de deploy-pages.yml.
+- Corrigé (incohérences) : scripts/build.js — commentaires Firebase obsolètes remplacés (auth.js = couche compat MySQL/API v2) ; .github/workflows/deploy-pages.yml — paths-ignore nettoyé (restore-sync.sh, push_via_api.py, GUIDE_NETTOYAGE.md supprimés de la liste).
+- Vérifications : node --check sur 95 JS (0 erreur) + build.js édité + YAML valides + intégrité des références des 15 pages HTML (2 faux positifs : encodage %20 et runs_public.json.gz généré côté serveur par design) + site racine intact (index/lobby/app/dist).
+- Total : 1 074 fichiers supprimés, ~43 Mo de moins dans le working tree (l'historique .git reste à 101 Mo — incompressible sans rewrite, non traité volontairement).
+
+Stage Summary:
+- PR « chore/nettoyage-depot-v544 » → dev : dépôt assaini sans AUCUNE modification fonctionnelle du site (pages, dist/, API PHP, pipeline sync, workflows intacts).
+- ⚠️ Le worker CF et le PAT exposé dans le chat restent à traiter manuellement par le propriétaire.

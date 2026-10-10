@@ -8,11 +8,10 @@
  *     get bundled into dist/<name>.min.js. Local imports (toast.js, shared/maps.js,
  *     shared/extract-speedrun.js, openfront-parse.js, openfront-client.js, icons.js,
  *     tournois-icons.js, tournois-engine.js) get inlined.
- *   - External imports:
- *       • URL imports (https://www.gstatic.com/firebasejs/...) → automatically external
- *       • ./auth.js → kept external (shared across pages, imports Firebase from CDN)
+ *   - External imports: URL imports (CDN) are automatically kept external by esbuild.
  *   - Standalone scripts (i18n.js, toast.js, animations.js, lenis.js, icons.js, auth.js)
  *     are minified in place (no bundling) because they are loaded via <script> tag.
+ *     (auth.js est désormais la couche de compat MySQL/API — plus aucun import Firebase.)
  *
  * Output: dist/*.min.js
  *
@@ -74,8 +73,7 @@ const targets = [
   { entry: "animations.js",  out: "animations.min.js",   bundled: false },
   { entry: "lenis.js",       out: "lenis.min.js",        bundled: false },
   { entry: "icons.js",       out: "icons.min.js",        bundled: false },
-  // auth.js imports ./shared/firebase-config.js — bundle it so the firebase config
-  // gets inlined (otherwise the browser looks for /dist/shared/firebase-config.js which 404s)
+  // auth.js : couche compat MySQL/API (v2) — bundled avec les pages qui l'importent.
   { entry: "auth.js",        out: "auth.min.js",         bundled: true },
   { entry: "tournois-icons.js", out: "tournois-icons.min.js", bundled: false },
   // Tutorial (no imports, just standalone)
@@ -127,8 +125,7 @@ async function run() {
     if (t.format) opts.format = t.format;
     if (t.bundled) {
       opts.bundle = true;
-      // Inline everything including auth.js (small, only 3.5KB minified).
-      // URL imports (https://www.gstatic.com/firebasejs/...) are automatically
+      // Inline everything (local imports). URL imports (CDN) are automatically
       // kept external by esbuild since they're not relative paths.
       opts.external = [];
     } else {
