@@ -35,14 +35,13 @@ declare(strict_types=1);
  *   SCOPE_VER inchangé : le backfill en cours continue et s'arrête plus tôt,
  *   aucun re-scan complet n'est déclenché.
  *
- *   v5.45 (2026-10-10) — « FULL RECORD » : les NOUVELLES parties sont
- *     récupérées en UNE requête combo ?turns=true (info + roster + stats +
- *     config + replay) et stockées 100 % complètes DÈS leur premier tick
- *     (turns_done = 1 immédiat, replay gz dispo). Le scan récent ne fait
- *     plus 2 requêtes/partie (détail sans tours + re-fetch tours plus tard)
- *     mais 1 seule — l'API renvoie le record complet. Constat mesuré :
+ *   v5.45 (2026-10-10) — « FULL RECORD » : les NOUVELLES parties reçoivent
+ *     TOUTES les datas de l'API (champs v5.45 + replay turn-by-turn via
+ *     turns_phase newest-first, livré dans les minutes). Constat mesuré :
  *     /public/game/:id retourne TOUJOURS le tableau turns (~200 octets à
- *     40 Mo selon la partie) ; ?turns=false seul l'omet.
+ *     40 Mo selon la partie) ; ?turns=false seul l'omet. Le combo 1-req
+ *     existe (scan_turns) mais est DÉSACTIVÉ par défaut (v5.45e : payloads
+ *     massifs = scan récent en retard sur le flux — retour d'expérience).
  *     • Champs API désormais stockés (avant : jetés) : publicGameType
  *       (lobby ffa/team/special/hosted), tribes (tribus de bots de la
  *       partie), lobbyCreatedAt + visibleAt (funnel de remplissage),
@@ -113,10 +112,12 @@ declare(strict_types=1);
  *     "games_db_dev": { "host": ..., "database": "...", ... },   ← v5.43 base dev isolée
  *     "games": { "game_types": "Public,Private", "min_players_to_keep": 1,
  *                "detail_concurrency": 6, "player_stats_mode": "all",
- *                "turns_enabled": true, "scan_turns": true,
+ *                "turns_enabled": true, "scan_turns": false,
  *                "turns_max_games_per_tick": 480 } }
- *   v5.45 : "scan_turns": false → scan détail-seul (replays plus tard via
- *   turns_phase) si la bande passante du combo posait souci.
+ *   v5.45e : "scan_turns": true (combo 1-req, partie complète au 1er tick)
+ *   est DÉSACTIVÉ par défaut — les records complets (jusqu'à 40 Mo)
+ *   ralentissent le scan récent sous le flux quotidien. Les replays des
+ *   nouvelles parties arrivent via turns_phase (newest-first, minutes).
  *
  *   NB : l'ancienne clé "min_players" (v1) est ignorée — la nouvelle clé
  *   "min_players_to_keep" la remplace (défaut 1).
@@ -187,7 +188,16 @@ $cfg = array_merge([
     /* v5.43 — REBUILD COMPLET : 1 replay = 1 requête ?turns=true = info+roster+stats+config+turns.
      * enrich_game() est appelé sur la même réponse (combo) → la partie devient
      * 100% complète (métadonnées + roster + replay) en UNE requête API. */
-    'scan_turns'                => true, // v5.45 : scan récent en COMBO ?turns=true (1 req/partie, replay immédiat)
+    'scan_turns'                => false, // v5.45e : combo DÉSACTIVÉ par défaut — payloads massifs = scan récent trop lent
+     /* v5.45e (retour d'expérience mesuré) : le combo ?turns=true au scan rend
+      * chaque fetch 100-1000× plus lourd (record entier jusqu'à 40 Mo) → le
+      * curseur récent n'arrive plus à rattraper le flux (~6 parties/min) et
+      * les nouveautés prennent des heures de retard. ARCHITECTURE VALIDÉE :
+      * scan détail-seul (2 Ko/req, fenêtres complétées en secondes) +
+      * turns_phase newest-first (480/tick) qui livre le replay des NOUVELLES
+      * parties dans les minutes (ORDER BY started_at DESC = priorité fraîcheur).
+      * Le combo reste DISPONIBLE via secrets {"scan_turns": true} et reste le
+      * moteur du rattrapage profond (v5_done=0 : 1 requête = partie complète). */
     'turns_max_games_per_tick' => 480,  // v5.45 : 120 → 480/tick (≈192 s à 2.5 req/s, backlog ~69k/jour ; borné par la deadline)
     'turns_max_bytes_per_tick' => 314572800, // v5.43 : 80 → 300 Mo gz max par tick
     'turns_gzip_level'         => 6,    // v5.43 : niveau gzip des replays (1 → 6 = −19 % mesuré ; 9 possible via secrets, CPU ×3)
@@ -1499,13 +1509,12 @@ function scan_range(PDO $pdo, int $startMs, int $endMs, array $cfg, float $deadl
     $ingested = 0; $seen = 0;
     $limit = (int)$cfg['list_limit'];
     $minPlayers = max(0, (int)($cfg['min_players_to_keep'] ?? 1));
-    /* v5.45 — COMBO : le scan récent fetch ?turns=true → chaque NOUVELLE partie
-     * arrive complète (info+roster+stats+config+replay) en UNE requête, le
-     * replay est stocké par ingest_game/store_turns (turns_done=1 immédiat).
-     * Débit identique (pacing 2.5 req/s), mémoire protégée : en combo on fetch
-     * UNE partie à la fois (un record décodé peut atteindre ~400 Mo de RAM)
-     * avec un timeout long (les gros replays mettent >40 s à arriver).
-     * Rétro-compat : "scan_turns": false dans les secrets → détail seul. */
+    /* v5.45 — COMBO OPTIONNEL : si activé ("scan_turns": true), le scan fetch
+     * ?turns=true → chaque NOUVELLE partie arrive complète (info+roster+stats+
+     * config+replay) en 1 requête, replay stocké par ingest_game/store_turns.
+     * ⚠️ Par DÉFAUT DÉSACTIVÉ (v5.45e) : les records complets (jusqu'à 40 Mo)
+     * ralentissent le scan sous le flux quotidien — replays livrés par
+     * turns_phase (newest-first) à la place. Mémoire si activé : fetch 1-à-1. */
     $combo = !empty($cfg['turns_enabled']) && !empty($cfg['scan_turns']);
     $conc = $combo ? 1 : max(1, (int)$cfg['detail_concurrency']);
     $chunkSize = $combo ? 1 : $conc * 4;

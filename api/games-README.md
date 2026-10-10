@@ -209,20 +209,23 @@ replays + poids total (Go), ETA, remontée metadata (% du chemin vers mai
 2025), replays 24 h, débit AIMD, 429/erreurs, phase en cours, et le bouton
 Reset (confirmation par nom de base).
 
-## v5.45 — FULL RECORD (2026-10-10) : nouvelles parties 100 % complètes dès le 1ᵉʳ tick
+## v5.45 — FULL RECORD (2026-10-10) : nouvelles parties avec toutes les datas, replays ×4
 
-Objectif : les NOUVELLES parties sont récupérées avec **tout ce que l'API
-propose** (record complet, turns inclus) en **UNE requête**, et le backlog
-replays accélère ×4.
+Objectif : les NOUVELLES parties reçoivent **tout ce que l'API propose**
+(champs v5.45 + replay turn-by-turn), et le backlog replays accélère ×4.
 
 ### Ce qui change
 
-- **Scan récent en combo** (`scan_turns: true` par défaut) : `scan_range`
-  fetch `?turns=true` → `ingest_game()` insère métadonnées + roster + stats
-  puis `store_turns()` stocke le replay gz **immédiatement** (`turns_done=1`
-  dès le premier tick). Avant : 2 requêtes/partie (détail sans tours, puis
-  re-fetch tours par `turns_phase`). Constat mesuré : l'API renvoie
-  TOUJOURS `turns` — seul `?turns=false` l'omet.
+- **Scan récent détail-seul (VITE, inchangé v5.43)** + **turns_phase
+  newest-first (480/tick)** : le replay des nouvelles parties arrive dans
+  les minutes (ORDER BY started_at DESC = priorité fraîcheur).
+  Constat mesuré : l'API renvoie TOUJOURS `turns` ; seul `?turns=false`
+  l'omet.
+- **Combo 1-requête disponible** (`"scan_turns": true` dans les secrets) :
+  1 req ?turns=true = partie 100 % complète au 1er tick. DÉSACTIVÉ par
+  défaut (v5.45e) : payloads massifs (jusqu'à 40 Mo) → le curseur récent
+  ne rattrapait plus le flux quotidien (~6 parties/min). Le combo reste le
+  moteur du rattrapage profond (v5_done=0 : 1 requête = 1 partie complète).
 - **Champs API désormais stockés** (avant : jetés) dans `tfh_g_games` :
   `public_game_type` (ffa/team/special/hosted), `winner_team_name` (nom de
   l'équipe gagnante — winner[1]), `tribes_json` (tribus de bots en jeu),
@@ -240,18 +243,17 @@ replays accélère ×4.
 
 ### Débit/mémoire
 
-- Combo = 1 req/partie (au lieu de 2) → même pacing AIMD 2,5 req/s, zéro
-  requête supplémentaire.
-- En combo le scan fetch UNE partie à la fois (timeout 90 s) : un record
-  décodé peut atteindre ~400 Mo de RAM (replays privés géants) — jamais de
-  décodage parallèle.
+- turns_phase : 480 replays/tick (~69 k/jour), newest-first, borné par la
+  deadline + le plafond d'octets + l'AIMD (2,5 req/s).
+- Combo (si activé) : fetch 1-à-1 (timeout 90 s), un record décodé peut
+  atteindre ~400 Mo de RAM — jamais de décodage parallèle.
 - `store_turns()` compresse/re-encode HORS transaction : jamais de verrou DB
   pendant gzencode (plusieurs secondes sur un record de 40 Mo).
 
 ### Fallback
 
-Secrets `"games": { "scan_turns": false }` → retour au scan détail-seul
-(replays plus tard via `turns_phase`) si la bande passante posait souci.
+`"scan_turns": true` active le combo 1-requête si la complétude immédiate
+prime sur la fraîcheur du flux.
 
 ### Guérison de l'existant (zéro requête API)
 
