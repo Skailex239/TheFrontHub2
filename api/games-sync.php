@@ -2186,6 +2186,10 @@ function turns_phase(PDO $pdo, array $cfg, float $deadline, array &$unameCache):
 function fullheal_phase(PDO $pdo, float $deadline): int {
     if (state_get($pdo, 'v545_heal_done') === '1') return 0;
     phase_mark($pdo, 'fullheal');
+    /* Borne 120 s/tick : la guérison est rapide mais ne doit JAMAIS affamer
+     * turns_phase (replays = priorité utilisateur). 22 k lignes → quelques
+     * ticks, phase auto-terminée. */
+    $healDeadline = min($deadline, microtime(true) + 120.0);
     $done = 0;
     $upd = $pdo->prepare('UPDATE tfh_g_games SET v545_done = 1,
         public_game_type = COALESCE(public_game_type, ?),
@@ -2202,7 +2206,7 @@ function fullheal_phase(PDO $pdo, float $deadline): int {
         JOIN tfh_g_games g ON g.game_id = t.game_id
         WHERE g.v545_done = 0 AND g.turns_done = 1 AND g.v5_done = 1
         ORDER BY t.game_id ASC LIMIT 10');
-    while (microtime(true) < $deadline) {
+    while (microtime(true) < $healDeadline) {
         $sel->execute();
         $rows = $sel->fetchAll(PDO::FETCH_ASSOC);
         if (!$rows) {
