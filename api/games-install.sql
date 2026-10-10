@@ -48,6 +48,11 @@ CREATE TABLE IF NOT EXISTS tfh_g_aliases (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── Parties : métadonnées complètes + speedrun pré-calculé ───────────────────
+-- v5.45 — FULL RECORD : + public_game_type (canal du lobby public :
+-- ffa/team/special/hosted), winner_team_name (victoires d'équipe),
+-- lobby_created_ms/visible_at_ms (funnel remplissage), subdomain (serveur
+-- blue/green), tribes_json (tribus de bots en jeu), git_commit 40 (match
+-- exact des tags OpenFrontIO).
 CREATE TABLE IF NOT EXISTS tfh_g_games (
     game_id            VARCHAR(16)     NOT NULL PRIMARY KEY,
     started_at         DATETIME(3)     NOT NULL,
@@ -57,6 +62,7 @@ CREATE TABLE IF NOT EXISTS tfh_g_games (
     game_mode          VARCHAR(20)     NULL,       -- 'Free For All' | 'Team'
     ranked_type        VARCHAR(12)     NULL,       -- unranked | 1v1 | 2v2
     player_teams       VARCHAR(16)     NULL,       -- brut API : 'Duos', '4', ...
+    public_game_type   VARCHAR(16)     NULL,       -- v5.45 : ffa | team | special | hosted
     game_map           VARCHAR(48)     NULL,
     map_size           VARCHAR(16)     NULL,       -- Normal | Compact | ...
     difficulty         VARCHAR(16)     NULL,
@@ -64,7 +70,10 @@ CREATE TABLE IF NOT EXISTS tfh_g_games (
     num_players        SMALLINT UNSIGNED NULL,     -- humains (liste API)
     max_players        SMALLINT UNSIGNED NULL,
     lobby_fill_time    INT UNSIGNED    NULL,
+    lobby_created_ms   BIGINT UNSIGNED NULL,       -- v5.45 : info.lobbyCreatedAt
+    visible_at_ms      BIGINT UNSIGNED NULL,       -- v5.45 : info.visibleAt
     winner_kind        VARCHAR(8)      NULL,       -- player | team | nation
+    winner_team_name   VARCHAR(64)     NULL,       -- v5.45 : winner[1] (Team)
     winner_public_id   VARCHAR(16)     NULL,
     winner_username_id INT UNSIGNED    NULL,
     -- Speedrun pré-calculé à l'ingestion (mêmes règles que extract-speedrun.js
@@ -73,7 +82,8 @@ CREATE TABLE IF NOT EXISTS tfh_g_games (
     speedrun_category  VARCHAR(10)     NULL,       -- normal | compact | team
     speedrun_duration_s SMALLINT UNSIGNED NULL,     -- durée - 32s
     mods               VARCHAR(128)    NULL,       -- modificateurs actifs (CSV)
-    git_commit         VARCHAR(16)     NULL,
+    git_commit         VARCHAR(40)     NULL,       -- v5.45 : SHA complet (40)
+    subdomain          VARCHAR(8)      NULL,       -- v5.45 : serveur blue/green
     ingested_at        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_ggames_started (started_at),
     INDEX idx_ggames_sr (speedrun_category, game_map, speedrun_duration_s),

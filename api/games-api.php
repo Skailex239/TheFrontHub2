@@ -148,6 +148,11 @@ function game_row(array $r): array {
             'publicId' => $r['winner_public_id'] !== null ? (string)$r['winner_public_id'] : null,
             'username' => $r['winner_username'] !== null ? (string)$r['winner_username'] : null,
         ] : null,
+        /* v5.45 — FULL RECORD : canal du lobby public (ffa/team/special/hosted)
+         * et nom de l'équipe gagnante (parties Team). isset = garde migration
+         * (colonnes ajoutées par le premier tick games-sync post-déploiement). */
+        'publicGameType' => isset($r['public_game_type']) && $r['public_game_type'] !== null ? (string)$r['public_game_type'] : null,
+        'winnerTeam'     => isset($r['winner_team_name']) && $r['winner_team_name'] !== null ? (string)$r['winner_team_name'] : null,
     ];
 }
 
@@ -221,6 +226,12 @@ case 'game': {
         ? (string)$r['version'] : null;
     $out['numTurns'] = ($r['num_turns'] ?? null) !== null ? (int)$r['num_turns'] : null;
     $out['config'] = ($r['config_json'] ?? null) !== null ? json_decode((string)$r['config_json'], true) : null;
+    /* v5.45 — FULL RECORD : tribus de bots de la partie + funnel de lobby.
+     * Gardes isset : colonnes posées par la migration du prochain tick cron. */
+    $out['tribes'] = isset($r['tribes_json']) && $r['tribes_json'] !== null
+        ? json_decode((string)$r['tribes_json'], true) : null;
+    $out['lobbyCreatedAt'] = isset($r['lobby_created_ms']) && $r['lobby_created_ms'] !== null ? (int)$r['lobby_created_ms'] : null;
+    $out['visibleAt'] = isset($r['visible_at_ms']) && $r['visible_at_ms'] !== null ? (int)$r['visible_at_ms'] : null;
     $hr = $pdo->prepare('SELECT 1 FROM tfh_g_turns WHERE game_id = ?');
     $out['hasReplay'] = false;
     try { $hr->execute([$id]); $out['hasReplay'] = (bool)$hr->fetchColumn(); } catch (Throwable $e) {}
@@ -692,6 +703,24 @@ case 'totals': {
             'players'     => (int)$row['players'],
             'generatedAt' => time(),
         ];
+        /* v5.45 — FULL RECORD : complétude réelle de la base, visible au public.
+         * replays = parties avec turn-by-turn stocké (tfh_g_turns) ; withDetails
+         * = parties avec roster+stats (v5_done) ; fullComplete = les deux. Ces
+         * compteurs grandissent à mesure que le backlog tourne — ils montrent
+         * la différence entre « parties listées » et « parties complètes ».
+         * Gardes : les tables/colonnes peuvent ne pas exister encore (migration
+         * v5.45 au prochain tick cron) → sonde silencieuse, null sinon. */
+        try {
+            $c = $pdo->query('SELECT
+                (SELECT COUNT(*) FROM tfh_g_turns) AS replays,
+                (SELECT COUNT(*) FROM tfh_g_games WHERE v5_done = 1) AS with_details,
+                (SELECT COUNT(*) FROM tfh_g_games WHERE v5_done = 1 AND turns_done = 1) AS full_complete')->fetch();
+            if ($c !== false) {
+                $data['replays']      = (int)$c['replays'];
+                $data['withDetails']  = (int)$c['with_details'];
+                $data['fullComplete'] = (int)$c['full_complete'];
+            }
+        } catch (Throwable $e) { /* tables v5 absentes : compteurs omis */ }
         if (!is_dir($cacheDir)) @mkdir($cacheDir, 0700, true);
         @file_put_contents($cacheFile, json_encode($data), LOCK_EX);
     }

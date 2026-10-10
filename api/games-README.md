@@ -209,6 +209,50 @@ replays + poids total (Go), ETA, remontée metadata (% du chemin vers mai
 2025), replays 24 h, débit AIMD, 429/erreurs, phase en cours, et le bouton
 Reset (confirmation par nom de base).
 
+## v5.45 — FULL RECORD (2026-10-10) : nouvelles parties 100 % complètes dès le 1ᵉʳ tick
+
+Objectif : les NOUVELLES parties sont récupérées avec **tout ce que l'API
+propose** (record complet, turns inclus) en **UNE requête**, et le backlog
+replays accélère ×4.
+
+### Ce qui change
+
+- **Scan récent en combo** (`scan_turns: true` par défaut) : `scan_range`
+  fetch `?turns=true` → `ingest_game()` insère métadonnées + roster + stats
+  puis `store_turns()` stocke le replay gz **immédiatement** (`turns_done=1`
+  dès le premier tick). Avant : 2 requêtes/partie (détail sans tours, puis
+  re-fetch tours par `turns_phase`). Constat mesuré : l'API renvoie
+  TOUJOURS `turns` — seul `?turns=false` l'omet.
+- **Champs API désormais stockés** (avant : jetés) dans `tfh_g_games` :
+  `public_game_type` (ffa/team/special/hosted), `winner_team_name` (nom de
+  l'équipe gagnante — winner[1]), `tribes_json` (tribus de bots en jeu),
+  `lobby_created_ms` + `visible_at_ms` (funnel remplissage), `subdomain`
+  (serveur blue/green), `git_commit` **40 caractères** (match exact des tags
+  OpenFrontIO — élargi via `ALTER INPLACE`, replié à 16 si l'hôte refuse).
+- **Backlog replays ×4** : `turns_max_games_per_tick` 120 → 480 (~69 k
+  replays/jour à 2,5 req/s). Toujours borné par la deadline de tick, le
+  plafond d'octets et l'AIMD.
+- **Exposition API** : `route=totals` expose `replays` / `withDetails` /
+  `fullComplete` (complétude réelle de la base) ; `route=game` expose
+  `publicGameType`, `winnerTeam`, `tribes`, `lobbyCreatedAt`, `visibleAt`.
+- **Front** : game.html affiche les badges « Lobby spécial » / « Lobby
+  hébergé » et « Équipe gagnante : X » pour les parties Team.
+
+### Débit/mémoire
+
+- Combo = 1 req/partie (au lieu de 2) → même pacing AIMD 2,5 req/s, zéro
+  requête supplémentaire.
+- En combo le scan fetch UNE partie à la fois (timeout 90 s) : un record
+  décodé peut atteindre ~400 Mo de RAM (replays privés géants) — jamais de
+  décodage parallèle.
+- `store_turns()` compresse/re-encode HORS transaction : jamais de verrou DB
+  pendant gzencode (plusieurs secondes sur un record de 40 Mo).
+
+### Fallback
+
+Secrets `"games": { "scan_turns": false }` → retour au scan détail-seul
+(replays plus tard via `turns_phase`) si la bande passante posait souci.
+
 ## API JSON (frontend)
 
 Toutes les réponses : `{ok:true,…}` / `{ok:false,error}` — cache 45-600 s.
