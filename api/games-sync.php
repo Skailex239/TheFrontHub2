@@ -35,6 +35,46 @@ declare(strict_types=1);
  *   SCOPE_VER inchangé : le backfill en cours continue et s'arrête plus tôt,
  *   aucun re-scan complet n'est déclenché.
  *
+ *   v5.46 (2026-10-11) — « SPEEDRUNS FRESH » (demande propriétaire : « les
+ *     games qui cochent les filtres speedruns mises dedans ») :
+ *     • CONSTAT MESURÉ (12h00-13h00 UTC) : l'API archive sert parfaitement
+ *       les fenêtres demandées (1 605 parties servies sur [T, T+2h40],
+ *       pagination 1 000/page, ~2 Ko/détail ?turns=false, zéro 429 observé)
+ *       MAIS le scan récent vivait en retard PERMANENT de ~2 h : la fenêtre
+ *       monolithique [curseur-10 min, maintenant] ne pouvait être validée
+ *       qu'en UNE fois ; dès que le retard excédait le budget d'un tick
+ *       (~750 req AIMD), le curseur n'avançait PLUS JAMAIS et le scan
+ *       ré-marchait tout le gap à chaque tick (listing + DB-checks de
+ *       milliers de lignes) en n'ingérant que ~56 % du flux (11,4/min
+ *       mesurés vs 20,4/min réels : Public 10 + Private 10,4).
+ *     • FIX 1 — SOUS-FENÊTRES DRAINABLES : le scan récent est découpé en
+ *       sous-fenêtres de 15 min (cfg recent_sub_minutes) ; chaque
+ *       sous-fenêtre COMPLÈTE fait avancer le curseur (progression persistée
+ *       tick par tick) → le retard se draine à ~3× le flux et retombe en
+ *       minutes. Garde anti-blocage : si le curseur ne bouge plus depuis
+ *       recent_force_min (120 min), on l'avance d'une sous-fenêtre (perte
+ *       bornée, tracée) — couvre tout échec non transitoire résiduel.
+ *     • FIX 2 — TURNS ADAPTATIF : pendant le drainage (retard > 20 min),
+ *       turns_phase est borné à un plancher (turns_floor_games_per_tick,
+ *       défaut 96) : les NOUVELLES parties (records speedruns frais !)
+ *       passent AVANT le backlog de replays ; dès le retour à la normale,
+ *       le budget replays remonte à turns_max_games_per_tick.
+ *     • FIX 3 — FILE « FRESH ∪ CANDIDATS SPEEDRUN » : turns_phase ne marche
+ *       plus TOUTES les parties sans replay (les ~6 M incluent des millions
+ *       de 1v1/private sans intérêt speedrun, et le tout-replay = ~1 To de
+ *       gz) : la file newest-first devient (started_at ≥ 24 h) OU candidat
+ *       speedrun au sens liste (Public, FFA ≥3 humains 1-180 min, Team
+ *       Duos/Trios/Quads/HvN ≥10 humains — FILTRE VOLONTAIREMENT LARGE :
+ *       toute vraie speedrun normal/compact/team le passe). Chaque candidat
+ *       du backlog = 1 requête combo ?turns=true → enrich_game +
+ *       classify_speedrun + replay → la partie ENTRE dans les speedruns
+ *       (runs.html, export runs_public, records home) avec son « turn
+ *       active ». cfg turns_candidates_only=false → comportement v5.45.
+ *     • games-api.php : fix timezone — last24h (route=totals) et les
+ *       fenêtres N jours (route=speedruns) utilisaient NOW() (heure locale
+ *       hôte) alors que started_at est stocké UTC (gmdate) → décalage de
+ *       2 h Paris. Passé à UTC_TIMESTAMP().
+ *
  *   v5.45 (2026-10-10) — « FULL RECORD » : les NOUVELLES parties reçoivent
  *     TOUTES les datas de l'API (champs v5.45 + replay turn-by-turn via
  *     turns_phase newest-first, livré dans les minutes). Constat mesuré :
@@ -203,6 +243,12 @@ $cfg = array_merge([
     'turns_gzip_level'         => 6,    // v5.43 : niveau gzip des replays (1 → 6 = −19 % mesuré ; 9 possible via secrets, CPU ×3)
     'turns_max_raw_bytes'      => 41943040, // v5.43 : 25 → 40 Mo brut max (replays privés géants ; mémoire 2G)
     'turns_min_players'        => 0,    // v5.43 : 0 = replays de TOUTES les parties (≥N pour économiser le disque plus tard)
+    /* v5.46 — SPEEDRUNS FRESH (détail dans l'en-tête) */
+    'recent_sub_minutes'       => 15,   // sous-fenêtre du scan récent (drain pas-à-pas du retard)
+    'recent_force_min'         => 120,  // curseur bloqué depuis N min → avance forcée d'une sous-fenêtre (perte bornée)
+    'turns_floor_games_per_tick'=> 96,   // plancher replays pendant le drainage du scan récent (retard > 20 min)
+    'turns_fresh_hours'        => 24,   // file replays : fenêtre « fresh » (toutes parties) en heures
+    'turns_candidates_only'    => true, // file replays = fresh ∪ candidats speedrun (false = v5.45 : toutes)
     'enrich_max_games_per_tick'=> 400,  // v5 : anciennes parties enrichies par tick
     'catalog_refresh_hours'    => 6,    // v5 : rafraîchissement catalogue cosmétiques
     'rating_seconds_per_tick'  => 60,   // v5 : budget Glicko-2 par tick
@@ -2092,8 +2138,32 @@ function turns_phase(PDO $pdo, array $cfg, float $deadline, array &$unameCache):
     $maxRaw   = max(10485760, (int)($cfg['turns_max_raw_bytes'] ?? 41943040));
     $minPl    = max(0, (int)($cfg['turns_min_players'] ?? 0));
     $bytesUsed = 0; $done = 0;
+    /* v5.46 — FILE « FRESH ∪ CANDIDATS SPEEDRUN » (demande propriétaire : « les
+     * games qui cochent les filtres speedruns mises dedans »). Avant, la file
+     * marchait TOUTES les parties sans replay newest-first : ~6 M de lignes dont
+     * des millions de 1v1/private sans intérêt speedrun (et tout-replay = ~1 To
+     * de gz). Désormais la file = (parties des dernières turns_fresh_hours —
+     * fraîcheur des replays pour TOUTES les nouveautés) UNION (candidats
+     * speedrun au sens MÉTADonnées de liste — filtre volontairement LARGE,
+     * identique à enrich_phase : toute vraie speedrun normal/compact/team le
+     * passe, y compris déjà détaillées v5_done=1 qui ne restent qu'à réclamer
+     * leur replay). Chaque candidat du backlog = 1 requête combo ?turns=true →
+     * enrich_game + classify_speedrun + replay → la partie entre dans les
+     * speedruns AVEC son « turn active ». turns_candidates_only=false via
+     * secrets → comportement v5.45 (toutes les parties). Index utilisé :
+     * idx_ggames_turns (turns_done, started_at) — filtre évalué par ligne. */
+    $freshH = max(1, (int)($cfg['turns_fresh_hours'] ?? 24));
+    /* Version-safe (pas de dépendance FILTER_VALIDATE_BOOL/PHP8) : booléens
+     * JSON réels ou chaînes "true"/"1"/"on" depuis les secrets. */
+    $candRaw = $cfg['turns_candidates_only'] ?? true;
+    $candOnly = is_bool($candRaw) ? $candRaw : in_array(strtolower(trim((string)$candRaw)), ['1', 'true', 'on', 'yes'], true);
+    $candWhere = "started_at >= UTC_TIMESTAMP() - INTERVAL " . $freshH . " HOUR"
+        . " OR (game_type = 'Public' AND duration_s >= 60 AND duration_s <= 10800"
+        . " AND ((game_mode = 'Free For All' AND num_players >= 3)"
+        . " OR (game_mode = 'Team' AND player_teams IN ('Duos','Trios','Quads','Humans Vs Nations') AND num_players >= 10)))";
     $sel = 'SELECT game_id FROM tfh_g_games WHERE turns_done = 0'
         . ($minPl > 0 ? ' AND num_players >= ' . $minPl : '')
+        . ($candOnly ? ' AND (' . $candWhere . ')' : '')
         . ' ORDER BY started_at DESC LIMIT ' . ($maxGames * 2);
     $st = $pdo->prepare($sel);
     $st->execute();
@@ -3413,22 +3483,64 @@ try { if (microtime(true) < $deadline) clan_sessions_phase($pdo, $cfg, $deadline
 try { if (microtime(true) < $deadline) profiles_phase($pdo, $cfg, $deadline); } catch (Throwable $e) { log_line('[profiles] ⚠️ ' . cut($e->getMessage(), 140)); }
 
 // 2) Scan récent (depuis le dernier état, chevauchement inclus) — tous les types
+//    v5.46 — SOUS-FENÊTRES DRAINABLES : l'ancienne fenêtre monolithique
+//    [curseur-10 min, maintenant] ne pouvait être validée qu'en UNE fois ;
+//    dès que le retard excédait le budget d'un tick, le curseur n'avançait
+//    plus JAMAIS (retard permanent ~2 h mesuré, ingestion 56 % du flux).
+//    Désormais : découpage en sous-fenêtres de recent_sub_minutes (15 min) ;
+//    chaque sous-fenêtre COMPLÈTE fait avancer le curseur → progression
+//    persistée tick par tick, le retard se draine dès que le budget le
+//    permet. Garde anti-blocage : curseur immobile depuis recent_force_min
+//    → avance forcée d'une sous-fenêtre (perte bornée, tracée).
 phase_mark($pdo, 'recent');
 $nowMs = (int)round(microtime(true) * 1000);
 $recentEnd = (int)state_get($pdo, STATE_KEY_RECENT, (string)($nowMs - 3 * 3600 * 1000));
 $recentStart = $recentEnd - (int)$cfg['recent_overlap_min'] * 60 * 1000;
 if ($recentStart < $nowMs) {
-    $ingTotal = 0; $seenTotal = 0; $recentComplete = true;
-    foreach ($GAME_TYPES as $gt) {
-        if (microtime(true) >= $deadline) { $recentComplete = false; break; }
-        [$ing, $seen, $ok] = scan_range($pdo, $recentStart, $nowMs, $cfg, $deadline, $unameCache, 'recent', 0, null, $gt);
-        $ingTotal += $ing; $seenTotal += $seen;
-        if (!$ok) $recentComplete = false;
+    $SUB_MS = max(5, (int)$cfg['recent_sub_minutes']) * 60 * 1000;
+    $ingTotal = 0; $seenTotal = 0; $subAdvanced = false;
+    $sub = $recentStart;
+    while ($sub < $nowMs) {
+        if (microtime(true) >= $deadline) break; // budget épuisé : la sous-fenêtre reprendra au tick suivant (dédup DB)
+        // Garde anti-blocage : curseur immobile depuis recent_force_min → on
+        // SAUTE une sous-fenêtre (perte ≤ 15 min d'historique, bornée, tracée).
+        // Ne se déclenche JAMAIS pendant un drainage sain (chaque sous-fenêtre
+        // complète rafraîchit le marqueur d'activité) — uniquement si un échec
+        // non transitoire (5xx permanent, réseau cassé…) fige le curseur.
+        $lastMove = (int)state_get($pdo, 'recent_moved_ms', '0');
+        if ($lastMove > 0 && ($nowMs - $lastMove) > max(15, (int)$cfg['recent_force_min']) * 60 * 1000) {
+            $skipEnd = min($sub + $SUB_MS, $nowMs);
+            log_line('[recent] ⚠️ curseur figé depuis ' . round(($nowMs - $lastMove) / 60000) . ' min — sous-fenêtre ' . gmdate('m-d H:i', intdiv($sub, 1000)) . ' forcée (perte bornée)');
+            $sub = $skipEnd;
+            $recentEnd = $skipEnd;
+            state_set($pdo, STATE_KEY_RECENT, (string)$recentEnd);
+            state_set($pdo, 'recent_moved_ms', (string)$nowMs);
+            $subAdvanced = true;
+            continue;
+        }
+        $subEnd = min($sub + $SUB_MS, $nowMs);
+        $subComplete = true;
+        foreach ($GAME_TYPES as $gt) {
+            if (microtime(true) >= $deadline) { $subComplete = false; break; }
+            [$ing, $seen, $ok] = scan_range($pdo, $sub, $subEnd, $cfg, $deadline, $unameCache, 'recent', 0, null, $gt);
+            $ingTotal += $ing; $seenTotal += $seen;
+            if (!$ok) { $subComplete = false; break; }
+        }
+        if ($subComplete) {
+            // v3 (conservé) : le curseur n'avance que sur traitement INTÉGRAL —
+            // mais désormais au grain de la sous-fenêtre, pas de la fenêtre entière.
+            $recentEnd = $subEnd;
+            state_set($pdo, STATE_KEY_RECENT, (string)$recentEnd);
+            state_set($pdo, 'recent_moved_ms', (string)$nowMs);
+            $subAdvanced = true;
+            $sub = $subEnd;
+        } else {
+            break; // échec transitoire ou budget épuisé → MÊME sous-fenêtre au prochain tick (dédup DB)
+        }
     }
     $totalIngested += $ingTotal;
-    log_line("[recent] fenêtre " . gmdate('m-d H:i', intdiv($recentStart, 1000)) . " → maintenant : $ingTotal nouvelle(s) partie(s) ($seenTotal vues, types " . implode('+', $GAME_TYPES) . ')');
-    // v3 : on n'avance le curseur récent QUE si la fenêtre est intégralement traitée
-    if ($recentComplete && microtime(true) < $deadline) state_set($pdo, STATE_KEY_RECENT, (string)$nowMs);
+    $lagMin = (int)round(max(0, $nowMs - $recentEnd) / 60000);
+    log_line("[recent] curseur → " . gmdate('m-d H:i', intdiv($recentEnd, 1000)) . " (retard ~{$lagMin} min) : $ingTotal nouvelle(s) partie(s) ($seenTotal vues, types " . implode('+', $GAME_TYPES) . ', ' . ($subAdvanced ? 'progression' : 'reprise') . ')');
 }
 
 // 2b) v5.16 — migration des versions des parties existantes (lots de 20 k,
@@ -3449,10 +3561,19 @@ try {
 //    partie devient 100 % complète. Les replays (priorité utilisateur) ont le
 //    budget de pacing AVANT que le backfill/enrich ne le consomme ; les
 //    fenêtres backfill incomplètes se reprennent au tick suivant sans perte.
+//    v5.46 — ADAPTATIF : si le scan récent draine encore son retard (> 20 min),
+//    on borne replays à un PLANCHER (turns_floor_games_per_tick) — les
+//    NOUVELLES parties (records speedruns frais) passent avant le backlog ;
+//    le file d'attente des candidats rattrape dès le retour à la normale.
 try {
     if (microtime(true) < $deadline) {
-        $tn = turns_phase($pdo, $cfg, $deadline, $unameCache);
-        if ($tn > 0) log_line("[turns] $tn replay(s) stocké(s)");
+        $recentLagMs = $nowMs - $recentEnd;
+        $cfgTurns = $cfg;
+        if ($recentLagMs > 20 * 60 * 1000) {
+            $cfgTurns['turns_max_games_per_tick'] = max(24, (int)($cfg['turns_floor_games_per_tick'] ?? 96));
+        }
+        $tn = turns_phase($pdo, $cfgTurns, $deadline, $unameCache);
+        if ($tn > 0) log_line("[turns] $tn replay(s) stocké(s)" . ($recentLagMs > 20 * 60 * 1000 ? ' (plancher drainage : scan récent en retard de ' . round($recentLagMs / 60000) . ' min)' : ''));
     }
 } catch (Throwable $e) { log_line('[turns] ⚠️ ' . cut($e->getMessage(), 140)); }
 

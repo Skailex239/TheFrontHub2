@@ -209,6 +209,49 @@ replays + poids total (Go), ETA, remontée metadata (% du chemin vers mai
 2025), replays 24 h, débit AIMD, 429/erreurs, phase en cours, et le bouton
 Reset (confirmation par nom de base).
 
+## v5.46 — SPEEDRUNS FRESH (2026-10-11) : le retard tué + candidats prioritaires
+
+Objectif propriétaire : « **les games qui cochent les filtres speedruns mises
+dedans** ». Constat mesuré avant correctif : scan récent en retard **permanent
+de ~2 h** (fenêtre monolithique validable en une seule fois → curseur figé,
+ingestion 56 % du flux réel), et replays qui marchaient TOUTES les parties
+sans replay (~6 M de lignes, dont des millions de 1v1/private sans intérêt
+speedrun — trajectoire disque ~1 To).
+
+### Ce qui change
+
+- **Scan récent en sous-fenêtres drainables (15 min)** : chaque sous-fenêtre
+  COMPLÈTE avance le curseur `recent_end_ms` → le retard se draine à ~2-3×
+  le flux et retombe au plancher ~10-20 min (nouvelle partie en base dans
+  les ~10-15 min de sa fin, replay dans les 1-2 ticks suivants).
+  Garde anti-blocage : curseur immobile > 120 min → avance forcée d'une
+  sous-fenêtre (perte bornée 15 min, tracée). Cfg : `recent_sub_minutes`,
+  `recent_force_min`.
+- **turns_phase adaptatif** : pendant le drainage (retard > 20 min), replays
+  bornés à un plancher (96/tick) — les NOUVELLES parties passent avant le
+  backlog. Cfg : `turns_floor_games_per_tick`.
+- **File replays « fresh ∪ candidats speedrun »** : la file newest-first
+  devient (parties des dernières 24 h, toutes — fraîcheur pour tout le monde)
+  UNION (candidats speedrun au sens métadonnées de liste, tout âge :
+  `Public` + FFA ≥3 humains 1-180 min, ou Team Duos/Trios/Quads/HvN ≥10
+  humains — filtre volontairement large : toute vraie speedrun
+  normal/compact/team le passe). Chaque candidat du backlog = 1 requête
+  combo `?turns=true` → enrich + `classify_speedrun` + replay → la partie
+  **entre dans les speedruns avec son turn-by-turn**. Cfg :
+  `turns_fresh_hours`, `turns_candidates_only` (false = v5.45 : toutes).
+- **Fix timezone API** : `started_at` est stocké UTC (`gmdate`) mais
+  `last24h` (route=totals) et les fenêtres `Nd` (speedruns, clans)
+  utilisaient `NOW()` (heure locale hôte, Paris = +2 h) → décalage de 2 h.
+  Passé à `UTC_TIMESTAMP()`.
+
+### Politique disque (explicitée)
+
+Replay stocké = partie **fresh** (≤ 24 h) ∪ **candidat speedrun** (tout âge).
+Les ~5 M de vieilles parties non-candidates (1v1, private 2 joueurs…) ne
+reçoivent PAS de replay (~0,17 Mo gz pièce — tout-replay ≈ 1 To). Pour
+rétablir le comportement v5.45 : `"turns_candidates_only": false` dans les
+secrets `games`.
+
 ## v5.45 — FULL RECORD (2026-10-10) : nouvelles parties avec toutes les datas, replays ×4
 
 Objectif : les NOUVELLES parties reçoivent **tout ce que l'API propose**
