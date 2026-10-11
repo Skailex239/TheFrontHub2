@@ -726,6 +726,26 @@ case 'totals': {
                 $data['fullComplete'] = (int)$c['full_complete'];
             }
         } catch (Throwable $e) { /* tables v5 absentes : compteurs omis */ }
+        /* v5.46.1 — HEARTBEAT public (non sensible : version du script qui
+         * tique + âge du dernier tick + phase en cours). Diagnostic externe
+         * du déploiement/cron : « syncVersion: v5.46 » prouve que le NOUVEAU
+         * games-sync.php tourne ; syncAgeSec > 1200 = cron arrêté/affamé. */
+        try {
+            $hb = $pdo->query("SELECT skey, svalue FROM tfh_g_state WHERE skey IN ('sync_version','sync_heartbeat','v5_phase','recent_end_ms','recent_moved_ms')")->fetchAll();
+            $st = [];
+            foreach ($hb as $r2) $st[(string)$r2['skey']] = (string)$r2['svalue'];
+            if (isset($st['sync_version'])) {
+                $data['syncVersion'] = $st['sync_version'];
+                $data['syncAgeSec']  = isset($st['sync_heartbeat']) ? max(0, time() - (int)$st['sync_heartbeat']) : null;
+                $data['syncPhase']   = $st['v5_phase'] ?? null;
+                /* retard du scan récent (arrondi min) — la santé du pipeline,
+                 * pas un curseur interne : ~10-20 min = sain, > 60 = drainage
+                 * ou problème. */
+                if (isset($st['recent_end_ms']) && ctype_digit($st['recent_end_ms'])) {
+                    $data['recentLagMin'] = (int)round(max(0, (time() - (int)$st['recent_end_ms'] / 1000)) / 60);
+                }
+            }
+        } catch (Throwable $e) { /* état absent : champs omis */ }
         if (!is_dir($cacheDir)) @mkdir($cacheDir, 0700, true);
         @file_put_contents($cacheFile, json_encode($data), LOCK_EX);
     }

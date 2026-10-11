@@ -286,6 +286,11 @@ const GAMES_EPOCH_MS = 1788998400000;      // 2026-09-10T00:00:00Z — début è
 const GAMES_EPOCH_DEEP_MS = 1748102400000; // 2025-05-25T00:00:00Z — plus vieilles données servies par l'API (~30 mai 2025)
 const OF_V0231_MS = 1748715223000;         // tag v0.23.1 (31 mai 2025) — avant : ère dev 'v0.23-dev'
 const TIME_OFFSET_S  = 32;             // offset speedrun (extract-speedrun.js)
+/* v5.46.1 — identité de version du script : posée dans tfh_g_state à CHAQUE
+ * tick (sync_version + sync_heartbeat). Exposée (non sensible) par
+ * route=totals → permet de vérifier DEPUIS L'EXTERIEUR quelle version du
+ * script tique réellement la base et quand (diagnostic déploiement/cron). */
+const SYNC_VERSION = 'v5.46';
 const STATE_KEY_RECENT  = 'recent_end_ms';
 const STATE_KEY_BACKFIL = 'backfill_cursor_ms';
 const STATE_KEY_DELETER = 'deletions_polled_ms';
@@ -393,6 +398,14 @@ if (!$lockFp || !flock($lockFp, LOCK_EX | LOCK_NB)) {
 
 $t0 = time();
 $deadline = $t0 + ($argBackfill > 0 ? $argBackfill : (int)$cfg['tick_budget']);
+
+/* v5.46.1 — HEARTBEAT : version du script + horodatage du tick. Permet de
+ * vérifier depuis l'extérieur (route=totals) QUELLE version du fichier tique
+ * réellement cette base et quand (diagnostic déploiement / cron / lock). */
+try {
+    state_set($pdo, 'sync_version', SYNC_VERSION);
+    state_set($pdo, 'sync_heartbeat', (string)$t0);
+} catch (Throwable $e) { /* non fatal */ }
 
 /* ─────────────────────────── Tables (auto-install) ─────────────────────────── */
 
@@ -3499,22 +3512,39 @@ $recentStart = $recentEnd - (int)$cfg['recent_overlap_min'] * 60 * 1000;
 if ($recentStart < $nowMs) {
     $SUB_MS = max(5, (int)$cfg['recent_sub_minutes']) * 60 * 1000;
     $ingTotal = 0; $seenTotal = 0; $subAdvanced = false;
+    /* v5.46.1 — BOOTSTRAP de la garde : si le marqueur d'activité n'existe
+     * pas encore (premier tick v5.46 post-déploiement), on le pose
+     * Maintenant — sans ça, une sous-fenêtre qui échoue dès le premier tick
+     * (tfail persistant) ne armerait JAMAIS la garde anti-blocage. */
+    if (state_get($pdo, 'recent_moved_ms') === null) {
+        state_set($pdo, 'recent_moved_ms', (string)$nowMs);
+    }
     $sub = $recentStart;
     while ($sub < $nowMs) {
         if (microtime(true) >= $deadline) break; // budget épuisé : la sous-fenêtre reprendra au tick suivant (dédup DB)
-        // Garde anti-blocage : curseur immobile depuis recent_force_min → on
-        // SAUTE une sous-fenêtre (perte ≤ 15 min d'historique, bornée, tracée).
-        // Ne se déclenche JAMAIS pendant un drainage sain (chaque sous-fenêtre
-        // complète rafraîchit le marqueur d'activité) — uniquement si un échec
-        // non transitoire (5xx permanent, réseau cassé…) fige le curseur.
+        /* Garde anti-blocage (2 déclencheurs) :
+         *  (a) curseur immobile depuis recent_force_min (120 min) — échec non
+         *      transitoire qui fige le curseur ;
+         *  (b) v5.46.1 : recent_sub_fails ≥ 6 — la MÊME sous-fenêtre a échoué
+         *      ~6 ticks de suite (échec transitoire PERSISTANT : le retour
+         *      tfail de scan_range bloque la validation alors que le fetch
+         *      partiel a déjà ingéré son flux — maladie observée en v5.45 :
+         *      ~87 parties/tick puis tfail, curseur figé ~2 h).
+         * Dans les deux cas : on SAUTE une sous-fenêtre (perte bornée ≤ 15 min
+         * d'historique, tracée) et on reprend — jamais de blocage définitif. */
         $lastMove = (int)state_get($pdo, 'recent_moved_ms', '0');
-        if ($lastMove > 0 && ($nowMs - $lastMove) > max(15, (int)$cfg['recent_force_min']) * 60 * 1000) {
+        $subFails = (int)state_get($pdo, 'recent_sub_fails', '0');
+        $forceSkip = ($lastMove > 0 && ($nowMs - $lastMove) > max(15, (int)$cfg['recent_force_min']) * 60 * 1000)
+            || ($subFails >= 6);
+        if ($forceSkip) {
+            $why = $subFails >= 6 ? "$subFails échecs consécutifs" . ($lastMove > 0 ? ' / curseur figé ' . round(($nowMs - $lastMove) / 60000) . ' min' : '') : 'curseur figé depuis ' . round(($nowMs - $lastMove) / 60000) . ' min';
             $skipEnd = min($sub + $SUB_MS, $nowMs);
-            log_line('[recent] ⚠️ curseur figé depuis ' . round(($nowMs - $lastMove) / 60000) . ' min — sous-fenêtre ' . gmdate('m-d H:i', intdiv($sub, 1000)) . ' forcée (perte bornée)');
+            log_line('[recent] ⚠️ ' . $why . ' — sous-fenêtre ' . gmdate('m-d H:i', intdiv($sub, 1000)) . ' forcée (perte bornée)');
             $sub = $skipEnd;
             $recentEnd = $skipEnd;
             state_set($pdo, STATE_KEY_RECENT, (string)$recentEnd);
             state_set($pdo, 'recent_moved_ms', (string)$nowMs);
+            state_set($pdo, 'recent_sub_fails', '0');
             $subAdvanced = true;
             continue;
         }
@@ -3532,9 +3562,14 @@ if ($recentStart < $nowMs) {
             $recentEnd = $subEnd;
             state_set($pdo, STATE_KEY_RECENT, (string)$recentEnd);
             state_set($pdo, 'recent_moved_ms', (string)$nowMs);
+            state_set($pdo, 'recent_sub_fails', '0');
             $subAdvanced = true;
             $sub = $subEnd;
         } else {
+            // v5.46.1 : compteur d'échecs persisté (déclencheur (b) de la garde).
+            // NB : l'échec n'annule PAS le travail partiel — les parties déjà
+            // ingérées le restent (dédup DB au prochain tick).
+            state_set($pdo, 'recent_sub_fails', (string)($subFails + 1));
             break; // échec transitoire ou budget épuisé → MÊME sous-fenêtre au prochain tick (dédup DB)
         }
     }
