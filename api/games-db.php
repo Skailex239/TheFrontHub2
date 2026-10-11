@@ -107,6 +107,15 @@ function tfh_games_pdo(string $which = 'auto'): ?PDO
         return $conns[$which] = null;
     }
     try {
+        /* v5.46.1 — SESSION UTC (fix majeur « les nouveautés ont 2 h de retard ») :
+         * les colonnes games (started_at…) sont écrites en UTC (gmdate) mais
+         * UNIX_TIMESTAMP()/NOW()/FROM_UNIXTIME() interprètent/produisent
+         * l'heure LOCALE de session (o2switch = Europe/Paris, UTC+2) → tous
+         * les startedAt exposés par l'API étaient décalés de −2 h (les
+         * nouveautés paraissaient « 2 h old » alors qu'elles étaient fraîches)
+         * et les fenêtres NOW()-based (last24h, window=Nd, streams live…)
+         * étaient amputées de 2 h. Session forcée en UTC : lectures exactes,
+         * écritures cohérentes (fetched_at, last_seen…), NOW() == UTC_TIMESTAMP(). */
         $conns[$which] = new PDO(
             sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
                 (string) ($c['host'] ?? 'localhost'), (int) ($c['port'] ?? 3306), (string) $c['database']),
@@ -116,8 +125,11 @@ function tfh_games_pdo(string $which = 'auto'): ?PDO
                 PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_EMULATE_PREPARES   => false,
+                PDO::MYSQL_ATTR_INIT_COMMAND => "SET time_zone = '+00:00'",
             ]
         );
+        /* Repli si le driver refuse l'init command (rare) : exec explicite. */
+        try { $conns[$which]->exec("SET time_zone = '+00:00'"); } catch (Throwable $e2) { /* déjà posé */ }
     } catch (Throwable $e) {
         error_log('[tfh-games-db] PDO(' . $which . '): ' . $e->getMessage());
         return $conns[$which] = null;
