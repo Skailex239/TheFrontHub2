@@ -251,7 +251,9 @@ case 'speedruns': {
     $args = [$category];
     if ($map !== '' && $map !== 'all') { $where .= ' AND g.game_map = ?'; $args[] = $map; }
     if (preg_match('/^(\d+)d$/', $window, $mm)) {
-        $where .= ' AND g.started_at >= DATE_SUB(NOW(), INTERVAL ? DAY)';
+        /* v5.46 : UTC_TIMESTAMP — started_at est stocké UTC (gmdate), NOW()
+         * renvoie l'heure locale de l'hôte (Paris = +2 h) → fenêtre décalée. */
+        $where .= ' AND g.started_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)';
         $args[] = (int)$mm[1];
     }
     $order = $sort === 'date' ? 'g.started_at DESC' : 'g.speedrun_duration_s ASC, g.started_at ASC';
@@ -692,7 +694,10 @@ case 'totals': {
             (SELECT COUNT(*) FROM tfh_g_games) AS games,
             (SELECT COUNT(*) FROM tfh_g_games WHERE game_type = \'Public\') AS public_games,
             (SELECT COUNT(*) FROM tfh_g_games WHERE speedrun_category IS NOT NULL) AS speedruns,
-            (SELECT COUNT(*) FROM tfh_g_games WHERE started_at >= NOW() - INTERVAL 1 DAY) AS last24h,
+            /* v5.46 : UTC_TIMESTAMP() — started_at stocké UTC (gmdate) mais NOW()
+             * = heure locale hôte (Paris +2 h) : le compteur « 24 h » était
+             * amputé de 2 h de parties. */
+            (SELECT COUNT(*) FROM tfh_g_games WHERE started_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY) AS last24h,
             (SELECT COUNT(*) FROM tfh_g_players WHERE deleted_at IS NULL) AS players')->fetch();
         $data = [
             'ok'          => true,
@@ -922,10 +927,10 @@ case 'clans': {
     $sort = (string)($_GET['sort'] ?? 'wins');
     $where = ''; $args = [];
     if (preg_match('/^(\d+)d$/', $window, $mm)) {
-        $where = ' AND g.started_at >= DATE_SUB(NOW(), INTERVAL ? DAY)';
+        $where = ' AND g.started_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)';
         $args[] = (int)$mm[1];
     } elseif ($window === 'week') {
-        $where = ' AND g.started_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)';
+        $where = ' AND g.started_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)';
     }
     /* v5.11 : jointure tfh_g_clans pour les chiffres officiels (weightedWins,
      * fenêtre glissante ~90 j). Si les colonnes n'existent pas encore (juste

@@ -185,3 +185,39 @@ Work Log:
 Stage Summary:
 - PR « chore/nettoyage-depot-v544 » → dev : dépôt assaini sans AUCUNE modification fonctionnelle du site (pages, dist/, API PHP, pipeline sync, workflows intacts).
 - ⚠️ Le worker CF et le PAT exposé dans le chat restent à traiter manuellement par le propriétaire.
+
+---
+Task ID: 7 (session du 2026-10-11)
+Agent: Super Z
+Task: v5.46 « SPEEDRUNS FRESH » — tuer le retard du scan récent + prioriser les
+games qui cochent les filtres speedrun (demande propriétaire).
+
+Work Log:
+- Diagnostic mesuré en live : l'API archive OpenFront sert parfaitement les
+  fenêtres demandées (1 605 parties sur [T, T+2h40], pagination 1 000/page,
+  zéro 429) MAIS le scan récent vivait avec ~2 h de retard PERMANENT : la
+  fenêtre monolithique [curseur-10 min, maintenant] n'était validable qu'en
+  une fois → dès que le retard dépassait le budget d'un tick, le curseur
+  n'avançait plus jamais ; le scan ré-marchait tout le gap à chaque tick et
+  n'ingérait que 56 % du flux (11,4/min mesurés vs 20,4/min réels).
+- games-sync.php v5.46 : (1) scan récent en sous-fenêtres drainables de
+  15 min — chaque sous-fenêtre COMPLÈTE avance le curseur (retard → plancher
+  ~10-20 min), garde anti-blocage 120 min (perte bornée 15 min, tracée) ;
+  (2) turns_phase adaptatif — plancher 96 replays/tick pendant le drainage
+  (les nouvelles parties passent avant le backlog) ; (3) file replays
+  « fresh 24 h ∪ candidats speedrun » (filtre liste large : Public FFA ≥3
+  humains 1-180 min, Team Duos/Trios/Quads/HvN ≥10) — chaque candidat du
+  backlog = 1 requête combo ?turns=true → enrich + classify + replay → il
+  entre dans les speedruns avec son turn-by-turn ; politique disque
+  explicitée (tout-replay ≈ 1 To — les vieilles non-candidates n'en ont plus).
+- games-api.php : fix timezone UTC (last24h de route=totals + fenêtres Nd
+  de speedruns/clans utilisaient NOW() local alors que started_at est UTC).
+- Vérifications : équilibrage structure identique au HEAD (artefacts
+  préexistants only), simulation Python calibrée du drainage (5 scénarios :
+  sain, pic 30/min, transitoires, échec permanent, AIMD dégradé), revue du
+  diff complet, types DATETIME(3) vs UTC_TIMESTAMP() cohérents.
+
+Stage Summary:
+- Nouvelles parties → base en ~10-15 min (vs ~2 h avant) ; les games qui
+  cochent les filtres speedrun (backlog ~1 M de candidats metadata-only
+  inclus) entrent dans les speedruns AVEC replay, priorisées par turns_phase.
