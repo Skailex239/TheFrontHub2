@@ -1818,10 +1818,15 @@ function renderAll(){
 }
 function updateStats(){
   // v5.22 — « Parties » affiche le VRAI total de la base (route=totals,
-  // cache 5 min) dès qu'il est arrivé ; sinon repli sur le total speedruns.
-  document.getElementById("stat-runs").textContent=(_tfhGamesTotal||totalRunsCount).toLocaleString(LOCALE());
+  // cache 5 min) dès qu'il est arrivé.
+  // v5.47 — le repli totalRunsCount trompait : quand route=totals était
+  // momentanément défiée par le WAF (503), la carte « Parties » semblait
+  // retomber de 6 M de parties à ~56 k (un nombre de RUNS du JSON local
+  // affiché sous une étiquette « Parties »). Repli honnête : « — » en
+  // attendant la donnée — le cache v5.47 ci-dessous l'évite presque toujours.
+  document.getElementById("stat-runs").textContent=(_tfhGamesTotal||0)>0?_tfhGamesTotal.toLocaleString(LOCALE()):"—";
   document.getElementById("stat-maps").textContent=allMaps.length;
-  document.getElementById("stat-players").textContent=_tfhPlayersTotal||Object.keys(playerStats).length;
+  document.getElementById("stat-players").textContent=(_tfhPlayersTotal||0)>0?_tfhPlayersTotal.toLocaleString(LOCALE()):"—";
   const bt=allMaps.length?Math.min(...allMaps.map(m=>m.best)):0;
   document.getElementById("stat-best").textContent=bt>0?formatTime(bt):"—";
   const badge=document.getElementById("map-count-badge");
@@ -1829,19 +1834,58 @@ function updateStats(){
 }
 /* v5.22 — compteurs réels de la base (parties/joueurs) — 1 requête/cache 5 min.
  * Avant : la carte « Parties » affichait le nombre de SPEEDRUNS (43 k / 26 k)
- * alors que la base en contient des millions. */
+ * alors que la base en contient des millions.
+ * v5.47 — STABILITÉ DU COMPTEUR « Parties » : route=totals peut être
+ * momentanément défiée par le WAF Tiger Protect (503 en rafale). Sans garde,
+ * la carte oscillait : 6 M (API OK) → ~56 k (repli runs du JSON) → 6 M —
+ * incompréhensible pour le visiteur. Trois garde-fous :
+ *   (1) cache localStorage 5 min (partagé entre onglets, aligné sur le cache
+ *       serveur) lu au boot → la dernière valeur s'affiche immédiatement ;
+ *   (2) échec → retry unique différé 2,5 s (les défis WAF sont ponctuels) ;
+ *   (3) échec final → la carte garde la valeur de session ou « — »,
+ *       JAMAIS un total de runs sous l'étiquette « Parties ». */
 (function fetchTfhTotals(){
-  try{
-    fetch('/api/games-api.php?route=totals',{cache:'no-store'})
-      .then(r=>r.ok?r.json():null)
-      .then(d=>{
-        if(!d||!d.ok) return;
-        if(Number(d.games)>0) _tfhGamesTotal=Number(d.games);
-        if(Number(d.players)>0) _tfhPlayersTotal=Number(d.players);
-        updateStats();
-      })
-      .catch(()=>{});
-  }catch(e){}
+  var KEY='tfh_totals_v1', TTL=300000;
+  function readStored(){
+    try{
+      var raw=localStorage.getItem(KEY);
+      if(!raw) return false;
+      var d=JSON.parse(raw);
+      if(!d||!d.ts||(Date.now()-Number(d.ts))>TTL) return false;
+      if(Number(d.games)>0) _tfhGamesTotal=Number(d.games);
+      if(Number(d.players)>0) _tfhPlayersTotal=Number(d.players);
+      return true;
+    }catch(e){return false}
+  }
+  function persist(){
+    try{
+      if(_tfhGamesTotal>0||_tfhPlayersTotal>0){
+        localStorage.setItem(KEY,JSON.stringify({games:_tfhGamesTotal,players:_tfhPlayersTotal,ts:Date.now()}));
+      }
+    }catch(e){/* localStorage indisponible : mode sans filet */}
+  }
+  var attempts=0;
+  function retry(){
+    if(attempts++<1){setTimeout(go,2500)}
+    else{updateStats()}
+  }
+  function go(){
+    try{
+      fetch('/api/games-api.php?route=totals',{cache:'no-store'})
+        .then(r=>r.ok?r.json():null)
+        .then(d=>{
+          if(!d||!d.ok){retry();return}
+          if(Number(d.games)>0) _tfhGamesTotal=Number(d.games);
+          if(Number(d.players)>0) _tfhPlayersTotal=Number(d.players);
+          persist();
+          updateStats();
+        })
+        .catch(()=>{retry()});
+    }catch(e){retry()}
+  }
+  readStored();
+  updateStats();
+  go();
 })();
 function updateLastUpdate(){
   const lang = window.currentLanguage || 'fr';
