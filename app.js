@@ -1023,7 +1023,7 @@ function redirectToProfileIfRequested() {
 }
 
 let refreshInterval=null,prevRunCount=0,totalRunsCount=0;
-let _tfhGamesTotal=0,_tfhPlayersTotal=0; // v5.22 — vrais compteurs de la base (route=totals)
+let _tfhGamesTotal=0,_tfhPlayersTotal=0,_tfhRunsTotal=0; // v5.22 — vrais compteurs de la base (route=totals) — v5.48 : _tfhRunsTotal = speedruns toutes catégories (info-bulle)
 let _lastETag=null,_processDataCache=null;
 
 function showProgressBar(){const b=document.getElementById('loading-bar');if(b){b.style.opacity='1';b.style.width='0%'}}
@@ -1817,14 +1817,27 @@ function renderAll(){
   }
 }
 function updateStats(){
-  // v5.22 — « Parties » affiche le VRAI total de la base (route=totals,
-  // cache 5 min) dès qu'il est arrivé.
-  // v5.47 — le repli totalRunsCount trompait : quand route=totals était
-  // momentanément défiée par le WAF (503), la carte « Parties » semblait
-  // retomber de 6 M de parties à ~56 k (un nombre de RUNS du JSON local
-  // affiché sous une étiquette « Parties »). Repli honnête : « — » en
-  // attendant la donnée — le cache v5.47 ci-dessous l'évite presque toujours.
-  document.getElementById("stat-runs").textContent=(_tfhGamesTotal||0)>0?_tfhGamesTotal.toLocaleString(LOCALE()):"—";
+  // v5.48 — « Parties » = le nombre de PARTIES SPEEDRUN de la catégorie
+  // affichée (totalRunsCount, lu du payload runs_public*.json.gz régénéré
+  // depuis MySQL à chaque déploiement — données fraîches, fichier statique,
+  // zéro dépendance réseau en plus). C'est le comportement d'origine de la
+  // carte : v5.22 l'avait remplacé par le total GLOBAL de la base (6,3 M,
+  // toutes parties confondues — backlog méta-données inclus) : un chiffre
+  // déroutant sur une page speedruns, et la source des bascules « 6 M ↔
+  // 56 k » quand route=totals était défiée par le WAF (repli v5.22 →
+  // total de runs affiché sous « Parties », stabilisé « — » en v5.47).
+  // La carte redevient 100 % locale au payload : PLUS AUCUNE oscillation
+  // possible ; les totaux globaux (speedruns toutes catégories, parties en
+  // base) restent visibles en info-bulle au survol de la carte.
+  var runsEl=document.getElementById("stat-runs");
+  if(runsEl){
+    runsEl.textContent=(totalRunsCount||0)>0?totalRunsCount.toLocaleString(LOCALE()):"—";
+    var tip=[];
+    if(_tfhRunsTotal>0)tip.push(_tfhRunsTotal.toLocaleString(LOCALE())+" speedruns — toutes catégories");
+    if(_tfhGamesTotal>0)tip.push(_tfhGamesTotal.toLocaleString(LOCALE())+" parties suivies en base");
+    var card=(runsEl.closest&&runsEl.closest(".card"))||runsEl;
+    card.title=tip.length?("≈ "+tip.join(" • ")):"";
+  }
   document.getElementById("stat-maps").textContent=allMaps.length;
   document.getElementById("stat-players").textContent=(_tfhPlayersTotal||0)>0?_tfhPlayersTotal.toLocaleString(LOCALE()):"—";
   const bt=allMaps.length?Math.min(...allMaps.map(m=>m.best)):0;
@@ -1833,17 +1846,14 @@ function updateStats(){
   if(badge)badge.textContent=allMaps.length;
 }
 /* v5.22 — compteurs réels de la base (parties/joueurs) — 1 requête/cache 5 min.
- * Avant : la carte « Parties » affichait le nombre de SPEEDRUNS (43 k / 26 k)
- * alors que la base en contient des millions.
- * v5.47 — STABILITÉ DU COMPTEUR « Parties » : route=totals peut être
- * momentanément défiée par le WAF Tiger Protect (503 en rafale). Sans garde,
- * la carte oscillait : 6 M (API OK) → ~56 k (repli runs du JSON) → 6 M —
- * incompréhensible pour le visiteur. Trois garde-fous :
- *   (1) cache localStorage 5 min (partagé entre onglets, aligné sur le cache
- *       serveur) lu au boot → la dernière valeur s'affiche immédiatement ;
- *   (2) échec → retry unique différé 2,5 s (les défis WAF sont ponctuels) ;
- *   (3) échec final → la carte garde la valeur de session ou « — »,
- *       JAMAIS un total de runs sous l'étiquette « Parties ». */
+ * v5.47 — STABILITÉ : route=totals peut être momentanément défiée par le WAF
+ * Tiger Protect (503 en rafale). Trois garde-fous : (1) cache localStorage
+ * 5 min lu au boot, (2) échec → retry unique différé 2,5 s, (3) échec final
+ * → la valeur de session ou « — », jamais un repli trompeur.
+ * v5.48 — Cette requête ne nourrit plus la carte « Parties » (redevenue le
+ * total speedruns de la catégorie, lu du payload local — cf. updateStats) :
+ * elle alimente la carte « Joueurs » + l'info-bulle de la carte « Parties »
+ * (speedruns toutes catégories, total de parties en base). */
 (function fetchTfhTotals(){
   var KEY='tfh_totals_v1', TTL=300000;
   function readStored(){
@@ -1854,13 +1864,14 @@ function updateStats(){
       if(!d||!d.ts||(Date.now()-Number(d.ts))>TTL) return false;
       if(Number(d.games)>0) _tfhGamesTotal=Number(d.games);
       if(Number(d.players)>0) _tfhPlayersTotal=Number(d.players);
+      if(Number(d.speedruns)>0) _tfhRunsTotal=Number(d.speedruns); // v5.48 — info-bulle
       return true;
     }catch(e){return false}
   }
   function persist(){
     try{
-      if(_tfhGamesTotal>0||_tfhPlayersTotal>0){
-        localStorage.setItem(KEY,JSON.stringify({games:_tfhGamesTotal,players:_tfhPlayersTotal,ts:Date.now()}));
+      if(_tfhGamesTotal>0||_tfhPlayersTotal>0||_tfhRunsTotal>0){
+        localStorage.setItem(KEY,JSON.stringify({games:_tfhGamesTotal,players:_tfhPlayersTotal,speedruns:_tfhRunsTotal,ts:Date.now()}));
       }
     }catch(e){/* localStorage indisponible : mode sans filet */}
   }
@@ -1877,6 +1888,7 @@ function updateStats(){
           if(!d||!d.ok){retry();return}
           if(Number(d.games)>0) _tfhGamesTotal=Number(d.games);
           if(Number(d.players)>0) _tfhPlayersTotal=Number(d.players);
+          if(Number(d.speedruns)>0) _tfhRunsTotal=Number(d.speedruns); // v5.48 — info-bulle
           persist();
           updateStats();
         })
