@@ -3,7 +3,8 @@
 > Stockage **MySQL o2switch** de toutes les parties OpenFront (Public **et**
 > Private) depuis le **maximum disponible dans l'API** (30 mai 2025, ère
 > v0.23-dev — naissance de l'API publique), avec roster complet lié par
-> publicId, speedruns pré-calculés et pré-profils agrégés par joueur.
+> publicId, speedruns pré-calculés (3 catégories : normal, compact, team)
+> et pré-profils agrégés par joueur.
 >
 > **v5.16 — Historique maximal + version des parties** :
 > • L'archive remonte à **mai 2025** (~3 M de parties pré-V34). L'ère pré-V34
@@ -112,6 +113,202 @@ nohup php api/games-sync.php --backfill=14400 >> /home/USER/logs/games-backfill.
 Pour tout récupérer dès le début : `--since=2026-09-10T00:00:00Z` puis des
 sessions `--backfill` régulières (le cron suffit à terme).
 
+## v5.43 — RESET & RECONSTRUCTION COMPLÈTE sur dev (main intouchée)
+
+Objectif : repartir de zéro côté **dev** et récupérer TOUTES les parties
+(Public + Private) avec leur **replay turn-by-turn** (compressé), en remontant
+l'historique jusqu'à **mai 2025** — sans jamais toucher les données de la
+prod (thefronthub.com / main garde ses speedruns et sa base actuelle).
+
+### 1. Base MySQL dev dédiée (obligatoire avant tout reset)
+
+Aujourd'hui dev et prod partagent la même base. Séparation :
+
+1. cPanel → Bases de données MySQL → créer une base (ex. `mask6607_tfh_dev`)
+   + un utilisateur avec ALL PRIVILEGES dessus.
+2. Secrets `~/.tfs_secrets/tfh-secrets.json` — ajouter :
+
+```json
+{
+  "games_db_dev": { "host": "localhost", "port": 3306,
+                    "database": "mask6607_tfh_dev",
+                    "username": "mask6607_tfhdev", "password": "…" }
+}
+```
+
+Résolution automatique (`api/games-db.php`) :
+- webroot **prod** (`thefronthub.com`) → `games_db` ?? `mysql` (inchangé) ;
+- webroot **dev** (`dev.thefronthub.com`) → `games_db_dev` (repli : base prod
+  tant que la base dédiée n'existe pas — et le reset est REFUSÉ dans ce cas).
+
+Les autres tables du site (auth, skins, chat…) restent sur `mysql` : seule la
+pile `tfh_g_*` / `tfh_g_profile_*` bascule. Les rares requêtes mixtes
+(skins hub du profil, chat de lobby) qualifient l'autre base automatiquement
+(`tfh_site_ref()` / `tfh_games_ref()` — no-op sur prod).
+
+### 2. Cron dev (2ᵉ entrée cPanel)
+
+Le cron existant tourne sur le webroot **prod**. Pour remplir la base dev,
+ajouter une 2ᵉ entrée (toutes les 5 min) pointant vers le webroot dev :
+
+```
+/usr/local/bin/php /home/USER/dev.thefronthub.com/api/games-sync.php >> /home/USER/logs/games-sync-dev.log 2>&1
+```
+
+(Les deux partagent le lock anti-chevauchement par chemin — aucun risque de
+double tick ; le pacing OpenFront est global : ~2,5 req/s au total.)
+
+### 3. Reset de la base dev
+
+**Via le panel admin** (admin.thefronthub.com → Parties → « 🛠 Base dev —
+reconstruction complète ») : bouton **Reset** — il faut taper le nom EXACT de
+la base pour confirmer ; refusé si un tick tourne ou si la base n'est pas
+isolée.
+
+**En CLI** (équivalent) :
+
+```bash
+php /home/USER/dev.thefronthub.com/api/games-sync.php --wipe-confirm=mask6607_tfh_dev
+```
+
+Après reset, le prochain tick cron repart de « maintenant » : scan récent,
+puis backfill **liste-seule** (1000 parties/requête — l'archive metadata est
+reconstruite jusqu'à mai 2025 en ~1-2 jours de ticks), pendant que la phase
+replays tourne en parallèle du plus récent au plus ancien.
+
+### 4. Replays turn-by-turn pour TOUTES les parties
+
+- **1 requête = 1 partie 100 % complète** : la réponse `?turns=true` contient
+  le détail (config, roster, stats, winner) ET les turns → `turns_phase` les
+  stocke **et** enrichit la partie en même temps (fini le doublon
+  détail + replay).
+- Compression **gzip niveau 6** (`turns_gzip_level`, 9 possible) : −19 %
+  mesuré vs niveau 1 (~15-20 % du brut).
+- Plafonds/tick : `turns_max_games_per_tick` (120), `turns_max_bytes_per_tick`
+  (300 Mo), `turns_max_raw_bytes` (40 Mo), `turns_min_players` (0 = tout).
+- Ordre : récentes d'abord (les plus utiles au site), l'archive suit.
+- Volumes réels mesurés : moyenne ~0,17 Mo gz / partie (~40 k-12 M turns) →
+  **~1 To pour 6,3 M parties**. Si le disque devient serré : passer
+  `turns_min_players` à 10-20 (garde les grosses parties, ÷3-4 le volume) ou
+  purger les replays > N jours plus tard.
+
+### 5. ETA honnête
+
+À ~2,5 req/s partagées (limite mesurée de l'IP o2switch, AIMD actif) :
+- **metadata** (liste-seule) : ~1-2 jours de ticks ;
+- **replays** : 1 requête/partie → **~6-10 semaines** pour 6,3 M parties si
+  le cron tourne 24 h/24 (le panel admin affiche l'ETA calculée en direct :
+  replays restants ÷ replays 24 h).
+- Les profils officiels et le rating rejouent en parallèle (budgets dédiés).
+
+### 6. Panel admin — nouveaux compteurs
+
+admin.thefronthub.com → Parties : carte **« 🛠 Base dev — reconstruction
+complète »** : base + isolation, parties, 100 % complètes (détail+replay),
+replays + poids total (Go), ETA, remontée metadata (% du chemin vers mai
+2025), replays 24 h, débit AIMD, 429/erreurs, phase en cours, et le bouton
+Reset (confirmation par nom de base).
+
+## v5.46 — SPEEDRUNS FRESH (2026-10-11) : le retard tué + candidats prioritaires
+
+Objectif propriétaire : « **les games qui cochent les filtres speedruns mises
+dedans** ». Constat mesuré avant correctif : scan récent en retard **permanent
+de ~2 h** (fenêtre monolithique validable en une seule fois → curseur figé,
+ingestion 56 % du flux réel), et replays qui marchaient TOUTES les parties
+sans replay (~6 M de lignes, dont des millions de 1v1/private sans intérêt
+speedrun — trajectoire disque ~1 To).
+
+### Ce qui change
+
+- **Scan récent en sous-fenêtres drainables (15 min)** : chaque sous-fenêtre
+  COMPLÈTE avance le curseur `recent_end_ms` → le retard se draine à ~2-3×
+  le flux et retombe au plancher ~10-20 min (nouvelle partie en base dans
+  les ~10-15 min de sa fin, replay dans les 1-2 ticks suivants).
+  Garde anti-blocage : curseur immobile > 120 min → avance forcée d'une
+  sous-fenêtre (perte bornée 15 min, tracée). Cfg : `recent_sub_minutes`,
+  `recent_force_min`.
+- **turns_phase adaptatif** : pendant le drainage (retard > 20 min), replays
+  bornés à un plancher (96/tick) — les NOUVELLES parties passent avant le
+  backlog. Cfg : `turns_floor_games_per_tick`.
+- **File replays « fresh ∪ candidats speedrun »** : la file newest-first
+  devient (parties des dernières 24 h, toutes — fraîcheur pour tout le monde)
+  UNION (candidats speedrun au sens métadonnées de liste, tout âge :
+  `Public` + FFA ≥3 humains 1-180 min, ou Team Duos/Trios/Quads/HvN ≥10
+  humains — filtre volontairement large : toute vraie speedrun
+  normal/compact/team le passe). Chaque candidat du backlog = 1 requête
+  combo `?turns=true` → enrich + `classify_speedrun` + replay → la partie
+  **entre dans les speedruns avec son turn-by-turn**. Cfg :
+  `turns_fresh_hours`, `turns_candidates_only` (false = v5.45 : toutes).
+- **Fix timezone API** : `started_at` est stocké UTC (`gmdate`) mais
+  `last24h` (route=totals) et les fenêtres `Nd` (speedruns, clans)
+  utilisaient `NOW()` (heure locale hôte, Paris = +2 h) → décalage de 2 h.
+  Passé à `UTC_TIMESTAMP()`.
+
+### Politique disque (explicitée)
+
+Replay stocké = partie **fresh** (≤ 24 h) ∪ **candidat speedrun** (tout âge).
+Les ~5 M de vieilles parties non-candidates (1v1, private 2 joueurs…) ne
+reçoivent PAS de replay (~0,17 Mo gz pièce — tout-replay ≈ 1 To). Pour
+rétablir le comportement v5.45 : `"turns_candidates_only": false` dans les
+secrets `games`.
+
+## v5.45 — FULL RECORD (2026-10-10) : nouvelles parties avec toutes les datas, replays ×4
+
+Objectif : les NOUVELLES parties reçoivent **tout ce que l'API propose**
+(champs v5.45 + replay turn-by-turn), et le backlog replays accélère ×4.
+
+### Ce qui change
+
+- **Scan récent détail-seul (VITE, inchangé v5.43)** + **turns_phase
+  newest-first (480/tick)** : le replay des nouvelles parties arrive dans
+  les minutes (ORDER BY started_at DESC = priorité fraîcheur).
+  Constat mesuré : l'API renvoie TOUJOURS `turns` ; seul `?turns=false`
+  l'omet.
+- **Combo 1-requête disponible** (`"scan_turns": true` dans les secrets) :
+  1 req ?turns=true = partie 100 % complète au 1er tick. DÉSACTIVÉ par
+  défaut (v5.45e) : payloads massifs (jusqu'à 40 Mo) → le curseur récent
+  ne rattrapait plus le flux quotidien (~6 parties/min). Le combo reste le
+  moteur du rattrapage profond (v5_done=0 : 1 requête = 1 partie complète).
+- **Champs API désormais stockés** (avant : jetés) dans `tfh_g_games` :
+  `public_game_type` (ffa/team/special/hosted), `winner_team_name` (nom de
+  l'équipe gagnante — winner[1]), `tribes_json` (tribus de bots en jeu),
+  `lobby_created_ms` + `visible_at_ms` (funnel remplissage), `subdomain`
+  (serveur blue/green), `git_commit` **40 caractères** (match exact des tags
+  OpenFrontIO — élargi via `ALTER INPLACE`, replié à 16 si l'hôte refuse).
+- **Backlog replays ×4** : `turns_max_games_per_tick` 120 → 480 (~69 k
+  replays/jour à 2,5 req/s). Toujours borné par la deadline de tick, le
+  plafond d'octets et l'AIMD.
+- **Exposition API** : `route=totals` expose `replays` / `withDetails` /
+  `fullComplete` (complétude réelle de la base) ; `route=game` expose
+  `publicGameType`, `winnerTeam`, `tribes`, `lobbyCreatedAt`, `visibleAt`.
+- **Front** : game.html affiche les badges « Lobby spécial » / « Lobby
+  hébergé » et « Équipe gagnante : X » pour les parties Team.
+
+### Débit/mémoire
+
+- turns_phase : 480 replays/tick (~69 k/jour), newest-first, borné par la
+  deadline + le plafond d'octets + l'AIMD (2,5 req/s).
+- Combo (si activé) : fetch 1-à-1 (timeout 90 s), un record décodé peut
+  atteindre ~400 Mo de RAM — jamais de décodage parallèle.
+- `store_turns()` compresse/re-encode HORS transaction : jamais de verrou DB
+  pendant gzencode (plusieurs secondes sur un record de 40 Mo).
+
+### Fallback
+
+`"scan_turns": true` active le combo 1-requête si la complétude immédiate
+prime sur la fraîcheur du flux.
+
+### Guérison de l'existant (zéro requête API)
+
+- `store_turns()` pose les nouveaux champs à CHAQUE replay stocké (COALESCE,
+  idempotent) → les ~238 k parties détaillées v5.43 les reçoivent au fil du
+  rattrapage replays.
+- `fullheal_phase` (début de tick) re-décode les ~22 k replays déjà stockés
+  (leur gzip CONTIENT le record complet) → lots de 10, marqueur `v545_done`,
+  phase auto-terminée une fois vidée.
+- Les parties non-détaillées (v5_done=0) reçoivent tout via le combo-enrich
+  de `turns_phase` (comme v5.43, avec les nouveaux champs en plus).
+
 ## API JSON (frontend)
 
 Toutes les réponses : `{ok:true,…}` / `{ok:false,error}` — cache 45-600 s.
@@ -120,7 +317,7 @@ Toutes les réponses : `{ok:true,…}` / `{ok:false,error}` — cache 45-600 s.
 |---|---|
 | `?route=recent&limit=30` | Dernières parties (Public + Private, tous modes) + gagnant lié |
 | `?route=game&id=X` | Détail d'une partie + roster complet (publicId par joueur) |
-| `?route=speedruns&category=normal\|compact&map=&sort=duration\|date&window=30d` | Records speedrun (offset 32 s appliqué à l'ingestion) |
+| `?route=speedruns&category=normal\|compact\|team&map=&sort=duration\|date&window=30d` | Records speedrun (offset 32 s appliqué à l'ingestion ; `team` = records en équipe, mode Team + gagnant équipe, miroir sync-teams.js — les membres gagnants sont dans `teamPlayers`) |
 | `?route=profile&publicId=X` | Pré-profil : alias, stats par mode, top cartes, meilleurs speedruns, dernières parties |
 | `?route=profile&publicId=X&refresh=1` | Idem + fetch on-demand du profil officiel (cooldown 10 min) |
 | `?route=search&q=` | Recherche joueur sur tous les alias connus |
@@ -187,6 +384,33 @@ Notes :
 2. `https://thefronthub.com/api/games-api.php?route=status` répond `ok:true`.
 3. runs.html : badge « DB pré-profils » en bas du tableau + filtres carte/catégorie.
 4. Clic sur un joueur speedrun → profile.html avec le bloc « Historique TheFrontHub ».
+
+## v5.40 — Complétude + records en équipe (catégorie « team »)
+
+- **Speedruns team** : `classify_speedrun` classe désormais aussi les parties
+  mode **Team** gagnées par une équipe (règles miroir de `sync-teams.js` :
+  Public, Normal+400 bots, `playerTeams` STRING `Duos`/`Trios`/`Quads`/
+  `Humans Vs Nations`, aucun mod, anti-cheat identique, ≥10 humains, ≥60 s)
+  → catégorie **`team`** (offset 32 s inclus). Trois catégories en base :
+  `normal`, `compact`, `team`.
+- **Rattrapage archive** :
+  • `enrich_phase` traite d'abord les CANDIDATS speedrun (FFA ≥3 humains,
+  Team Duos/Trios/Quads/HvN ≥10 humains, 1-180 min) parmi les lignes
+  « liste d'abord » (v5_done=0) → tous les runs de l'archive profonde
+  sortent en quelques jours au lieu de plusieurs semaines ;
+  • `sr_team_sweep_phase` (nouvelle, ZÉRO appel API, curseur descendant)
+  re-classifie les parties Team déjà vérifiées avant l'ouverture de la
+  catégorie ;
+  • `reclassify_phase` passe à 4 000 lignes/tick et reconstruit le gagnant
+  selon le kind réel (player OU team).
+- **Panneau admin** (`admin.thefronthub.com` → Parties récupérées) :
+  nouveau compteur **« Parties complètes »** (v5_done=1 ET
+  speedrun_checked=1 = tout ce que l'API peut donner est en base) avec barre
+  de progression, compteur **« Replays stockés »** et sous-textes « restants »
+  (cache fichier 5 min côté `admin/api.php`).
+- **Front** : runs.html — 3ᵉ catégorie `Team (équipées)` ; l'affichage des
+  runs d'équipe liste les membres gagnants (« Pseudo +N », liste complète en
+  info-bulle).
 
 ## Nettoyage RGPD / demandes OpenFront
 

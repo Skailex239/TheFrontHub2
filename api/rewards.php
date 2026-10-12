@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 define('TFH_API', true);
 require __DIR__ . '/config.php';
+require_once __DIR__ . '/profile-cache.php'; // v5.36 invalidation cache profils
 
 /* ------------------------------------------------------------------ */
 /* GET — liste publique (même format que public-rewards.php)           */
@@ -116,12 +117,14 @@ try {
                    type = COALESCE(type, VALUES(active_type)),
                    activated = 1'
             )->execute([$publicId, tfh_cut((string) ($in['username'] ?? $publicId), 64) ?? $publicId, $activeType]);
+            tfh_profile_cache_invalidate((string) $publicId); // v5.36 VIP visible immédiatement
             json_out(['ok' => true, 'publicId' => $publicId, 'activeType' => $activeType]);
         }
 
         case 'revoke': {
             $pdo->prepare('UPDATE tfh_public_rewards SET activated = 0 WHERE public_id = ?')
                 ->execute([$publicId]);
+            tfh_profile_cache_invalidate((string) $publicId); // v5.36
             json_out(['ok' => true, 'publicId' => $publicId]);
         }
 

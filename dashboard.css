@@ -392,6 +392,50 @@ html { scrollbar-gutter: stable; }
   pointer-events: none;
 }
 
+/* ═══ v5.37 — WARM BOOT + levée INSTANTANÉE (anti « cut blanc ») ═══
+ * Repli terrain : à chaque refresh, le gate v5.25 rendait le classement
+ * pré-généré invisible pendant 1-3 s → « leaderboard → écran blanc →
+ * leaderboard » (fond du site = --bg #FFFFFF, le « cut blanc » était
+ * littéral), puis l'aperçu revenait avec un fondu fantôme de 0,4 s posé
+ * par animations.js (règle générique `section { reveal-premium }` +
+ * IntersectionObserver .is-visible → transition opacity/translateY).
+ *
+ * 1) WARM BOOT — quand le cache cosmétiques est frais, dashboard.html pose
+ *    `tfh-warm-boot` sur <html> AVANT la première peinture (script inline
+ *    du <head>) : le gate est court-circuité, l'aperçu (déjà décoré au
+ *    1ᵉʳ tick JS depuis le même cache) est affiché DÈS LA PREMIÈRE FRAME
+ *    et ne disparaît plus jamais — le swap vers le live reste invisible
+ *    (déjà .no-anim depuis v5.24). Première visite = chemin v5.25 inchangé.
+ * 2) La vue dashboard n'hérite PLUS du reveal premium : le fondu 0,4 s
+ *    (opacité 0,59→0,96→1 constaté) est supprimé → la levée du rideau
+ *    (chemin cold) est elle aussi un affichage INSTANTANÉ, comme voulu
+ *    par le v5.25 (« pas de fondu — l'apparition doit être instantanée »). */
+html.tfh-warm-boot #dashboard-view.dash-booting {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+/* Warm boot uniquement : le reveal premium ne doit pas non plus masquer la
+ * vue (opacity 0 tant que l'IntersectionObserver n'a pas posé .is-visible). */
+html.tfh-warm-boot #dashboard-view.reveal-premium,
+html.tfh-warm-boot #dashboard-view.reveal-fade,
+html.tfh-warm-boot #dashboard-view.reveal-scale-premium,
+html.tfh-warm-boot #dashboard-view.reveal-slide-left,
+html.tfh-warm-boot #dashboard-view.reveal-slide-right {
+  opacity: 1 !important;
+}
+/* TOUS les boots : le fondu/translate 0,4 s du reveal premium est interdit
+ * sur la vue dashboard — la levée du rideau (chemin cold, rare) reste
+ * INSTANTANÉE (0 → 1 sans transition dès que le rideau est levé). */
+#dashboard-view.reveal-premium,
+#dashboard-view.reveal-fade,
+#dashboard-view.reveal-scale-premium,
+#dashboard-view.reveal-slide-left,
+#dashboard-view.reveal-slide-right {
+  transform: none !important;
+  transition: none !important;
+  animation: none !important;
+}
+
 /* L'aperçu statique est une PHOTO du classement : ses lignes ne rejouent
  * PAS l'animation dash-row-in (décalages 0,02 s→0,10 s = cascade visible à
  * chaque refresh avant même que le JS ne décore) et ses panneaux ne font

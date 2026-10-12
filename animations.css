@@ -719,20 +719,27 @@ body::before {
 }
 
 /* ── 32g. Smooth page transitions ──
-   Fade-out on navigate, fade-in on load. Applied to body. */
+   Fade-out on navigate, fade-in on load. Applied to body.
+   v5.38 — TRANSFORMS RETIRÉES des keyframes : un transform sur <body> en fait
+   le containing block de TOUS les éléments position:fixed (sidebar, bottom-nav,
+   banderole, chat…) pendant l'animation → la sidebar « glissait » avec le
+   scroll restauré au refresh puis sautait à sa place à la fin (rebond du
+   logo) ; en page-exit avec page scrollée, la sidebar fixed se retrouvait même
+   hors écran (top:41px relatif au haut du document). L'opacité seule ne crée
+   JAMAIS de containing block : le fondu visuel est identique, zéro décalage. */
 body.page-enter {
   animation: pageEnter var(--dur-premium) var(--ease-premium);
 }
 @keyframes pageEnter {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 body.page-exit {
   animation: pageExit var(--dur-premium-fast) var(--ease-premium) forwards;
 }
 @keyframes pageExit {
-  from { opacity: 1; transform: translateY(0); }
-  to   { opacity: 0; transform: translateY(-4px); }
+  from { opacity: 1; }
+  to   { opacity: 0; }
 }
 
 /* ── 32h. Lenis smooth scroll classes ──

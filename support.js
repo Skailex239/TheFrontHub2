@@ -414,7 +414,7 @@ function render() {
               <button type="button" class="sup-scope-btn ${state.scope === "all" ? "on" : ""}" data-scope="all">${T("sup.scope_team", "Équipe")}</button>
             </div>` : ""}
           </div>
-          <div id="sup-list" class="sup-list"></div>
+          <div id="sup-list" class="sup-list" data-lenis-prevent></div>
         </section>
       </div>
 
@@ -529,7 +529,7 @@ function renderThread() {
       <span class="sup-thread-date">${esc(TP("sup.thread_dates", { created: fmtDate(t.created_at), updated: fmtDate(t.updated_at) }, `ouvert ${fmtDate(t.created_at)} · dernière activité ${fmtDate(t.updated_at)}`))}</span>
     </div>
 
-    <div class="sup-msgs" id="sup-msgs">
+    <div class="sup-msgs" id="sup-msgs" data-lenis-prevent>
       ${state.thread.messages.map((m) => {
         const isTeam = m.author_role === "team";
         return `

@@ -44,14 +44,11 @@ if (!is_array($secrets) || !is_array($secrets['mysql'] ?? null)) {
     exit(1);
 }
 
-$m = $secrets['mysql'];
+/* v5.43 — la base games est résolue par games-db.php (base isolée sur dev) */
+require_once __DIR__ . '/games-db.php';
 try {
-    $pdo = new PDO(
-        sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', (string)$m['host'], (int)($m['port'] ?? 3306), (string)$m['database']),
-        (string)$m['username'],
-        (string)$m['password'],
-        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, PDO::ATTR_EMULATE_PREPARES => false]
-    );
+    $pdo = tfh_games_pdo('auto');
+    if (!$pdo instanceof PDO) throw new RuntimeException('config games_db/games_db_dev introuvable');
 } catch (Throwable $e) {
     fwrite(STDERR, '[games-export] PDO: ' . $e->getMessage() . "\n");
     exit(1);

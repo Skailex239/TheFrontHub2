@@ -854,7 +854,7 @@
               <button type="button" data-role="ll-maps-all">${esc(T("lobby.alert_maps_select_all", "Toutes"))}</button>
               <button type="button" data-role="ll-maps-none">${esc(T("lobby.alert_maps_clear", "Aucune"))}</button>
             </div>
-            <div class="llive-maps-list" data-role="ll-maps-list" role="group"
+            <div class="llive-maps-list" data-role="ll-maps-list" data-lenis-prevent role="group"
                  aria-label="${esc(T("lobby.alert_maps", "Cartes à surveiller"))}"></div>
           </div>
         </div>

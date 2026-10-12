@@ -164,3 +164,60 @@ Stage Summary:
 - main = prod v5.16.6 (v6 retirée via PR #117) ; dev = v5.20.3 + app v6 + worker v2 fusionné.
 - Aucune régression : vitrine cosmétiques toujours présente sur dev, /lobby-snapshot conservé, site statique intact.
 - Le worker v2 (raw sur dev) corrige le lobby : résolution dynamique cluster.json au lieu du FORCED_HOST figé sur green (draining).
+
+---
+Task ID: 6 (session du 2026-10-10)
+Agent: Super Z
+Task: Nettoyage du dépôt — supprimer scripts morts, duplication public/ (−42,5 Mo), corriger les incohérences.
+
+Work Log:
+- Enquête préalable : vérification de CHAQUE référence (workflows sync.yml ×7 jobs, deploy.sh, pull-data.sh, scripts/build.js, imports réels d'auth.js) avant chaque suppression — méthode pathspec explicite, jamais de git add -A.
+- Rumeur infirmée : le « bug sync-teams.js ([odeKey, def]) » était un ARTEFACT D'AFFICHAGE (le pipeline d'output mange les séquences « [m », faisant lire « [modeKey » comme « odeKey »). Vérifié par tests booléens + node --check : les 95 JS du repo sont syntaxiquement VALIDES. Aucune correction nécessaire.
+- Supprimé (racine) : server.js (serveur HTTP pré-PHP, aucune réf. hors commentaires), restore-sync.sh + sync-workflow-template.yml (visaient l'ancien repo TheFrontStats), test-api.js, generate-code.js + shared/firebase-config.js (auth.js racine n'importe plus Firebase — seule public/auth.js [copie morte] l'utilisait), push_via_api.py (remplacé par data-release.sh), examples/, dashboard_ranking.json.test-backup, download/ (4 PNG de design), .zscripts/.trae/.windsurf (tooling IDE/sandbox).
+- Supprimé (scripts/) : their-old-worker.js, archive/ (système JSONL remplacé par MySQL), 7 shot-*.png + 3 vlm-*.json (artefacts de travail), investigate/validate/find-bug/check-game-detail/quantify-bug/test-extract-team/perf-test/backfill-teams/deep-check (diagnostiques one-shot), upload-to-o2switch.sh (chemin mort, WAF), 4 patchers python one-off (add-footer, add-theme-toggle, add-tutorial-script, fix-globals).
+- Supprimé (tests/) : python-runtime-*.sh + database-runtime-build.sh (scripts d'ENV sandbox, pas des tests du site — les 4 vrais tests .mjs sont conservés).
+- Supprimé : src/lib/openfront/lobby-decoder.mjs (18 633 L, ORPHELIN — seul mini-services/openfront-service/lobby-decoder.mjs est importé, par index.ts du mini-service).
+- public/ : 44 Mo → 1,5 Mo. Gardé UNIQUEMENT public/maps/ (132 vignettes, seule chose référencée par l'app Next.js — AtlasTab `/maps/\${slug}.webp`). Supprimé : copie figée périmée du site (public/auth.js Firebase, public/profile.js ancien, atlas-data dup 38 Mo, data, JSON de sync périmés…). Aucun impact déploiement : public/ était exclu de deploy.sh (prod+dev) ET de deploy-pages.yml.
+- Corrigé (incohérences) : scripts/build.js — commentaires Firebase obsolètes remplacés (auth.js = couche compat MySQL/API v2) ; .github/workflows/deploy-pages.yml — paths-ignore nettoyé (restore-sync.sh, push_via_api.py, GUIDE_NETTOYAGE.md supprimés de la liste).
+- Vérifications : node --check sur 95 JS (0 erreur) + build.js édité + YAML valides + intégrité des références des 15 pages HTML (2 faux positifs : encodage %20 et runs_public.json.gz généré côté serveur par design) + site racine intact (index/lobby/app/dist).
+- Total : 1 074 fichiers supprimés, ~43 Mo de moins dans le working tree (l'historique .git reste à 101 Mo — incompressible sans rewrite, non traité volontairement).
+
+Stage Summary:
+- PR « chore/nettoyage-depot-v544 » → dev : dépôt assaini sans AUCUNE modification fonctionnelle du site (pages, dist/, API PHP, pipeline sync, workflows intacts).
+- ⚠️ Le worker CF et le PAT exposé dans le chat restent à traiter manuellement par le propriétaire.
+
+---
+Task ID: 7 (session du 2026-10-11)
+Agent: Super Z
+Task: v5.46 « SPEEDRUNS FRESH » — tuer le retard du scan récent + prioriser les
+games qui cochent les filtres speedrun (demande propriétaire).
+
+Work Log:
+- Diagnostic mesuré en live : l'API archive OpenFront sert parfaitement les
+  fenêtres demandées (1 605 parties sur [T, T+2h40], pagination 1 000/page,
+  zéro 429) MAIS le scan récent vivait avec ~2 h de retard PERMANENT : la
+  fenêtre monolithique [curseur-10 min, maintenant] n'était validable qu'en
+  une fois → dès que le retard dépassait le budget d'un tick, le curseur
+  n'avançait plus jamais ; le scan ré-marchait tout le gap à chaque tick et
+  n'ingérait que 56 % du flux (11,4/min mesurés vs 20,4/min réels).
+- games-sync.php v5.46 : (1) scan récent en sous-fenêtres drainables de
+  15 min — chaque sous-fenêtre COMPLÈTE avance le curseur (retard → plancher
+  ~10-20 min), garde anti-blocage 120 min (perte bornée 15 min, tracée) ;
+  (2) turns_phase adaptatif — plancher 96 replays/tick pendant le drainage
+  (les nouvelles parties passent avant le backlog) ; (3) file replays
+  « fresh 24 h ∪ candidats speedrun » (filtre liste large : Public FFA ≥3
+  humains 1-180 min, Team Duos/Trios/Quads/HvN ≥10) — chaque candidat du
+  backlog = 1 requête combo ?turns=true → enrich + classify + replay → il
+  entre dans les speedruns avec son turn-by-turn ; politique disque
+  explicitée (tout-replay ≈ 1 To — les vieilles non-candidates n'en ont plus).
+- games-api.php : fix timezone UTC (last24h de route=totals + fenêtres Nd
+  de speedruns/clans utilisaient NOW() local alors que started_at est UTC).
+- Vérifications : équilibrage structure identique au HEAD (artefacts
+  préexistants only), simulation Python calibrée du drainage (5 scénarios :
+  sain, pic 30/min, transitoires, échec permanent, AIMD dégradé), revue du
+  diff complet, types DATETIME(3) vs UTC_TIMESTAMP() cohérents.
+
+Stage Summary:
+- Nouvelles parties → base en ~10-15 min (vs ~2 h avant) ; les games qui
+  cochent les filtres speedrun (backlog ~1 M de candidats metadata-only
+  inclus) entrent dans les speedruns AVEC replay, priorisées par turns_phase.

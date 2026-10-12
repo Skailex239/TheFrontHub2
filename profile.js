@@ -380,6 +380,148 @@ onAuthStateChanged(auth, async (user) => {
   loadProfileSpeedruns(profile.publicId, true, [profile.username]);
 });
 
+/* ═════════════════════════════════════════════════════════════════════════
+   v5.36 — PAYLOAD PROFIL PARTAGÉ (affichage instantané)
+   Le payload route=profile est demandé par pf-prefetch.js (survol/visible),
+   posé en sessionStorage (tfh_pp:<pid>, 10 min) et servi par un cache fichier
+   côté serveur (profile-warm.php). Un SEUL appel réseau partagé par page :
+   renderPublicProfile, loadStats (arbre de carrière + dossier cockpit) et
+   preprofile.js réutilisent le même objet — et l'URL est identique partout
+   (limit=100) pour que le cache HTTP du navigateur dédoublonne.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const PROFILE_PAYLOAD_TTL = 10 * 60 * 1000;
+const PROFILE_PAYLOAD_URL = (pid) => "/api/games-api.php?route=profile&publicId=" + encodeURIComponent(pid) + "&limit=100";
+let _profilePayloadState = { pid: null, promise: null };
+
+/* ═══════════════════════════════════════════════════════════════════════
+   v5.42 — COMPTEUR « VUES » DU PROFIL (1 par visite du site)
+   Le badge de la carte identité affiche les vues du profil. Incrément via
+   POST route=profile-view, dédoublonné CÔTÉ SERVEUR par (publicId, visitId) :
+   le visitId vit dans le sessionStorage (1 valeur par VISITE — tant que
+   l'onglet est ouvert) → recharger la page, y revenir, la re-rendre =
+   toujours 1 seule vue. Le GET route=profile reste compté « brut » côté
+   serveur pour la popularité interne (pré-génération) — le compteur
+   AFFICHÉ, lui, ne bouge que par ce POST. Jamais bloquant : tout échec
+   est silencieux (badge périmé ou masqué).
+   ═══════════════════════════════════════════════════════════════════════ */
+const VIEW_VISIT_KEY = "tfh_vid";
+
+/** Identifiant de VISITE : constant pendant toute la durée de l'onglet. */
+function profileVisitId() {
+  try {
+    let v = sessionStorage.getItem(VIEW_VISIT_KEY);
+    if (!v) {
+      v = (typeof crypto !== "undefined" && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : "v-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 12);
+      sessionStorage.setItem(VIEW_VISIT_KEY, v);
+    }
+    return v;
+  } catch (e) {
+    /* sessionStorage indisponible → identifiant par page (dédoublonnage mini) */
+    return "v-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 12);
+  }
+}
+
+/** Peint le badge « vues » (n non fini → no-op). */
+function paintProfileViews(n) {
+  const wrap = document.getElementById("profile-views");
+  if (!wrap) return;
+  const count = Number(n);
+  if (!Number.isFinite(count) || count < 0) return;
+  const el = document.getElementById("profile-views-count");
+  if (el) {
+    const label = count === 1 ? T("pf.views_one", "vue") : T("pf.views_many", "vues");
+    el.textContent = count.toLocaleString(LOCALE()) + " " + label;
+  }
+  wrap.hidden = false;
+}
+
+const _profileViewCounted = new Set(); // 1 POST max par pid et par chargement
+
+/** Compte la vue d'un profil (POST dédoublonné serveur) + peint le badge. */
+function countProfileView(publicId, payload) {
+  if (!publicId || !/^[A-Za-z0-9]{6,16}$/.test(publicId)) return;
+  /* Aperçu immédiat depuis le payload (cache ≤ 15 min) si le compteur y est. */
+  const preview = Number(payload?.views);
+  if (Number.isFinite(preview) && preview >= 0) paintProfileViews(preview);
+  if (_profileViewCounted.has(publicId)) return;
+  _profileViewCounted.add(publicId);
+  try {
+    fetch("/api/games-api.php?route=profile-view", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ publicId: publicId, visitId: profileVisitId() }),
+      keepalive: true,
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (j && j.ok) paintProfileViews(Number(j.views));
+      })
+      .catch(() => {});
+  } catch (e) { /* jamais bloquant */ }
+}
+
+function profilePayloadFromSession(pid) {
+  try {
+    const raw = sessionStorage.getItem("tfh_pp:" + pid);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (!p || !p.p || Date.now() - (p.t || 0) > PROFILE_PAYLOAD_TTL) return null;
+    return p.p;
+  } catch (e) { return null; }
+}
+
+function profilePayloadToSession(pid, payload) {
+  try {
+    const json = JSON.stringify({ t: Date.now(), p: payload });
+    if (json.length <= 300 * 1024) sessionStorage.setItem("tfh_pp:" + pid, json);
+  } catch (e) { /* quota / navigation privée — silencieux */ }
+}
+
+/** Payload route=profile du joueur : sessionStorage → promesse partagée → fetch. */
+function getProfilePayload(publicId) {
+  if (!publicId) return Promise.resolve(null);
+  if (_profilePayloadState.pid === publicId && _profilePayloadState.promise) {
+    return _profilePayloadState.promise;
+  }
+  const cached = profilePayloadFromSession(publicId);
+  if (cached) {
+    window.__tfhProfilePayload = cached; // partagé avec preprofile.js
+    return Promise.resolve(cached);
+  }
+  const promise = fetch(PROFILE_PAYLOAD_URL(publicId), { cache: "default" })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((j) => {
+      if (j && j.ok) {
+        window.__tfhProfilePayload = j;
+        profilePayloadToSession(publicId, j);
+        return j;
+      }
+      return null;
+    })
+    .catch(() => null);
+  _profilePayloadState = { pid: publicId, promise };
+  return promise;
+}
+
+/** Convertit les dernières parties du payload route=profile en échantillon
+ *  au format API OpenFront (entrée de buildLiveStatsFromData). */
+function payloadRecentSample(payload) {
+  const rows = Array.isArray(payload?.stats?.recentGames) ? payload.stats.recentGames : [];
+  return rows.map((g) => ({
+    gameId: g.id,
+    start: g.startedAt ? new Date(g.startedAt).toISOString() : null,
+    map: g.map || "",
+    mode: g.mode || "",
+    rankedType: g.rankedType || null,
+    result: g.won === true ? "victory" : (g.won === false ? "defeat" : "incomplete"),
+    durationSeconds: typeof g.durationS === "number" ? g.durationS : 0,
+    totalPlayers: g.numPlayers ?? null,
+  }));
+}
+
 /**
  * Affiche le profil PUBLIC d'un autre joueur (ou le sien propre si visité via URL).
  * Masque le bouton de déconnexion, neutralise les actions d'édition, et applique
@@ -435,13 +577,13 @@ function renderPublicProfile(username, publicId) {
   // la carte codes — aucune action d'édition possible sur un profil public.
   setEditingAllowed(false);
 
-  // v5.13 — Données serveur du profil consulté (verified + bio/map/liens) :
-  // une seule requête GET (cache 60 s) peint tout le bloc identité.
+  // v5.13/v5.36 — Données serveur du profil consulté (verified + bio/map/liens) :
+  // payload PARTAGÉ (pré-chargé par pf-prefetch au survol, sessionStorage, ou
+  // fetch unique) → le bloc identité peint dès que le payload est en main.
   if (publicId) {
-    fetch("/api/games-api.php?route=profile&publicId=" + encodeURIComponent(publicId), { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
+    getProfilePayload(publicId)
       .then((j) => {
-        if (!j || !j.ok) return;
+        if (!j) return;
         if (viewingPublicId !== publicId) return; // l'utilisateur a changé de profil entre-temps
         if (window.TFHVerified && j.verified) window.TFHVerified.markVerified(publicId);
         const vEl = document.getElementById("profile-verified");
@@ -452,6 +594,8 @@ function renderPublicProfile(username, publicId) {
         const hint = document.getElementById("claim-hint-banner");
         if (hint) hint.style.display = j.verified ? "none" : "flex";
         renderProfileExtras(j.profile || null);
+        // v5.14 — Vitrine cosmétiques depuis la réponse déjà chargée (0 requête en plus)
+        renderShowcaseFromData(j);
       })
       .catch(() => {});
   } else {
@@ -725,6 +869,8 @@ function renderHero(user, profile) {
     favMap: profile.favMap,
     links: profile.links,
   });
+  // v5.14 — Vitrine cosmétiques du profil propre (fetch dédié, guard anti-course)
+  if (profile.publicId) void loadShowcase(profile.publicId);
   const editBtn = document.getElementById("profile-edit-btn");
   if (editBtn) editBtn.hidden = !profile.verified;
 
@@ -852,6 +998,348 @@ function renderProfileExtras(extras) {
     push("discord", "discord", "Discord");
     linksEl.innerHTML = items.join("");
     linksEl.hidden = items.length === 0;
+  }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════
+   v5.14 — VITRINE COSMÉTIQUES
+   Deux sources reliées au profil :
+   1. Cosmétiques OpenFront portés EN JEU (collectés par le cron du site ;
+      route=profile → cosmetics[] : motifs, couronnes, drapeaux, effets…
+      avec la rareté du catalogue officiel + le nombre de parties portés).
+   2. Cosmétiques TheFrontHub (skins texte animés, bannières pixel art,
+      statut VIP — route=profile → hubCosmetics).
+   Rendu sur le profil PROPRE (fetch dédié) et sur les profils PUBLICS
+   (réponse déjà chargée — zéro requête supplémentaire).
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const SHOWCASE_CAT_ICON = {
+  pattern: "🎨", crown: "👑", flag: "🏴", skin: "👕",
+  effect: "✨", emblem: "🛡️", palette: "🌈", pack: "📦",
+};
+const SHOWCASE_RARITY_COLORS = {
+  common: "#6B7280", uncommon: "#0d9488", rare: "#2563eb",
+  epic: "#9333ea", legendary: "#d97706", mythic: "#dc2626",
+};
+
+let _showcaseSeq = 0; // garde anti-course (changement de profil rapide)
+
+const SHOWCASE_KNOWN_RARITIES = new Set(["common", "uncommon", "rare", "epic", "legendary", "mythic"]);
+
+function showcaseRarityChip(rarity) {
+  const r = String(rarity || "").toLowerCase();
+  if (!r) return ""; // rareté inconnue (ex : drapeaux) → pas de chip
+  if (!SHOWCASE_KNOWN_RARITIES.has(r)) {
+    // Rareté inédite du catalogue → libellé capitalisé brut (jamais la clé i18n)
+    const color = "#6B7280";
+    return '<span class="pf-sc-rarity" style="color:' + esc(color) +
+      ';background:' + esc(color) + '1f;border-color:' + esc(color) + '44">' +
+      esc(r.charAt(0).toUpperCase() + r.slice(1)) + "</span>";
+  }
+  const label = T(
+    "pf.showcase_rarity_" + r,
+    r.charAt(0).toUpperCase() + r.slice(1)
+  );
+  const color = SHOWCASE_RARITY_COLORS[r] || "#6B7280";
+  return '<span class="pf-sc-rarity" style="color:' + esc(color) +
+    ';background:' + esc(color) + '1f;border-color:' + esc(color) + '44">' +
+    esc(label) + "</span>";
+}
+
+const SHOWCASE_KNOWN_CATS = new Set(["pattern", "crown", "flag", "skin", "effect", "emblem", "palette", "pack"]);
+
+function showcaseCatLabel(cat) {
+  const c = String(cat || "").toLowerCase();
+  if (!c) return "";
+  if (!SHOWCASE_KNOWN_CATS.has(c)) return c.charAt(0).toUpperCase() + c.slice(1);
+  return T("pf.showcase_cat_" + c, c.charAt(0).toUpperCase() + c.slice(1));
+}
+
+/** Carte d'un cosmétique OpenFront porté en jeu.
+ * Cas réels observés dans les données :
+ *  - c.url renseignée (couronnes, skins) → image CDN ;
+ *  - c.name EST l'URL CDN (drapeaux portés) → image depuis le nom,
+ *    libellé dérivé du segment final (cc_youtube_ → YouTube) ;
+ *  - c.patternData renseigné (motifs du catalogue, v5.15) → canvas décodé ;
+ *  - c.name relatif « /flags/SPQR.svg » (drapeaux de nations, v5.22) →
+ *    miroir GitHub du dépôt officiel OpenFrontIO ;
+ *  - catalogue officiel chargé en fond (v5.22) → name → url pour tout ce
+ *    que le cache serveur n'a pas (couronnes/drapeaux « aléatoires ») ;
+ *  - sinon (effets, patterns sans données) → icône de catégorie. */
+function showcaseCosVisual(c) {
+  let url = c.url ? String(c.url) : "";
+  let patternData = String(c.patternData || "");
+  let label = c.displayName || c.name;
+  if (!url && /^https?:\/\//i.test(String(c.name || ""))) {
+    url = encodeURI(String(c.name));
+    try {
+      const seg = String(c.name).split("/").filter(Boolean).pop() || "";
+      let tail = seg.replace(/^cc_/, "").replace(/_+$/, "").replace(/_+/g, " ").trim();
+      if (tail) {
+        label = tail.charAt(0).toUpperCase() + tail.slice(1);
+      } else {
+        label = "";
+      }
+    } catch (e) { /* label resté = name */ }
+  }
+  // v5.22 — drapeaux relatifs (« /flags/SPQR.svg ») → dépôt officiel (1000 drapeaux)
+  if (!url && !patternData && /^\/flags\//i.test(String(c.name || ""))) {
+    url = "https://raw.githubusercontent.com/openfrontio/OpenFrontIO/main/resources" +
+      encodeURI(String(c.name));
+    try {
+      const seg = String(c.name).split("/").pop().replace(/\.svg$/i, "");
+      if (seg) label = seg.replace(/_/g, " ").trim() || label;
+    } catch (e) { /* label resté */ }
+  }
+  // v5.22 — catalogue officiel en fond : name → url (cache serveur incomplet)
+  if (!url && !patternData) {
+    const cat = window.__ofCosmeticsMap;
+    const nm = String(c.name || "");
+    if (cat && cat[nm]) url = cat[nm];
+  }
+  // v5.23 — patterns sans bitmap en base (« aléatoires » sans image) :
+  // le catalogue officiel fournit le bitmap officiel (name → pattern).
+  if (!url && !patternData && String(c.category || "").toLowerCase() === "pattern") {
+    const pats = window.__ofCosmeticsPatterns;
+    const nm = String(c.name || "");
+    if (pats && pats[nm]) patternData = pats[nm];
+  }
+  return { url, label, patternData };
+}
+
+function showcaseWornCard(c) {
+  const { url, label, patternData } = showcaseCosVisual(c);
+  const name = label || showcaseCatLabel(c.category);
+  const icon = SHOWCASE_CAT_ICON[String(c.category || "").toLowerCase()] || "🧩";
+  let img;
+  if (patternData) {
+    // Motif OpenFront : bitmap décodé et peint après insertion (paintShowcasePatterns).
+    img = '<canvas class="pf-sc-canvas" width="40" height="40" data-pattern="' + esc(patternData) +
+      '" role="img" aria-label="' + esc(name) + '"></canvas>' +
+      '<span class="pf-sc-emoji" style="display:none">' + icon + "</span>";
+  } else if (url) {
+    img = '<img class="pf-sc-img" src="' + esc(url) + '" alt="" width="40" height="40" loading="lazy" ' +
+      'referrerpolicy="no-referrer" decoding="async" ' +
+      'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">' +
+      '<span class="pf-sc-emoji" style="display:none">' + icon + "</span>";
+  } else {
+    img = '<span class="pf-sc-emoji">' + icon + "</span>";
+  }
+  return (
+    '<article class="pf-sc-card">' +
+      '<div class="pf-sc-thumb">' + img + "</div>" +
+      '<div class="pf-sc-body">' +
+        '<div class="pf-sc-name" title="' + esc(name) + '">' + esc(name) + "</div>" +
+        '<div class="pf-sc-meta">' + showcaseRarityChip(c.rarity) + "</div>" +
+        '<div class="pf-sc-sub">' + esc(showcaseCatLabel(c.category)) +
+          " · " + esc(T("pf.showcase_worn", "porté ×{n}", { n: c.timesWorn })) + "</div>" +
+      "</div>" +
+    "</article>"
+  );
+}
+
+/** Peint tous les canvas[data-pattern] du conteneur (après injection innerHTML). */
+function paintShowcasePatterns(root) {
+  if (!root) return;
+  root.querySelectorAll("canvas[data-pattern]").forEach((cv) => {
+    const data = cv.getAttribute("data-pattern") || "";
+    if (!data || !paintPatternToCanvas(cv, data, 40)) {
+      // décodage impossible → repli emoji (comme avant la v5.15)
+      cv.remove();
+      const fb = cv.nextElementSibling;
+      if (fb && fb.classList.contains("pf-sc-emoji")) fb.style.display = "flex";
+      return;
+    }
+    cv.removeAttribute("data-pattern");
+  });
+}
+
+/** Cartes des cosmétiques TheFrontHub (VIP, skins animés, bannières pixel art). */
+function showcaseHubCards(hub) {
+  const cards = [];
+  if (hub?.vipActive && hub?.vipType) {
+    cards.push(
+      '<article class="pf-sc-card pf-sc-vip">' +
+        '<div class="pf-sc-thumb"><span class="pf-sc-emoji">👑</span></div>' +
+        '<div class="pf-sc-body">' +
+          '<div class="pf-sc-name">' + esc(String(hub.vipType).toUpperCase()) + "</div>" +
+          '<div class="pf-sc-meta">' +
+            '<span class="pf-sc-rarity" style="color:#d97706;background:#d977061f;border-color:#d9770644">' +
+              esc(T("pf.showcase_vip", "Statut VIP")) + "</span>" +
+          "</div>" +
+          '<div class="pf-sc-sub">' + esc(T("pf.showcase_hub", "TheFrontHub")) + "</div>" +
+        "</div>" +
+      "</article>"
+    );
+  }
+  const ownedSkins = Array.isArray(hub?.ownedSkins) ? hub.ownedSkins : [];
+  for (const s of ownedSkins) {
+    const skin = getSkin(s.skinId);
+    if (!skin || skin.id === DEFAULT_SKIN_ID) continue; // Standard ≠ cosmétique
+    const active = !!s.active || s.skinId === hub.activeSkinId;
+    cards.push(
+      '<article class="pf-sc-card' + (active ? " pf-sc-active" : "") + '">' +
+        '<div class="pf-sc-thumb"><span class="pf-sc-skin-preview ' + skin.cssClass + '">Aa</span></div>' +
+        '<div class="pf-sc-body">' +
+          '<div class="pf-sc-name">' + esc(skin.name) + "</div>" +
+          '<div class="pf-sc-meta">' + showcaseRarityChip(skin.rarity) +
+            (active ? '<span class="pf-sc-on">' + esc(T("pf.showcase_active", "Actif")) + "</span>" : "") + "</div>" +
+          '<div class="pf-sc-sub">' + esc(T("pf.showcase_hub_skin", "Skin TheFrontHub")) + "</div>" +
+        "</div>" +
+      "</article>"
+    );
+  }
+  const ownedBanners = Array.isArray(hub?.ownedBanners) ? hub.ownedBanners : [];
+  for (const b of ownedBanners) {
+    const banner = getBanner(b.bannerId);
+    if (!banner) continue;
+    const active = !!b.active || b.bannerId === hub.activeBannerId;
+    let thumb;
+    try {
+      const url = renderBannerUrl(banner, currentTheme());
+      thumb = url
+        ? '<img class="pf-sc-img pf-sc-banner" src="' + url + '" alt="" width="40" height="28" loading="lazy">'
+        : '<span class="pf-sc-emoji">🚩</span>';
+    } catch (e) {
+      thumb = '<span class="pf-sc-emoji">🚩</span>';
+    }
+    cards.push(
+      '<article class="pf-sc-card' + (active ? " pf-sc-active" : "") + '">' +
+        '<div class="pf-sc-thumb">' + thumb + "</div>" +
+        '<div class="pf-sc-body">' +
+          '<div class="pf-sc-name">' + esc(banner.name) + "</div>" +
+          '<div class="pf-sc-meta">' + showcaseRarityChip(banner.rarity) +
+            (active ? '<span class="pf-sc-on">' + esc(T("pf.showcase_active", "Actif")) + "</span>" : "") + "</div>" +
+          '<div class="pf-sc-sub">' + esc(T("pf.showcase_hub_banner", "Bannière TheFrontHub")) + "</div>" +
+        "</div>" +
+      "</article>"
+    );
+  }
+  return cards;
+}
+
+/** Peint la vitrine depuis une réponse route=profile (propre ou public). */
+let _lastShowcaseData = null; // v5.22 — re-rendu après arrivée du catalogue officiel
+function renderShowcaseFromData(data) {
+  const root = document.getElementById("profile-showcase");
+  if (!root) return;
+  _lastShowcaseData = data || null;
+  const worn = Array.isArray(data?.cosmetics) ? data.cosmetics : [];
+  const hubCards = showcaseHubCards(data?.hubCosmetics || {});
+  if (!worn.length && !hubCards.length) {
+    root.hidden = true;
+    root.innerHTML = "";
+    return;
+  }
+  const sparkle =
+    '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>';
+  const wornHtml = worn.length
+    ? '<h3 class="pf-sc-title">' +
+      esc(T("pf.showcase_worn_title", "Cosmétiques OpenFront — portés en jeu")) +
+      '</h3><div class="pf-sc-grid">' + worn.map(showcaseWornCard).join("") + "</div>"
+    : "";
+  const hubHtml = hubCards.length
+    ? '<h3 class="pf-sc-title">' +
+      esc(T("pf.showcase_hub_title", "Cosmétiques TheFrontHub")) +
+      '</h3><div class="pf-sc-grid">' + hubCards.join("") + "</div>"
+    : "";
+  root.innerHTML =
+    '<h2 class="pf-sc-heading">' + sparkle +
+      "<span>" + esc(T("pf.showcase_title", "Vitrine cosmétiques")) + "</span></h2>" +
+    wornHtml + hubHtml;
+  root.hidden = false;
+  // v5.15 — peint les motifs (canvas) + emblème du héros (motif le plus récent)
+  paintShowcasePatterns(root);
+  paintAvatarFromCosmetics(worn);
+  // v5.22 — si des cartes n'ont pas d'image (cache serveur incomplet), charge
+  // le catalogue officiel en fond puis re-rend la vitrine quand il arrive.
+  // v5.23 : inclut les PATTERNS sans bitmap (le catalogue officiel fournit
+  // le bitmap officiel — ex: « jr_piracy » présent en base sans patternData).
+  if (worn.some((c) => c && !c.url && !c.patternData &&
+      !/^https?:\/\//i.test(String(c.name || "")) &&
+      !/^\/flags\//i.test(String(c.name || "")))) {
+    loadCosmeticsCatalogue();
+  }
+}
+
+/* v5.22 — catalogue officiel OpenFront chargé en fond (proxy worker /cosmetics,
+ * compacté + cache 6 h, repli api.openfront.io direct) → map name → url.
+ * Répare les vitrines dont la ligne catalogue en base est absente
+ * (couronnes/drapeaux affichés « au hasard » sans image). */
+let _cosmeticsMapLoading = false;
+function loadCosmeticsCatalogue() {
+  if (window.__ofCosmeticsMap || _cosmeticsMapLoading) return;
+  _cosmeticsMapLoading = true;
+  const BASES = [
+    "https://openfront-proxy.diofortnite3.workers.dev/cosmetics",
+    "https://api.openfront.io/cosmetics.json",
+  ];
+  // Aplatit les formes possibles : tableaux (worker) ou objets par nom (catalogue brut)
+  const flatten = (v) => {
+    const out = [];
+    const walk = (x) => {
+      if (!x) return;
+      if (Array.isArray(x)) { x.forEach(walk); return; }
+      if (typeof x === "object") {
+        if (typeof x.name === "string") { out.push(x); return; }
+        Object.values(x).forEach(walk);
+      }
+    };
+    walk(v);
+    return out;
+  };
+  const tryFetch = async (i) => {
+    if (i >= BASES.length) return null;
+    try {
+      const res = await fetch(BASES[i], { cache: "force-cache" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    } catch (e) { return tryFetch(i + 1); }
+  };
+  tryFetch(0).then((d) => {
+    _cosmeticsMapLoading = false;
+    if (!d) return;
+    const map = {};
+    [d.patterns, d.flags, d.crowns, d.skins, d.effects].forEach((group) => {
+      flatten(group).forEach((v) => {
+        if (v && typeof v.name === "string" && typeof v.url === "string" && v.url) {
+          map[v.name] = v.url;
+        }
+      });
+    });
+    // v5.23 — bitmaps officiels des motifs (name → pattern) : répare les
+    // vitrines dont la base n'a PAS le patternData (fallback emoji avant).
+    const pats = {};
+    flatten(d.patterns).forEach((v) => {
+      if (v && typeof v.name === "string" && typeof v.pattern === "string" && v.pattern) {
+        pats[v.name] = v.pattern;
+      }
+    });
+    const hasUrls = Object.keys(map).length > 0;
+    const hasPatterns = Object.keys(pats).length > 0;
+    if (!hasUrls && !hasPatterns) return;
+    if (hasUrls) window.__ofCosmeticsMap = map;
+    if (hasPatterns) window.__ofCosmeticsPatterns = pats;
+    if (_lastShowcaseData) renderShowcaseFromData(_lastShowcaseData);
+  }).catch(() => { _cosmeticsMapLoading = false; });
+}
+
+/** Charge puis peint la vitrine du profil PROPRE (fetch dédié, garde anti-course). */
+async function loadShowcase(publicId) {
+  const root = document.getElementById("profile-showcase");
+  if (!root || !publicId) return;
+  const seq = ++_showcaseSeq;
+  try {
+    // v5.36 — payload partagé (prefetch/sessionStorage/cache serveur), plus de
+    // requête dédiée : la vitrine peint avec les données déjà en main.
+    const j = await getProfilePayload(publicId);
+    if (!j || seq !== _showcaseSeq) {
+      if (seq === _showcaseSeq) { root.hidden = true; root.innerHTML = ""; }
+      return;
+    }
+    renderShowcaseFromData(j);
+  } catch (e) {
+    if (seq === _showcaseSeq) { root.hidden = true; }
   }
 }
 
@@ -1070,18 +1558,35 @@ async function loadStats(publicId) {
   // Kick off ELO lookup (ranked.json) in parallel
   const eloPromise = getRankedEntry(publicId);
 
-  // Kick off recent games fetch in parallel (separate endpoint)
-  // /public/player/{id} returns aggregated stats only (no games array).
-  // /public/player/{id}/games returns the actual recent games list with
-  // result (victory/defeat) already included — no need for per-game fetch.
-  const recentGamesPromise = fetchRecentGames(publicId);
+  // v5.36 — payload PRÉ-GÉNÉRÉ d'abord (pf-prefetch/sessionStorage/cache
+  // fichier serveur) : s'il embarque l'arbre de carrière officiel, on n'appelle
+  // PLUS l'API OpenFront ici — plus de 1-3 s de latence ni d'échec 503.
+  const payloadPromise = getProfilePayload(publicId);
+  payloadPromise.catch(() => {});
+  const payload = await payloadPromise;
+
+  // v5.42 — Compteur « vues » : aperçu depuis le payload puis POST
+  // dédoublonné 1× par visite du site (mise à jour à la réponse).
+  countProfileView(publicId, payload);
+
+  // Kick off recent games fetch in parallel (separate endpoint) — UNIQUEMENT
+  // sans payload : la liste ne sert plus qu'à retarder renderWeeklyChart
+  // (v5.15), et le dossier cockpit vient désormais du payload.
+  const recentGamesPromise = payload?.official ? Promise.resolve([]) : fetchRecentGames(publicId);
   // Supprime la rejection non-gérée si on retourne avant (publicId invalide).
   recentGamesPromise.catch(() => {});
 
   let playerData = null;
-  try {
-    playerData = await fetchOpenFront(`/public/player/${encodeURIComponent(publicId)}`);
-  } catch (e) {
+  if (payload?.official?.stats) {
+    playerData = {
+      username: payload.official.username || payload.player?.lastUsername || publicId,
+      stats: payload.official.stats,
+    };
+  }
+  if (!playerData) {
+    try {
+      playerData = await fetchOpenFront(`/public/player/${encodeURIComponent(publicId)}`);
+    } catch (e) {
     console.error("[profile] OpenFront API error:", e);
     if (e?.isNotFound || e?.status === 404) {
       // Identifiant invalide : rien à afficher (le dossier pré-calculé ne
@@ -1098,6 +1603,7 @@ async function loadStats(publicId) {
     // fallback live (avant : return → profil réduit au nom, même pour les
     // joueurs suivis dont le fichier player-stats existait).
     showError(T("pf.stats_load_fail", "Impossible de charger les statistiques depuis l'API OpenFront."));
+    } // catch
   }
 
   if (!playerData) {
@@ -1947,10 +2453,13 @@ document.addEventListener("click", (e) => {
 /* 🌱 mergeWeeklySeed() réactivée (retour demandé par Skailex 2026-09-23) :
    les semaines « seed » reconstituées a posteriori (data/weekly_history_seed.json)
    complètent l'historique live — S1, S2 réapparaissent sur la courbe.
-   Garde-fous : on ne remplace JAMAIS une semaine déjà enregistrée par la sync,
-   et on ne comble que des semaines STRICTEMENT antérieures à la plus vieille
-   semaine connue. Les labels restent absolus (S = semaine de saison), donc
-   aucun décalage de numérotation. */
+   Garde-fous : on ne remplace JAMAIS une semaine déjà enregistrée par la sync.
+   🔄 Fix 2026-10-07 : on comble tout TROU (S3, S4… perdues pendant
+   l'indisponibilité du sync puis reconstituées a posteriori) — avant, seules
+   les semaines STRICTEMENT antérieures à la plus vieille semaine connue étaient
+   fusionnées, donc un trou au MILIEU de l'historique ne pouvait jamais être
+   recollé et la courbe sautait de S2 à S5. Les labels restent absolus
+   (S = semaine de saison), donc aucun décalage de numérotation. */
 async function mergeWeeklySeed() {
   try {
     const seedRes = await fetch("data/weekly_history_seed.json", { cache: "no-cache" });
@@ -1959,11 +2468,9 @@ async function mergeWeeklySeed() {
     const seedWeeks = (seed && seed.weeks) || {};
     const hist = window._profileWeekHistory = window._profileWeekHistory || { version: 1, weeks: {} };
     hist.weeks = hist.weeks || {};
-    const oldest = Object.keys(hist.weeks).sort()[0] || null;
     let added = 0;
     for (const k of Object.keys(seedWeeks)) {
       if (hist.weeks[k]) continue;          // semaine enregistrée → live prioritaire
-      if (oldest && k >= oldest) continue;  // uniquement antérieur à l'historique
       hist.weeks[k] = seedWeeks[k];
       added++;
     }
@@ -2712,6 +3219,32 @@ async function loadAllGamesForStats(publicId, playerData) {
     console.warn("[profile] Could not load pre-computed stats file:", e.message);
   }
 
+  // ── v5.36 : dossier depuis le PAYLOAD PRÉ-GÉNÉRÉ (0 appel réseau) ──
+  // Totaux de carrière exacts (arbre officiel embarqué) + échantillon des ~100
+  // dernières parties archivées en DB (cartes, activité, séries). Instantané :
+  // le payload est déjà en mémoire (prefetch au survol / sessionStorage).
+  try {
+    const payloadStats = await getProfilePayload(publicId); // promesse partagée — déjà résolue si loadStats l'a demandée
+    if (payloadStats?.official?.stats) {
+      const sample = payloadRecentSample(payloadStats);
+      const dossier = buildLiveStatsFromData(
+        publicId,
+        payloadStats.official.stats,
+        sample,
+        playerData?.username || payloadStats.official.username || payloadStats.player?.lastUsername || null
+      );
+      if (dossier) {
+        if (runSeq !== _statsRunSeq) { _allGamesLoading = false; return; }
+        if (mount) mount.innerHTML = "";
+        renderPrecomputedStats(dossier, mount);
+        _allGamesLoading = false;
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn("[profile] payload dossier failed:", e?.message);
+  }
+
   // ── Fallback v5.15 : calcul LIVE côté navigateur ──
   // Le dossier pré-calculé n'existe que pour les joueurs suivis par le
   // pipeline CI (sync-players.json). Pour tout autre joueur on construit
@@ -2858,6 +3391,19 @@ async function buildLiveStatsFromApi(publicId, playerData) {
     console.warn("[profile] games sample failed:", e.message);
   }
 
+  return buildLiveStatsFromData(publicId, tree, sample, playerData?.username || null);
+}
+
+/**
+ * v5.36 — Agrégation PURE (aucun réseau), corps historique de
+ * buildLiveStatsFromApi : totaux de carrière exacts depuis l'arbre officiel +
+ * détail (cartes, activité, séries, playtime estimé) depuis l'échantillon.
+ * Partagée par le fallback live OpenFront ET le dossier instantané construit
+ * depuis le payload pré-généré (échantillon = dernières parties de la DB site).
+ */
+function buildLiveStatsFromData(publicId, tree, sample, username) {
+  if (!tree || typeof tree !== "object") return null;
+  sample = Array.isArray(sample) ? sample : [];
   const cats = walkCareerTree(tree);
   const totalWins = cats.ffaCasual.wins + cats.ffaRanked.wins + cats.teamCasual.wins + cats.teamRanked.wins;
   const totalGames = cats.ffaCasual.total + cats.ffaRanked.total + cats.teamCasual.total + cats.teamRanked.total;
@@ -2972,7 +3518,7 @@ async function buildLiveStatsFromApi(publicId, playerData) {
 
   return {
     publicId,
-    username: playerData?.username || null,
+    username: username || null,
     computedAt: new Date().toISOString(),
     lastSyncedAt: new Date().toISOString(),
     isSample: true,
@@ -3009,6 +3555,81 @@ async function buildLiveStatsFromApi(publicId, playerData) {
 
 /** Helpers de formatage — réutilise playtime-stats.js (déjà importé).
  *  formatDuration / formatDurationCompact / formatPct / gameDurationSec. */
+
+/* ── v5.15 — Rendu d'un MOTIF (pattern) OpenFront sur canvas ──
+   Portage fidèle de PatternDecoder.ts / PatternPreview.ts (OpenFrontIO) :
+   base64url → en-tête 3 octets (version, scale+largeur, hauteur) puis
+   bitmap 1 bit/pixel — bit=0 → couleur primaire, bit=1 → secondaire.
+   Couleurs par défaut de l'aperçu officiel : #ffffff / #000000. */
+
+function decodePatternDataClient(b64) {
+  const s = String(b64 || "").replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(s + "=".repeat((4 - (s.length % 4)) % 4));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  if (bytes.length < 3 || bytes[0] !== 0) throw new Error("bad pattern");
+  const scale = bytes[1] & 0x07;
+  const width = (((bytes[2] & 0x03) << 5) | ((bytes[1] >> 3) & 0x1f)) + 2;
+  const height = ((bytes[2] >> 2) & 0x3f) + 2;
+  const expectedBytes = Math.ceil((width * height) / 8);
+  if (bytes.length - 3 < expectedBytes) throw new Error("pattern too short");
+  return { scale, width, height, bytes };
+}
+
+/** Peint le motif (mosaïque de tuiles) dans un canvas existant. Retourne bool. */
+function paintPatternToCanvas(canvas, patternData, cssSize) {
+  try {
+    const dec = decodePatternDataClient(patternData);
+    const dpr = Math.min(3, Math.max(1, Math.floor(window.devicePixelRatio || 1)));
+    const px = Math.max(1, Math.round(cssSize * dpr));
+    const tileW = dec.width << dec.scale;
+    const tileH = dec.height << dec.scale;
+    const cols = Math.max(1, Math.floor(px / tileW));
+    const rows = Math.max(1, Math.floor(px / tileH));
+    canvas.width = cols * tileW;
+    canvas.height = rows * tileH;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return false;
+    const img = ctx.createImageData(canvas.width, canvas.height);
+    const data = img.data;
+    let i = 0;
+    for (let y = 0; y < canvas.height; y++) {
+      for (let x = 0; x < canvas.width; x++) {
+        const px2 = (x >> dec.scale) % dec.width;
+        const py2 = (y >> dec.scale) % dec.height;
+        const idx = py2 * dec.width + px2;
+        const bit = (dec.bytes[3 + (idx >> 3)] >> (idx & 7)) & 1;
+        // bit=0 → primaire (#ffffff), bit=1 → secondaire (#000000)
+        const v = bit === 0 ? 255 : 0;
+        data[i++] = v; data[i++] = v; data[i++] = v; data[i++] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Peint le motif le plus récemment porté du joueur dans l'avatar du héros
+ * (sinon laisse l'initiale). Appelé après chaque rendu de vitrine.
+ */
+function paintAvatarFromCosmetics(cosmetics) {
+  const avatarEl = document.getElementById("profile-avatar-large");
+  if (!avatarEl || !Array.isArray(cosmetics)) return;
+  const pat = cosmetics.find((c) => String(c.category || "").toLowerCase() === "pattern" && c.patternData);
+  if (!pat) return;
+  const rect = avatarEl.getBoundingClientRect();
+  const cssSize = Math.max(48, Math.round(rect.width || 96));
+  const canvas = document.createElement("canvas");
+  canvas.className = "pf-sc-canvas pf-sc-avatar-pattern";
+  canvas.setAttribute("role", "img");
+  canvas.setAttribute("aria-label", T("pf.showcase_cat_pattern", "Motif"));
+  if (!paintPatternToCanvas(canvas, pat.patternData, cssSize)) return;
+  avatarEl.innerHTML = "";
+  avatarEl.appendChild(canvas);
+}
 
 /* ════════════════════════════════════════════════════════════════
    [COCKPIT-REDESIGN] The 4 functions below (renderPlaytimeStats,
@@ -3053,6 +3674,7 @@ function showGameModal(game) {
     modal = document.createElement('div');
     modal.id = 'game-detail-modal';
     modal.className = 'game-modal-overlay';
+    modal.setAttribute('data-lenis-prevent', '');
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
     modal.innerHTML = `
@@ -3826,7 +4448,7 @@ function renderPrecomputedStats(stats, mount) {
       </header>
       <button type="button" id="pf2-maps-toggle" class="pf2-maps-toggle" aria-expanded="false">${T("pf.maps_show", "Voir les {n} cartes", { n: allMaps.length })}</button>
       <div class="pf2-maps-body" id="pf2-maps-body">
-        <div class="pf2-maps-wrap">
+        <div class="pf2-maps-wrap" data-lenis-prevent>
           <table class="pf2-maps-table">
             <thead><tr><th>${T("pf.th_map", "Carte")}</th><th>${T("pf.th_games", "Parties")}</th><th>${T("pf.th_w", "V")}</th><th>${T("pf.th_l", "D")}</th><th>${T("pf.th_winrate", "Winrate")}</th><th>${T("pf.th_avg_duration", "Durée moy.")}</th><th>${T("pf.th_last", "Dernière")}</th></tr></thead>
             <tbody>${topMaps.map(mapRowHtml).join("")}</tbody>
@@ -3885,4 +4507,5 @@ window._profileDebug = {
   loadStats,
   renderWeeklyChart,
   buildLiveStatsFromApi,
+  paintPatternToCanvas,
 };

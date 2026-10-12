@@ -65,12 +65,12 @@
 
   const CSS = `
   <style>
-  #preprofile-section { margin-top: 22px; }
+  #preprofile-section { margin-top: 22px; max-width: 100%; }
   .pp-panel { background: var(--card-bg, rgba(255,255,255,.04)); border: 1px solid var(--card-border, rgba(255,255,255,.09));
-    border-radius: 16px; padding: 18px 20px; }
-  .pp-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
-  .pp-title { font-size: 17px; font-weight: 800; color: var(--fg, #fff); letter-spacing: .2px; }
-  .pp-sub { font-size: 12.5px; color: var(--fg-muted, #9aa); }
+    border-radius: 16px; padding: 18px 20px; max-width: 100%; }
+  .pp-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; min-width: 0; max-width: 100%; overflow: hidden; }
+  .pp-title { font-size: 17px; font-weight: 800; color: var(--fg, #fff); letter-spacing: .2px; min-width: 0; max-width: 100%; }
+  .pp-sub { font-size: 12.5px; color: var(--fg-muted, #9aa); min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
   .pp-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 16px; }
   .pp-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 5px 11px;
     border-radius: 999px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); color: var(--fg, #fff); }
@@ -97,7 +97,7 @@
     padding: 2px 7px; border-radius: 6px; }
   .pp-cat.normal { background: rgba(255,122,26,.16); color: var(--orange, #ff7a1a); }
   .pp-cat.compact { background: rgba(96,165,250,.16); color: #7fb8ff; }
-  .pp-scroll { max-height: 340px; overflow-y: auto; }
+  .pp-scroll { max-height: 340px; overflow-y: auto; overflow-x: auto; }
   .pp-scroll::-webkit-scrollbar { width: 8px; }
   .pp-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 4px; }
   .pp-link { color: inherit; text-decoration: none; }
@@ -223,17 +223,53 @@
     anchor.insertAdjacentHTML('afterend', html);
   }
 
+  /** v5.36 — Payload partagé : window.__tfhProfilePayload (posé par
+   *  profile.js) → sessionStorage (tfh_pp:<pid>, posé par pf-prefetch.js au
+   *  survol du lien) → fetch (URL identique aux autres consommateurs pour que
+   *  le cache HTTP du navigateur dédoublonne). Retourne une promesse
+   *  (résolue immédiatement si les données sont déjà en main) ou null. */
+  function getSharedPayload(pid) {
+    if (window.__tfhProfilePayload && window.__tfhProfilePayload.player
+        && window.__tfhProfilePayload.player.publicId === pid) {
+      return Promise.resolve(window.__tfhProfilePayload);
+    }
+    try {
+      var raw = sessionStorage.getItem('tfh_pp:' + pid);
+      if (raw) {
+        var p = JSON.parse(raw);
+        if (p && p.p && Date.now() - (p.t || 0) < 10 * 60 * 1000) {
+          window.__tfhProfilePayload = p.p;
+          return Promise.resolve(p.p);
+        }
+      }
+    } catch (e) { /* silencieux */ }
+    return fetch(API + '?route=profile&publicId=' + encodeURIComponent(pid) + '&limit=100', { cache: 'default' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (data && data.ok) {
+          window.__tfhProfilePayload = data;
+          try {
+            var json = JSON.stringify({ t: Date.now(), p: data });
+            if (json.length <= 300 * 1024) sessionStorage.setItem('tfh_pp:' + pid, json);
+          } catch (e) { /* quota */ }
+          return data;
+        }
+        return null;
+      })
+      .catch(function () { return null; });
+  }
+
   async function boot() {
     const qp = new URLSearchParams(window.location.search);
-    const pid = qp.get('publicId');
+    // v5.36 — accepte ?publicId= ET ?pid= (les liens dashboard/classe utilisent pid) :
+    // une seule page profil, le panneau Historique s'affiche quelle que soit l'entrée.
+    const pid = qp.get('publicId') || qp.get('pid');
     if (!pid || !/^[A-Za-z0-9]{6,16}$/.test(pid)) return;
 
     bootHubNames();
 
     try {
-      const res = await fetch(API + '?route=profile&publicId=' + encodeURIComponent(pid) + '&limit=20', { cache: 'no-store' });
-      if (!res.ok) return; // 404 = joueur pas encore dans la DB → section masquée
-      const data = await res.json();
+      const data = await getSharedPayload(pid);
       if (data && data.ok) render(pid, data);
     } catch (e) {
       /* API absente (avant déploiement) : silencieux */

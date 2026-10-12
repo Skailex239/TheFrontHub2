@@ -10,7 +10,7 @@
 <link rel="alternate" hreflang="fr" href="https://thefronthub.com/game.html">
 <link rel="alternate" hreflang="x-default" href="https://thefronthub.com/game.html">
   <link rel="icon" type="image/png" href="favicon-32x32.png">
-  <link rel="stylesheet" href="styles.css?v=94">
+  <link rel="stylesheet" href="styles.css?v=95">
   <style>
     :root { --gp-radius: 14px; }
     body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; margin: 0; }
@@ -180,12 +180,14 @@
         '<div class="gp-title"><h1>' + esc(g.map || 'Carte inconnue') + '</h1>' +
           (g.mode ? '<span class="gp-badge">' + esc(g.mode) + '</span>' : '') +
           (g.rankedType ? '<span class="gp-badge">' + esc(g.rankedType) + '</span>' : '') +
+          (g.publicGameType === 'special' ? '<span class="gp-badge" title="Lobby public de rotation spéciale">Lobby spécial</span>' : '') +
+          (g.publicGameType === 'hosted' ? '<span class="gp-badge" title="Lobby public hébergé par un abonné">Lobby hébergé</span>' : '') +
           (g.speedrun ? '<span class="gp-badge">Speedrun ' + esc(fmtDur(g.speedrun.durationS)) + '</span>' : '') +
           (g.hasReplay ? '<span class="gp-badge">Replay dispo</span>' : '') +
           verBadge(g.version) +
         '</div>' +
         '<p class="gp-sub">Partie du ' + esc(fmtDate(g.startedAt)) + ' · ID <code>' + esc(g.id) + '</code>' +
-          (winRow ? ' · Vainqueur : <a class="gp-player" href="' + profUrl(winRow.username, winRow.publicId) + '">' + esc(winRow.username) + '</a>' + vBadge(winRow) : (winner.username ? ' · Vainqueur : <a class="gp-player" href="' + profUrl(winner.username, winner.publicId) + '">' + esc(winner.username) + '</a>' + vBadge(winner) : '')) +
+          (winRow ? ' · Vainqueur : <a class="gp-player" href="' + profUrl(winRow.username, winRow.publicId) + '">' + esc(winRow.username) + '</a>' + vBadge(winRow) : (winner.username ? ' · Vainqueur : <a class="gp-player" href="' + profUrl(winner.username, winner.publicId) + '">' + esc(winner.username) + '</a>' + vBadge(winner) : (winner.team || g.winnerTeam ? ' · Équipe gagnante : <b>' + esc(winner.team || g.winnerTeam) + '</b>' : ''))) +
         '</p>' +
         '<div class="gp-stats">' +
           '<div class="gp-stat"><b>' + esc(String(g.numPlayers ?? '—')) + '</b><span>Joueurs</span></div>' +

@@ -64,7 +64,7 @@
 <link rel="dns-prefetch" href="https://www.gstatic.com" crossorigin>
 
 <!-- Performance: Preload critical assets -->
-<link rel="preload" href="styles.css?v=94" as="style">
+<link rel="preload" href="styles.css?v=95" as="style">
 <link rel="preload" href="dist/app.min.js?v=43" as="script" crossorigin>
 <link rel="preload" href="dist/icons.min.js?v=10" as="script" crossorigin>
 <link rel="preload" href="runs_public.json.gz" as="fetch" crossorigin>
@@ -75,10 +75,10 @@
 <link rel="icon" type="image/png" href="favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="128x128" href="favicon-180x180.png">
 <link rel="apple-touch-icon" sizes="180x180" href="favicon-180x180.png">
-<link rel="stylesheet" href="styles.css?v=94">
+<link rel="stylesheet" href="styles.css?v=95">
 <link rel="stylesheet" href="auth.css?v=21">
-<link rel="stylesheet" href="animations.css?v=6" media="print" onload="this.media='all'">
-<noscript><link rel="stylesheet" href="animations.css?v=6"></noscript>
+<link rel="stylesheet" href="animations.css?v=7" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="animations.css?v=7"></noscript>
 <link rel="stylesheet" href="toast.css">
 <style>.skip-link{position:absolute;top:-40px;left:0;background:var(--orange);color:#fff;padding:8px 16px;z-index:10000;transition:top .2s}.skip-link:focus{top:0}</style>
   <script type="module" src="dist/icons.min.js?v=10"></script>
@@ -87,7 +87,7 @@
 <!-- i18n : dict de page (synchrone, avant i18n.js) + moteur + sélecteur de langue -->
 <script src="dist/i18n-dict-home.min.js?v=3"></script>
 <script src="dist/i18n-dict-widgets.min.js?v=3"></script>
-<script src="dist/i18n.min.js?v=10" defer></script>
+<script src="dist/i18n.min.js?v=11" defer></script>
 <script src="dist/lang-switcher.min.js?v=2" defer></script>
 
 <!-- cookies.js v5 : GA4 + tag AdSense (sert le bandeau CMP Google) + réouverture consentement -->
@@ -95,13 +95,45 @@
 <script src="cookies.js?v=5"></script>
 </head>
 <body>
+<script>
+/* v5.38 — anti-« rebonds » au refresh (toutes pages) :
+   1) Banderole d'annonce : tfh-ub-open + tfh-ub-pend posés AVANT la 1re
+      peinture → sa place est réservée (padding body + sidebar décalée) et
+      update-banner.min.js l'insère DANS cette place (il retire tfh-ub-pend
+      dans la même tâche) → le logo et le contenu ne descendent plus d'un
+      pixel. Filet : tfh-ub-pend retiré ici après 2,5 s si la bande n'arrive
+      jamais (JS bloqué, cache mixte) → la réservation s'efface.
+   2) Langue EN connue (openfront_lang) : tfh-i18n-en + <html lang=en> avant
+      peinture → les textes FR statiques (data-i18n*) restent invisibles sans
+      reflow (visibility, styles.css) jusqu'à ce que i18n.min.js écrive l'EN
+      et pose tfh-i18n-ready → plus aucun flash FR→EN. Filet : prêt forcé
+      après 2,5 s si i18n.min.js n'arrive pas. */
+(function () {
+  "use strict";
+  var root = document.documentElement;
+  var ub = null, lang = null;
+  try {
+    ub = localStorage.getItem("tfh:update-banner:2026-09-maj");
+    lang = localStorage.getItem("openfront_lang");
+  } catch (e) { /* stockage indisponible (navigation privée) */ }
+  if (ub !== "dismissed") {
+    root.classList.add("tfh-ub-open", "tfh-ub-pend");
+    setTimeout(function () { root.classList.remove("tfh-ub-pend"); }, 2500);
+  }
+  if (lang === "en") {
+    root.classList.add("tfh-i18n-en");
+    root.setAttribute("lang", "en");
+    setTimeout(function () { root.classList.add("tfh-i18n-ready"); }, 2500);
+  }
+})();
+</script>
 <a href="#tab-maps" class="skip-link" data-i18n="home.skip_link">Aller au contenu principal</a>
 <div class="loading-bar-track"><div class="loading-bar-fill" id="loading-bar"></div></div>
 
 <div class="app">
 
   <!-- ═══ SIDEBAR ═══ -->
-  <aside class="sidebar">
+  <aside class="sidebar" data-lenis-prevent>
 
     <div class="logo" onclick="logoClickAnim(event)" role="link" aria-label="Aller au tableau de bord" tabindex="0" data-i18n-aria="home.logo_aria">
       <img src="TheFrontHub Logo Text.webp" alt="TheFrontHub" loading="eager">
@@ -114,6 +146,9 @@
       </a>
       <a class="nav-item tab-btn active" id="tab-btn-maps" href="index.html" aria-current="page" onclick="event.preventDefault();switchTab('maps',this);document.getElementById('topbar-title').textContent=(window.t?window.t('nav.maps'):'Speedruns')">
         <i data-icon="trophy"></i> <span data-i18n="nav.maps">Speedruns</span>
+      </a>
+      <a class="nav-item tab-btn" id="tab-btn-classe" href="classe.html">
+        <i data-icon="ladder"></i> <span data-i18n="nav.ranked">Classé</span>
       </a>
       <!-- 2026-09-28 : catégories Hub « Classé / Classement FFA / Tribus / News / Live »
            SUPPRIMÉES (demande propriétaire). Seul l'onglet Speedruns (maps) reste.
@@ -305,7 +340,7 @@
             <span id="map-count-badge">—</span>
           </div>
           <input type="text" id="map-search" placeholder="Rechercher..." data-i18n-placeholder="home.search_placeholder" aria-label="Rechercher une carte" data-i18n-aria="home.map_search_aria" oninput="filterMaps()">
-          <div class="map-list" id="map-list">
+          <div class="map-list" id="map-list" data-lenis-prevent>
             <div class="loading" data-i18n="ui.loading">Chargement...</div>
           </div>
         </div>
@@ -332,11 +367,11 @@
       <div class="chart-grid" style="margin-bottom:20px">
         <div class="feed-card">
           <div class="feed-header"><i data-icon="globe"></i> <span data-i18n="global.header">Classement mondial — 1er = 3pts · 2e = 2pts · 3e = 1pt</span></div>
-          <div id="global-list" style="max-height: 500px; overflow-y: auto;"><div class="loading" data-i18n="ui.loading">Chargement...</div></div>
+          <div id="global-list" data-lenis-prevent style="max-height: 500px; overflow-y: auto;"><div class="loading" data-i18n="ui.loading">Chargement...</div></div>
         </div>
         <div class="feed-card">
           <div class="feed-header"><i data-icon="bolt"></i> <span data-i18n="feed.header">Dernières victoires</span></div>
-          <div id="feed-list" style="max-height: 500px; overflow-y: auto;"><div class="loading" data-i18n="ui.loading">Chargement...</div></div>
+          <div id="feed-list" data-lenis-prevent style="max-height: 500px; overflow-y: auto;"><div class="loading" data-i18n="ui.loading">Chargement...</div></div>
         </div>
       </div>
 
@@ -370,7 +405,7 @@
 
 <!-- Player Modal -->
 <div class="modal-overlay" id="player-modal" onclick="closeModal(event)">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-player-name" onclick="event.stopPropagation()">
+  <div class="modal" data-lenis-prevent role="dialog" aria-modal="true" aria-labelledby="modal-player-name" onclick="event.stopPropagation()">
     <button class="modal-close" aria-label="Fermer" data-i18n-aria="modal.close" onclick="closeModal()">&times;</button>
     <div class="modal-header">
       <div class="modal-title" id="modal-player-name" data-i18n="modal.player">Joueur</div>
@@ -390,7 +425,7 @@
 
 <!-- Ranked Player Modal (Match History) -->
 <div class="modal-overlay" id="ranked-player-modal" onclick="closeRankedModal(event)">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ranked-modal-player-name" onclick="event.stopPropagation()">
+  <div class="modal" data-lenis-prevent role="dialog" aria-modal="true" aria-labelledby="ranked-modal-player-name" onclick="event.stopPropagation()">
     <button class="modal-close" aria-label="Fermer" data-i18n-aria="modal.close" onclick="closeRankedModal()">&times;</button>
     <div class="modal-header">
       <div class="modal-title" id="ranked-modal-player-name" data-i18n="modal.player">Joueur</div>
@@ -398,14 +433,14 @@
     </div>
     <div class="modal-section">
       <div class="modal-section-title"><span data-i18n="ranked.modal_history_prefix">Historique </span><span id="ranked-modal-mode-label">1v1</span><span data-i18n="ranked.modal_history_suffix"> récent</span></div>
-      <div id="ranked-modal-games" style="max-height:400px;overflow-y:auto"></div>
+      <div id="ranked-modal-games" data-lenis-prevent style="max-height:400px;overflow-y:auto"></div>
     </div>
   </div>
 </div>
 
 <!-- Auth Modal -->
 <div class="modal-overlay" id="auth-modal" onclick="toggleAuthModal()">
-  <div class="modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" onclick="event.stopPropagation()">
+  <div class="modal auth-modal" data-lenis-prevent role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" onclick="event.stopPropagation()">
     <button class="modal-close" aria-label="Fermer" data-i18n-aria="modal.close" onclick="toggleAuthModal()">&times;</button>
     <div class="auth-modal-logo">
       <img src="TheFrontHub Logo No Text.webp" alt="TheFrontHub" class="auth-modal-logo-img">
@@ -441,7 +476,7 @@
 
 <!-- Profile Modal -->
 <div class="modal-overlay" id="profile-modal" onclick="closeProfileModal()">
-  <div class="modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="profile-modal-title" onclick="event.stopPropagation()">
+  <div class="modal auth-modal" data-lenis-prevent role="dialog" aria-modal="true" aria-labelledby="profile-modal-title" onclick="event.stopPropagation()">
     <button class="modal-close" aria-label="Fermer" data-i18n-aria="modal.close" onclick="closeProfileModal()" style="position:absolute;top:12px;right:12px">&times;</button>
     <div class="modal-header">
       <div class="modal-title" id="profile-modal-title" data-i18n="modal.profile_setup_title">Finaliser votre profil</div>
@@ -487,7 +522,7 @@
 </div>
 <script src="dist/toast.min.js?v=2" defer></script>
 <script src="dist/lenis.min.js?v=7"></script>
-<script src="dist/animations.min.js?v=2" defer></script>
+<script src="dist/animations.min.js?v=3" defer></script>
 <script type="module" src="banners.js?v=4"></script>
 <script src="verified.js?v=1"></script>
 <script src="dist/app.min.js?v=43" type="module"></script>
@@ -519,6 +554,7 @@
       <ul class="tfh-footer-links">
         <li><a href="dashboard.html" data-i18n="nav.dashboard">Tableau de bord</a></li>
         <li><a href="index.html" data-i18n="nav.maps">Speedruns</a></li>
+        <li><a href="classe.html" data-i18n="nav.ranked">Classé</a></li>
         <li><a href="lobby.html" data-i18n="nav.lobby">Lobby</a></li>
         <li><a href="atlas.html" data-i18n="nav.atlas">Atlas</a></li>
         <li><a href="tournois.html" data-i18n="nav.tournaments">Tournois</a></li>
@@ -560,13 +596,14 @@
     if (el) el.textContent = y;
   })();
 </script>
-<script type="module" src="dist/tutorial.min.js?v=7"></script>
+<script type="module" src="dist/tutorial.min.js?v=8"></script>
 
 
 
 
 <script src="ads.js?v=3"></script>
-<script src="dist/chat-widget.min.js?v=3" defer></script>
-<script src="dist/update-banner.min.js?v=3" defer></script>
+<script src="dist/pf-prefetch.min.js?v=1" defer></script>
+<script src="dist/chat-widget.min.js?v=4" defer></script>
+<script src="dist/update-banner.min.js?v=4" defer></script>
 </body>
 </html>

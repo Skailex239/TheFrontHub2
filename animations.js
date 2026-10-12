@@ -309,7 +309,41 @@
 
   /* ── 8. Lenis smooth scroll (Linear/Apple feel) ──
      Initializes Lenis if available (loaded via lenis.js before animations.js).
-     Uses default lerp=0.1 for a buttery, premium scroll. */
+     Uses default lerp=0.1 for a buttery, premium scroll.
+
+     v5.41 — auto-marquage des colonnes scrollables : Lenis capte la molette
+     sur window et scrolle la PAGE même quand le curseur est au-dessus d'un
+     conteneur overflow-y:auto (bug « c'est tout le site qui descend »).
+     Le correctif officiel est l'attribut data-lenis-prevent (posé explicitement
+     dans les HTML/JS sur cartes, listes, modales, chats…). Ce balayage est le
+     filet de sécurité : il marque tout conteneur RÉELLEMENT scrollable qui
+     aurait été oublié, y compris injecté dynamiquement après le chargement. */
+  function autoMarkScrollables() {
+    var els = document.querySelectorAll('div,ul,ol,section,aside,nav,table,textarea');
+    var marked = 0;
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (el.hasAttribute('data-lenis-prevent')) continue;
+      var oy = '';
+      try { oy = getComputedStyle(el).overflowY; } catch (e) { continue; }
+      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 4) {
+        el.setAttribute('data-lenis-prevent', '');
+        marked++;
+      }
+    }
+    if (marked && window.console && console.debug) {
+      console.debug('[tfh] lenis: ' + marked + ' conteneur(s) scrollable(s) marqué(s) data-lenis-prevent');
+    }
+  }
+  function watchScrollables() {
+    if (!('MutationObserver' in window)) return;
+    var t = null;
+    var mo = new MutationObserver(function () {
+      if (t) return;
+      t = setTimeout(function () { t = null; autoMarkScrollables(); }, 800);
+    });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+  }
   var lenisInstance = null;
   function initLenis() {
     if (REDUCED_MOTION) return;
@@ -328,6 +362,12 @@
       requestAnimationFrame(raf);
     }
     requestAnimationFrame(raf);
+
+    // v5.41 — filet anti-« toute la page descend » (voir autoMarkScrollables)
+    autoMarkScrollables();
+    setTimeout(autoMarkScrollables, 2000);
+    setTimeout(autoMarkScrollables, 6000);
+    watchScrollables();
 
     // Expose for anchor links
     window.TFH_lenis = lenisInstance;

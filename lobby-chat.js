@@ -561,8 +561,8 @@
         <button type="button" class="lchat-close" aria-label="${esc(T("lobby.chat_close", "Fermer le chat"))}">${svgClose}</button>
       </header>
       <nav class="lchat-tabs" data-role="tabs" aria-label="${esc(T("lobby.chat_tabs_aria", "Salons"))}"></nav>
-      <div class="lchat-players" data-role="players" hidden></div>
-      <div class="lchat-msgs" data-role="msgs" aria-live="polite"></div>
+      <div class="lchat-players" data-role="players" data-lenis-prevent hidden></div>
+      <div class="lchat-msgs" data-role="msgs" data-lenis-prevent aria-live="polite"></div>
       <div class="lchat-login" data-role="login" hidden>
         <p data-role="login-text"></p>
         <button type="button" class="lchat-login-btn" data-role="login-btn">

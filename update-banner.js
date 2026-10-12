@@ -84,7 +84,13 @@
     if (first) document.body.insertBefore(banner, first);
     else document.body.appendChild(banner);
 
-    // Descend la sidebar fixed sous la bande (logo toujours visible).
+    // v5.38 — anti-« rebond du logo » : la place de la bande a été RÉSERVÉE
+    // avant la 1re peinture (html.tfh-ub-pend, snippet inline après <body> :
+    // padding body + sidebar décalée via tfh-ub-open). On retire la réservation
+    // et on insère la bande DANS LA MÊME TÂCHE JS → une seule passe
+    // layout/paint : la bande prend exactement la place réservée, le logo et
+    // le contenu ne bougent plus d'un pixel à l'insertion.
+    root.classList.remove("tfh-ub-pend");
     root.classList.add("tfh-ub-open");
     syncHeight();
     window.addEventListener("resize", syncHeight);
